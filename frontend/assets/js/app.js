@@ -218,7 +218,10 @@ async function handleLogin(e) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const data = await response.json();
+      const responseType = response.headers.get('content-type') || '';
+      const data = responseType.includes('application/json')
+        ? await response.json()
+        : { error: await response.text() };
       if (!response.ok) throw new Error(data?.error || 'Invalid username or password');
 
       persistLoggedInUser(data.user, data.token);

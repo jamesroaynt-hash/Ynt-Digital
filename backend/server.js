@@ -115,6 +115,10 @@ const integrationsRouter = require('./routes/integrations')(db);
 app.use('/api/integrations', authMiddleware, integrationsRouter);
 app.use('/api/public/integrations', integrationsRouter.publicRouter);
 
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
+});
+
 // ─── FALLBACK SPA ──────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
