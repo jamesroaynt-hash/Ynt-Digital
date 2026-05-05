@@ -51,12 +51,17 @@ function isPrivateLanHost(hostname = '') {
     || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
 }
 
+function isHostedAppHost(hostname = '') {
+  return /\.onrender\.com$/i.test(hostname);
+}
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
 
   try {
     const { hostname } = new URL(origin);
     if (isPrivateLanHost(hostname)) return true;
+    if (isHostedAppHost(hostname)) return true;
     return extraOrigins.includes(origin);
   } catch {
     return false;
