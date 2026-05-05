@@ -119,6 +119,15 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.originalUrl}` });
 });
 
+app.use((error, req, res, next) => {
+  console.error(`[server] ${req.method} ${req.originalUrl}: ${error.stack || error.message}`);
+  if (req.originalUrl.startsWith('/api')) {
+    res.status(500).json({ error: error.message || 'Internal server error' });
+    return;
+  }
+  next(error);
+});
+
 // ─── FALLBACK SPA ──────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
