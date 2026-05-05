@@ -170,6 +170,50 @@ async function authorizedJsonRequest(path, options = {}) {
   return data;
 }
 
+function mapBackendOrder(row) {
+  return {
+    id: row.order_ref || `ORD-${row.id}`,
+    dbId: row.id,
+    tracking: row.tracking_no || '',
+    customer: row.customer || '',
+    phone: row.phone || '',
+    product: row.product || '',
+    qty: Number(row.qty || 0),
+    cod: Number(row.cod_amount || 0),
+    status: row.status || 'Pending',
+    courier: row.courier || '',
+    date: normalizeDateString(row.order_date || row.created_at || new Date()),
+    sourceSheet: row.source_sheet || '',
+  };
+}
+
+async function refreshOrdersFromBackend() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+
+  const result = await authorizedJsonRequest('/orders?per_page=1000&page=1');
+  if (!Array.isArray(result?.data)) return false;
+
+  DB.orders = result.data.map(mapBackendOrder);
+  return true;
+}
+
+async function refreshOrderViewsFromBackend() {
+  try {
+    const refreshed = await refreshOrdersFromBackend();
+    if (!refreshed) return;
+
+    if (App.currentPage === 'sales') {
+      renderSalesTable();
+      initCharts('sales');
+    }
+    if (App.currentPage === 'view-records') {
+      renderViewRecordsOrdersTable();
+    }
+  } catch (error) {
+    showToast('warning', 'Orders refresh failed', error.message || 'Could not load synced orders.');
+  }
+}
+
 function persistLoggedInUser(user, token = '') {
   App.user = user;
   localStorage.setItem('ynt_user', JSON.stringify(user));
@@ -3599,6 +3643,7 @@ async function collectGoogleSheetsData() {
     };
     saveIntegrationState(refreshed);
 
+    await refreshOrderViewsFromBackend();
     showToast('success', 'Google Sheets synced', refreshed.googleSheets.lastCollectionSummary);
     navigateTo('api-connections');
   } catch (error) {
@@ -3673,7 +3718,7 @@ function toggleSidebar() {
 }
 
 // ─── INIT ──────────────────────────────────────────────────
-function init() {
+async function init() {
   const loginScreen = document.getElementById('login-screen');
   const shell = document.getElementById('app-shell');
   if (!loginScreen || !shell) return;
@@ -3687,6 +3732,7 @@ function init() {
   loginScreen.innerHTML = '';
   shell.style.display = 'flex';
   refreshCurrentUserChip();
+  await refreshOrderViewsFromBackend();
 
   navigateTo('home');
 }
