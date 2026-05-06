@@ -396,6 +396,24 @@ CREATE TABLE IF NOT EXISTS pos_customers (
 
 CREATE INDEX IF NOT EXISTS idx_pos_customers_shop ON pos_customers(shop_id, name);
 
+CREATE TABLE IF NOT EXISTS pos_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  external_key TEXT NOT NULL UNIQUE,
+  shop_id TEXT,
+  external_id TEXT,
+  name TEXT,
+  username TEXT,
+  email TEXT,
+  phone_number TEXT,
+  role_name TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  raw_payload TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pos_users_shop ON pos_users(shop_id, name);
+
 CREATE TABLE IF NOT EXISTS pos_transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   external_id TEXT NOT NULL UNIQUE,

@@ -1,6 +1,6 @@
 const PROVIDER = 'pancake_pos';
 const POS_API_BASE = 'https://pos.pages.fm/api/v1';
-const DEFAULT_RESOURCES = ['shops', 'warehouses', 'orders', 'products', 'customers', 'transactions', 'inventory_histories'];
+const DEFAULT_RESOURCES = ['shops', 'warehouses', 'orders', 'products', 'customers', 'users', 'transactions', 'inventory_histories'];
 
 function stringOrNull(value) {
   if (value === undefined || value === null) return null;
@@ -410,6 +410,41 @@ function upsertCustomer(db, shopId, item) {
   return externalId;
 }
 
+function upsertUser(db, shopId, item) {
+  const externalId = stringOrNull(item?.id || item?.user_id || item?.account_id);
+  const externalKey = stableKey(shopId, externalId || item?.email || item?.phone_number || item?.username || item?.name);
+  if (!externalKey) return null;
+  db.prepare(`
+    INSERT INTO pos_users (
+      external_key, shop_id, external_id, name, username, email, phone_number, role_name, is_active, raw_payload
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(external_key) DO UPDATE SET
+      shop_id = excluded.shop_id,
+      external_id = excluded.external_id,
+      name = excluded.name,
+      username = excluded.username,
+      email = excluded.email,
+      phone_number = excluded.phone_number,
+      role_name = excluded.role_name,
+      is_active = excluded.is_active,
+      raw_payload = excluded.raw_payload,
+      updated_at = datetime('now')
+  `).run(
+    externalKey,
+    stringOrNull(shopId || item?.shop_id),
+    externalId,
+    stringOrNull(item?.name || item?.full_name),
+    stringOrNull(item?.username || item?.account_name),
+    stringOrNull(item?.email),
+    stringOrNull(item?.phone_number || item?.phone),
+    stringOrNull(item?.role_name || item?.role || item?.user_group || item?.permission_name),
+    item?.is_active === false || item?.active === false || item?.status === false ? 0 : 1,
+    safeJson(item)
+  );
+  return externalKey;
+}
+
 function upsertTransaction(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
@@ -652,6 +687,7 @@ function storeItems(db, resource, shopId, items) {
     if (resource === 'orders') localId = upsertOrder(db, shopId, item);
     if (resource === 'products') localId = upsertProduct(db, shopId, item);
     if (resource === 'customers') localId = upsertCustomer(db, shopId, item);
+    if (resource === 'users') localId = upsertUser(db, shopId, item);
     if (resource === 'transactions') localId = upsertTransaction(db, shopId, item);
     if (resource === 'inventory_histories') localId = upsertInventoryHistory(db, shopId, item);
     if (resource === 'orders') transferPosOrderToDashboard(db, shopId, item);
@@ -668,6 +704,7 @@ function getCounts(db) {
     orders: db.prepare('SELECT COUNT(*) AS count FROM pos_orders').get().count,
     products: db.prepare('SELECT COUNT(*) AS count FROM pos_products').get().count,
     customers: db.prepare('SELECT COUNT(*) AS count FROM pos_customers').get().count,
+    users: db.prepare('SELECT COUNT(*) AS count FROM pos_users').get().count,
     transactions: db.prepare('SELECT COUNT(*) AS count FROM pos_transactions').get().count,
     inventory_histories: db.prepare('SELECT COUNT(*) AS count FROM pos_inventory_histories').get().count,
   };
@@ -701,6 +738,19 @@ async function collectPagedItems(fetchPage, { startPage = 1, pageSize = 100, max
     if (items.length < pageSize) break;
   }
   return allItems;
+}
+
+async function firstSuccessfulCollection(fetchers) {
+  const errors = [];
+  for (const fetcher of fetchers) {
+    try {
+      const items = await fetcher();
+      if (Array.isArray(items)) return items;
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+  throw new Error(errors.length ? errors.join(' | ') : 'No API endpoints returned data.');
 }
 
 async function collectPosData(db, payload = {}) {
@@ -774,6 +824,31 @@ async function collectPosData(db, payload = {}) {
         return Array.isArray(response?.data) ? response.data : [];
       }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
     },
+    users: async () => {
+      return firstSuccessfulCollection([
+        async () => {
+          const response = await posRequest(baseUrl, `/shops/${shopId}/users`, apiKey, {
+            page_number: options.page_number,
+            page_size: options.page_size,
+          });
+          return Array.isArray(response?.data) ? response.data : Array.isArray(response?.users) ? response.users : [];
+        },
+        async () => {
+          const response = await posRequest(baseUrl, `/shops/${shopId}/staffs`, apiKey, {
+            page_number: options.page_number,
+            page_size: options.page_size,
+          });
+          return Array.isArray(response?.data) ? response.data : Array.isArray(response?.staffs) ? response.staffs : [];
+        },
+        async () => {
+          const response = await posRequest(baseUrl, `/shops/${shopId}/employees`, apiKey, {
+            page_number: options.page_number,
+            page_size: options.page_size,
+          });
+          return Array.isArray(response?.data) ? response.data : Array.isArray(response?.employees) ? response.employees : [];
+        },
+      ]);
+    },
     transactions: async () => {
       return collectPagedItems(async (page) => {
         const response = await posRequest(baseUrl, `/shops/${shopId}/transactions`, apiKey, {
@@ -812,7 +887,7 @@ async function collectPosData(db, payload = {}) {
         result.resources[resource] = { count: items.length, items };
         result.sql_tables[resource] = { stored: localIds.length };
         for (const item of items) {
-          const externalId = item?.id || item?.product_id || item?.variation_id || item?.code;
+          const externalId = item?.id || item?.user_id || item?.account_id || item?.product_id || item?.variation_id || item?.code;
           recordRaw(db, resource, externalId, item, {
             status: 'synced',
             mappedTable: `pos_${resource}`,

@@ -996,7 +996,7 @@ function renderApiConnections() {
       <div class="card-header">
         <div>
           <div class="card-title">Pancake POS API to SQL</div>
-          <div class="card-subtitle">Pull POS orders, products, customers, shops, warehouses, transactions, and inventory history into SQLite.</div>
+          <div class="card-subtitle">Pull POS orders, products, customers, account users, shops, warehouses, transactions, and inventory history into SQLite.</div>
         </div>
       </div>
       <div class="card-body integration-body">
@@ -1036,7 +1036,7 @@ function renderApiConnections() {
               <option value="pull_only" ${posSettings.syncMode === 'pull_only' ? 'selected' : ''}>Pull API to SQL</option>
               <option value="manual_backup" ${posSettings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
             </select>
-            <div class="field-help">Sync POS Data transfers API results into POS SQL tables and dashboard orders/inventory.</div>
+            <div class="field-help">Sync POS Data transfers API results into POS SQL tables, including account users, plus dashboard orders/inventory.</div>
           </div>
         </div>
 
@@ -4593,7 +4593,7 @@ async function collectPancakePosData() {
         api_key: state.pancakePos.apiKey,
         base_url: state.pancakePos.baseUrl,
         shop_id: state.pancakePos.shopId,
-        resources: ['shops', 'warehouses', 'orders', 'products', 'customers', 'transactions', 'inventory_histories'],
+        resources: ['shops', 'warehouses', 'orders', 'products', 'customers', 'users', 'transactions', 'inventory_histories'],
         page_size: 100,
         max_pages: 50,
         startDateTime: 0,

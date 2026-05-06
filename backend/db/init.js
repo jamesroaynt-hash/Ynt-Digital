@@ -24,6 +24,24 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'fb_account_name', 'TEXT');
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pos_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      external_key TEXT NOT NULL UNIQUE,
+      shop_id TEXT,
+      external_id TEXT,
+      name TEXT,
+      username TEXT,
+      email TEXT,
+      phone_number TEXT,
+      role_name TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      raw_payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pos_users_shop ON pos_users(shop_id, name)');
 }
 
 function initializeDatabase(db) {
