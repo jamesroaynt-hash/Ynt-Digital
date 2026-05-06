@@ -15,6 +15,13 @@ module.exports = function integrationRoutes(db) {
   const router = express.Router();
   const publicRouter = express.Router();
 
+  function cronSecretAllowed(req) {
+    const expected = process.env.CRON_SECRET;
+    if (!expected) return true;
+    const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    return bearer === expected || req.query.secret === expected;
+  }
+
   router.get('/pancake/status', (req, res) => {
     res.json(getStatus(db));
   });
@@ -215,6 +222,22 @@ module.exports = function integrationRoutes(db) {
       const result = await googleSheetsSync.collectSheetData(db, req.body || {});
       res.status(202).json({
         message: 'Google Sheets data sync completed.',
+        ...result,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  publicRouter.get('/google-sheets/cron', async (req, res) => {
+    if (!cronSecretAllowed(req)) {
+      return res.status(401).json({ error: 'Invalid cron secret' });
+    }
+
+    try {
+      const result = await googleSheetsSync.runScheduledSync(db);
+      res.status(202).json({
+        message: result?.skipped ? 'Google Sheets scheduled sync skipped.' : 'Google Sheets scheduled sync completed.',
         ...result,
       });
     } catch (error) {

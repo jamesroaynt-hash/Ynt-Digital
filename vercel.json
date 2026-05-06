@@ -8,6 +8,12 @@
       "includeFiles": "backend/db/*.sql,frontend/**"
     }
   },
+  "crons": [
+    {
+      "path": "/api/public/integrations/google-sheets/cron",
+      "schedule": "*/5 * * * *"
+    }
+  ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index.js" }
   ]
