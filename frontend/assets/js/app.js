@@ -225,10 +225,22 @@ function mapBackendInventoryItem(row) {
 async function refreshOrdersFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
-  const result = await authorizedJsonRequest('/orders?per_page=1000&page=1');
-  if (!Array.isArray(result?.data)) return false;
+  const perPage = 1000;
+  let page = 1;
+  let total = null;
+  const rows = [];
 
-  DB.orders = result.data.map(mapBackendOrder);
+  while (total === null || rows.length < total) {
+    const result = await authorizedJsonRequest(`/orders?per_page=${perPage}&page=${page}`);
+    if (!Array.isArray(result?.data)) return false;
+
+    rows.push(...result.data);
+    total = Number(result.total || rows.length);
+    if (!result.data.length || result.data.length < perPage) break;
+    page += 1;
+  }
+
+  DB.orders = rows.map(mapBackendOrder);
   return true;
 }
 
@@ -4596,7 +4608,7 @@ async function collectPancakePosData() {
         shop_id: state.pancakePos.shopId,
         resources: ['shops', 'warehouses', 'orders', 'products', 'customers', 'users', 'transactions', 'inventory_histories'],
         page_size: 100,
-        max_pages: 50,
+        max_pages: 200,
         startDateTime: 0,
         endDateTime: Math.floor(Date.now() / 1000),
       }),

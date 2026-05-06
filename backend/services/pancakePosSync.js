@@ -802,7 +802,7 @@ async function collectPosData(db, payload = {}) {
           endDateTime: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
     },
     products: async () => {
       return collectPagedItems(async (pageNumber) => {
@@ -811,7 +811,7 @@ async function collectPosData(db, payload = {}) {
           page_size: options.page_size,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
     },
     customers: async () => {
       return collectPagedItems(async (pageNumber) => {
@@ -822,7 +822,7 @@ async function collectPosData(db, payload = {}) {
           end_time_updated_at: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
     },
     users: async () => {
       return firstSuccessfulCollection([
@@ -858,7 +858,7 @@ async function collectPosData(db, payload = {}) {
           endDateTime: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
+      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
     },
     inventory_histories: async () => {
       return collectPagedItems(async (page) => {
@@ -869,7 +869,7 @@ async function collectPosData(db, payload = {}) {
           endDate: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
+      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
     },
   };
 
