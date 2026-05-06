@@ -1523,24 +1523,15 @@ function renderMarketingCenter() {
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">RTS Rate</div><div class="stat-value">${marketingPct(totals.rtsRate)}</div><div class="stat-meta">Max ${state.targets.rts}%</div></div>
   </div>
 
-  <div style="display:grid; grid-template-columns:minmax(360px, .95fr) minmax(420px, 1.05fr); gap:20px; align-items:start;">
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">One row per page per day.</div></div></div>
-      <div class="card-body">
-        <div class="form-grid-2">
-          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}"></div>
-          <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
-          <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control readonly-field" id="mkt-product" readonly></div>
-          <div class="form-group"><label class="form-label">Owner</label><input type="text" class="form-control readonly-field" id="mkt-owner" readonly></div>
-          <div class="form-group"><label class="form-label">Orders Confirmed</label><input type="number" class="form-control" id="mkt-orders" min="0" placeholder="0"></div>
-          <div class="form-group"><label class="form-label">Sales</label><input type="number" class="form-control" id="mkt-sales" min="0" placeholder="0"></div>
-          <div class="form-group"><label class="form-label">Ad Spend</label><input type="number" class="form-control" id="mkt-spend" min="0" placeholder="0"></div>
-          <div class="form-group"><label class="form-label">RTS Count</label><input type="number" class="form-control" id="mkt-rts" min="0" placeholder="0"></div>
-        </div>
-        <button class="btn btn-primary" onclick="addMarketingEntry()">Add Entry</button>
-      </div>
-    </div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab(this,'mkt-overview')">Overview</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-entries')">Daily Entries</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-team')">Team</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-creatives')">Creatives</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-targets')">Targets</button>
+  </div>
 
+  <div id="mkt-overview" class="tab-content active">
     <div class="card">
       <div class="card-header"><div><div class="card-title">Page Leaderboard</div><div class="card-subtitle">Month-to-date ROAS and cost per purchase.</div></div></div>
       <div class="table-container">
@@ -1562,31 +1553,52 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest page performance logs.</div></div></div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Date</th><th>Page</th><th>Owner</th><th>Sales</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
-          <tbody>
-            ${state.entries.slice().reverse().slice(0, 12).map((entry) => {
-              const index = state.entries.indexOf(entry);
-              const roas = Number(entry.spend || 0) ? Number(entry.sales || 0) / Number(entry.spend || 0) : 0;
-              return `<tr>
-                <td>${escapeHtml(entry.date)}</td>
-                <td>${escapeHtml(entry.page)}</td>
-                <td>${escapeHtml(entry.owner)}</td>
-                <td>${marketingMoney(entry.sales)}</td>
-                <td>${marketingMoney(entry.spend)}</td>
-                <td><span class="badge ${marketingRoasClass(roas)}">${marketingRoas(roas)}</span></td>
-                <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">Delete</button></td>
-              </tr>`;
-            }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
-          </tbody>
-        </table>
+  <div id="mkt-entries" class="tab-content">
+    <div style="display:grid; grid-template-columns:minmax(360px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">One row per page per day.</div></div></div>
+        <div class="card-body">
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}"></div>
+            <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
+            <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control readonly-field" id="mkt-product" readonly></div>
+            <div class="form-group"><label class="form-label">Owner</label><input type="text" class="form-control readonly-field" id="mkt-owner" readonly></div>
+            <div class="form-group"><label class="form-label">Orders Confirmed</label><input type="number" class="form-control" id="mkt-orders" min="0" placeholder="0"></div>
+            <div class="form-group"><label class="form-label">Sales</label><input type="number" class="form-control" id="mkt-sales" min="0" placeholder="0"></div>
+            <div class="form-group"><label class="form-label">Ad Spend</label><input type="number" class="form-control" id="mkt-spend" min="0" placeholder="0"></div>
+            <div class="form-group"><label class="form-label">RTS Count</label><input type="number" class="form-control" id="mkt-rts" min="0" placeholder="0"></div>
+          </div>
+          <button class="btn btn-primary" onclick="addMarketingEntry()">Add Entry</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest page performance logs.</div></div></div>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>Date</th><th>Page</th><th>Owner</th><th>Sales</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
+            <tbody>
+              ${state.entries.slice().reverse().slice(0, 12).map((entry) => {
+                const index = state.entries.indexOf(entry);
+                const roas = Number(entry.spend || 0) ? Number(entry.sales || 0) / Number(entry.spend || 0) : 0;
+                return `<tr>
+                  <td>${escapeHtml(entry.date)}</td>
+                  <td>${escapeHtml(entry.page)}</td>
+                  <td>${escapeHtml(entry.owner)}</td>
+                  <td>${marketingMoney(entry.sales)}</td>
+                  <td>${marketingMoney(entry.spend)}</td>
+                  <td><span class="badge ${marketingRoasClass(roas)}">${marketingRoas(roas)}</span></td>
+                  <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">Delete</button></td>
+                </tr>`;
+              }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+  </div>
 
+  <div id="mkt-team" class="tab-content">
     <div class="card">
       <div class="card-header"><div><div class="card-title">Team Performance</div><div class="card-subtitle">Month-to-date by owner.</div></div></div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
@@ -1605,57 +1617,61 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div style="display:grid; grid-template-columns:minmax(360px,.85fr) minmax(420px,1.15fr); gap:20px; align-items:start;">
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">Creative Output</div><div class="card-subtitle">Track hooks, winners, and survival rate.</div></div></div>
-      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:16px;">
-        <div class="stat-card blue"><div class="stat-label">This Month</div><div class="stat-value">${creativeMonth.length}</div></div>
-        <div class="stat-card green"><div class="stat-label">Survival Rate</div><div class="stat-value">${Math.round(survivalRate * 100)}%</div></div>
-        <div class="stat-card amber"><div class="stat-label">Scaled</div><div class="stat-value">${creativeMonth.filter((item) => item.status === 'Scaled').length}</div></div>
+  <div id="mkt-creatives" class="tab-content">
+    <div style="display:grid; grid-template-columns:minmax(360px,.85fr) minmax(420px,1.15fr); gap:20px; align-items:start;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Creative Output</div><div class="card-subtitle">Track hooks, winners, and survival rate.</div></div></div>
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:16px;">
+          <div class="stat-card blue"><div class="stat-label">This Month</div><div class="stat-value">${creativeMonth.length}</div></div>
+          <div class="stat-card green"><div class="stat-label">Survival Rate</div><div class="stat-value">${Math.round(survivalRate * 100)}%</div></div>
+          <div class="stat-card amber"><div class="stat-label">Scaled</div><div class="stat-value">${creativeMonth.filter((item) => item.status === 'Scaled').length}</div></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-creative-date" value="${normalizeDateString(new Date())}"></div>
+          <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-creative-page">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
+          <div class="form-group"><label class="form-label">Hook Angle</label><select class="form-control" id="mkt-creative-hook"><option>Pain Point</option><option>Before/After</option><option>UGC Testimonial</option><option>Demo</option><option>Educational</option><option>Trend Hijack</option></select></div>
+          <div class="form-group"><label class="form-label">Status</label><select class="form-control" id="mkt-creative-status"><option>Live</option><option>Killed</option><option>Scaled</option></select></div>
+          <div class="form-group"><label class="form-label">Spend Reached</label><input type="number" class="form-control" id="mkt-creative-spend" min="0"></div>
+          <div class="form-group"><label class="form-label">ROAS</label><input type="number" class="form-control" id="mkt-creative-roas" min="0" step="0.1"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-control" id="mkt-creative-notes" placeholder="What made it work or fail"></div>
+        <button class="btn btn-primary" onclick="addMarketingCreative()">Add Creative</button>
       </div>
-      <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-creative-date" value="${normalizeDateString(new Date())}"></div>
-        <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-creative-page">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Hook Angle</label><select class="form-control" id="mkt-creative-hook"><option>Pain Point</option><option>Before/After</option><option>UGC Testimonial</option><option>Demo</option><option>Educational</option><option>Trend Hijack</option></select></div>
-        <div class="form-group"><label class="form-label">Status</label><select class="form-control" id="mkt-creative-status"><option>Live</option><option>Killed</option><option>Scaled</option></select></div>
-        <div class="form-group"><label class="form-label">Spend Reached</label><input type="number" class="form-control" id="mkt-creative-spend" min="0"></div>
-        <div class="form-group"><label class="form-label">ROAS</label><input type="number" class="form-control" id="mkt-creative-roas" min="0" step="0.1"></div>
-      </div>
-      <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-control" id="mkt-creative-notes" placeholder="What made it work or fail"></div>
-      <button class="btn btn-primary" onclick="addMarketingCreative()">Add Creative</button>
-    </div>
 
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">Creative Log</div><div class="card-subtitle">Most recent tests and winners.</div></div></div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Date</th><th>Hook</th><th>Page</th><th>Status</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
-          <tbody>
-            ${state.creatives.slice().reverse().slice(0, 12).map((item) => {
-              const index = state.creatives.indexOf(item);
-              return `<tr>
-                <td>${escapeHtml(item.date)}</td>
-                <td>${escapeHtml(item.hook)}</td>
-                <td>${escapeHtml(item.page)}</td>
-                <td><span class="badge ${item.status === 'Scaled' ? 'badge-success' : item.status === 'Killed' ? 'badge-danger' : 'badge-warning'}">${escapeHtml(item.status)}</span></td>
-                <td>${marketingMoney(item.spend)}</td>
-                <td><span class="badge ${marketingRoasClass(Number(item.roas || 0))}">${marketingRoas(item.roas)}</span></td>
-                <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingCreative(${index})">Delete</button></td>
-              </tr>`;
-            }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No creatives logged yet.</td></tr>'}
-          </tbody>
-        </table>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Creative Log</div><div class="card-subtitle">Most recent tests and winners.</div></div></div>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>Date</th><th>Hook</th><th>Page</th><th>Status</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
+            <tbody>
+              ${state.creatives.slice().reverse().slice(0, 12).map((item) => {
+                const index = state.creatives.indexOf(item);
+                return `<tr>
+                  <td>${escapeHtml(item.date)}</td>
+                  <td>${escapeHtml(item.hook)}</td>
+                  <td>${escapeHtml(item.page)}</td>
+                  <td><span class="badge ${item.status === 'Scaled' ? 'badge-success' : item.status === 'Killed' ? 'badge-danger' : 'badge-warning'}">${escapeHtml(item.status)}</span></td>
+                  <td>${marketingMoney(item.spend)}</td>
+                  <td><span class="badge ${marketingRoasClass(Number(item.roas || 0))}">${marketingRoas(item.roas)}</span></td>
+                  <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingCreative(${index})">Delete</button></td>
+                </tr>`;
+              }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No creatives logged yet.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-header"><div><div class="card-title">Targets</div><div class="card-subtitle">Used for pacing and dashboard status.</div></div></div>
-    <div class="form-grid-2">
-      <div class="form-group"><label class="form-label">Monthly Gross Sales</label><input type="number" class="form-control" id="mkt-target-sales" value="${state.targets.sales}"></div>
-      <div class="form-group"><label class="form-label">Daily Ad Spend Target</label><input type="number" class="form-control" id="mkt-target-spend" value="${state.targets.spend}"></div>
-      <div class="form-group"><label class="form-label">ROAS Target</label><input type="number" class="form-control" id="mkt-target-roas" value="${state.targets.roas}" step="0.1"></div>
-      <div class="form-group"><label class="form-label">Max RTS Rate %</label><input type="number" class="form-control" id="mkt-target-rts" value="${state.targets.rts}" step="0.1"></div>
+  <div id="mkt-targets" class="tab-content">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Targets</div><div class="card-subtitle">Used for pacing and dashboard status.</div></div></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Monthly Gross Sales</label><input type="number" class="form-control" id="mkt-target-sales" value="${state.targets.sales}"></div>
+        <div class="form-group"><label class="form-label">Daily Ad Spend Target</label><input type="number" class="form-control" id="mkt-target-spend" value="${state.targets.spend}"></div>
+        <div class="form-group"><label class="form-label">ROAS Target</label><input type="number" class="form-control" id="mkt-target-roas" value="${state.targets.roas}" step="0.1"></div>
+        <div class="form-group"><label class="form-label">Max RTS Rate %</label><input type="number" class="form-control" id="mkt-target-rts" value="${state.targets.rts}" step="0.1"></div>
+      </div>
     </div>
   </div>`;
 }
