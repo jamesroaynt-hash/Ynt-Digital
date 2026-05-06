@@ -201,6 +201,21 @@ function mapBackendOrder(row) {
   };
 }
 
+function mapBackendInventoryItem(row) {
+  return {
+    id: row.item_id || `INV-${row.id}`,
+    dbId: row.id,
+    name: row.name || '',
+    type: row.type || 'Product',
+    sku: row.sku || '',
+    stock: Number(row.stock || 0),
+    reorder: Number(row.reorder_pt || 0),
+    unit: row.unit || 'pcs',
+    cost: Number(row.cost_price || 0),
+    price: row.sell_price === null || row.sell_price === undefined ? null : Number(row.sell_price),
+  };
+}
+
 async function refreshOrdersFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
@@ -208,6 +223,16 @@ async function refreshOrdersFromBackend() {
   if (!Array.isArray(result?.data)) return false;
 
   DB.orders = result.data.map(mapBackendOrder);
+  return true;
+}
+
+async function refreshInventoryFromBackend() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+
+  const result = await authorizedJsonRequest('/inventory');
+  if (!Array.isArray(result)) return false;
+
+  DB.inventory = result.map(mapBackendInventoryItem);
   return true;
 }
 
@@ -226,6 +251,15 @@ async function refreshOrderViewsFromBackend() {
   } catch (error) {
     if (!App.user && /session expired/i.test(error.message || '')) return;
     showToast('warning', 'Orders refresh failed', error.message || 'Could not load synced orders.');
+  }
+}
+
+async function refreshInventoryViewFromBackend() {
+  try {
+    const refreshed = await refreshInventoryFromBackend();
+    if (refreshed && App.currentPage === 'inventory') navigateTo('inventory');
+  } catch (error) {
+    showToast('warning', 'Inventory refresh failed', error.message || 'Could not load inventory.');
   }
 }
 
@@ -317,13 +351,13 @@ function handleLogout() {
 
 // ─── DUMMY DATA ────────────────────────────────────────────
 const DB = {
-  orders: generateOrders(80),
+  orders: [],
   csrRecords: loadCsrRecords(),
-  inventory: generateInventory(),
-  expenses: generateExpenses(30),
-  dailyPickups: generatePickups(20),
-  scanRecords: generateScanRecords(40),
-  customers: generateCustomers(20),
+  inventory: [],
+  expenses: [],
+  dailyPickups: [],
+  scanRecords: [],
+  customers: [],
 };
 
 function generateOrders(n) {
@@ -474,10 +508,7 @@ function loadCsrRecords() {
     const saved = JSON.parse(localStorage.getItem(CSR_STORAGE_KEY) || '[]');
     if (Array.isArray(saved) && saved.length) return saved;
   } catch {}
-
-  const seeded = generateCsrRecords();
-  localStorage.setItem(CSR_STORAGE_KEY, JSON.stringify(seeded));
-  return seeded;
+  return [];
 }
 
 function saveCsrRecords() {
@@ -1263,6 +1294,10 @@ function renderSales() {
   <div class="page-header">
     <div class="page-title"><h1>Sales Dashboard</h1><p>Track orders, deliveries, and revenue metrics.</p></div>
     <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="startCsvImport('orders')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
+        Import CSV
+      </button>
       <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('sales-table', 'sales-records')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
         Export CSV
@@ -1484,6 +1519,10 @@ function renderInventory() {
   <div class="page-header">
     <div class="page-title"><h1>Inventory</h1><p>Manage products, supplies, and stock levels.</p></div>
     <div class="page-actions">
+      <button class="btn btn-secondary" onclick="startCsvImport('inventory')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
+        Import CSV
+      </button>
       <button class="btn btn-secondary" onclick="openModal('stocks-modal')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
         Stocks Update
@@ -1587,7 +1626,7 @@ function renderInventoryTable(items) {
     <table>
       <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th>Level</th><th>Reorder Pt.</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
-        ${items.map(item => {
+        ${items.length ? items.map(item => {
           const pct = Math.min(100, (item.stock / (item.reorder * 1.5)) * 100);
           const statusClass = item.stock >= item.reorder ? 'stock-ok' : item.stock >= item.reorder * 0.5 ? 'stock-low' : 'stock-crit';
           const badge = item.stock >= item.reorder ? 'badge-success' : item.stock >= item.reorder * 0.5 ? 'badge-warning' : 'badge-danger';
@@ -1612,7 +1651,7 @@ function renderInventoryTable(items) {
               </div>
             </td>
           </tr>`;
-        }).join('')}
+        }).join('') : '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
     </table>`;
 }
@@ -1867,6 +1906,10 @@ function renderViewRecords() {
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
     <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="startCsvImport('orders')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
+        Import Orders
+      </button>
       <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('records-table','ynt-records')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
         Export CSV
@@ -3574,7 +3617,7 @@ function savePickup() {
 }
 
 // ─── INVENTORY HELPERS ─────────────────────────────────────
-function saveInventoryItem() {
+async function saveInventoryItem() {
   const name = document.getElementById('inv-name')?.value;
   const sku = document.getElementById('inv-sku')?.value;
   const type = document.getElementById('inv-type')?.value;
@@ -3584,20 +3627,39 @@ function saveInventoryItem() {
 
   if (!name) { showToast('error', 'Name required', 'Please enter item name'); return; }
 
-  const newItem = {
-    id: `P${String(DB.inventory.length + 1).padStart(3,'0')}`,
-    name, sku: sku || `SKU-${String(DB.inventory.length+1).padStart(3,'0')}`,
-    type, unit, stock, cost, price: null,
-    reorder: type === 'Product' ? 200 : 15,
-  };
-
-  DB.inventory.push(newItem);
+  try {
+    await authorizedJsonRequest('/inventory', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        sku: sku || null,
+        type,
+        unit,
+        stock,
+        cost_price: cost,
+        reorder_pt: type === 'Product' ? 200 : 15,
+      }),
+    });
+    await refreshInventoryFromBackend();
+  } catch {
+    DB.inventory.push({
+      id: `P${String(DB.inventory.length + 1).padStart(3,'0')}`,
+      name,
+      sku: sku || `SKU-${String(DB.inventory.length+1).padStart(3,'0')}`,
+      type,
+      unit,
+      stock,
+      cost,
+      price: null,
+      reorder: type === 'Product' ? 200 : 15,
+    });
+  }
   closeModal('add-inventory-modal');
   showToast('success', 'Item added', name);
   navigateTo('inventory');
 }
 
-function updateStock() {
+async function updateStock() {
   const itemId = document.getElementById('stocks-item')?.value;
   const action = document.getElementById('stocks-action')?.value;
   const qty = parseInt(document.getElementById('stocks-qty')?.value || 0);
@@ -3608,6 +3670,18 @@ function updateStock() {
   if (action === 'add') item.stock += qty;
   else if (action === 'remove') item.stock = Math.max(0, item.stock - qty);
   else item.stock = qty;
+
+  try {
+    await authorizedJsonRequest(`/inventory/${encodeURIComponent(item.id)}/stock`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        action,
+        qty,
+        notes: document.getElementById('stocks-notes')?.value || '',
+      }),
+    });
+    await refreshInventoryFromBackend();
+  } catch {}
 
   closeModal('stocks-modal');
   showToast('success', 'Stock updated', `${item.name} — ${item.stock} ${item.unit}`);
@@ -3950,6 +4024,90 @@ function exportTableCSV(tableId, filename) {
   showToast('success', 'CSV exported', `${filename}.csv downloaded`);
 }
 
+function parseCsvLine(line) {
+  const values = [];
+  let current = '';
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === ',' && !quoted) {
+      values.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function normalizeImportHeader(header) {
+  return String(header || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function parseCsvText(text) {
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvLine(lines[0]).map(normalizeImportHeader);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce((row, header, index) => {
+      if (header) row[header] = values[index] || '';
+      return row;
+    }, {});
+  });
+}
+
+function startCsvImport(type) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.csv,text/csv';
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (file) importCsvFile(type, file);
+  };
+  input.click();
+}
+
+async function importCsvFile(type, file) {
+  try {
+    const rows = parseCsvText(await file.text());
+    if (!rows.length) {
+      showToast('warning', 'Import skipped', 'The CSV file has no data rows.');
+      return;
+    }
+
+    const result = await authorizedJsonRequest(type === 'inventory' ? '/inventory/import' : '/orders/import', {
+      method: 'POST',
+      body: JSON.stringify({ rows }),
+    });
+
+    if (type === 'inventory') {
+      await refreshInventoryFromBackend();
+      navigateTo('inventory');
+    } else {
+      await refreshOrdersFromBackend();
+      if (App.currentPage === 'sales') renderSalesTable();
+      if (App.currentPage === 'view-records') renderViewRecordsOrdersTable();
+    }
+
+    const failed = Array.isArray(result.failed_rows) ? result.failed_rows.length : 0;
+    showToast('success', 'Import complete', `Imported ${result.imported || 0}, failed ${failed}`);
+  } catch (error) {
+    showToast('error', 'Import failed', error.message || 'Could not import CSV.');
+  }
+}
+
 // ─── MODALS ────────────────────────────────────────────────
 function openModal(id) {
   const el = document.getElementById(id);
@@ -4017,6 +4175,7 @@ async function init() {
   shell.style.display = 'flex';
   refreshCurrentUserChip();
   await refreshOrderViewsFromBackend();
+  await refreshInventoryViewFromBackend();
 
   navigateTo('home');
 }

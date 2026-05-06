@@ -3,6 +3,56 @@ const express = require('express');
 
 function ordersRoutes(db) {
   const r = express.Router();
+  const allowedStatuses = new Set(['Pending', 'Shipped', 'Delivered', 'Returned', 'Returning']);
+
+  function cleanOrder(row = {}, index = 0) {
+    return {
+      order_ref: String(row.order_ref || row.id || `IMP-${Date.now()}-${index + 1}`).trim(),
+      tracking_no: String(row.tracking_no || row.tracking || '').trim() || null,
+      customer: String(row.customer || row.customer_name || row.name || '').trim(),
+      phone: String(row.phone || row.phone_number || row.mobile || '').trim() || null,
+      product: String(row.product || row.product_name || row.item || '').trim(),
+      qty: Number.parseInt(row.qty || row.quantity || 1, 10) || 1,
+      cod_amount: Number.parseFloat(row.cod_amount || row.cod || row.amount || row.price || 0) || 0,
+      status: allowedStatuses.has(row.status) ? row.status : 'Pending',
+      courier: String(row.courier || row.shipper || '').trim() || null,
+      source_sheet: String(row.source_sheet || row.source || 'CSV Import').trim() || 'CSV Import',
+      order_date: String(row.order_date || row.date || row.created_at || '').slice(0, 10) || new Date().toISOString().split('T')[0],
+    };
+  }
+
+  function upsertOrder(row) {
+    db.prepare(`
+      INSERT INTO orders (
+        order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, order_date, created_by, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+      ON CONFLICT(order_ref) DO UPDATE SET
+        tracking_no = excluded.tracking_no,
+        customer = excluded.customer,
+        phone = excluded.phone,
+        product = excluded.product,
+        qty = excluded.qty,
+        cod_amount = excluded.cod_amount,
+        status = excluded.status,
+        courier = excluded.courier,
+        source_sheet = excluded.source_sheet,
+        order_date = excluded.order_date,
+        updated_at = datetime('now')
+    `).run(
+      row.order_ref,
+      row.tracking_no,
+      row.customer,
+      row.phone,
+      row.product,
+      row.qty,
+      row.cod_amount,
+      row.status,
+      row.courier,
+      row.source_sheet,
+      row.order_date
+    );
+  }
 
   r.get('/', (req, res) => {
     const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
@@ -40,6 +90,36 @@ function ordersRoutes(db) {
     res.status(201).json({ id: result.lastInsertRowid, order_ref: ref });
   });
 
+  r.post('/import', (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'No rows to import' });
+
+    let imported = 0;
+    const failed_rows = [];
+    const tx = db.transaction ? db.transaction((items) => items.forEach((item) => upsertOrder(item))) : null;
+    const cleaned = [];
+
+    rows.forEach((row, index) => {
+      try {
+        const item = cleanOrder(row, index);
+        if (!item.customer || !item.product) throw new Error('Customer and product are required');
+        cleaned.push(item);
+      } catch (error) {
+        failed_rows.push({ row_number: index + 2, error: error.message });
+      }
+    });
+
+    try {
+      if (tx) tx(cleaned);
+      else cleaned.forEach((item) => upsertOrder(item));
+      imported = cleaned.length;
+    } catch (error) {
+      return res.status(500).json({ error: error.message, failed_rows });
+    }
+
+    res.status(201).json({ imported, failed_rows });
+  });
+
   r.put('/:id', (req, res) => {
     const { status, tracking_no, courier, source_sheet, order_date } = req.body;
     const next = (value) => value === undefined ? null : value;
@@ -67,6 +147,49 @@ function ordersRoutes(db) {
 /* ─── INVENTORY ───────────────────────────────────────────── */
 function inventoryRoutes(db) {
   const r = express.Router();
+  const allowedTypes = new Set(['Product', 'Supply']);
+
+  function cleanInventoryItem(row = {}, index = 0) {
+    const type = allowedTypes.has(row.type) ? row.type : 'Product';
+    return {
+      item_id: String(row.item_id || row.id || `${type === 'Product' ? 'P' : 'S'}IMP${index + 1}`).trim(),
+      name: String(row.name || row.item_name || row.product || '').trim(),
+      sku: String(row.sku || '').trim() || null,
+      type,
+      unit: String(row.unit || 'pcs').trim() || 'pcs',
+      stock: Number.parseInt(row.stock || row.qty || row.quantity || 0, 10) || 0,
+      reorder_pt: Number.parseInt(row.reorder_pt || row.reorder || 0, 10) || (type === 'Product' ? 200 : 15),
+      cost_price: Number.parseFloat(row.cost_price || row.cost || 0) || 0,
+      sell_price: row.sell_price || row.price ? Number.parseFloat(row.sell_price || row.price) || null : null,
+    };
+  }
+
+  function upsertInventoryItem(row) {
+    db.prepare(`
+      INSERT INTO inventory (item_id, name, sku, type, unit, stock, reorder_pt, cost_price, sell_price, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(item_id) DO UPDATE SET
+        name = excluded.name,
+        sku = excluded.sku,
+        type = excluded.type,
+        unit = excluded.unit,
+        stock = excluded.stock,
+        reorder_pt = excluded.reorder_pt,
+        cost_price = excluded.cost_price,
+        sell_price = excluded.sell_price,
+        updated_at = datetime('now')
+    `).run(
+      row.item_id,
+      row.name,
+      row.sku,
+      row.type,
+      row.unit,
+      row.stock,
+      row.reorder_pt,
+      row.cost_price,
+      row.sell_price
+    );
+  }
 
   r.get('/', (req, res) => {
     const { type } = req.query;
@@ -85,6 +208,26 @@ function inventoryRoutes(db) {
     const item_id = `${type === 'Product' ? 'P' : 'S'}${String(Date.now()).slice(-4)}`;
     db.prepare(`INSERT INTO inventory (item_id,name,sku,type,unit,stock,reorder_pt,cost_price,sell_price) VALUES (?,?,?,?,?,?,?,?,?)`).run(item_id, name, sku||null, type||'Product', unit||'pcs', stock||0, reorder_pt||(type==='Product'?200:15), cost_price||0, sell_price||null);
     res.status(201).json({ item_id });
+  });
+
+  r.post('/import', (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'No rows to import' });
+
+    let imported = 0;
+    const failed_rows = [];
+    rows.forEach((row, index) => {
+      try {
+        const item = cleanInventoryItem(row, index);
+        if (!item.name) throw new Error('Item name is required');
+        upsertInventoryItem(item);
+        imported += 1;
+      } catch (error) {
+        failed_rows.push({ row_number: index + 2, error: error.message });
+      }
+    });
+
+    res.status(201).json({ imported, failed_rows });
   });
 
   r.patch('/:item_id/stock', (req, res) => {
