@@ -6,9 +6,12 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     'Administrator',
     'Trainee',
     'RMO',
+    'RMO TL',
     'CSR',
+    'CSR TL',
     'Logistics',
     'Sales and Marketing',
+    'Sales and Marketing TL',
   ]);
 
   function isPasswordMatch(input, stored) {
@@ -244,11 +247,14 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
         CASE
           WHEN role = 'Administrator' THEN 0
           WHEN role = 'CSR' THEN 1
-          WHEN role = 'Trainee' THEN 2
-          WHEN role = 'RMO' THEN 3
-          WHEN role = 'Logistics' THEN 4
-          WHEN role = 'Sales and Marketing' THEN 5
-          ELSE 6
+          WHEN role = 'CSR TL' THEN 2
+          WHEN role = 'Trainee' THEN 3
+          WHEN role = 'RMO' THEN 4
+          WHEN role = 'RMO TL' THEN 5
+          WHEN role = 'Logistics' THEN 6
+          WHEN role = 'Sales and Marketing' THEN 7
+          WHEN role = 'Sales and Marketing TL' THEN 8
+          ELSE 9
         END,
         full_name COLLATE NOCASE ASC,
         username COLLATE NOCASE ASC

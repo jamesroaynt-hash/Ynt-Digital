@@ -7,14 +7,17 @@ const App = {
   user: JSON.parse(localStorage.getItem('ynt_user') || 'null'),
   currentPage: 'home',
 };
-const ROLE_OPTIONS = ['Trainee', 'RMO', 'CSR', 'Logistics', 'Sales and Marketing'];
+const ROLE_OPTIONS = ['Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
   Administrator: ['home', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
   Trainee: ['home', 'sales', 'csr', 'view-records'],
   CSR: ['home', 'sales', 'csr', 'view-records', 'manage-users'],
-  RMO: ['home', 'sales', 'inventory', 'expenses', 'api-connections'],
+  'CSR TL': ['home', 'sales', 'csr', 'view-records', 'manage-users'],
+  RMO: ['home', 'sales', 'inventory', 'expenses', 'view-records', 'api-connections'],
+  'RMO TL': ['home', 'sales', 'inventory', 'expenses', 'view-records', 'api-connections'],
   Logistics: ['home', 'sales', 'inventory', 'expenses', 'api-connections'],
-  'Sales and Marketing': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'api-connections'],
+  'Sales and Marketing': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records', 'api-connections'],
+  'Sales and Marketing TL': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records', 'api-connections'],
 };
 let managedUsers = [];
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
@@ -1181,8 +1184,9 @@ function renderHome() {
 }
 
 function getUserRoleBadgeClass(role) {
-  if (normalizeRoleName(role) === 'Administrator') return 'badge-purple';
-  if (role === 'CSR') return 'badge-info';
+  const normalizedRole = normalizeRoleName(role);
+  if (normalizedRole === 'Administrator') return 'badge-purple';
+  if (normalizedRole.includes('CSR')) return 'badge-info';
   return 'badge-gray';
 }
 
@@ -1682,7 +1686,7 @@ function renderCSR() {
 
   return `
   <div class="page-header">
-    <div class="page-title"><h1>CSR Daily Records</h1><p>Admins can view all CSR entries. CSR users only see and edit their own sales records.</p></div>
+    <div class="page-title"><h1>CSR Daily Records</h1><p>Admins and CSR TL can view all CSR entries. CSR users only see and edit their own sales records.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-records-table', 'csr-daily-records')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
@@ -2505,7 +2509,7 @@ function getRoleOptionsMarkup(selectedRole = 'Trainee') {
 
 function isCSRLikeUser() {
   const role = normalizeRoleName(App.user?.role);
-  return role === 'CSR' || role === 'Trainee';
+  return role === 'CSR' || role === 'CSR TL' || role === 'Trainee';
 }
 
 function getHomeQuickActions() {
@@ -2534,6 +2538,10 @@ function canManageCSRRecord(record) {
   return isAdminUser() || isCurrentUserCSRRecord(record);
 }
 
+function canViewAllCSRRecords() {
+  return isAdminUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
+}
+
 function getCSRPrimaryButtonLabel() {
   return editingCSRRecordId ? 'Update Daily Record' : 'Save Daily Record';
 }
@@ -2556,7 +2564,7 @@ function getFilteredCSRRecords() {
   let data = [...DB.csrRecords];
   const today = normalizeDateString(new Date());
 
-  if (!isAdminUser()) {
+  if (!canViewAllCSRRecords()) {
     data = data.filter((record) => isCurrentUserCSRRecord(record));
   }
 
