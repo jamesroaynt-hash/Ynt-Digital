@@ -2203,7 +2203,6 @@ function renderViewRecords() {
   const sourceOptions = getSourceSheetOptions();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
-  const courierOptions = getCourierOptions();
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
@@ -2272,14 +2271,6 @@ function renderViewRecords() {
           <input type="date" class="form-control" id="rec-orders-date-from" value="${recordsDateFrom}">
           <input type="date" class="form-control" id="rec-orders-date-to" value="${recordsDateTo}">
           <button class="btn btn-secondary btn-sm" onclick="applyRecordsCustomDateRange()">Apply</button>
-        </div>
-        <div class="records-toolbar-group" style="flex-basis:100%; justify-content:flex-end;">
-          <input class="form-control" id="records-new-courier" placeholder="Add courier" style="max-width:170px;">
-          <button class="btn btn-secondary btn-sm" onclick="addCourierOption()">Add Courier</button>
-          <select class="form-control records-product-filter" id="records-remove-courier">
-            ${courierOptions.map((courier) => `<option value="${escapeHtml(courier)}">${escapeHtml(courier)}</option>`).join('')}
-          </select>
-          <button class="btn btn-danger btn-sm" onclick="removeCourierOption()">Remove Courier</button>
         </div>
       </div>
       <table id="records-table">
