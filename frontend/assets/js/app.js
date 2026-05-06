@@ -9,17 +9,18 @@ const App = {
 };
 const ROLE_OPTIONS = ['Trainee', 'RMO', 'CSR', 'Logistics', 'Sales and Marketing'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'sales', 'csr', 'inventory', 'expenses', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  Administrator: ['home', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
   Trainee: ['home', 'sales', 'csr', 'view-records'],
   CSR: ['home', 'sales', 'csr', 'view-records', 'manage-users'],
   RMO: ['home', 'sales', 'inventory', 'expenses', 'api-connections'],
   Logistics: ['home', 'sales', 'inventory', 'expenses', 'api-connections'],
-  'Sales and Marketing': ['home', 'sales', 'inventory', 'expenses', 'api-connections'],
+  'Sales and Marketing': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'api-connections'],
 };
 let managedUsers = [];
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
+const MARKETING_STORAGE_KEY = 'ynt_marketing_center';
 const CSR_PAGE_OPTIONS = [
   'AGELESS',
   'GINSENG PH',
@@ -83,6 +84,7 @@ function loadPage(page) {
   const renderFns = {
     home: renderHome,
     sales: renderSales,
+    'marketing-center': renderMarketingCenter,
     csr: renderCSR,
     inventory: renderInventory,
     expenses: renderExpenses,
@@ -105,6 +107,7 @@ function loadPage(page) {
 const pageNames = {
   home: 'Home',
   sales: 'Sales Dashboard',
+  'marketing-center': 'Marketing Center',
   csr: 'CSR Daily Records',
   inventory: 'Inventory',
   expenses: 'Expenses',
@@ -468,6 +471,114 @@ function generateCustomers(n) {
 
 function randomStr(n) {
   return Array.from({ length: n }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]).join('');
+}
+
+function getDefaultMarketingState() {
+  return {
+    targets: { sales: 7000000, spend: 85000, roas: 3.8, rts: 17 },
+    pages: [
+      { name: 'DRAGON BLOOD SERUM', product: 'DRAGON SERUM', owner: 'Mark' },
+      { name: 'DRAGON BLOOD CREAM', product: 'DRAGON CREAM', owner: 'Mark' },
+      { name: 'NIACINAMIDE', product: 'NIACINAMIDE', owner: 'Andrew' },
+      { name: 'HALLY LOTION', product: 'HALLY', owner: 'Andrew' },
+      { name: 'GINSENG PH', product: 'GINSENG', owner: 'Andrew' },
+    ],
+    team: [
+      { name: 'Katrina', role: 'Team Leader / Funnel', primary: 'System and strategy' },
+      { name: 'Janjoy', role: 'Lead Advertiser / Testing', primary: 'Product and test pipeline' },
+      { name: 'Mark', role: 'Ads + Creatives + Funnel', primary: 'Dragon pages' },
+      { name: 'Andrew', role: 'Ads + Image + Broadcast', primary: 'Niacinamide / Hally / Ginseng' },
+      { name: 'Jem', role: 'Video Creative', primary: '4 videos/day' },
+    ],
+    entries: [],
+    creatives: [],
+  };
+}
+
+function getMarketingState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MARKETING_STORAGE_KEY) || '{}');
+    const fallback = getDefaultMarketingState();
+    return {
+      ...fallback,
+      ...saved,
+      targets: { ...fallback.targets, ...(saved.targets || {}) },
+      pages: Array.isArray(saved.pages) && saved.pages.length ? saved.pages : fallback.pages,
+      team: Array.isArray(saved.team) && saved.team.length ? saved.team : fallback.team,
+      entries: Array.isArray(saved.entries) ? saved.entries : [],
+      creatives: Array.isArray(saved.creatives) ? saved.creatives : [],
+    };
+  } catch {
+    return getDefaultMarketingState();
+  }
+}
+
+function saveMarketingState(state) {
+  localStorage.setItem(MARKETING_STORAGE_KEY, JSON.stringify(state));
+}
+
+function marketingMonth(date = new Date()) {
+  return normalizeDateString(date).slice(0, 7);
+}
+
+function getMarketingMonthEntries(state) {
+  const month = marketingMonth();
+  return state.entries.filter((entry) => String(entry.date || '').startsWith(month));
+}
+
+function aggregateMarketing(entries) {
+  const totals = entries.reduce((acc, entry) => {
+    acc.orders += Number(entry.orders || 0);
+    acc.sales += Number(entry.sales || 0);
+    acc.spend += Number(entry.spend || 0);
+    acc.rts += Number(entry.rts || 0);
+    acc.days.add(entry.date);
+    return acc;
+  }, { orders: 0, sales: 0, spend: 0, rts: 0, days: new Set() });
+
+  return {
+    ...totals,
+    days: totals.days.size,
+    roas: totals.spend ? totals.sales / totals.spend : 0,
+    cpp: totals.orders ? totals.spend / totals.orders : 0,
+    rtsRate: totals.orders ? totals.rts / totals.orders : 0,
+  };
+}
+
+function aggregateMarketingByPage(entries) {
+  const map = {};
+  entries.forEach((entry) => {
+    if (!map[entry.page]) map[entry.page] = { page: entry.page, orders: 0, sales: 0, spend: 0, rts: 0 };
+    map[entry.page].orders += Number(entry.orders || 0);
+    map[entry.page].sales += Number(entry.sales || 0);
+    map[entry.page].spend += Number(entry.spend || 0);
+    map[entry.page].rts += Number(entry.rts || 0);
+  });
+
+  return Object.values(map).map((row) => ({
+    ...row,
+    roas: row.spend ? row.sales / row.spend : 0,
+    cpp: row.orders ? row.spend / row.orders : 0,
+    rtsRate: row.orders ? row.rts / row.orders : 0,
+  }));
+}
+
+function marketingMoney(value) {
+  return `PHP ${Math.round(Number(value || 0)).toLocaleString()}`;
+}
+
+function marketingRoas(value) {
+  return Number(value || 0).toFixed(2) + 'x';
+}
+
+function marketingPct(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function marketingRoasClass(value) {
+  if (value >= 4) return 'badge-success';
+  if (value >= 3) return 'badge-warning';
+  return 'badge-danger';
 }
 
 function getCurrentCsrName() {
@@ -1375,6 +1486,177 @@ function renderSales() {
       </table>
     </div>
     <div class="table-pagination" id="sales-pagination"></div>
+  </div>`;
+}
+
+function renderMarketingCenter() {
+  const state = getMarketingState();
+  const entries = getMarketingMonthEntries(state);
+  const totals = aggregateMarketing(entries);
+  const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
+  const targetPct = state.targets.sales ? totals.sales / state.targets.sales : 0;
+  const monthSpendTarget = Number(state.targets.spend || 0) * 31;
+  const creativeMonth = state.creatives.filter((item) => String(item.date || '').startsWith(marketingMonth()));
+  const survived = creativeMonth.filter((item) => Number(item.spend || 0) >= 5000).length;
+  const survivalRate = creativeMonth.length ? survived / creativeMonth.length : 0;
+  const ownerTotals = state.team.map((member) => {
+    const memberRows = entries.filter((entry) => entry.owner === member.name);
+    return { ...member, ...aggregateMarketing(memberRows) };
+  });
+
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>Sales & Marketing Command Center</h1><p>Track page ROAS, ad spend, creative output, and team pacing.</p></div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="exportMarketingEntries()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
+        Export CSV
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="saveMarketingTargets()">Save Targets</button>
+    </div>
+  </div>
+
+  <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:20px;">
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Gross Sales MTD</div><div class="stat-value">${marketingMoney(totals.sales)}</div><div class="stat-meta">${Math.round(targetPct * 100)}% of monthly target</div></div>
+    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Ad Spend MTD</div><div class="stat-value">${marketingMoney(totals.spend)}</div><div class="stat-meta">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">ROAS</div><div class="stat-value">${marketingRoas(totals.roas)}</div><div class="stat-meta">Target ${marketingRoas(state.targets.roas)}</div></div>
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">RTS Rate</div><div class="stat-value">${marketingPct(totals.rtsRate)}</div><div class="stat-meta">Max ${state.targets.rts}%</div></div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:minmax(360px, .95fr) minmax(420px, 1.05fr); gap:20px; align-items:start;">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">One row per page per day.</div></div></div>
+      <div class="card-body">
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}"></div>
+          <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
+          <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control readonly-field" id="mkt-product" readonly></div>
+          <div class="form-group"><label class="form-label">Owner</label><input type="text" class="form-control readonly-field" id="mkt-owner" readonly></div>
+          <div class="form-group"><label class="form-label">Orders Confirmed</label><input type="number" class="form-control" id="mkt-orders" min="0" placeholder="0"></div>
+          <div class="form-group"><label class="form-label">Sales</label><input type="number" class="form-control" id="mkt-sales" min="0" placeholder="0"></div>
+          <div class="form-group"><label class="form-label">Ad Spend</label><input type="number" class="form-control" id="mkt-spend" min="0" placeholder="0"></div>
+          <div class="form-group"><label class="form-label">RTS Count</label><input type="number" class="form-control" id="mkt-rts" min="0" placeholder="0"></div>
+        </div>
+        <button class="btn btn-primary" onclick="addMarketingEntry()">Add Entry</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Page Leaderboard</div><div class="card-subtitle">Month-to-date ROAS and cost per purchase.</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Page</th><th>Orders</th><th>Sales</th><th>Ad Spend</th><th>ROAS</th><th>CPP</th><th>RTS</th></tr></thead>
+          <tbody>
+            ${byPage.length ? byPage.map((page) => `<tr>
+              <td style="font-weight:600">${escapeHtml(page.page)}</td>
+              <td>${page.orders}</td>
+              <td>${marketingMoney(page.sales)}</td>
+              <td>${marketingMoney(page.spend)}</td>
+              <td><span class="badge ${marketingRoasClass(page.roas)}">${marketingRoas(page.roas)}</span></td>
+              <td>${marketingMoney(page.cpp)}</td>
+              <td>${marketingPct(page.rtsRate)}</td>
+            </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No marketing entries yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest page performance logs.</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Date</th><th>Page</th><th>Owner</th><th>Sales</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
+          <tbody>
+            ${state.entries.slice().reverse().slice(0, 12).map((entry) => {
+              const index = state.entries.indexOf(entry);
+              const roas = Number(entry.spend || 0) ? Number(entry.sales || 0) / Number(entry.spend || 0) : 0;
+              return `<tr>
+                <td>${escapeHtml(entry.date)}</td>
+                <td>${escapeHtml(entry.page)}</td>
+                <td>${escapeHtml(entry.owner)}</td>
+                <td>${marketingMoney(entry.sales)}</td>
+                <td>${marketingMoney(entry.spend)}</td>
+                <td><span class="badge ${marketingRoasClass(roas)}">${marketingRoas(roas)}</span></td>
+                <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">Delete</button></td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Team Performance</div><div class="card-subtitle">Month-to-date by owner.</div></div></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
+        ${ownerTotals.map((member) => `<div class="stat-card">
+          <div class="stat-label">${escapeHtml(member.role)}</div>
+          <div class="stat-value" style="font-size:20px;">${escapeHtml(member.name)}</div>
+          <div class="stat-meta">${escapeHtml(member.primary)}</div>
+          <div style="margin-top:12px; display:grid; gap:6px; font-size:12px;">
+            <div>Sales: <strong>${marketingMoney(member.sales)}</strong></div>
+            <div>Spend: <strong>${marketingMoney(member.spend)}</strong></div>
+            <div>ROAS: <strong>${marketingRoas(member.roas)}</strong></div>
+            <div>Orders: <strong>${member.orders}</strong></div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:minmax(360px,.85fr) minmax(420px,1.15fr); gap:20px; align-items:start;">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Creative Output</div><div class="card-subtitle">Track hooks, winners, and survival rate.</div></div></div>
+      <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:16px;">
+        <div class="stat-card blue"><div class="stat-label">This Month</div><div class="stat-value">${creativeMonth.length}</div></div>
+        <div class="stat-card green"><div class="stat-label">Survival Rate</div><div class="stat-value">${Math.round(survivalRate * 100)}%</div></div>
+        <div class="stat-card amber"><div class="stat-label">Scaled</div><div class="stat-value">${creativeMonth.filter((item) => item.status === 'Scaled').length}</div></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-creative-date" value="${normalizeDateString(new Date())}"></div>
+        <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-creative-page">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Hook Angle</label><select class="form-control" id="mkt-creative-hook"><option>Pain Point</option><option>Before/After</option><option>UGC Testimonial</option><option>Demo</option><option>Educational</option><option>Trend Hijack</option></select></div>
+        <div class="form-group"><label class="form-label">Status</label><select class="form-control" id="mkt-creative-status"><option>Live</option><option>Killed</option><option>Scaled</option></select></div>
+        <div class="form-group"><label class="form-label">Spend Reached</label><input type="number" class="form-control" id="mkt-creative-spend" min="0"></div>
+        <div class="form-group"><label class="form-label">ROAS</label><input type="number" class="form-control" id="mkt-creative-roas" min="0" step="0.1"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-control" id="mkt-creative-notes" placeholder="What made it work or fail"></div>
+      <button class="btn btn-primary" onclick="addMarketingCreative()">Add Creative</button>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Creative Log</div><div class="card-subtitle">Most recent tests and winners.</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Date</th><th>Hook</th><th>Page</th><th>Status</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
+          <tbody>
+            ${state.creatives.slice().reverse().slice(0, 12).map((item) => {
+              const index = state.creatives.indexOf(item);
+              return `<tr>
+                <td>${escapeHtml(item.date)}</td>
+                <td>${escapeHtml(item.hook)}</td>
+                <td>${escapeHtml(item.page)}</td>
+                <td><span class="badge ${item.status === 'Scaled' ? 'badge-success' : item.status === 'Killed' ? 'badge-danger' : 'badge-warning'}">${escapeHtml(item.status)}</span></td>
+                <td>${marketingMoney(item.spend)}</td>
+                <td><span class="badge ${marketingRoasClass(Number(item.roas || 0))}">${marketingRoas(item.roas)}</span></td>
+                <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingCreative(${index})">Delete</button></td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No creatives logged yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div><div class="card-title">Targets</div><div class="card-subtitle">Used for pacing and dashboard status.</div></div></div>
+    <div class="form-grid-2">
+      <div class="form-group"><label class="form-label">Monthly Gross Sales</label><input type="number" class="form-control" id="mkt-target-sales" value="${state.targets.sales}"></div>
+      <div class="form-group"><label class="form-label">Daily Ad Spend Target</label><input type="number" class="form-control" id="mkt-target-spend" value="${state.targets.spend}"></div>
+      <div class="form-group"><label class="form-label">ROAS Target</label><input type="number" class="form-control" id="mkt-target-roas" value="${state.targets.roas}" step="0.1"></div>
+      <div class="form-group"><label class="form-label">Max RTS Rate %</label><input type="number" class="form-control" id="mkt-target-rts" value="${state.targets.rts}" step="0.1"></div>
+    </div>
   </div>`;
 }
 
@@ -2631,6 +2913,10 @@ function initPage(page) {
     renderSalesTable();
   }
 
+  if (page === 'marketing-center') {
+    syncMarketingPageMeta();
+  }
+
   if (page === 'csr') {
     resetCSRForm();
     const today = new Date().toISOString().split('T')[0];
@@ -3134,6 +3420,116 @@ function setSalesMonthFilter() {
   salesMonthFilter = document.getElementById('sales-month-filter')?.value || 'all';
   salesPage = 1;
   renderSalesTable();
+}
+
+function syncMarketingPageMeta() {
+  const state = getMarketingState();
+  const pageName = document.getElementById('mkt-page')?.value;
+  const page = state.pages.find((item) => item.name === pageName) || state.pages[0];
+  const productInput = document.getElementById('mkt-product');
+  const ownerInput = document.getElementById('mkt-owner');
+  if (productInput) productInput.value = page?.product || '';
+  if (ownerInput) ownerInput.value = page?.owner || '';
+}
+
+function addMarketingEntry() {
+  const state = getMarketingState();
+  const pageName = document.getElementById('mkt-page')?.value || '';
+  const page = state.pages.find((item) => item.name === pageName) || {};
+  const entry = {
+    date: document.getElementById('mkt-date')?.value || normalizeDateString(new Date()),
+    page: pageName,
+    product: page.product || document.getElementById('mkt-product')?.value || '',
+    owner: page.owner || document.getElementById('mkt-owner')?.value || '',
+    orders: Number(document.getElementById('mkt-orders')?.value || 0),
+    sales: Number(document.getElementById('mkt-sales')?.value || 0),
+    spend: Number(document.getElementById('mkt-spend')?.value || 0),
+    rts: Number(document.getElementById('mkt-rts')?.value || 0),
+  };
+
+  if (!entry.date || !entry.page) {
+    showToast('error', 'Entry incomplete', 'Date and page are required.');
+    return;
+  }
+
+  state.entries.push(entry);
+  saveMarketingState(state);
+  ['mkt-orders', 'mkt-sales', 'mkt-spend', 'mkt-rts'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+  showToast('success', 'Marketing entry saved', `${entry.page} - ${marketingRoas(entry.spend ? entry.sales / entry.spend : 0)}`);
+  navigateTo('marketing-center');
+}
+
+function deleteMarketingEntry(index) {
+  const state = getMarketingState();
+  if (index < 0 || index >= state.entries.length) return;
+  state.entries.splice(index, 1);
+  saveMarketingState(state);
+  navigateTo('marketing-center');
+}
+
+function addMarketingCreative() {
+  const state = getMarketingState();
+  const item = {
+    date: document.getElementById('mkt-creative-date')?.value || normalizeDateString(new Date()),
+    page: document.getElementById('mkt-creative-page')?.value || '',
+    hook: document.getElementById('mkt-creative-hook')?.value || '',
+    status: document.getElementById('mkt-creative-status')?.value || 'Live',
+    spend: Number(document.getElementById('mkt-creative-spend')?.value || 0),
+    roas: Number(document.getElementById('mkt-creative-roas')?.value || 0),
+    notes: document.getElementById('mkt-creative-notes')?.value || '',
+  };
+
+  if (!item.date || !item.page) {
+    showToast('error', 'Creative incomplete', 'Date and page are required.');
+    return;
+  }
+
+  state.creatives.push(item);
+  saveMarketingState(state);
+  showToast('success', 'Creative logged', `${item.hook} - ${item.status}`);
+  navigateTo('marketing-center');
+}
+
+function deleteMarketingCreative(index) {
+  const state = getMarketingState();
+  if (index < 0 || index >= state.creatives.length) return;
+  state.creatives.splice(index, 1);
+  saveMarketingState(state);
+  navigateTo('marketing-center');
+}
+
+function saveMarketingTargets() {
+  const state = getMarketingState();
+  state.targets = {
+    sales: Number(document.getElementById('mkt-target-sales')?.value || 7000000),
+    spend: Number(document.getElementById('mkt-target-spend')?.value || 85000),
+    roas: Number(document.getElementById('mkt-target-roas')?.value || 3.8),
+    rts: Number(document.getElementById('mkt-target-rts')?.value || 17),
+  };
+  saveMarketingState(state);
+  showToast('success', 'Targets saved', 'Marketing pacing targets were updated.');
+  navigateTo('marketing-center');
+}
+
+function exportMarketingEntries() {
+  const state = getMarketingState();
+  const rows = [['date', 'page', 'product', 'owner', 'orders', 'sales', 'ad_spend', 'rts', 'roas', 'cpp', 'rts_rate']];
+  state.entries.forEach((entry) => {
+    const roas = Number(entry.spend || 0) ? Number(entry.sales || 0) / Number(entry.spend || 0) : 0;
+    const cpp = Number(entry.orders || 0) ? Number(entry.spend || 0) / Number(entry.orders || 0) : 0;
+    const rtsRate = Number(entry.orders || 0) ? Number(entry.rts || 0) / Number(entry.orders || 0) : 0;
+    rows.push([entry.date, entry.page, entry.product, entry.owner, entry.orders, entry.sales, entry.spend, entry.rts, roas.toFixed(3), cpp.toFixed(2), (rtsRate * 100).toFixed(2)]);
+  });
+  const csv = rows.map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ynt-marketing-entries-${normalizeDateString(new Date())}.csv`;
+  a.click();
+  showToast('success', 'CSV exported', 'Marketing entries downloaded.');
 }
 
 function getFilteredViewRecordOrders() {
