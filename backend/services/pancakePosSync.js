@@ -161,6 +161,28 @@ function recordRaw(db, entityType, externalId, payload, outcome = {}) {
   );
 }
 
+function upsertSourceLink(db, entityType, externalId, localTable, localId) {
+  if (!externalId || !localId) return;
+  db.prepare(`
+    INSERT INTO integration_source_links (provider, entity_type, external_id, local_table, local_id)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(provider, entity_type, external_id) DO UPDATE SET
+      local_table = excluded.local_table,
+      local_id = excluded.local_id,
+      last_synced_at = datetime('now')
+  `).run(PROVIDER, entityType, String(externalId), localTable, String(localId));
+}
+
+function findLinkedLocalId(db, entityType, externalId) {
+  if (!externalId) return null;
+  const row = db.prepare(`
+    SELECT local_id
+    FROM integration_source_links
+    WHERE provider = ? AND entity_type = ? AND external_id = ?
+  `).get(PROVIDER, entityType, String(externalId));
+  return row?.local_id || null;
+}
+
 function buildUrl(baseUrl, path, query = {}) {
   const url = new URL(path, `${baseUrl}/`);
   for (const [key, value] of Object.entries(query)) {
@@ -463,6 +485,164 @@ function upsertInventoryHistory(db, shopId, item) {
   return externalKey;
 }
 
+function normalizeDateString(value) {
+  const parsed = value ? new Date(value) : new Date();
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function dashboardStatusFromPos(item) {
+  const value = String(item?.status_name || item?.status_text || item?.status || '').toLowerCase();
+  if (value.includes('delivering') || value.includes('out for delivery')) return 'Shipped';
+  if (value.includes('delivered') || value.includes('complete') || value === '4') return 'Delivered';
+  if (value.includes('returning')) return 'Returning';
+  if (value.includes('return') || value.includes('cancel') || value === '5') return 'Returned';
+  if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value === '3') return 'Shipped';
+  return 'Pending';
+}
+
+function getOrderItemsSummary(item) {
+  const items = Array.isArray(item?.items) ? item.items : [];
+  if (!items.length) {
+    return {
+      product: stringOrNull(item?.product_name || item?.product || item?.name) || 'Pancake POS Order',
+      qty: Math.max(1, Math.round(numberOrNull(item?.quantity || item?.qty) || 1)),
+    };
+  }
+
+  const productNames = items
+    .map(entry => stringOrNull(entry?.variation_name || entry?.product_name || entry?.name || entry?.product?.name))
+    .filter(Boolean);
+  const qty = items.reduce((sum, entry) => sum + Math.max(0, Math.round(numberOrNull(entry?.quantity || entry?.qty) || 0)), 0);
+  return {
+    product: productNames.length ? productNames.slice(0, 3).join(', ') : 'Pancake POS Order',
+    qty: Math.max(1, qty || items.length),
+  };
+}
+
+function transferPosOrderToDashboard(db, shopId, item) {
+  const externalId = stringOrNull(item?.id);
+  if (!externalId) return null;
+
+  const summary = getOrderItemsSummary(item);
+  const partner = item?.partner || {};
+  const shippingAddress = item?.shipping_address || {};
+  const orderRef = stringOrNull(item?.order_ref || item?.code || item?.order_number) || `POS-${externalId}`;
+  const trackingNo = stringOrNull(
+    item?.tracking_no ||
+    item?.tracking_number ||
+    item?.shipping_code ||
+    partner?.tracking_number ||
+    partner?.order_number ||
+    partner?.code
+  );
+  const courier = stringOrNull(
+    item?.courier ||
+    item?.shipping_provider ||
+    item?.partner_name ||
+    partner?.name ||
+    partner?.partner_name ||
+    partner?.shipping_partner_name
+  );
+  const customer = stringOrNull(item?.bill_full_name || item?.customer_name || shippingAddress?.name) || 'Pancake POS Customer';
+  const phone = stringOrNull(item?.bill_phone_number || item?.customer_phone || shippingAddress?.phone_number || shippingAddress?.phone);
+  const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
+  const linkedId = findLinkedLocalId(db, 'orders', externalId);
+  const existing = linkedId
+    ? db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
+    : db.prepare('SELECT id FROM orders WHERE order_ref = ? LIMIT 1').get(orderRef);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE orders
+      SET order_ref = ?, tracking_no = ?, customer = ?, phone = ?, product = ?, qty = ?, cod_amount = ?,
+          status = ?, courier = ?, source_sheet = ?, order_date = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      orderRef,
+      trackingNo,
+      customer,
+      phone,
+      summary.product,
+      summary.qty,
+      cod,
+      dashboardStatusFromPos(item),
+      courier,
+      `Pancake POS${shopId ? ` ${shopId}` : ''}`,
+      normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
+      existing.id
+    );
+    upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
+    return existing.id;
+  }
+
+  const result = db.prepare(`
+    INSERT INTO orders (order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, attempts, order_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    orderRef,
+    trackingNo,
+    customer,
+    phone,
+    summary.product,
+    summary.qty,
+    cod,
+    dashboardStatusFromPos(item),
+    courier,
+    `Pancake POS${shopId ? ` ${shopId}` : ''}`,
+    1,
+    normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
+  );
+  upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
+  return result.lastInsertRowid;
+}
+
+function transferPosProductToInventory(db, shopId, item) {
+  const productId = stringOrNull(item?.product_id || item?.id);
+  const variationId = stringOrNull(item?.variation_id || item?.id);
+  const externalKey = stableKey(shopId, productId, variationId || item?.barcode || item?.custom_id || item?.name);
+  if (!externalKey) return null;
+
+  const itemId = `POS-${variationId || productId || externalKey}`.slice(0, 80);
+  const sku = stringOrNull(item?.sku || item?.barcode || item?.custom_id) || itemId;
+  const name = stringOrNull(item?.name || item?.product_name) || 'Pancake POS Product';
+  const stock = Math.max(0, Math.round(numberOrNull(item?.remain_quantity || item?.available_quantity || item?.quantity) || 0));
+  const cost = numberOrNull(item?.last_imported_price || item?.average_imported_price) || 0;
+  const price = numberOrNull(item?.retail_price);
+  const linkedId = findLinkedLocalId(db, 'inventory', externalKey);
+  const existing = linkedId
+    ? db.prepare('SELECT id, item_id, stock FROM inventory WHERE id = ?').get(linkedId)
+    : db.prepare('SELECT id, item_id, stock FROM inventory WHERE item_id = ? OR sku = ? LIMIT 1').get(itemId, sku);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE inventory
+      SET item_id = ?, name = ?, sku = ?, type = 'Product', unit = 'pcs', stock = ?, cost_price = ?, sell_price = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(itemId, name, sku, stock, cost, price, existing.id);
+    if (Number(existing.stock) !== stock) {
+      db.prepare(`
+        INSERT INTO inventory_logs (item_id, action, qty_before, qty_change, qty_after, notes)
+        VALUES (?, 'set', ?, ?, ?, ?)
+      `).run(existing.item_id, existing.stock, stock - existing.stock, stock, 'Pancake POS API sync');
+    }
+    upsertSourceLink(db, 'inventory', externalKey, 'inventory', existing.id);
+    return existing.id;
+  }
+
+  const result = db.prepare(`
+    INSERT INTO inventory (item_id, name, sku, type, unit, stock, reorder_pt, cost_price, sell_price)
+    VALUES (?, ?, ?, 'Product', 'pcs', ?, 200, ?, ?)
+  `).run(itemId, name, sku, stock, cost, price);
+  db.prepare(`
+    INSERT INTO inventory_logs (item_id, action, qty_before, qty_change, qty_after, notes)
+    VALUES (?, 'set', 0, ?, ?, ?)
+  `).run(itemId, stock, stock, 'Pancake POS API import');
+  upsertSourceLink(db, 'inventory', externalKey, 'inventory', result.lastInsertRowid);
+  return result.lastInsertRowid;
+}
+
 function storeItems(db, resource, shopId, items) {
   const localIds = [];
   for (const item of items) {
@@ -474,6 +654,8 @@ function storeItems(db, resource, shopId, items) {
     if (resource === 'customers') localId = upsertCustomer(db, shopId, item);
     if (resource === 'transactions') localId = upsertTransaction(db, shopId, item);
     if (resource === 'inventory_histories') localId = upsertInventoryHistory(db, shopId, item);
+    if (resource === 'orders') transferPosOrderToDashboard(db, shopId, item);
+    if (resource === 'products') transferPosProductToInventory(db, shopId, item);
     if (localId) localIds.push(localId);
   }
   return localIds;
@@ -510,6 +692,17 @@ function collectSummaryPayload(resources, options) {
   };
 }
 
+async function collectPagedItems(fetchPage, { startPage = 1, pageSize = 100, maxPages = 50 } = {}) {
+  const allItems = [];
+  for (let page = startPage; page < startPage + maxPages; page += 1) {
+    const items = await fetchPage(page);
+    if (!Array.isArray(items) || !items.length) break;
+    allItems.push(...items);
+    if (items.length < pageSize) break;
+  }
+  return allItems;
+}
+
 async function collectPosData(db, payload = {}) {
   const setting = getSetting(db);
   const apiKey = stringOrNull(payload.api_key || setting?.api_key);
@@ -524,8 +717,8 @@ async function collectPosData(db, payload = {}) {
     page_number: Math.max(1, Number(payload.page_number || 1)),
     page_size: Math.max(1, Math.min(100, Number(payload.page_size || 30))),
     page: Math.max(1, Number(payload.page || 1)),
-    startDateTime: Number(payload.startDateTime || unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))),
-    endDateTime: Number(payload.endDateTime || unixSecondsFromDate(new Date(), true)),
+    startDateTime: Number(payload.startDateTime ?? unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))),
+    endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
   };
 
   saveSetting(db, { ...setting, api_key: apiKey, page_id: shopId, base_url: baseUrl });
@@ -551,47 +744,57 @@ async function collectPosData(db, payload = {}) {
       return Array.isArray(response?.data) ? response.data : [];
     },
     orders: async () => {
-      const response = await posRequest(baseUrl, `/shops/${shopId}/orders`, apiKey, {
-        page_number: options.page_number,
-        page_size: options.page_size,
-        startDateTime: options.startDateTime,
-        endDateTime: options.endDateTime,
-      });
-      return Array.isArray(response?.data) ? response.data : [];
+      return collectPagedItems(async (pageNumber) => {
+        const response = await posRequest(baseUrl, `/shops/${shopId}/orders`, apiKey, {
+          page_number: pageNumber,
+          page_size: options.page_size,
+          startDateTime: options.startDateTime,
+          endDateTime: options.endDateTime,
+        });
+        return Array.isArray(response?.data) ? response.data : [];
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
     },
     products: async () => {
-      const response = await posRequest(baseUrl, `/shops/${shopId}/products/variations`, apiKey, {
-        page_number: options.page_number,
-        page_size: options.page_size,
-      });
-      return Array.isArray(response?.data) ? response.data : [];
+      return collectPagedItems(async (pageNumber) => {
+        const response = await posRequest(baseUrl, `/shops/${shopId}/products/variations`, apiKey, {
+          page_number: pageNumber,
+          page_size: options.page_size,
+        });
+        return Array.isArray(response?.data) ? response.data : [];
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
     },
     customers: async () => {
-      const response = await posRequest(baseUrl, `/shops/${shopId}/customers`, apiKey, {
-        page_number: options.page_number,
-        page_size: options.page_size,
-        start_time_updated_at: options.startDateTime,
-        end_time_updated_at: options.endDateTime,
-      });
-      return Array.isArray(response?.data) ? response.data : [];
+      return collectPagedItems(async (pageNumber) => {
+        const response = await posRequest(baseUrl, `/shops/${shopId}/customers`, apiKey, {
+          page_number: pageNumber,
+          page_size: options.page_size,
+          start_time_updated_at: options.startDateTime,
+          end_time_updated_at: options.endDateTime,
+        });
+        return Array.isArray(response?.data) ? response.data : [];
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
     },
     transactions: async () => {
-      const response = await posRequest(baseUrl, `/shops/${shopId}/transactions`, apiKey, {
-        page: options.page,
-        page_size: options.page_size,
-        startDateTime: options.startDateTime,
-        endDateTime: options.endDateTime,
-      });
-      return Array.isArray(response?.data) ? response.data : [];
+      return collectPagedItems(async (page) => {
+        const response = await posRequest(baseUrl, `/shops/${shopId}/transactions`, apiKey, {
+          page,
+          page_size: options.page_size,
+          startDateTime: options.startDateTime,
+          endDateTime: options.endDateTime,
+        });
+        return Array.isArray(response?.data) ? response.data : [];
+      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
     },
     inventory_histories: async () => {
-      const response = await posRequest(baseUrl, `/shops/${shopId}/inventory_histories`, apiKey, {
-        page: options.page,
-        page_size: options.page_size,
-        startDate: options.startDateTime,
-        endDate: options.endDateTime,
-      });
-      return Array.isArray(response?.data) ? response.data : [];
+      return collectPagedItems(async (page) => {
+        const response = await posRequest(baseUrl, `/shops/${shopId}/inventory_histories`, apiKey, {
+          page,
+          page_size: options.page_size,
+          startDate: options.startDateTime,
+          endDate: options.endDateTime,
+        });
+        return Array.isArray(response?.data) ? response.data : [];
+      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 50) });
     },
   };
 

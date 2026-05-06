@@ -644,6 +644,17 @@ function getDefaultIntegrationState() {
       lastCollectedAt: null,
       lastCollectionSummary: '',
     },
+    pancakePos: {
+      enabled: false,
+      syncMode: 'pull_only',
+      baseUrl: 'https://pos.pages.fm/api/v1',
+      apiKey: '',
+      shopId: '',
+      notes: '',
+      lastSavedAt: null,
+      lastCollectedAt: null,
+      lastCollectionSummary: '',
+    },
     googleSheets: {
       enabled: false,
       syncMode: 'manual',
@@ -669,6 +680,10 @@ function getIntegrationState() {
       pancake: {
         ...fallback.pancake,
         ...(saved.pancake || {}),
+      },
+      pancakePos: {
+        ...fallback.pancakePos,
+        ...(saved.pancakePos || {}),
       },
       googleSheets: {
         ...fallback.googleSheets,
@@ -696,6 +711,13 @@ function getPancakePublicApiBase() {
     return `${location.origin}/api/public/integrations/pancake`;
   }
   return 'http://localhost:3001/api/public/integrations/pancake';
+}
+
+function getPancakePosPublicApiBase() {
+  if (location.protocol === 'http:' || location.protocol === 'https:') {
+    return `${location.origin}/api/public/integrations/pancake-pos`;
+  }
+  return 'http://localhost:3001/api/public/integrations/pancake-pos';
 }
 
 function getGoogleSheetsPublicApiBase() {
@@ -808,14 +830,18 @@ function renderLogin() {
 function renderApiConnections() {
   const state = getIntegrationState();
   const settings = state.pancake;
+  const posSettings = state.pancakePos;
   const googleSettings = state.googleSheets;
   const webhookUrl = getPancakeWebhookUrl();
   const statusTone = settings.enabled ? 'success' : 'warning';
   const statusText = settings.enabled ? 'Connected' : 'Setup Needed';
+  const posStatusTone = posSettings.enabled ? 'success' : 'warning';
+  const posStatusText = posSettings.enabled ? 'Ready' : 'Setup Needed';
   const googleStatusTone = googleSettings.enabled ? 'success' : 'warning';
   const googleStatusText = googleSettings.enabled ? 'Ready' : 'Setup Needed';
   const savedAt = settings.lastSavedAt ? new Date(settings.lastSavedAt).toLocaleString() : 'Not saved yet';
   const collectedAt = settings.lastCollectedAt ? new Date(settings.lastCollectedAt).toLocaleString() : 'No API collection yet';
+  const posCollectedAt = posSettings.lastCollectedAt ? new Date(posSettings.lastCollectedAt).toLocaleString() : 'No POS sync yet';
   const googleSavedAt = googleSettings.lastSavedAt ? new Date(googleSettings.lastSavedAt).toLocaleString() : 'Not saved yet';
   const googleCollectedAt = googleSettings.lastCollectedAt ? new Date(googleSettings.lastCollectedAt).toLocaleString() : 'No sheet sync yet';
 
@@ -831,6 +857,12 @@ function renderApiConnections() {
       </button>
       <button class="btn btn-secondary" onclick="collectPancakeApiData()">
         Collect API Data
+      </button>
+      <button class="btn btn-secondary" onclick="fetchPancakePosShops()">
+        Get POS Shops
+      </button>
+      <button class="btn btn-secondary" onclick="collectPancakePosData()">
+        Sync POS Data
       </button>
       <button class="btn btn-secondary" onclick="copyWebhookUrl()">
         Copy Webhook URL
@@ -856,6 +888,12 @@ function renderApiConnections() {
       <div class="stat-label">Connection Status</div>
       <div class="stat-value" style="font-size:22px;">${statusText}</div>
       <div class="stat-meta">${settings.enabled ? 'Webhook and API config can be used' : 'Enable and save the connection first'}</div>
+    </div>
+    <div class="stat-card ${posStatusTone === 'success' ? 'green' : 'amber'}">
+      <div class="stat-card-accent"></div>
+      <div class="stat-label">Pancake POS SQL Sync</div>
+      <div class="stat-value" style="font-size:18px;">${posCollectedAt}</div>
+      <div class="stat-meta">${escapeHtml(posSettings.lastCollectionSummary || `${posStatusText}. POS orders/products transfer into SQL.`)}</div>
     </div>
     <div class="stat-card navy">
       <div class="stat-card-accent"></div>
@@ -950,6 +988,67 @@ function renderApiConnections() {
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" onclick="savePancakeConnection()">Save Connection</button>
           <button class="btn btn-secondary" type="button" onclick="sendWebhookTest()">Send Test Webhook</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Pancake POS API to SQL</div>
+          <div class="card-subtitle">Pull POS orders, products, customers, shops, warehouses, transactions, and inventory history into SQLite.</div>
+        </div>
+      </div>
+      <div class="card-body integration-body">
+        <div class="integration-toggle">
+          <div>
+            <div class="integration-toggle-title">Enable Pancake POS sync</div>
+            <div class="integration-toggle-copy">Turn this on after your Pancake POS API key and shop ID are ready.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="pancake-pos-enabled" ${posSettings.enabled ? 'checked' : ''}>
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">POS API Key</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" placeholder="Pancake POS api_key" value="${escapeHtml(posSettings.apiKey)}">
+            <div class="field-help">Use the key from Pancake POS Webhook - API.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Shop ID</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" placeholder="Pancake POS shop_id" value="${escapeHtml(posSettings.shopId)}">
+            <div class="field-help">Click Get POS Shops to fill this from the API.</div>
+          </div>
+        </div>
+
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">POS Base URL</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-base-url" placeholder="https://pos.pages.fm/api/v1" value="${escapeHtml(posSettings.baseUrl)}">
+            <div class="field-help">Default: <code>https://pos.pages.fm/api/v1</code>.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sync Mode</label>
+            <select class="form-control" id="pancake-pos-sync-mode">
+              <option value="pull_only" ${posSettings.syncMode === 'pull_only' ? 'selected' : ''}>Pull API to SQL</option>
+              <option value="manual_backup" ${posSettings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
+            </select>
+            <div class="field-help">Sync POS Data transfers API results into POS SQL tables and dashboard orders/inventory.</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Internal Notes</label>
+          <textarea class="form-control" id="pancake-pos-notes" rows="3" placeholder="Example: Main Pancake POS shop.">${escapeHtml(posSettings.notes)}</textarea>
+        </div>
+
+        <div class="integration-actions">
+          <button class="btn btn-primary" type="button" onclick="savePancakePosConnection()">Save POS Connection</button>
+          <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
+          <button class="btn btn-secondary" type="button" onclick="collectPancakePosData()">Sync POS Data</button>
         </div>
       </div>
     </section>
@@ -4182,6 +4281,21 @@ function collectGoogleSheetsFormState() {
   };
 }
 
+function collectPancakePosFormState() {
+  const previous = getIntegrationState().pancakePos;
+  return {
+    enabled: Boolean(document.getElementById('pancake-pos-enabled')?.checked),
+    syncMode: document.getElementById('pancake-pos-sync-mode')?.value || 'pull_only',
+    baseUrl: (document.getElementById('pancake-pos-base-url')?.value || 'https://pos.pages.fm/api/v1').trim(),
+    apiKey: (document.getElementById('pancake-pos-api-key')?.value || '').trim(),
+    shopId: (document.getElementById('pancake-pos-shop-id')?.value || '').trim(),
+    notes: (document.getElementById('pancake-pos-notes')?.value || '').trim(),
+    lastSavedAt: new Date().toISOString(),
+    lastCollectedAt: previous.lastCollectedAt || null,
+    lastCollectionSummary: previous.lastCollectionSummary || '',
+  };
+}
+
 async function syncPancakeConfigToBackend(settings) {
   const response = await fetch(`${getPancakePublicApiBase()}/config`, {
     method: 'POST',
@@ -4200,6 +4314,28 @@ async function syncPancakeConfigToBackend(settings) {
 
   if (!response.ok) {
     throw new Error(`Config sync failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function syncPancakePosConfigToBackend(settings) {
+  const response = await fetch(`${getPancakePosPublicApiBase()}/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      enabled: settings.enabled,
+      base_url: settings.baseUrl,
+      api_key: settings.apiKey,
+      shop_id: settings.shopId,
+      page_id: settings.shopId,
+      sync_mode: settings.syncMode,
+      notes: settings.notes,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`POS config sync failed with status ${response.status}`);
   }
 
   return response.json();
@@ -4256,6 +4392,22 @@ function saveGoogleSheetsConnection() {
     })
     .catch(() => {
       showToast('warning', 'Saved locally only', 'The browser settings were saved, but the backend Google Sheets config endpoint was not reachable.');
+      navigateTo('api-connections');
+    });
+}
+
+function savePancakePosConnection() {
+  const state = getIntegrationState();
+  state.pancakePos = collectPancakePosFormState();
+
+  saveIntegrationState(state);
+  syncPancakePosConfigToBackend(state.pancakePos)
+    .then(() => {
+      showToast('success', 'POS connection saved', 'Pancake POS API settings were saved to the dashboard backend.');
+      navigateTo('api-connections');
+    })
+    .catch(() => {
+      showToast('warning', 'Saved locally only', 'The browser POS settings were saved, but the backend config endpoint was not reachable.');
       navigateTo('api-connections');
     });
 }
@@ -4381,6 +4533,90 @@ async function collectPancakeApiData() {
     navigateTo('api-connections');
   } catch (error) {
     showToast('error', 'Collection failed', error.message || 'Could not collect Pancake API data.');
+  }
+}
+
+async function fetchPancakePosShops() {
+  const state = getIntegrationState();
+  state.pancakePos = collectPancakePosFormState();
+  saveIntegrationState(state);
+
+  if (!state.pancakePos.apiKey) {
+    showToast('warning', 'POS API key required', 'Enter the Pancake POS API key first.');
+    return;
+  }
+
+  try {
+    await syncPancakePosConfigToBackend(state.pancakePos);
+    const response = await fetch(`${getPancakePosPublicApiBase()}/shops`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: state.pancakePos.apiKey,
+        base_url: state.pancakePos.baseUrl,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
+
+    const shops = Array.isArray(data.shops) ? data.shops : [];
+    if (!shops.length) {
+      showToast('warning', 'No shops returned', 'The POS API key worked, but Pancake POS did not return shops.');
+      return;
+    }
+
+    const firstShop = shops[0];
+    const shopInput = document.getElementById('pancake-pos-shop-id');
+    if (shopInput) shopInput.value = firstShop.id || '';
+    showToast('success', 'POS shops loaded', `Found ${shops.length} shop(s). Filled shop_id with ${firstShop.name || firstShop.id}.`);
+  } catch (error) {
+    showToast('error', 'Get POS Shops failed', error.message || 'Could not load shops from Pancake POS.');
+  }
+}
+
+async function collectPancakePosData() {
+  const state = getIntegrationState();
+  state.pancakePos = collectPancakePosFormState();
+  saveIntegrationState(state);
+
+  if (!state.pancakePos.apiKey || !state.pancakePos.shopId) {
+    showToast('warning', 'POS setup required', 'Enter the Pancake POS API key and shop ID first.');
+    return;
+  }
+
+  try {
+    await syncPancakePosConfigToBackend(state.pancakePos);
+    const response = await fetch(`${getPancakePosPublicApiBase()}/collect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: state.pancakePos.apiKey,
+        base_url: state.pancakePos.baseUrl,
+        shop_id: state.pancakePos.shopId,
+        resources: ['shops', 'warehouses', 'orders', 'products', 'customers', 'transactions', 'inventory_histories'],
+        page_size: 100,
+        max_pages: 50,
+        startDateTime: 0,
+        endDateTime: Math.floor(Date.now() / 1000),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
+
+    const collectedResources = Object.entries(data.resources || {}).map(([name, details]) => `${name}:${details.count}`).join(', ');
+    const refreshed = getIntegrationState();
+    refreshed.pancakePos = {
+      ...state.pancakePos,
+      lastCollectedAt: new Date().toISOString(),
+      lastCollectionSummary: collectedResources || 'POS data transferred to SQL',
+    };
+    saveIntegrationState(refreshed);
+
+    await Promise.all([refreshOrderViewsFromBackend(), refreshInventoryViewFromBackend()]);
+    showToast('success', 'POS SQL sync complete', refreshed.pancakePos.lastCollectionSummary);
+    navigateTo('api-connections');
+  } catch (error) {
+    showToast('error', 'POS sync failed', error.message || 'Could not transfer Pancake POS API data to SQL.');
   }
 }
 
