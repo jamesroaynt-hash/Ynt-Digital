@@ -460,6 +460,39 @@ async function runScheduledSync(db) {
   return collectSheetData(db, {}, 'scheduled');
 }
 
+function getLatestFinishedRun(db) {
+  return db.prepare(`
+    SELECT status, finished_at
+    FROM integration_sync_runs
+    WHERE provider = ? AND finished_at IS NOT NULL AND status IN ('success', 'partial')
+    ORDER BY finished_at DESC
+    LIMIT 1
+  `).get(PROVIDER) || null;
+}
+
+function shouldUseSheetsAsSource(setting) {
+  const syncMode = setting?.sync_mode || process.env.GOOGLE_SHEETS_SYNC_MODE || 'manual';
+  const enabled = Boolean(setting?.enabled ?? (String(process.env.GOOGLE_SHEETS_SYNC_ENABLED || '').toLowerCase() === 'true'));
+  return enabled && ['automatic', 'source_of_data'].includes(syncMode);
+}
+
+async function ensureFreshSourceData(db) {
+  const setting = getSetting(db);
+  if (!shouldUseSheetsAsSource(setting)) {
+    return { skipped: true, reason: 'Google Sheets is not configured as an order source.' };
+  }
+
+  const latestRun = getLatestFinishedRun(db);
+  const intervalMs = getSyncIntervalMs(db);
+  const finishedAt = latestRun?.finished_at ? new Date(latestRun.finished_at.replace(' ', 'T')) : null;
+  const isFresh = finishedAt && !Number.isNaN(finishedAt.getTime()) && (Date.now() - finishedAt.getTime()) < intervalMs;
+  if (isFresh) {
+    return { skipped: true, reason: 'Google Sheets source data is already fresh.' };
+  }
+
+  return collectSheetData(db, {}, 'source_read');
+}
+
 function getStatus(db) {
   const setting = getPublicSetting(db);
   const latestRuns = db.prepare(`
@@ -496,6 +529,7 @@ module.exports = {
   getPublicSetting,
   saveSetting,
   collectSheetData,
+  ensureFreshSourceData,
   runScheduledSync,
   getSyncIntervalMs,
 };

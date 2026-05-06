@@ -1,5 +1,6 @@
 /* ─── ORDERS ──────────────────────────────────────────────── */
 const express = require('express');
+const googleSheetsSync = require('../services/googleSheetsSync');
 
 function ordersRoutes(db) {
   const r = express.Router();
@@ -54,7 +55,13 @@ function ordersRoutes(db) {
     );
   }
 
-  r.get('/', (req, res) => {
+  r.get('/', async (req, res) => {
+    try {
+      await googleSheetsSync.ensureFreshSourceData(db);
+    } catch (error) {
+      console.warn(`[google_sheets] source refresh skipped: ${error.message}`);
+    }
+
     const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
     let sql = 'SELECT * FROM orders WHERE 1=1';
     const params = [];

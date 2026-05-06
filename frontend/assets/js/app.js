@@ -657,7 +657,7 @@ function getDefaultIntegrationState() {
     },
     googleSheets: {
       enabled: false,
-      syncMode: 'manual',
+      syncMode: 'source_of_data',
       spreadsheetId: '',
       sheetName: 'Orders',
       serviceAccountEmail: '',
@@ -1094,10 +1094,11 @@ function renderApiConnections() {
           <div class="form-group">
             <label class="form-label">Sync Mode</label>
             <select class="form-control" id="google-sheets-sync-mode">
-              <option value="manual" ${googleSettings.syncMode === 'manual' ? 'selected' : ''}>Manual only</option>
+              <option value="source_of_data" ${googleSettings.syncMode === 'source_of_data' ? 'selected' : ''}>Source of data</option>
               <option value="automatic" ${googleSettings.syncMode === 'automatic' ? 'selected' : ''}>Automatic every few minutes</option>
+              <option value="manual" ${googleSettings.syncMode === 'manual' ? 'selected' : ''}>Manual only</option>
             </select>
-            <div class="field-help">Automatic mode runs in the backend on a repeating timer.</div>
+            <div class="field-help">Source mode refreshes SQL from Google Sheets before dashboard order data loads.</div>
           </div>
         </div>
 
