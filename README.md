@@ -343,3 +343,33 @@ npm run seed
 | Scanning        | scanning         | Standard scan, auto-lookup            |
 | View Records    | view-records     | Unified tabbed records + export       |
 | Damage Sheets   | damage-sheets    | Print-ready damage report             |
+
+---
+
+## Vercel Deployment
+
+This repo includes a Vercel wrapper:
+
+- `vercel.json` routes `/api/*` to the Express backend and serves `frontend/` as the app shell.
+- `api/index.js` exports the existing backend for Vercel Functions.
+- On Vercel, SQLite uses `/tmp/ynt.db` because the function filesystem is read-only except `/tmp`.
+
+Deploy steps:
+
+1. Push the repo to GitHub.
+2. Import the repo in Vercel.
+3. Use Framework Preset: **Other**.
+4. Add environment variables in Vercel Project Settings:
+
+```text
+JWT_SECRET=use-a-long-random-secret
+GOOGLE_SHEETS_SPREADSHEET_ID=your-sheet-id
+GOOGLE_SHEETS_SHEET_NAME=Orders
+GOOGLE_SHEETS_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+GOOGLE_SHEETS_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
+GOOGLE_SHEETS_SYNC_MODE=manual
+GOOGLE_SHEETS_SYNC_ENABLED=false
+FRONTEND_ORIGINS=https://your-project.vercel.app
+```
+
+Important Vercel note: this app's current SQLite database is not persistent on Vercel serverless. It works for preview/demo, login, and manual API testing, but records imported into `/tmp` can disappear when the function instance is recycled. For production data, move the backend from SQLite to a hosted database such as Vercel Postgres, Neon, Supabase, or another persistent SQL service before relying on Vercel as the live system of record.

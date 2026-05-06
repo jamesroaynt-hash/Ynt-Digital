@@ -1,0 +1,19 @@
+{
+  "name": "ynt-dashboard-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "YNT Dashboard Vercel deployment wrapper",
+  "scripts": {
+    "start": "node --experimental-sqlite backend/server.js",
+    "vercel-build": "node --experimental-sqlite --check backend/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

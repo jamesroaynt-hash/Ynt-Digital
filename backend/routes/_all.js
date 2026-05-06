@@ -5,12 +5,15 @@ function ordersRoutes(db) {
   const r = express.Router();
 
   r.get('/', (req, res) => {
-    const { status, filter, search, page=1, per_page=10 } = req.query;
+    const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
     let sql = 'SELECT * FROM orders WHERE 1=1';
     const params = [];
 
     if (status && status !== 'All') { sql += ' AND status=?'; params.push(status); }
-    if (search) { sql += ' AND (customer LIKE ? OR order_ref LIKE ? OR tracking_no LIKE ?)'; const q=`%${search}%`; params.push(q,q,q); }
+    if (source_sheet && source_sheet !== 'all') { sql += ' AND COALESCE(source_sheet, "")=?'; params.push(source_sheet); }
+    if (month && month !== 'all') { sql += ` AND strftime('%m',order_date)=?`; params.push(String(month).padStart(2, '0')); }
+    if (year && year !== 'all') { sql += ` AND strftime('%Y',order_date)=?`; params.push(String(year)); }
+    if (search) { sql += ' AND (customer LIKE ? OR order_ref LIKE ? OR tracking_no LIKE ? OR courier LIKE ? OR source_sheet LIKE ?)'; const q=`%${search}%`; params.push(q,q,q,q,q); }
 
     if (filter === 'weekly')  { sql += ` AND order_date >= date('now','-7 days')`; }
     if (filter === 'monthly') { sql += ` AND strftime('%Y-%m',order_date)=strftime('%Y-%m','now')`; }
@@ -38,8 +41,18 @@ function ordersRoutes(db) {
   });
 
   r.put('/:id', (req, res) => {
-    const { status, tracking_no, courier } = req.body;
-    db.prepare(`UPDATE orders SET status=COALESCE(?,status), tracking_no=COALESCE(?,tracking_no), courier=COALESCE(?,courier), updated_at=datetime('now') WHERE id=?`).run(status||null, tracking_no||null, courier||null, req.params.id);
+    const { status, tracking_no, courier, source_sheet, order_date } = req.body;
+    const next = (value) => value === undefined ? null : value;
+    db.prepare(`
+      UPDATE orders
+      SET status=COALESCE(?,status),
+          tracking_no=COALESCE(?,tracking_no),
+          courier=COALESCE(?,courier),
+          source_sheet=COALESCE(?,source_sheet),
+          order_date=COALESCE(?,order_date),
+          updated_at=datetime('now')
+      WHERE id=?
+    `).run(next(status), next(tracking_no), next(courier), next(source_sheet), next(order_date), req.params.id);
     res.json({ success: true });
   });
 

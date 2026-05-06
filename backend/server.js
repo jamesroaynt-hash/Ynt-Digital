@@ -52,7 +52,8 @@ function isPrivateLanHost(hostname = '') {
 }
 
 function isHostedAppHost(hostname = '') {
-  return /\.onrender\.com$/i.test(hostname);
+  return /\.onrender\.com$/i.test(hostname)
+    || /\.vercel\.app$/i.test(hostname);
 }
 
 function isAllowedOrigin(origin) {
@@ -77,7 +78,10 @@ function getLanUrls(port) {
 }
 
 // ─── DATABASE SETUP ────────────────────────────────────────
-const db = new Database(path.join(__dirname, 'db/ynt.db'));
+const dbPath = process.env.SQLITE_PATH
+  || (process.env.VERCEL ? path.join(os.tmpdir(), 'ynt.db') : path.join(__dirname, 'db/ynt.db'));
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
@@ -139,16 +143,18 @@ app.get('*', (req, res) => {
 });
 
 // ─── START ─────────────────────────────────────────────────
-app.listen(PORT, HOST, () => {
-  const lanUrls = getLanUrls(PORT);
-  const urlLines = [`Local:   http://localhost:${PORT}`];
+if (require.main === module) {
+  app.listen(PORT, HOST, () => {
+    const lanUrls = getLanUrls(PORT);
+    const urlLines = [`Local:   http://localhost:${PORT}`];
 
-  lanUrls.forEach((url) => {
-    urlLines.push(`LAN:     ${url}`);
+    lanUrls.forEach((url) => {
+      urlLines.push(`LAN:     ${url}`);
+    });
+
+    console.log(`\nYNT Dashboard running\n${urlLines.join('\n')}\n`);
   });
-
-  console.log(`\nYNT Dashboard running\n${urlLines.join('\n')}\n`);
-});
+}
 
 async function runGoogleSheetsSync(trigger) {
   try {
@@ -161,10 +167,6 @@ async function runGoogleSheetsSync(trigger) {
   }
 }
 
-setTimeout(() => {
-  runGoogleSheetsSync('startup');
-}, 5 * 1000);
-
 function scheduleGoogleSheetsSync() {
   const delay = googleSheetsSync.getSyncIntervalMs(db);
   setTimeout(async () => {
@@ -173,6 +175,12 @@ function scheduleGoogleSheetsSync() {
   }, delay);
 }
 
-scheduleGoogleSheetsSync();
+if (require.main === module && !process.env.VERCEL) {
+  setTimeout(() => {
+    runGoogleSheetsSync('startup');
+  }, 5 * 1000);
+
+  scheduleGoogleSheetsSync();
+}
 
 module.exports = app;

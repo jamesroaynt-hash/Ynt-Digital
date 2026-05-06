@@ -19,6 +19,7 @@ const NAV_ACCESS = {
 let managedUsers = [];
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
+const COURIER_STORAGE_KEY = 'ynt_courier_options';
 const CSR_PAGE_OPTIONS = [
   'AGELESS',
   'GINSENG PH',
@@ -35,6 +36,7 @@ const CSR_PAGE_OPTIONS = [
 ];
 const CSR_SALES_TYPES = ['CONFIRM', 'REPEAT ORDERS', 'VIP + UPSELL', 'UPSELL', 'CANCELLED', 'BROADCAST', 'PENDING'];
 const CSR_STATUS_OPTIONS = ['DELIVERED', 'INTRANSIT', 'RETURNED', 'FOR RETURN', 'DELIVERING', 'FOR MONITORING', 'DASHBOARD CANCELLED', 'CANCELLED'];
+const DEFAULT_COURIER_OPTIONS = ['J&T Express', 'Ninja Van', 'LBC', '2GO', 'Flash Express', 'Shopee Xpress'];
 let authMode = 'login';
 let salesBarChart = null;
 let salesDonutChart = null;
@@ -134,6 +136,12 @@ function getAuthToken() {
   return localStorage.getItem('ynt_token') || '';
 }
 
+function clearExpiredSession() {
+  localStorage.removeItem('ynt_user');
+  localStorage.removeItem('ynt_token');
+  App.user = null;
+}
+
 async function authorizedJsonRequest(path, options = {}) {
   const apiBase = getApiBase();
   if (!apiBase) {
@@ -164,6 +172,12 @@ async function authorizedJsonRequest(path, options = {}) {
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearExpiredSession();
+      showToast('warning', 'Session expired', 'Please sign in again to refresh dashboard data.');
+      loadPage('login');
+      throw new Error('Session expired. Please sign in again.');
+    }
     throw new Error(data?.error || data?.message || 'Request failed');
   }
 
@@ -210,6 +224,7 @@ async function refreshOrderViewsFromBackend() {
       renderViewRecordsOrdersTable();
     }
   } catch (error) {
+    if (!App.user && /session expired/i.test(error.message || '')) return;
     showToast('warning', 'Orders refresh failed', error.message || 'Could not load synced orders.');
   }
 }
@@ -559,6 +574,46 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function loadCourierOptions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COURIER_STORAGE_KEY) || '[]');
+    if (Array.isArray(saved) && saved.length) return saved.filter(Boolean);
+  } catch {}
+  return [...DEFAULT_COURIER_OPTIONS];
+}
+
+function saveCourierOptions(options) {
+  const unique = [...new Set(options.map((item) => String(item || '').trim()).filter(Boolean))].sort();
+  localStorage.setItem(COURIER_STORAGE_KEY, JSON.stringify(unique));
+  return unique;
+}
+
+function getCourierOptions() {
+  return saveCourierOptions([...loadCourierOptions(), ...DB.orders.map((order) => order.courier)]);
+}
+
+function getSourceSheetOptions() {
+  return [...new Set(DB.orders.map((order) => order.sourceSheet || 'Manual').filter(Boolean))].sort();
+}
+
+function getOrderYearOptions() {
+  return [...new Set(DB.orders.map((order) => (order.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+}
+
+function getOrderMonthOptions(year = '') {
+  const formatter = new Intl.DateTimeFormat('en-US', { month: 'long' });
+  return [...new Set(DB.orders
+    .filter((order) => !year || (order.date || '').startsWith(year))
+    .map((order) => (order.date || '').slice(5, 7))
+    .filter(Boolean))]
+    .sort()
+    .map((value) => ({ value, label: formatter.format(new Date(2024, Number(value) - 1, 1)) }));
+}
+
+function getOrderById(orderId) {
+  return DB.orders.find((order) => String(order.dbId || order.id) === String(orderId));
 }
 
 // ─── RENDER: LOGIN ─────────────────────────────────────────
@@ -1201,6 +1256,9 @@ function renderSales() {
   const returned = DB.orders.filter((o) => o.status === 'Returned').length;
   const returning = DB.orders.filter((o) => o.status === 'Returning').length;
   const totalCOD = DB.orders.reduce((sum, o) => sum + o.cod, 0);
+  const sourceOptions = getSourceSheetOptions();
+  const yearOptions = getOrderYearOptions();
+  const monthOptions = getOrderMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
   return `
   <div class="page-header">
     <div class="page-title"><h1>Sales Dashboard</h1><p>Track orders, deliveries, and revenue metrics.</p></div>
@@ -1244,6 +1302,20 @@ function renderSales() {
         <button class="filter-pill ${salesFilter === 'yearly' ? 'active' : ''}" onclick="setSalesFilter('yearly',this)">Year</button>
         <button class="filter-pill ${salesFilter === 'custom' ? 'active' : ''}" onclick="setSalesFilter('custom',this)">Custom</button>
       </div>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <select class="form-control" style="width:150px; padding:6px 10px; font-size:13px;" id="sales-source-filter" onchange="setSalesSourceFilter()">
+          <option value="all">All Sheets</option>
+          ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${salesSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:105px; padding:6px 10px; font-size:13px;" id="sales-year-filter" onchange="setSalesYearFilter()">
+          <option value="all">All Years</option>
+          ${yearOptions.map((year) => `<option value="${year}" ${salesYearFilter === year ? 'selected' : ''}>${year}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:125px; padding:6px 10px; font-size:13px;" id="sales-month-filter" onchange="setSalesMonthFilter()">
+          <option value="all">All Months</option>
+          ${monthOptions.map((month) => `<option value="${month.value}" ${salesMonthFilter === month.value ? 'selected' : ''}>${month.label}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-grid-2 ${salesFilter === 'custom' ? '' : 'hidden'}" id="sales-custom-range" style="max-width:340px;">
         <input type="date" class="form-control" id="sales-date-from">
         <div style="display:flex; gap:8px;">
@@ -1261,7 +1333,7 @@ function renderSales() {
     <div id="sales-table-wrapper">
       <table id="sales-table">
         <thead><tr>
-          <th>Order ID</th><th>Date</th><th>Customer</th><th>Product</th>
+          <th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th>
           <th>Qty</th><th>COD</th><th>Courier</th><th>Status</th>
         </tr></thead>
         <tbody id="sales-tbody"></tbody>
@@ -1787,6 +1859,10 @@ function statusBadge(status) {
 // ─── RENDER: VIEW RECORDS ──────────────────────────────────
 function renderViewRecords() {
   const productOptions = ['all', ...new Set(DB.orders.map((order) => order.product))];
+  const sourceOptions = getSourceSheetOptions();
+  const yearOptions = getOrderYearOptions();
+  const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
+  const courierOptions = getCourierOptions();
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
@@ -1817,6 +1893,18 @@ function renderViewRecords() {
           <select class="form-control records-product-filter" id="rec-orders-product" onchange="filterRecordsByProduct()">
             ${productOptions.map((product) => `<option value="${escapeHtml(product)}" ${recordsProductFilter === product ? 'selected' : ''}>${product === 'all' ? 'All Products' : escapeHtml(product)}</option>`).join('')}
           </select>
+          <select class="form-control records-product-filter" id="rec-orders-source" onchange="filterRecordsBySource()">
+            <option value="all">All Sheets</option>
+            ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${recordsSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+          </select>
+          <select class="form-control records-product-filter" id="rec-orders-year" onchange="filterRecordsByYear()">
+            <option value="all">All Years</option>
+            ${yearOptions.map((year) => `<option value="${year}" ${recordsYearFilter === year ? 'selected' : ''}>${year}</option>`).join('')}
+          </select>
+          <select class="form-control records-product-filter" id="rec-orders-month" onchange="filterRecordsByMonth()">
+            <option value="all">All Months</option>
+            ${monthOptions.map((month) => `<option value="${month.value}" ${recordsMonthFilter === month.value ? 'selected' : ''}>${month.label}</option>`).join('')}
+          </select>
         </div>
         <div class="table-filters" id="rec-orders-status-filters">
           ${['All','Shipped','Delivered','Returned','Returning','Pending'].map((s,i) =>
@@ -1840,9 +1928,17 @@ function renderViewRecords() {
           <input type="date" class="form-control" id="rec-orders-date-to" value="${recordsDateTo}">
           <button class="btn btn-secondary btn-sm" onclick="applyRecordsCustomDateRange()">Apply</button>
         </div>
+        <div class="records-toolbar-group" style="flex-basis:100%; justify-content:flex-end;">
+          <input class="form-control" id="records-new-courier" placeholder="Add courier" style="max-width:170px;">
+          <button class="btn btn-secondary btn-sm" onclick="addCourierOption()">Add Courier</button>
+          <select class="form-control records-product-filter" id="records-remove-courier">
+            ${courierOptions.map((courier) => `<option value="${escapeHtml(courier)}">${escapeHtml(courier)}</option>`).join('')}
+          </select>
+          <button class="btn btn-danger btn-sm" onclick="removeCourierOption()">Remove Courier</button>
+        </div>
       </div>
       <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
           ${DB.orders.map(o => `<tr data-status="${o.status}">
             <td class="font-mono text-xs text-muted">${o.id}</td>
@@ -2835,6 +2931,9 @@ let salesFilter = 'daily';
 let salesSearch = '';
 let salesDateFrom = '';
 let salesDateTo = '';
+let salesSourceFilter = 'all';
+let salesYearFilter = 'all';
+let salesMonthFilter = 'all';
 let recordsPage = 1;
 let recordsSearch = '';
 let recordsStatusFilter = 'All';
@@ -2842,6 +2941,9 @@ let recordsProductFilter = 'all';
 let recordsDateFilter = 'all';
 let recordsDateFrom = '';
 let recordsDateTo = '';
+let recordsSourceFilter = 'all';
+let recordsYearFilter = 'all';
+let recordsMonthFilter = 'all';
 
 function renderSalesSummaryCards(data) {
   const summary = document.getElementById('sales-summary-cards');
@@ -2861,11 +2963,7 @@ function renderSalesSummaryCards(data) {
     <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">PHP ${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
 }
 
-function renderSalesTable() {
-  const perPage = parseInt(document.getElementById('sales-per-page')?.value || '10');
-  const tbody = document.getElementById('sales-tbody');
-  if (!tbody) return;
-
+function getFilteredSalesOrders() {
   let data = [...DB.orders];
   const today = normalizeDateString(new Date());
   if (salesFilter === 'daily') {
@@ -2882,16 +2980,31 @@ function renderSalesTable() {
     if (salesDateTo) data = data.filter((order) => order.date <= salesDateTo);
   }
 
-  // Search
+  if (salesSourceFilter !== 'all') data = data.filter((order) => (order.sourceSheet || 'Manual') === salesSourceFilter);
+  if (salesYearFilter !== 'all') data = data.filter((order) => (order.date || '').startsWith(salesYearFilter));
+  if (salesMonthFilter !== 'all') data = data.filter((order) => (order.date || '').slice(5, 7) === salesMonthFilter);
+
   if (salesSearch) {
     const q = salesSearch.toLowerCase();
     data = data.filter(o =>
       o.id.toLowerCase().includes(q) ||
       o.customer.toLowerCase().includes(q) ||
       o.product.toLowerCase().includes(q) ||
-      o.tracking.toLowerCase().includes(q)
+      o.tracking.toLowerCase().includes(q) ||
+      (o.sourceSheet || '').toLowerCase().includes(q) ||
+      (o.courier || '').toLowerCase().includes(q)
     );
   }
+
+  return data.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+}
+
+function renderSalesTable() {
+  const perPage = parseInt(document.getElementById('sales-per-page')?.value || '10');
+  const tbody = document.getElementById('sales-tbody');
+  if (!tbody) return;
+
+  const data = getFilteredSalesOrders();
 
   renderSalesSummaryCards(data);
 
@@ -2901,6 +3014,8 @@ function renderSalesTable() {
 
   tbody.innerHTML = sliced.map(o => `<tr>
     <td class="font-mono text-xs text-muted">${o.id}</td>
+    <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
+    <td>${escapeHtml(o.sourceSheet || 'Manual')}</td>
     <td>${o.date}</td>
     <td style="font-weight:500">${o.customer}</td>
     <td>${o.product}</td>
@@ -2908,7 +3023,7 @@ function renderSalesTable() {
     <td>₱${o.cod.toLocaleString()}</td>
     <td>${o.courier}</td>
     <td>${statusBadge(o.status)}</td>
-  </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
 
   // Pagination
   const pag = document.getElementById('sales-pagination');
@@ -2925,30 +3040,7 @@ function renderSalesTable() {
 
 function changeSalesPage(p) {
   const perPage = parseInt(document.getElementById('sales-per-page')?.value || '10');
-  let total = [...DB.orders];
-  const today = normalizeDateString(new Date());
-  if (salesFilter === 'daily') {
-    total = total.filter((order) => order.date === today);
-  } else if (salesFilter === 'weekly') {
-    const week = getDateDaysAgo(6);
-    total = total.filter((order) => new Date(order.date) >= week);
-  } else if (salesFilter === 'monthly') {
-    total = total.filter((order) => order.date.startsWith(today.slice(0, 7)));
-  } else if (salesFilter === 'yearly') {
-    total = total.filter((order) => order.date.startsWith(today.slice(0, 4)));
-  } else if (salesFilter === 'custom') {
-    if (salesDateFrom) total = total.filter((order) => order.date >= salesDateFrom);
-    if (salesDateTo) total = total.filter((order) => order.date <= salesDateTo);
-  }
-  if (salesSearch) {
-    const q = salesSearch.toLowerCase();
-    total = total.filter((order) =>
-      order.id.toLowerCase().includes(q) ||
-      order.customer.toLowerCase().includes(q) ||
-      order.product.toLowerCase().includes(q) ||
-      order.tracking.toLowerCase().includes(q)
-    );
-  }
+  const total = getFilteredSalesOrders();
   const pages = Math.max(1, Math.ceil(total.length / perPage));
   if (p < 1 || p > pages) return;
   salesPage = p;
@@ -2977,6 +3069,30 @@ function filterSalesTable() {
   renderSalesTable();
 }
 
+function setSalesSourceFilter() {
+  salesSourceFilter = document.getElementById('sales-source-filter')?.value || 'all';
+  salesPage = 1;
+  renderSalesTable();
+}
+
+function setSalesYearFilter() {
+  salesYearFilter = document.getElementById('sales-year-filter')?.value || 'all';
+  salesMonthFilter = 'all';
+  const monthSelect = document.getElementById('sales-month-filter');
+  if (monthSelect) {
+    const months = getOrderMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
+    monthSelect.innerHTML = `<option value="all">All Months</option>${months.map((month) => `<option value="${month.value}">${month.label}</option>`).join('')}`;
+  }
+  salesPage = 1;
+  renderSalesTable();
+}
+
+function setSalesMonthFilter() {
+  salesMonthFilter = document.getElementById('sales-month-filter')?.value || 'all';
+  salesPage = 1;
+  renderSalesTable();
+}
+
 function getFilteredViewRecordOrders() {
   let data = [...DB.orders];
   const today = normalizeDateString(new Date());
@@ -2987,6 +3103,18 @@ function getFilteredViewRecordOrders() {
 
   if (recordsProductFilter !== 'all') {
     data = data.filter((order) => order.product === recordsProductFilter);
+  }
+
+  if (recordsSourceFilter !== 'all') {
+    data = data.filter((order) => (order.sourceSheet || 'Manual') === recordsSourceFilter);
+  }
+
+  if (recordsYearFilter !== 'all') {
+    data = data.filter((order) => (order.date || '').startsWith(recordsYearFilter));
+  }
+
+  if (recordsMonthFilter !== 'all') {
+    data = data.filter((order) => (order.date || '').slice(5, 7) === recordsMonthFilter);
   }
 
   if (recordsDateFilter === 'today') {
@@ -3012,6 +3140,7 @@ function getFilteredViewRecordOrders() {
       || order.courier.toLowerCase().includes(query)
       || order.status.toLowerCase().includes(query)
       || order.tracking.toLowerCase().includes(query)
+      || (order.sourceSheet || '').toLowerCase().includes(query)
     );
   }
 
@@ -3030,6 +3159,8 @@ function renderViewRecordsOrdersTable() {
 
   tbody.innerHTML = sliced.map((order) => `<tr data-status="${order.status}">
     <td class="font-mono text-xs text-muted">${order.id}</td>
+    <td class="font-mono text-xs">${escapeHtml(order.tracking || '')}</td>
+    <td>${escapeHtml(order.sourceSheet || 'Manual')}</td>
     <td>${order.date}</td>
     <td style="font-weight:500">${order.customer}</td>
     <td>${order.product}</td>
@@ -3037,7 +3168,13 @@ function renderViewRecordsOrdersTable() {
     <td>₱${order.cod.toLocaleString()}</td>
     <td>${order.courier}</td>
     <td>${statusBadge(order.status)}</td>
-  </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
+    <td>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" onclick="editOrderRecord('${escapeHtml(order.dbId || order.id)}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteOrderRecord('${escapeHtml(order.dbId || order.id)}')">Delete</button>
+      </div>
+    </td>
+  </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
 
   const pagination = document.getElementById('records-pagination');
   if (pagination) {
@@ -3070,6 +3207,119 @@ function filterRecordsByProduct() {
   recordsProductFilter = document.getElementById('rec-orders-product')?.value || 'all';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+}
+
+function filterRecordsBySource() {
+  recordsSourceFilter = document.getElementById('rec-orders-source')?.value || 'all';
+  recordsPage = 1;
+  renderViewRecordsOrdersTable();
+}
+
+function filterRecordsByYear() {
+  recordsYearFilter = document.getElementById('rec-orders-year')?.value || 'all';
+  recordsMonthFilter = 'all';
+  const monthSelect = document.getElementById('rec-orders-month');
+  if (monthSelect) {
+    const months = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
+    monthSelect.innerHTML = `<option value="all">All Months</option>${months.map((month) => `<option value="${month.value}">${month.label}</option>`).join('')}`;
+  }
+  recordsPage = 1;
+  renderViewRecordsOrdersTable();
+}
+
+function filterRecordsByMonth() {
+  recordsMonthFilter = document.getElementById('rec-orders-month')?.value || 'all';
+  recordsPage = 1;
+  renderViewRecordsOrdersTable();
+}
+
+function addCourierOption() {
+  const input = document.getElementById('records-new-courier');
+  const value = input?.value.trim();
+  if (!value) {
+    showToast('warning', 'Courier required', 'Enter a courier name first.');
+    return;
+  }
+  saveCourierOptions([...getCourierOptions(), value]);
+  showToast('success', 'Courier added', value);
+  loadPage('view-records');
+}
+
+function removeCourierOption() {
+  const value = document.getElementById('records-remove-courier')?.value || '';
+  if (!value) return;
+  const inUse = DB.orders.some((order) => normalizeText(order.courier) === normalizeText(value));
+  if (inUse) {
+    showToast('warning', 'Courier is in use', 'Edit those orders to another courier before removing it from the list.');
+    return;
+  }
+  saveCourierOptions(loadCourierOptions().filter((courier) => courier !== value));
+  showToast('success', 'Courier removed', value);
+  loadPage('view-records');
+}
+
+async function editOrderRecord(orderId) {
+  const order = getOrderById(orderId);
+  if (!order) {
+    showToast('error', 'Order not found', 'The selected order is not available.');
+    return;
+  }
+
+  const tracking = window.prompt('Tracking number', order.tracking || '');
+  if (tracking === null) return;
+  const pageName = window.prompt('Page / sheet name', order.sourceSheet || 'Manual');
+  if (pageName === null) return;
+  const courier = window.prompt(`Courier (${getCourierOptions().join(', ')})`, order.courier || '');
+  if (courier === null) return;
+
+  const payload = {
+    tracking_no: tracking.trim(),
+    source_sheet: pageName.trim() || 'Manual',
+    courier: courier.trim(),
+  };
+
+  try {
+    if (order.dbId && getApiBase()) {
+      await authorizedJsonRequest(`/orders/${order.dbId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      await refreshOrdersFromBackend();
+    } else {
+      order.tracking = payload.tracking_no;
+      order.sourceSheet = payload.source_sheet;
+      order.courier = payload.courier;
+    }
+    saveCourierOptions([...getCourierOptions(), payload.courier]);
+    showToast('success', 'Order updated', `${order.id} was saved.`);
+    renderViewRecordsOrdersTable();
+    if (App.currentPage === 'sales') renderSalesTable();
+  } catch (error) {
+    showToast('error', 'Update failed', error.message || 'Could not update order.');
+  }
+}
+
+async function deleteOrderRecord(orderId) {
+  const order = getOrderById(orderId);
+  if (!order) {
+    showToast('error', 'Order not found', 'The selected order is not available.');
+    return;
+  }
+  if (!window.confirm(`Delete ${order.id}? This removes the synced/local dashboard record.`)) return;
+
+  try {
+    if (order.dbId && getApiBase()) {
+      await authorizedJsonRequest(`/orders/${order.dbId}`, { method: 'DELETE' });
+      await refreshOrdersFromBackend();
+    } else {
+      DB.orders = DB.orders.filter((item) => item !== order);
+    }
+    showToast('success', 'Order deleted', order.id);
+    renderViewRecordsOrdersTable();
+    if (App.currentPage === 'sales') renderSalesTable();
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete order.');
+  }
 }
 
 function setRecordsStatusFilter(status, btn) {
@@ -3110,7 +3360,7 @@ function applyRecordsCustomDateRange() {
 }
 
 // ─── SCAN ──────────────────────────────────────────────────
-function performScan(pageId, scanType) {
+async function performScan(pageId, scanType) {
   const input = document.getElementById(`scan-input-${pageId}`);
   const tracking = input?.value?.trim();
   if (!tracking) { showToast('warning', 'No input', 'Please enter a tracking number'); return; }
@@ -3119,6 +3369,21 @@ function performScan(pageId, scanType) {
 
   // Look up in existing records
   let found = DB.scanRecords.find(r => r.tracking.toLowerCase() === tracking.toLowerCase());
+
+  if (!found && getApiBase() && getAuthToken()) {
+    try {
+      const row = await authorizedJsonRequest(`/scans/lookup/${encodeURIComponent(tracking)}`);
+      found = {
+        tracking: row.tracking_no || tracking,
+        customer: row.customer || 'Unknown Customer',
+        phone: row.phone || 'N/A',
+        date: normalizeDateString(row.scan_date || row.order_date || new Date()),
+        status: row.status || (scanType === 'RTS' ? 'Return to Sender' : 'For Delivery'),
+        courier: row.courier || 'Unknown',
+        type: scanType,
+      };
+    } catch {}
+  }
 
   if (!found) {
     // Also check orders
@@ -3157,6 +3422,25 @@ function performScan(pageId, scanType) {
     date: new Date().toISOString().split('T')[0],
   };
   DB.scanRecords.unshift(newRecord);
+
+  if (getApiBase() && getAuthToken()) {
+    try {
+      await authorizedJsonRequest('/scans', {
+        method: 'POST',
+        body: JSON.stringify({
+          tracking_no: newRecord.tracking,
+          customer: newRecord.customer,
+          phone: newRecord.phone,
+          status: newRecord.status,
+          courier: newRecord.courier,
+          scan_type: scanType,
+          scan_date: newRecord.date,
+        }),
+      });
+    } catch (error) {
+      showToast('warning', 'Saved locally', error.message || 'The scan could not be saved to the server.');
+    }
+  }
 
   resultEl.innerHTML = `
     <div class="scan-result-card">

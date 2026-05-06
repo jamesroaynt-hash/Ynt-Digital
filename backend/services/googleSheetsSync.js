@@ -293,15 +293,15 @@ function normalizeOrderRecord(row, sheetName) {
     externalId,
     order_ref: stringOrNull(getFirstValue(row, ['order_ref', 'order_id', 'id']))
       || `GS-${normalizeHeaderKey(sheetName).toUpperCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-    tracking_no: stringOrNull(getFirstValue(row, ['tracking_no', 'tracking_number'])),
-    customer: stringOrNull(getFirstValue(row, ['customer', 'customer_name'])) || 'Unknown Customer',
+    tracking_no: stringOrNull(getFirstValue(row, ['tracking_no', 'tracking_number', 'tracking', 'tracking id', 'tracking_id', 'waybill'])),
+    customer: stringOrNull(getFirstValue(row, ['customer', 'customer_name', 'name', 'buyer_name', 'recipient_name'])) || 'Unknown Customer',
     phone: stringOrNull(getFirstValue(row, ['phone', 'phone_number', 'mobile', 'contact_number'])),
     product: stringOrNull(getFirstValue(row, ['product', 'product_name', 'item', 'items'])) || 'Unknown Product',
     qty: Math.max(1, Math.round(numberOrDefault(getFirstValue(row, ['qty', 'quantity']), 1))),
     cod_amount: numberOrDefault(getFirstValue(row, ['cod_amount', 'cod', 'amount']), 0),
     status: normalizeStatus(getFirstValue(row, ['status'])),
-    courier: stringOrNull(getFirstValue(row, ['courier', 'shipper'])),
-    order_date: stringOrNull(getFirstValue(row, ['order_date', 'day_created', 'date_created', 'created_at', 'date']))
+    courier: stringOrNull(getFirstValue(row, ['courier', 'shipper', 'shipping_provider', 'logistics', 'delivery_partner'])),
+    order_date: stringOrNull(getFirstValue(row, ['order_date', 'day_created', 'date_created', 'created_at', 'date', 'created_date']))
       || new Date().toISOString().slice(0, 10),
     source_sheet: stringOrNull(sheetName) || 'Orders',
   };
