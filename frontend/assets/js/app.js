@@ -2283,17 +2283,21 @@ function renderViewRecords() {
         </div>
       </div>
       <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
           ${DB.orders.map(o => `<tr data-status="${o.status}">
             <td class="font-mono text-xs text-muted">${o.id}</td>
+            <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
+            <td>${escapeHtml(o.sourceSheet || 'Manual')}</td>
             <td>${o.date}</td>
             <td style="font-weight:500">${o.customer}</td>
+            <td class="font-mono text-xs">${escapeHtml(o.phone || '')}</td>
             <td>${o.product}</td>
             <td>${o.qty}</td>
             <td>₱${o.cod.toLocaleString()}</td>
             <td>${o.courier}</td>
             <td>${statusBadge(o.status)}</td>
+            <td></td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -2303,12 +2307,13 @@ function renderViewRecords() {
 
   <div id="rec-csr" class="tab-content">
     <div class="table-container">
-      <table><thead><tr><th>Date</th><th>Name CSR</th><th>Page Name</th><th>Customer</th><th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th></tr></thead>
+      <table><thead><tr><th>Date</th><th>Name CSR</th><th>Page Name</th><th>Customer</th><th>Cellphone</th><th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th></tr></thead>
         <tbody>${DB.csrRecords.map((record) => `<tr>
           <td>${record.date}</td>
           <td style="font-weight:500">${record.csrName}</td>
           <td>${record.pageName}</td>
           <td>${record.customerName}</td>
+          <td class="font-mono text-xs">${record.cellphoneNumber}</td>
           <td><span class="badge badge-info">${record.salesType}</span></td>
           <td>${statusBadge(record.status)}</td>
           <td>₱${Number(record.price || 0).toLocaleString()}</td>
@@ -3599,6 +3604,7 @@ function getFilteredViewRecordOrders() {
     data = data.filter((order) =>
       order.id.toLowerCase().includes(query)
       || order.customer.toLowerCase().includes(query)
+      || (order.phone || '').toLowerCase().includes(query)
       || order.product.toLowerCase().includes(query)
       || order.courier.toLowerCase().includes(query)
       || order.status.toLowerCase().includes(query)
@@ -3626,6 +3632,7 @@ function renderViewRecordsOrdersTable() {
     <td>${escapeHtml(order.sourceSheet || 'Manual')}</td>
     <td>${order.date}</td>
     <td style="font-weight:500">${order.customer}</td>
+    <td class="font-mono text-xs">${escapeHtml(order.phone || '')}</td>
     <td>${order.product}</td>
     <td>${order.qty}</td>
     <td>₱${order.cod.toLocaleString()}</td>
@@ -3637,7 +3644,7 @@ function renderViewRecordsOrdersTable() {
         <button class="btn btn-danger btn-sm" onclick="deleteOrderRecord('${escapeHtml(order.dbId || order.id)}')">Delete</button>
       </div>
     </td>
-  </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="12" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
 
   const pagination = document.getElementById('records-pagination');
   if (pagination) {
