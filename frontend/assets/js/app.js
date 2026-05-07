@@ -13,11 +13,11 @@ const NAV_ACCESS = {
   Trainee: ['home', 'sales', 'csr', 'view-records'],
   CSR: ['home', 'sales', 'csr', 'view-records', 'manage-users'],
   'CSR TL': ['home', 'sales', 'csr', 'view-records', 'manage-users'],
-  RMO: ['home', 'sales', 'inventory', 'expenses', 'view-records', 'api-connections'],
-  'RMO TL': ['home', 'sales', 'inventory', 'expenses', 'view-records', 'api-connections'],
-  Logistics: ['home', 'sales', 'inventory', 'expenses', 'api-connections'],
-  'Sales and Marketing': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records', 'api-connections'],
-  'Sales and Marketing TL': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records', 'api-connections'],
+  RMO: ['home', 'sales', 'inventory', 'expenses', 'view-records'],
+  'RMO TL': ['home', 'sales', 'inventory', 'expenses', 'view-records'],
+  Logistics: ['home', 'sales', 'inventory', 'expenses'],
+  'Sales and Marketing': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
+  'Sales and Marketing TL': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
 };
 let managedUsers = [];
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
@@ -380,7 +380,7 @@ const DB = {
 
 function generateOrders(n) {
   const statuses = ['Shipped', 'Delivered', 'Returned', 'Returning', 'Pending'];
-  const products = ['YNT Serum Glow', 'Hydra Cream', 'Vitamin C Drops', 'Retinol Boost', 'Toner Mist'];
+  const products = ['DRAGON BLOOD SERUM', 'DRAGON BLOOD CREAM', 'GINSENG SERUM', 'HALLY LOTIONS', 'WHITE CREAM', 'NIACINAMIDE'];
   const names = ['Maria Santos', 'Juan dela Cruz', 'Ana Reyes', 'Carlo Mendoza', 'Liza Tan', 'Ben Aquino', 'Rosa Cruz', 'Mark Lim', 'Joy Castro', 'Ryan Ong'];
   return Array.from({ length: n }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - Math.floor(Math.random() * 90));
@@ -402,11 +402,12 @@ function generateOrders(n) {
 
 function generateInventory() {
   return [
-    { id: 'P001', name: 'YNT Serum Glow 30ml', type: 'Product', sku: 'SKU-001', stock: 156, reorder: 200, unit: 'pcs', cost: 120, price: 599 },
-    { id: 'P002', name: 'Hydra Cream 50g', type: 'Product', sku: 'SKU-002', stock: 230, reorder: 200, unit: 'pcs', cost: 95, price: 450 },
-    { id: 'P003', name: 'Vitamin C Drops 15ml', type: 'Product', sku: 'SKU-003', stock: 88, reorder: 200, unit: 'pcs', cost: 75, price: 399 },
-    { id: 'P004', name: 'Retinol Boost Serum', type: 'Product', sku: 'SKU-004', stock: 312, reorder: 200, unit: 'pcs', cost: 140, price: 699 },
-    { id: 'P005', name: 'Toner Mist 100ml', type: 'Product', sku: 'SKU-005', stock: 45, reorder: 200, unit: 'pcs', cost: 60, price: 299 },
+    { id: 'P001', name: 'DRAGON BLOOD SERUM', type: 'Product', sku: 'SKU-001', stock: 156, reorder: 200, unit: 'pcs', cost: 120, price: 599 },
+    { id: 'P002', name: 'DRAGON BLOOD CREAM', type: 'Product', sku: 'SKU-002', stock: 230, reorder: 200, unit: 'pcs', cost: 95, price: 450 },
+    { id: 'P003', name: 'GINSENG SERUM', type: 'Product', sku: 'SKU-003', stock: 88, reorder: 200, unit: 'pcs', cost: 75, price: 399 },
+    { id: 'P004', name: 'HALLY LOTIONS', type: 'Product', sku: 'SKU-004', stock: 312, reorder: 200, unit: 'pcs', cost: 140, price: 699 },
+    { id: 'P005', name: 'WHITE CREAM', type: 'Product', sku: 'SKU-005', stock: 45, reorder: 200, unit: 'pcs', cost: 60, price: 299 },
+    { id: 'P006', name: 'NIACINAMIDE', type: 'Product', sku: 'SKU-006', stock: 120, reorder: 200, unit: 'pcs', cost: 70, price: 399 },
     { id: 'S001', name: 'Bubble Wrap Roll', type: 'Supply', sku: 'SUP-001', stock: 8, reorder: 15, unit: 'roll', cost: 180, price: null },
     { id: 'S002', name: 'Packing Box (S)', type: 'Supply', sku: 'SUP-002', stock: 25, reorder: 15, unit: 'pcs', cost: 12, price: null },
     { id: 'S003', name: 'Packing Box (M)', type: 'Supply', sku: 'SUP-003', stock: 6, reorder: 15, unit: 'pcs', cost: 18, price: null },
@@ -438,7 +439,7 @@ function generateExpenses(n) {
 }
 
 function generatePickups(n) {
-  const products = ['YNT Serum Glow 30ml', 'Hydra Cream 50g', 'Vitamin C Drops', 'Retinol Boost', 'Toner Mist'];
+  const products = ['DRAGON BLOOD SERUM', 'DRAGON BLOOD CREAM', 'GINSENG SERUM', 'HALLY LOTIONS', 'WHITE CREAM', 'NIACINAMIDE'];
   return Array.from({ length: n }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - i);
     const orders = Math.floor(1 + Math.random() * 4);
@@ -840,6 +841,14 @@ function renderLogin() {
 }
 
 function renderApiConnections() {
+  if (!isAdminUser()) {
+    return `
+    <div class="empty-state">
+      <h3>Administrator access required</h3>
+      <p>API Connections are available only on admin accounts.</p>
+    </div>`;
+  }
+
   const state = getIntegrationState();
   const settings = state.pancake;
   const posSettings = state.pancakePos;
@@ -921,7 +930,14 @@ function renderApiConnections() {
     </div>
   </div>
 
-  <div class="integration-layout">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab(this,'api-tab-pancake')">Pancake Webhook</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-guide')">Setup Guide</button>
+  </div>
+
+  <div id="api-tab-pancake" class="tab-content active">
     <section class="card integration-card">
       <div class="card-header">
         <div>
@@ -1003,7 +1019,9 @@ function renderApiConnections() {
         </div>
       </div>
     </section>
+  </div>
 
+  <div id="api-tab-pos" class="tab-content">
     <section class="card integration-card">
       <div class="card-header">
         <div>
@@ -1064,7 +1082,9 @@ function renderApiConnections() {
         </div>
       </div>
     </section>
+  </div>
 
+  <div id="api-tab-sheets" class="tab-content">
     <section class="card integration-card">
       <div class="card-header">
         <div>
@@ -1136,7 +1156,9 @@ function renderApiConnections() {
         </div>
       </div>
     </section>
+  </div>
 
+  <div id="api-tab-guide" class="tab-content">
     <aside class="integration-stack">
       <section class="card integration-card">
         <div class="card-header">
@@ -1223,13 +1245,14 @@ function renderHome() {
   const delivered = DB.orders.filter(o => o.status === 'Delivered').length;
   const totalCOD = DB.orders.reduce((s, o) => s + o.cod, 0);
 
-  const galleryItems = [
-    { title: 'YNT Serum Glow', desc: 'Best Seller — Anti-aging formula', color: '#eff6ff' },
-    { title: 'Hydra Cream 50g', desc: 'Deep moisture restoration', color: '#ecfdf5' },
-    { title: 'Vitamin C Drops', desc: 'Brightening treatment serum', color: '#fffbeb' },
-    { title: 'Retinol Boost', desc: 'Youth renewal technology', color: '#fdf2f8' },
-    { title: 'Toner Mist', desc: 'Hydrating refresh spray', color: '#f0f9ff' },
-    { title: 'YNT Bundle Kit', desc: 'Complete skincare routine', color: '#faf5ff' },
+
+  const productGalleryItems = [
+    { title: 'DRAGON BLOOD SERUM', desc: 'YNT product line', image: '../Images/DRAGON%20BLOOD.png' },
+    { title: 'DRAGON BLOOD CREAM', desc: 'YNT product line', image: '../Images/DRAGON%20CREAM.png' },
+    { title: 'GINSENG SERUM', desc: 'YNT product line', image: '../Images/Ginseng%20Serum.png' },
+    { title: 'HALLY LOTIONS', desc: 'YNT product line', image: '../Images/HALLY%20LOTION.png' },
+    { title: 'WHITE CREAM', desc: 'YNT product line', image: '../Images/White%20Cream.png' },
+    { title: 'NIACINAMIDE', desc: 'YNT product line', image: '../Images/NIACINAMIDE.png' },
   ];
 
   return `
@@ -1279,11 +1302,9 @@ function renderHome() {
     </div>
     <div class="card-body">
       <div class="gallery-grid">
-        ${galleryItems.map((item, i) => `
+        ${productGalleryItems.map((item) => `
           <div class="gallery-item">
-            <div class="gallery-img" style="background:${item.color}; display:flex; align-items:center; justify-content:center;">
-              <div style="font-size:48px; opacity:0.6">${['✨','💧','🍋','⭐','💦','🎁'][i]}</div>
-            </div>
+            <img class="gallery-img" src="${item.image}" alt="${escapeHtml(item.title)}" loading="lazy">
             <div class="gallery-info">
               <h4>${item.title}</h4>
               <p>${item.desc}</p>
@@ -4310,9 +4331,8 @@ function collectPancakePosFormState() {
 }
 
 async function syncPancakeConfigToBackend(settings) {
-  const response = await fetch(`${getPancakePublicApiBase()}/config`, {
+  return authorizedJsonRequest('/integrations/pancake/config', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       enabled: settings.enabled,
       base_url: settings.baseUrl,
@@ -4324,18 +4344,11 @@ async function syncPancakeConfigToBackend(settings) {
       notes: settings.notes,
     }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Config sync failed with status ${response.status}`);
-  }
-
-  return response.json();
 }
 
 async function syncPancakePosConfigToBackend(settings) {
-  const response = await fetch(`${getPancakePosPublicApiBase()}/config`, {
+  return authorizedJsonRequest('/integrations/pancake-pos/config', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       enabled: settings.enabled,
       base_url: settings.baseUrl,
@@ -4346,18 +4359,11 @@ async function syncPancakePosConfigToBackend(settings) {
       notes: settings.notes,
     }),
   });
-
-  if (!response.ok) {
-    throw new Error(`POS config sync failed with status ${response.status}`);
-  }
-
-  return response.json();
 }
 
 async function syncGoogleSheetsConfigToBackend(settings) {
-  const response = await fetch(`${getGoogleSheetsPublicApiBase()}/config`, {
+  return authorizedJsonRequest('/integrations/google-sheets/config', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       enabled: settings.enabled,
       spreadsheet_id: settings.spreadsheetId,
@@ -4369,12 +4375,6 @@ async function syncGoogleSheetsConfigToBackend(settings) {
       notes: settings.notes,
     }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Config sync failed with status ${response.status}`);
-  }
-
-  return response.json();
 }
 
 function savePancakeConnection() {
@@ -4482,13 +4482,10 @@ async function fetchPancakePages() {
   }
 
   try {
-    const response = await fetch(`${getPancakePublicApiBase()}/pages`, {
+    const data = await authorizedJsonRequest('/integrations/pancake/pages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_access_token: state.pancake.userAccessToken }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
 
     const pages = Array.isArray(data.pages) ? data.pages : [];
     if (!pages.length) {
@@ -4516,9 +4513,8 @@ async function collectPancakeApiData() {
   }
 
   try {
-    const response = await fetch(`${getPancakePublicApiBase()}/collect`, {
+    const data = await authorizedJsonRequest('/integrations/pancake/collect', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user_access_token: state.pancake.userAccessToken,
         page_id: state.pancake.pageId,
@@ -4526,8 +4522,6 @@ async function collectPancakeApiData() {
         resources: ['conversations', 'customers', 'posts', 'tags', 'users', 'messages'],
       }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
 
     const collectedResources = Object.entries(data.resources || {}).map(([name, details]) => `${name}:${details.count}`).join(', ');
     const refreshed = getIntegrationState();
@@ -4561,16 +4555,13 @@ async function fetchPancakePosShops() {
 
   try {
     await syncPancakePosConfigToBackend(state.pancakePos);
-    const response = await fetch(`${getPancakePosPublicApiBase()}/shops`, {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/shops', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         api_key: state.pancakePos.apiKey,
         base_url: state.pancakePos.baseUrl,
       }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
 
     const shops = Array.isArray(data.shops) ? data.shops : [];
     if (!shops.length) {
@@ -4599,9 +4590,8 @@ async function collectPancakePosData() {
 
   try {
     await syncPancakePosConfigToBackend(state.pancakePos);
-    const response = await fetch(`${getPancakePosPublicApiBase()}/collect`, {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         api_key: state.pancakePos.apiKey,
         base_url: state.pancakePos.baseUrl,
@@ -4613,8 +4603,6 @@ async function collectPancakePosData() {
         endDateTime: Math.floor(Date.now() / 1000),
       }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
 
     const collectedResources = Object.entries(data.resources || {}).map(([name, details]) => `${name}:${details.count}`).join(', ');
     const refreshed = getIntegrationState();
@@ -4646,16 +4634,13 @@ async function collectGoogleSheetsData() {
   try {
     await syncGoogleSheetsConfigToBackend(state.googleSheets);
 
-    const response = await fetch(`${getGoogleSheetsPublicApiBase()}/collect`, {
+    const data = await authorizedJsonRequest('/integrations/google-sheets/collect', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         spreadsheet_id: state.googleSheets.spreadsheetId,
         sheet_name: state.googleSheets.sheetName,
       }),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error || `Status ${response.status}`);
 
     const refreshed = getIntegrationState();
     const sheetSummary = Array.isArray(data.sheets) && data.sheets.length

@@ -5,7 +5,7 @@
   ],
   "functions": {
     "api/index.js": {
-      "includeFiles": "backend/db/*.sql,frontend/**"
+      "includeFiles": "backend/db/*.sql,frontend/**,Images/**"
     }
   },
   "crons": [
