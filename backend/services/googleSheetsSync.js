@@ -107,12 +107,12 @@ function normalizeStatus(value) {
   const text = stringOrNull(value);
   if (!text) return 'Pending';
 
-  const normalized = text.toLowerCase();
-  if (normalized === 'pending') return 'Pending';
-  if (normalized === 'shipped') return 'Shipped';
-  if (normalized === 'delivered') return 'Delivered';
-  if (normalized === 'returned') return 'Returned';
-  if (normalized === 'returning') return 'Returning';
+  const normalized = text.toLowerCase().replace(/[_-]+/g, ' ').trim();
+  if (['pending', 'new', 'draft', 'created'].includes(normalized)) return 'Pending';
+  if (['shipped', 'shipping', 'submitted', 'confirmed', 'in transit', 'delivering'].includes(normalized)) return 'Shipped';
+  if (['delivered', 'complete', 'completed', 'success'].includes(normalized)) return 'Delivered';
+  if (['returned', 'return', 'rts', 'return to sender', 'failed delivery'].includes(normalized)) return 'Returned';
+  if (['returning', 'for return', 'returning to seller'].includes(normalized)) return 'Returning';
   return 'Pending';
 }
 
@@ -364,6 +364,7 @@ function rowsToObjects(rows) {
 }
 
 function normalizeOrderRecord(row, sheetName) {
+  const pageName = stringOrNull(getFirstValue(row, ['page', 'page_name', 'page name', 'account', 'account_name', 'shop', 'shop_name']));
   const externalId = stringOrNull(getFirstValue(row, [
     'order_ref',
     'external_id',
@@ -476,7 +477,7 @@ function normalizeOrderRecord(row, sheetName) {
     status: normalizeStatus(getFirstValue(row, ['status', 'status_name', 'status name', 'order_status', 'order status'])),
     courier: stringOrNull(getFirstValue(row, ['courier', 'shipper', 'shipping_provider', 'shipping provider', 'logistics', 'delivery_partner', 'delivery partner'])),
     order_date: orderDate,
-    source_sheet: stringOrNull(sheetName) || 'Orders',
+    source_sheet: pageName || stringOrNull(sheetName) || 'Orders',
   };
 }
 
