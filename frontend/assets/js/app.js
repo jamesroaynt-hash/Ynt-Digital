@@ -5108,12 +5108,15 @@ async function collectGoogleSheetsData() {
 
     const refreshed = getIntegrationState();
     const sheetSummary = Array.isArray(data.sheets) && data.sheets.length
-      ? data.sheets.map((sheet) => `${sheet.sheet_name}: +${sheet.imported}/~${sheet.updated}`).join(', ')
+      ? data.sheets.map((sheet) => `${sheet.sheet_name}: +${sheet.imported}/~${sheet.updated}/!${sheet.failed || 0}`).join(', ')
+      : '';
+    const firstFailure = Array.isArray(data.failed_rows) && data.failed_rows.length
+      ? ` First error row ${data.failed_rows[0].row_number}: ${data.failed_rows[0].error}`
       : '';
     refreshed.googleSheets = {
       ...state.googleSheets,
       lastCollectedAt: new Date().toISOString(),
-      lastCollectionSummary: `Imported ${data.imported || 0}, updated ${data.updated || 0}, failed ${Array.isArray(data.failed_rows) ? data.failed_rows.length : 0}${sheetSummary ? ` (${sheetSummary})` : ''}`,
+      lastCollectionSummary: `Imported ${data.imported || 0}, updated ${data.updated || 0}, failed ${Array.isArray(data.failed_rows) ? data.failed_rows.length : 0}${sheetSummary ? ` (${sheetSummary})` : ''}.${firstFailure}`,
     };
     saveIntegrationState(refreshed);
 

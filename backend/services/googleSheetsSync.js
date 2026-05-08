@@ -14,7 +14,10 @@ function stringOrNull(value) {
 }
 
 function numberOrDefault(value, fallback = 0) {
-  const parsed = Number(value);
+  const cleaned = typeof value === 'string'
+    ? value.replace(/[^\d.-]/g, '')
+    : value;
+  const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -365,21 +368,96 @@ function normalizeOrderRecord(row, sheetName) {
     'order_ref',
     'external_id',
     'id',
+    'order id',
+    'order no',
+    'order number',
+    'reference',
+    'ref',
     'tracking_no',
     'tracking_number',
   ]));
-  const trackingNo = stringOrNull(getFirstValue(row, ['tracking_no', 'tracking_number', 'tracking', 'tracking id', 'tracking_id', 'waybill']));
-  const explicitOrderRef = stringOrNull(getFirstValue(row, ['order_ref', 'order_id', 'id']));
-  const rawOrderDate = getFirstValue(row, ['order_date', 'day_created', 'date_created', 'created_at', 'date', 'created_date']);
+  const trackingNo = stringOrNull(getFirstValue(row, [
+    'tracking_no',
+    'tracking_number',
+    'tracking',
+    'tracking id',
+    'tracking_id',
+    'tracking number',
+    'waybill',
+    'waybill no',
+    'waybill number',
+    'awb',
+    'airway bill',
+  ]));
+  const explicitOrderRef = stringOrNull(getFirstValue(row, [
+    'order_ref',
+    'order_id',
+    'order id',
+    'order no',
+    'order number',
+    'reference',
+    'ref',
+    'id',
+  ]));
+  const rawOrderDate = getFirstValue(row, [
+    'order_date',
+    'order date',
+    'day_created',
+    'date_created',
+    'created_at',
+    'date',
+    'created_date',
+    'inserted_at',
+    'updated_at',
+  ]);
   const orderDate = normalizeSheetDate(rawOrderDate);
+  const customerName = getFirstValue(row, [
+    'customer',
+    'customer_name',
+    'customer name',
+    'name',
+    'buyer_name',
+    'buyer name',
+    'recipient_name',
+    'recipient name',
+    'full_name',
+    'full name',
+    'bill_full_name',
+    'bill full name',
+  ]);
+  const phone = getFirstValue(row, [
+    'phone',
+    'phone_number',
+    'phone number',
+    'mobile',
+    'mobile_number',
+    'contact_number',
+    'contact number',
+    'cellphone',
+    'cellphone_number',
+    'bill_phone_number',
+    'bill phone number',
+  ]);
+  const product = getFirstValue(row, [
+    'product',
+    'product_name',
+    'product name',
+    'item',
+    'items',
+    'variation',
+    'variation_name',
+    'variation name',
+    'sku',
+    'package',
+  ]);
   const stableFallback = crypto
     .createHash('sha1')
     .update(safeJson({
       sheetName,
       trackingNo,
-      customer: getFirstValue(row, ['customer', 'customer_name', 'name', 'buyer_name', 'recipient_name']),
-      phone: getFirstValue(row, ['phone', 'phone_number', 'mobile', 'contact_number']),
-      product: getFirstValue(row, ['product', 'product_name', 'item', 'items']),
+      customer: customerName,
+      phone,
+      product,
       orderDate,
     }))
     .digest('hex')
@@ -390,16 +468,32 @@ function normalizeOrderRecord(row, sheetName) {
     externalId: externalId || trackingNo || stableFallback,
     order_ref: explicitOrderRef || (trackingNo ? `GS-${trackingNo}` : `GS-${normalizeHeaderKey(sheetName).toUpperCase()}-${stableFallback}`),
     tracking_no: trackingNo,
-    customer: stringOrNull(getFirstValue(row, ['customer', 'customer_name', 'name', 'buyer_name', 'recipient_name'])) || 'Unknown Customer',
-    phone: stringOrNull(getFirstValue(row, ['phone', 'phone_number', 'mobile', 'contact_number'])),
-    product: stringOrNull(getFirstValue(row, ['product', 'product_name', 'item', 'items'])) || 'Unknown Product',
-    qty: Math.max(1, Math.round(numberOrDefault(getFirstValue(row, ['qty', 'quantity']), 1))),
-    cod_amount: numberOrDefault(getFirstValue(row, ['cod_amount', 'cod', 'amount']), 0),
-    status: normalizeStatus(getFirstValue(row, ['status'])),
-    courier: stringOrNull(getFirstValue(row, ['courier', 'shipper', 'shipping_provider', 'logistics', 'delivery_partner'])),
+    customer: stringOrNull(customerName) || 'Unknown Customer',
+    phone: stringOrNull(phone),
+    product: stringOrNull(product) || 'Unknown Product',
+    qty: Math.max(1, Math.round(numberOrDefault(getFirstValue(row, ['qty', 'quantity', 'total_quantity', 'total quantity']), 1))),
+    cod_amount: numberOrDefault(getFirstValue(row, ['cod_amount', 'cod', 'amount', 'price', 'total', 'total_price', 'total price', 'money_to_collect']), 0),
+    status: normalizeStatus(getFirstValue(row, ['status', 'status_name', 'status name', 'order_status', 'order status'])),
+    courier: stringOrNull(getFirstValue(row, ['courier', 'shipper', 'shipping_provider', 'shipping provider', 'logistics', 'delivery_partner', 'delivery partner'])),
     order_date: orderDate,
     source_sheet: stringOrNull(sheetName) || 'Orders',
   };
+}
+
+async function safeRecordRaw(db, entityType, externalId, row, outcome) {
+  try {
+    await recordRaw(db, entityType, externalId, row, outcome);
+  } catch (error) {
+    console.warn(`[google_sheets] raw record skipped: ${error.message}`);
+  }
+}
+
+async function safeUpsertSourceLink(db, entityType, externalId, localTable, localId) {
+  try {
+    await upsertSourceLink(db, entityType, externalId, localTable, localId);
+  } catch (error) {
+    console.warn(`[google_sheets] source link skipped: ${error.message}`);
+  }
 }
 
 async function upsertOrder(db, record) {
@@ -442,8 +536,7 @@ async function upsertOrder(db, record) {
   if (existingByTracking) {
     await db.prepare(`
       UPDATE orders
-      SET order_ref = ?,
-          tracking_no = ?,
+      SET tracking_no = ?,
           customer = ?,
           phone = ?,
           product = ?,
@@ -456,7 +549,6 @@ async function upsertOrder(db, record) {
           updated_at = datetime('now')
       WHERE id = ?
     `).run(
-      record.order_ref,
       record.tracking_no,
       record.customer,
       record.phone,
@@ -607,12 +699,12 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
             result.imported += 1;
             sheetSummary.imported += 1;
           }
-          await recordRaw(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, row, {
+          await safeRecordRaw(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, row, {
             status: 'synced',
             mappedTable: 'orders',
             localId,
           });
-          await upsertSourceLink(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, 'orders', localId);
+          await safeUpsertSourceLink(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, 'orders', localId);
         } catch (error) {
           result.failed_rows.push({
             sheet_name: sheetName,
@@ -620,7 +712,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
             error: truncate(error.message, 240),
           });
           sheetSummary.failed += 1;
-          await recordRaw(db, entityType, `${sheetName}:${row.order_ref || row.id || `row-${index + 2}`}`, row, {
+          await safeRecordRaw(db, entityType, `${sheetName}:${row.order_ref || row.id || `row-${index + 2}`}`, row, {
             status: 'error',
             mappedTable: 'orders',
             errorMessage: truncate(error.message, 240),
