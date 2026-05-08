@@ -1787,6 +1787,7 @@ function renderMarketingCenter() {
   const creativeMonth = state.creatives.filter((item) => String(item.date || '').startsWith(marketingMonth()));
   const survived = creativeMonth.filter((item) => Number(item.spend || 0) >= 5000).length;
   const survivalRate = creativeMonth.length ? survived / creativeMonth.length : 0;
+  const marketingManager = canManageMarketing();
   const ownerTotals = state.team.map((member) => {
     const memberRows = entries.filter((entry) => entry.owner === member.name);
     return { ...member, ...aggregateMarketing(memberRows) };
@@ -1802,7 +1803,7 @@ function renderMarketingCenter() {
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
         Export CSV
       </button>
-      <button class="btn btn-primary btn-sm" onclick="saveMarketingTargets()">Save Targets</button>
+      ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="saveMarketingTargets()">Save Targets</button>' : ''}
     </div>
   </div>
 
@@ -1823,7 +1824,7 @@ function renderMarketingCenter() {
     <button class="tab-btn" onclick="switchTab(this,'mkt-standup')">Daily Standup</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-adaccounts')">Ad Accounts</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-weekly')">Weekly Report</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-targets')">Settings</button>
+    ${marketingManager ? "<button class=\"tab-btn\" onclick=\"switchTab(this,'mkt-targets')\">Settings</button>" : ''}
   </div>
 
   <div id="mkt-overview" class="tab-content active">
@@ -1896,6 +1897,7 @@ function renderMarketingCenter() {
         <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">One row per page per day.</div></div></div>
         <div class="card-body">
           <div class="form-grid-2">
+            <input type="hidden" id="mkt-entry-edit-index" value="">
             <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}"></div>
             <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
             <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control readonly-field" id="mkt-product" readonly></div>
@@ -1925,7 +1927,9 @@ function renderMarketingCenter() {
                   <td>${marketingMoney(entry.sales)}</td>
                   <td>${marketingMoney(entry.spend)}</td>
                   <td><span class="badge ${marketingRoasClass(roas)}">${marketingRoas(roas)}</span></td>
-                  <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">Delete</button></td>
+                  <td>
+                    ${marketingManager ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editMarketingEntry(${index})">Edit</button><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">Delete</button></div>` : '<span class="text-xs text-muted">Saved</span>'}
+                  </td>
                 </tr>`;
               }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
             </tbody>
@@ -2016,7 +2020,7 @@ function renderMarketingCenter() {
                   <td><span class="badge ${item.status === 'Scaled' ? 'badge-success' : item.status === 'Killed' ? 'badge-danger' : 'badge-warning'}">${escapeHtml(item.status)}</span></td>
                   <td>${marketingMoney(item.spend)}</td>
                   <td><span class="badge ${marketingRoasClass(Number(item.roas || 0))}">${marketingRoas(item.roas)}</span></td>
-                  <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingCreative(${index})">Delete</button></td>
+                  <td>${marketingManager ? `<button class="btn btn-ghost btn-sm" onclick="deleteMarketingCreative(${index})">Delete</button>` : '<span class="text-xs text-muted">Saved</span>'}</td>
                 </tr>`;
               }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No creatives logged yet.</td></tr>'}
             </tbody>
@@ -2899,6 +2903,10 @@ function canManageHR() {
 function isSalesMarketingUser(role = App.user?.role) {
   const normalized = normalizeRoleName(role);
   return normalized === 'Sales and Marketing' || normalized === 'Sales and Marketing TL';
+}
+
+function canManageMarketing() {
+  return isAdminUser() || normalizeRoleName(App.user?.role) === 'Sales and Marketing TL';
 }
 
 function getDefaultPageForCurrentUser() {
@@ -4233,6 +4241,8 @@ function addMarketingEntry() {
   const state = getMarketingState();
   const pageName = document.getElementById('mkt-page')?.value || '';
   const page = state.pages.find((item) => item.name === pageName) || {};
+  const editIndexValue = document.getElementById('mkt-entry-edit-index')?.value || '';
+  const editIndex = editIndexValue === '' ? -1 : Number(editIndexValue);
   const entry = {
     date: document.getElementById('mkt-date')?.value || normalizeDateString(new Date()),
     page: pageName,
@@ -4249,17 +4259,56 @@ function addMarketingEntry() {
     return;
   }
 
-  state.entries.push(entry);
+  if (editIndex >= 0) {
+    if (!canManageMarketing()) {
+      showToast('warning', 'TL only', 'Only Sales and Marketing TL can update entries.');
+      return;
+    }
+    state.entries[editIndex] = entry;
+  } else {
+    state.entries.push(entry);
+  }
   saveMarketingState(state);
   ['mkt-orders', 'mkt-sales', 'mkt-spend', 'mkt-rts'].forEach((id) => {
     const input = document.getElementById(id);
     if (input) input.value = '';
   });
-  showToast('success', 'Marketing entry saved', `${entry.page} - ${marketingRoas(entry.spend ? entry.sales / entry.spend : 0)}`);
+  const editInput = document.getElementById('mkt-entry-edit-index');
+  if (editInput) editInput.value = '';
+  showToast('success', editIndex >= 0 ? 'Marketing entry updated' : 'Marketing entry saved', `${entry.page} - ${marketingRoas(entry.spend ? entry.sales / entry.spend : 0)}`);
   navigateTo('marketing-center');
 }
 
+function editMarketingEntry(index) {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can update entries.');
+    return;
+  }
+  const state = getMarketingState();
+  const entry = state.entries[index];
+  if (!entry) return;
+  const fields = {
+    'mkt-entry-edit-index': index,
+    'mkt-date': entry.date,
+    'mkt-page': entry.page,
+    'mkt-orders': entry.orders,
+    'mkt-sales': entry.sales,
+    'mkt-spend': entry.spend,
+    'mkt-rts': entry.rts,
+  };
+  Object.entries(fields).forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) input.value = value;
+  });
+  syncMarketingPageMeta();
+  showToast('success', 'Editing entry', 'Update the fields and click Add Entry to save changes.');
+}
+
 function deleteMarketingEntry(index) {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can delete entries.');
+    return;
+  }
   const state = getMarketingState();
   if (index < 0 || index >= state.entries.length) return;
   state.entries.splice(index, 1);
@@ -4291,6 +4340,10 @@ function addMarketingCreative() {
 }
 
 function deleteMarketingCreative(index) {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can delete creatives.');
+    return;
+  }
   const state = getMarketingState();
   if (index < 0 || index >= state.creatives.length) return;
   state.creatives.splice(index, 1);
@@ -4321,6 +4374,10 @@ function deleteMarketingStandup(index) {
 }
 
 function addMarketingAdAccount() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage ad accounts.');
+    return;
+  }
   const state = getMarketingState();
   state.adAccounts.push({
     status: window.prompt('Status', 'RUNNING') || 'RUNNING',
@@ -4337,6 +4394,10 @@ function addMarketingAdAccount() {
 }
 
 function deleteMarketingAdAccount(index) {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage ad accounts.');
+    return;
+  }
   const state = getMarketingState();
   if (index < 0 || index >= state.adAccounts.length) return;
   state.adAccounts.splice(index, 1);
@@ -4380,6 +4441,10 @@ async function copyMarketingWeeklyReport() {
 }
 
 function saveMarketingTargets() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can update settings.');
+    return;
+  }
   const state = getMarketingState();
   state.targets = {
     sales: Number(document.getElementById('mkt-target-sales')?.value || 7000000),
