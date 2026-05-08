@@ -124,7 +124,7 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  publicRouter.post('/pancake/webhook', async (req, res) => {
+  async function handlePancakeWebhook(req, res) {
     const suppliedSecret = req.headers['x-webhook-secret'] || req.query.secret;
     const signature = req.headers['x-pancake-signature'];
 
@@ -143,7 +143,10 @@ module.exports = function integrationRoutes(db) {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  });
+  }
+
+  publicRouter.post('/pancake/webhook', handlePancakeWebhook);
+  publicRouter.post('/pancake-pos/webhook', handlePancakeWebhook);
 
   publicRouter.get('/pancake/status', async (req, res) => {
     res.json(await getStatus(db));
