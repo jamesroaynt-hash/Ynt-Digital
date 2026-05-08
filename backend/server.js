@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { createDatabaseClient } = require('./db/client');
 const { initializeDatabaseAsync } = require('./db/init');
 const googleSheetsSync = require('./services/googleSheetsSync');
+const pancakePosSync = require('./services/pancakePosSync');
 
 let blobPersistence = {
   restoreDatabaseFromBlob: async () => false,
@@ -54,6 +55,10 @@ loadEnvFile();
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const PANCAKE_POS_SYNC_INTERVAL_MS = Math.max(
+  60 * 1000,
+  Number(process.env.PANCAKE_POS_SYNC_INTERVAL_MS || 5 * 60 * 1000)
+);
 if (!process.env.JWT_SECRET) {
   console.warn('JWT_SECRET is not set. Using a temporary secret for this server session.');
 }
@@ -223,10 +228,46 @@ async function createApp() {
     }, delay);
   }
 
+  async function runPancakePosSync(trigger) {
+    if (process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') return;
+
+    try {
+      const status = await pancakePosSync.getStatus(db);
+      if (!status.enabled) {
+        console.log(`[pancake_pos] ${trigger} sync skipped: integration is disabled.`);
+        return;
+      }
+      if (!status.has_api_key || !status.shop_id) {
+        console.log(`[pancake_pos] ${trigger} sync skipped: missing POS API key or shop ID.`);
+        return;
+      }
+
+      const result = await pancakePosSync.collectPosData(db);
+      backupScheduler.schedule();
+      const imported = Object.entries(result?.resources || {})
+        .map(([resource, details]) => `${resource}=${details.count || 0}`)
+        .join(', ');
+      console.log(`[pancake_pos] ${trigger} sync completed${imported ? `: ${imported}` : '.'}`);
+    } catch (error) {
+      console.error(`[pancake_pos] ${trigger} sync failed: ${error.message}`);
+    }
+  }
+
+  function schedulePancakePosSync() {
+    if (process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') return;
+
+    setTimeout(async () => {
+      await runPancakePosSync('interval');
+      schedulePancakePosSync();
+    }, PANCAKE_POS_SYNC_INTERVAL_MS);
+  }
+
   app.locals.db = db;
   app.locals.backupDatabase = () => backupScheduler.uploadBackup();
   app.locals.runGoogleSheetsSync = runGoogleSheetsSync;
   app.locals.scheduleGoogleSheetsSync = scheduleGoogleSheetsSync;
+  app.locals.runPancakePosSync = runPancakePosSync;
+  app.locals.schedulePancakePosSync = schedulePancakePosSync;
 
   return app;
 }
@@ -267,6 +308,12 @@ if (require.main === module) {
         }, 5 * 1000);
 
         app.locals.scheduleGoogleSheetsSync();
+
+        setTimeout(() => {
+          app.locals.runPancakePosSync('startup');
+        }, 10 * 1000);
+
+        app.locals.schedulePancakePosSync();
       }
     })
     .catch((error) => {

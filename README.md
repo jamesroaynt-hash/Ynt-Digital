@@ -451,6 +451,8 @@ JWT_SECRET=use-a-long-random-secret
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 GOOGLE_SHEETS_SYNC_ENABLED=false
 GOOGLE_SHEETS_SYNC_MODE=manual
+PANCAKE_POS_SYNC_ENABLED=false
+PANCAKE_POS_SYNC_INTERVAL_MS=300000
 ```
 
 Optional integration variables:
@@ -462,6 +464,15 @@ GOOGLE_SHEETS_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
 GOOGLE_SHEETS_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
 FRONTEND_ORIGINS=https://your-app.up.railway.app,https://dashboard.yourdomain.com
 ```
+
+To pull Pancake POS data automatically after you save the POS API key and Shop ID in the dashboard, set:
+
+```text
+PANCAKE_POS_SYNC_ENABLED=true
+PANCAKE_POS_SYNC_INTERVAL_MS=300000
+```
+
+`300000` means every 5 minutes. The server skips automatic POS sync until the Pancake POS integration is enabled and has both API key and Shop ID saved.
 
 #### 3. Generate the public URL
 
