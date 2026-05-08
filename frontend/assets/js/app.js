@@ -5110,8 +5110,10 @@ async function collectGoogleSheetsData() {
     const sheetSummary = Array.isArray(data.sheets) && data.sheets.length
       ? data.sheets.map((sheet) => `${sheet.sheet_name}: +${sheet.imported}/~${sheet.updated}/!${sheet.failed || 0}`).join(', ')
       : '';
-    const firstFailure = Array.isArray(data.failed_rows) && data.failed_rows.length
-      ? ` First error row ${data.failed_rows[0].row_number}: ${data.failed_rows[0].error}`
+    const firstFailure = data.first_error
+      ? ` First error row ${data.first_error.row_number}: ${data.first_error.error}`
+      : Array.isArray(data.failed_rows) && data.failed_rows.length
+        ? ` First error row ${data.failed_rows[0].row_number}: ${data.failed_rows[0].error}`
       : '';
     refreshed.googleSheets = {
       ...state.googleSheets,

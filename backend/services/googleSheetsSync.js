@@ -567,9 +567,9 @@ async function upsertOrder(db, record) {
 
   const result = await db.prepare(`
     INSERT INTO orders (
-      order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, order_date, created_by, updated_at
+      order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, order_date, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(order_ref) DO UPDATE SET
       tracking_no = excluded.tracking_no,
       customer = excluded.customer,
@@ -662,6 +662,8 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
     updated: 0,
     total_rows: 0,
     failed_rows: [],
+    first_error: null,
+    error_counts: {},
     sheets: [],
   };
 
@@ -674,6 +676,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
       const sheetSummary = {
         sheet_name: sheetName,
         range,
+        sample_headers: rows[0] || [],
         total_rows: records.length,
         imported: 0,
         updated: 0,
@@ -707,16 +710,25 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
           });
           await safeUpsertSourceLink(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, 'orders', localId);
         } catch (error) {
+          const errorMessage = truncate(error.message, 240);
+          if (!result.first_error) {
+            result.first_error = {
+              sheet_name: sheetName,
+              row_number: index + 2,
+              error: errorMessage,
+            };
+          }
+          result.error_counts[errorMessage] = (result.error_counts[errorMessage] || 0) + 1;
           result.failed_rows.push({
             sheet_name: sheetName,
             row_number: index + 2,
-            error: truncate(error.message, 240),
+            error: errorMessage,
           });
           sheetSummary.failed += 1;
           await safeRecordRaw(db, entityType, `${sheetName}:${row.order_ref || row.id || `row-${index + 2}`}`, row, {
             status: 'error',
             mappedTable: 'orders',
-            errorMessage: truncate(error.message, 240),
+            errorMessage,
           });
         }
       }
