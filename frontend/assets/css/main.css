@@ -268,12 +268,12 @@ body {
 
 .logo-mark {
   width: 28px; height: 28px;
-  background: #fff;
-  border-radius: 7px;
+  background: transparent;
+  border-radius: 0;
   display: block;
   object-fit: contain;
   flex-shrink: 0;
-  padding: 2px;
+  padding: 0;
 }
 
 .sidebar-nav {
@@ -1462,11 +1462,11 @@ tbody td {
 
 .login-panel .brand-logo {
   width: 42px; height: 42px;
-  background: #fff;
-  border-radius: 10px;
+  background: transparent;
+  border-radius: 0;
   display: block;
   object-fit: contain;
-  padding: 3px;
+  padding: 0;
 }
 
 .login-panel .brand-text .name {
