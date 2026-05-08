@@ -2106,19 +2106,8 @@ function renderMarketingCenter() {
 // ─── RENDER: INVENTORY ──────────────────────────────────────
 function renderCSR() {
   const today = new Date().toISOString().split('T')[0];
-
-  return `
-  <div class="page-header">
-    <div class="page-title"><h1>CSR Daily Records</h1><p>Admins and CSR TL can view all CSR entries. CSR users only see and edit their own sales records.</p></div>
-    <div class="page-actions">
-      <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-records-table', 'csr-daily-records')">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
-        Export CSV
-      </button>
-    </div>
-  </div>
-
-  <div class="split-layout" style="margin-bottom:20px;">
+  const adminDashboardOnly = isAdminUser();
+  const inputPanel = adminDashboardOnly ? '' : `
     <div class="card">
       <div class="card-header">
         <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">CSR name follows the current login automatically.</div></div>
@@ -2191,7 +2180,94 @@ function renderCSR() {
           <button class="btn btn-secondary" id="csr-reset-btn" onclick="resetCSRForm()">Reset</button>
         </div>
       </div>
+    </div>`;
+
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>CSR Daily Records</h1><p>Admins and CSR TL can view all CSR entries. CSR users only see and edit their own sales records.</p></div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-records-table', 'csr-daily-records')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
+        Export CSV
+      </button>
     </div>
+  </div>
+
+  <div class="${adminDashboardOnly ? '' : 'split-layout'}" style="margin-bottom:20px;">
+    ${inputPanel}
+    ${false ? `<div class="card">
+      <div class="card-header">
+        <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">CSR name follows the current login automatically.</div></div>
+      </div>
+      <div class="card-body">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Record Date <span class="required">*</span></label>
+            <input type="date" class="form-control" id="csr-date" value="${today}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Name CSR</label>
+            <input type="text" class="form-control readonly-field" id="csr-name" value="${escapeHtml(getCurrentCsrName())}" readonly>
+            <div class="field-help">Auto-filled from the logged-in member.</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Page Name <span class="required">*</span></label>
+          <select class="form-control" id="csr-page-name">
+            <option value="">Select page...</option>
+            ${CSR_PAGE_OPTIONS.map((page) => `<option value="${page}">${page}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Customer Name <span class="required">*</span></label>
+            <input type="text" class="form-control" id="csr-customer-name" placeholder="Enter customer name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cellphone Number <span class="required">*</span></label>
+            <input type="text" class="form-control font-mono" id="csr-cellphone-number" placeholder="09XXXXXXXXX">
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Type of Sales <span class="required">*</span></label>
+            <select class="form-control" id="csr-sales-type">
+              <option value="">Select sales type...</option>
+              ${CSR_SALES_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status <span class="required">*</span></label>
+            <select class="form-control" id="csr-status">
+              <option value="">Select status...</option>
+              ${CSR_STATUS_OPTIONS.map((status) => `<option value="${status}">${status}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Price <span class="required">*</span></label>
+            <div class="input-group">
+              <span class="input-addon">₱</span>
+              <input type="number" class="form-control" id="csr-price" placeholder="0.00" min="0" step="0.01">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tracking Number</label>
+            <input type="text" class="form-control font-mono" id="csr-tracking-number" placeholder="Tracking number">
+          </div>
+        </div>
+
+        <div class="flex gap-3">
+          <button class="btn btn-primary" id="csr-save-btn" onclick="saveCSRRecord()">${getCSRPrimaryButtonLabel()}</button>
+          <button class="btn btn-secondary" id="csr-reset-btn" onclick="resetCSRForm()">Reset</button>
+        </div>
+      </div>
+    </div>` : ''}
 
     <div class="summary-stack">
       <div id="csr-summary"></div>
@@ -3224,6 +3300,11 @@ function editCSRRecord(recordId) {
     return;
   }
 
+  if (isAdminUser()) {
+    editCSRRecordInline(record);
+    return;
+  }
+
   editingCSRRecordId = record.id;
 
   const fieldMap = {
@@ -3245,6 +3326,33 @@ function editCSRRecord(recordId) {
 
   refreshCSRFormActions();
   document.getElementById('csr-date')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function editCSRRecordInline(record) {
+  const next = {
+    ...record,
+    date: window.prompt('Date', record.date) || record.date,
+    csrName: window.prompt('Name CSR', record.csrName) || record.csrName,
+    pageName: window.prompt('Page Name', record.pageName) || record.pageName,
+    customerName: window.prompt('Customer Name', record.customerName) || record.customerName,
+    cellphoneNumber: window.prompt('Cellphone Number', record.cellphoneNumber) || record.cellphoneNumber,
+    salesType: window.prompt('Type of Sales', record.salesType) || record.salesType,
+    status: window.prompt('Status', record.status) || record.status,
+    price: Number(window.prompt('Price', record.price) || record.price),
+    trackingNumber: window.prompt('Tracking Number', record.trackingNumber || '') || record.trackingNumber,
+  };
+
+  if (!next.date || !next.pageName || !next.customerName || !next.cellphoneNumber || !next.salesType || !next.status || Number(next.price || 0) <= 0) {
+    showToast('error', 'Incomplete CSR record', 'Admin edit was cancelled or has missing required fields.');
+    return;
+  }
+
+  const index = DB.csrRecords.findIndex((item) => item.id === record.id);
+  if (index === -1) return;
+  DB.csrRecords[index] = next;
+  saveCsrRecords();
+  renderCSRTable();
+  showToast('success', 'CSR record updated', `${next.customerName} • ${next.pageName}`);
 }
 
 function deleteCSRRecord(recordId) {
