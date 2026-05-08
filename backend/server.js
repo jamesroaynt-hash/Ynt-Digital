@@ -161,6 +161,12 @@ async function createApp() {
     },
   }));
   app.use(express.json({ limit: '5mb' }));
+  app.set('etag', false);
+  app.use('/api', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    next();
+  });
   attachDatabaseBackupMiddleware(app, backupScheduler);
   const staticCacheHeaders = {
     setHeaders(res) {

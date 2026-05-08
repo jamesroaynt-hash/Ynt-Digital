@@ -231,7 +231,7 @@ async function refreshOrdersFromBackend() {
   const rows = [];
 
   while (total === null || rows.length < total) {
-    const result = await authorizedJsonRequest(`/orders?per_page=${perPage}&page=${page}`);
+    const result = await authorizedJsonRequest(`/orders?per_page=${perPage}&page=${page}&_=${Date.now()}`);
     if (!Array.isArray(result?.data)) return false;
 
     rows.push(...result.data);
@@ -247,7 +247,7 @@ async function refreshOrdersFromBackend() {
 async function refreshInventoryFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
-  const result = await authorizedJsonRequest('/inventory');
+  const result = await authorizedJsonRequest(`/inventory?_=${Date.now()}`);
   if (!Array.isArray(result)) return false;
 
   DB.inventory = result.map(mapBackendInventoryItem);
