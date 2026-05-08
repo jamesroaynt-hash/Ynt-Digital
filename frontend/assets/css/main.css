@@ -53,6 +53,180 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Sales & Marketing ERP command center */
+.erp-command-center {
+  --erp-navy: #1f3864;
+  --erp-navy-light: #2f5496;
+  --erp-orange: #ed7d31;
+  --erp-green: #548235;
+  --erp-red: #c00000;
+  --erp-muted: #6b7280;
+}
+
+.erp-header .page-title h1 {
+  color: var(--erp-navy);
+  font-weight: 800;
+}
+
+.erp-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.erp-kpi {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.erp-kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--erp-navy-light);
+}
+
+.erp-kpi.ok::before { background: var(--erp-green); }
+.erp-kpi.warn::before { background: var(--erp-orange); }
+.erp-kpi.bad::before { background: var(--erp-red); }
+
+.erp-kpi-label {
+  color: var(--erp-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+
+.erp-kpi-value {
+  color: var(--text-primary);
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 800;
+  margin: 6px 0 4px;
+}
+
+.erp-kpi-target {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.erp-tabs {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.erp-tabs .tab-btn.active {
+  border-color: var(--erp-orange);
+  color: var(--erp-navy);
+}
+
+.erp-card .card-title {
+  color: var(--erp-navy);
+  font-weight: 800;
+}
+
+.erp-card table thead th {
+  background: var(--erp-navy);
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+}
+
+.erp-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, .8fr);
+  gap: 20px;
+}
+
+.erp-roas {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.erp-roas.green { background: #c6efce; color: #548235; }
+.erp-roas.yellow { background: #ffeb9c; color: #92400e; }
+.erp-roas.red { background: #ffc7ce; color: #c00000; }
+
+.erp-progress-row strong,
+.erp-mini-list strong {
+  color: var(--erp-navy);
+}
+
+.erp-progress-row span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.erp-progress {
+  height: 9px;
+  background: var(--surface-3);
+  border-radius: 999px;
+  margin: 12px 0 16px;
+  overflow: hidden;
+}
+
+.erp-progress > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--erp-orange), #fba23a);
+}
+
+.erp-mini-list {
+  display: grid;
+  gap: 10px;
+}
+
+.erp-mini-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.erp-mini-list > div:last-child { border-bottom: 0; }
+.erp-mini-list span, .erp-mini-list small { color: var(--text-muted); }
+.erp-mini-list small { grid-column: 1 / -1; }
+
+.erp-member-card {
+  background: linear-gradient(135deg,#fff 0%,#f8fafc 100%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-orange {
+  background: var(--erp-orange, #ed7d31);
+  color: #fff;
+}
+
+.btn-orange:hover {
+  filter: brightness(1.05);
+}
+
+@media (max-width: 1100px) {
+  .erp-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .erp-split { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .erp-kpi-grid { grid-template-columns: 1fr; }
+}
+
 /* ─── LAYOUT ─────────────────────────────────────────────── */
 .app-wrapper { display: flex; min-height: 100vh; }
 

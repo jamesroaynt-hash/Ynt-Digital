@@ -502,6 +502,7 @@ function getDefaultMarketingState() {
       { name: 'NIACINAMIDE', product: 'NIACINAMIDE', owner: 'Andrew' },
       { name: 'HALLY LOTION', product: 'HALLY', owner: 'Andrew' },
       { name: 'GINSENG PH', product: 'GINSENG', owner: 'Andrew' },
+      { name: 'SM CITY ONLINE', product: 'MIXED', owner: 'Janjoy' },
     ],
     team: [
       { name: 'Katrina', role: 'Team Leader / Funnel', primary: 'System and strategy' },
@@ -512,6 +513,11 @@ function getDefaultMarketingState() {
     ],
     entries: [],
     creatives: [],
+    standups: [],
+    adAccounts: [
+      { status: 'RUNNING', bm: 'JAMES SMITH', acc: '1078442237058998', page: 'KOREAN DRAGON', product: 'DRAGON', advertiser: 'JJ', payment: '.. 7005' },
+      { status: 'RUNNING', bm: 'PERSONAL MARK', acc: 'PERSONAL MARK', page: 'SM', product: 'HALLY', advertiser: 'KAT', payment: '.. 7005' },
+    ],
   };
 }
 
@@ -527,6 +533,8 @@ function getMarketingState() {
       team: Array.isArray(saved.team) && saved.team.length ? saved.team : fallback.team,
       entries: Array.isArray(saved.entries) ? saved.entries : [],
       creatives: Array.isArray(saved.creatives) ? saved.creatives : [],
+      standups: Array.isArray(saved.standups) ? saved.standups : [],
+      adAccounts: Array.isArray(saved.adAccounts) ? saved.adAccounts : fallback.adAccounts,
     };
   } catch {
     return getDefaultMarketingState();
@@ -599,6 +607,32 @@ function marketingRoasClass(value) {
   if (value >= 4) return 'badge-success';
   if (value >= 3) return 'badge-warning';
   return 'badge-danger';
+}
+
+function marketingRoasPillClass(value) {
+  if (value >= 4) return 'green';
+  if (value >= 3) return 'yellow';
+  return 'red';
+}
+
+function getMarketingDailyTotals(entries) {
+  const map = {};
+  entries.forEach((entry) => {
+    const date = entry.date || 'No date';
+    if (!map[date]) map[date] = { date, orders: 0, sales: 0, spend: 0, rts: 0 };
+    map[date].orders += Number(entry.orders || 0);
+    map[date].sales += Number(entry.sales || 0);
+    map[date].spend += Number(entry.spend || 0);
+    map[date].rts += Number(entry.rts || 0);
+  });
+  return Object.values(map)
+    .map((row) => ({
+      ...row,
+      roas: row.spend ? row.sales / row.spend : 0,
+      cpp: row.orders ? row.spend / row.orders : 0,
+      rtsRate: row.orders ? row.rts / row.orders : 0,
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 function getCurrentCsrName() {
@@ -1747,6 +1781,7 @@ function renderMarketingCenter() {
   const entries = getMarketingMonthEntries(state);
   const totals = aggregateMarketing(entries);
   const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
+  const byDay = getMarketingDailyTotals(entries);
   const targetPct = state.targets.sales ? totals.sales / state.targets.sales : 0;
   const monthSpendTarget = Number(state.targets.spend || 0) * 31;
   const creativeMonth = state.creatives.filter((item) => String(item.date || '').startsWith(marketingMonth()));
@@ -1756,9 +1791,11 @@ function renderMarketingCenter() {
     const memberRows = entries.filter((entry) => entry.owner === member.name);
     return { ...member, ...aggregateMarketing(memberRows) };
   });
+  const latestStandups = (state.standups || []).slice().reverse().slice(0, 8);
 
   return `
-  <div class="page-header">
+  <div class="erp-command-center">
+  <div class="page-header erp-header">
     <div class="page-title"><h1>Sales & Marketing Command Center</h1><p>Track page ROAS, ad spend, creative output, and team pacing.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="exportMarketingEntries()">
@@ -1769,23 +1806,29 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:20px;">
-    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Gross Sales MTD</div><div class="stat-value">${marketingMoney(totals.sales)}</div><div class="stat-meta">${Math.round(targetPct * 100)}% of monthly target</div></div>
-    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Ad Spend MTD</div><div class="stat-value">${marketingMoney(totals.spend)}</div><div class="stat-meta">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">ROAS</div><div class="stat-value">${marketingRoas(totals.roas)}</div><div class="stat-meta">Target ${marketingRoas(state.targets.roas)}</div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">RTS Rate</div><div class="stat-value">${marketingPct(totals.rtsRate)}</div><div class="stat-meta">Max ${state.targets.rts}%</div></div>
+  <div class="erp-kpi-grid">
+    <div class="erp-kpi"><div class="erp-kpi-label">Gross Sales MTD</div><div class="erp-kpi-value">${marketingMoney(totals.sales)}</div><div class="erp-kpi-target">${Math.round(targetPct * 100)}% of monthly target</div></div>
+    <div class="erp-kpi warn"><div class="erp-kpi-label">Ad Spend MTD</div><div class="erp-kpi-value">${marketingMoney(totals.spend)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
+    <div class="erp-kpi ok"><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value">${marketingRoas(totals.roas)}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
+    <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value">${marketingPct(totals.rtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
   </div>
 
-  <div class="tabs">
+  <div class="tabs erp-tabs">
     <button class="tab-btn active" onclick="switchTab(this,'mkt-overview')">Overview</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-entries')">Daily Entries</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-roas')">Page ROAS Tracker</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-entries')">Daily Entry</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-adspend')">Ad Spend Summary</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-team')">Team</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-creatives')">Creatives</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-targets')">Targets</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-standup')">Daily Standup</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-adaccounts')">Ad Accounts</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-weekly')">Weekly Report</button>
+    <button class="tab-btn" onclick="switchTab(this,'mkt-targets')">Settings</button>
   </div>
 
   <div id="mkt-overview" class="tab-content active">
-    <div class="card">
+    <div class="erp-split">
+    <div class="card erp-card">
       <div class="card-header"><div><div class="card-title">Page Leaderboard</div><div class="card-subtitle">Month-to-date ROAS and cost per purchase.</div></div></div>
       <div class="table-container">
         <table>
@@ -1800,6 +1843,47 @@ function renderMarketingCenter() {
               <td>${marketingMoney(page.cpp)}</td>
               <td>${marketingPct(page.rtsRate)}</td>
             </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No marketing entries yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card erp-card">
+      <div class="card-header"><div><div class="card-title">Pacing Tracker</div><div class="card-subtitle">Monthly target health.</div></div></div>
+      <div class="erp-progress-row">
+        <div><strong>${marketingMoney(totals.sales)}</strong><span>${marketingMoney(state.targets.sales)} target</span></div>
+        <div class="erp-progress"><div style="width:${Math.min(100, Math.round(targetPct * 100))}%"></div></div>
+      </div>
+      <div class="erp-mini-list">
+        <div><span>Daily target</span><strong>${marketingMoney(Number(state.targets.sales || 0) / 31)}</strong></div>
+        <div><span>Spend target</span><strong>${marketingMoney(state.targets.spend)}/day</strong></div>
+        <div><span>Creative survival</span><strong>${Math.round(survivalRate * 100)}%</strong></div>
+        <div><span>Standups logged</span><strong>${(state.standups || []).length}</strong></div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <div id="mkt-roas" class="tab-content">
+    <div class="card erp-card">
+      <div class="card-header"><div><div class="card-title">Page ROAS Tracker</div><div class="card-subtitle">Green >= 4.0, yellow 3.0-3.9, red below 3.0.</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Page</th><th>Product</th><th>Owner</th><th>Orders</th><th>Sales</th><th>Ad Spend</th><th>ROAS</th><th>CPP</th><th>RTS</th></tr></thead>
+          <tbody>
+            ${state.pages.map((configuredPage) => {
+              const page = byPage.find((row) => row.page === configuredPage.name) || { orders: 0, sales: 0, spend: 0, roas: 0, cpp: 0, rtsRate: 0 };
+              return `<tr>
+                <td style="font-weight:700">${escapeHtml(configuredPage.name)}</td>
+                <td>${escapeHtml(configuredPage.product)}</td>
+                <td>${escapeHtml(configuredPage.owner)}</td>
+                <td>${page.orders}</td>
+                <td>${marketingMoney(page.sales)}</td>
+                <td>${marketingMoney(page.spend)}</td>
+                <td><span class="erp-roas ${marketingRoasPillClass(page.roas)}">${marketingRoas(page.roas)}</span></td>
+                <td>${marketingMoney(page.cpp)}</td>
+                <td>${marketingPct(page.rtsRate)}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -1852,10 +1936,10 @@ function renderMarketingCenter() {
   </div>
 
   <div id="mkt-team" class="tab-content">
-    <div class="card">
+    <div class="card erp-card">
       <div class="card-header"><div><div class="card-title">Team Performance</div><div class="card-subtitle">Month-to-date by owner.</div></div></div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
-        ${ownerTotals.map((member) => `<div class="stat-card">
+        ${ownerTotals.map((member) => `<div class="erp-member-card">
           <div class="stat-label">${escapeHtml(member.role)}</div>
           <div class="stat-value" style="font-size:20px;">${escapeHtml(member.name)}</div>
           <div class="stat-meta">${escapeHtml(member.primary)}</div>
@@ -1866,6 +1950,32 @@ function renderMarketingCenter() {
             <div>Orders: <strong>${member.orders}</strong></div>
           </div>
         </div>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <div id="mkt-adspend" class="tab-content">
+    <div class="card erp-card">
+      <div class="card-header"><div><div class="card-title">Ad Spend Summary</div><div class="card-subtitle">Daily spend, sales, ROAS, CPP, and RTS pacing.</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Date</th><th>Spend</th><th>Sales</th><th>ROAS</th><th>Orders</th><th>CPP</th><th>RTS Rate</th><th>vs Target</th></tr></thead>
+          <tbody>
+            ${byDay.length ? byDay.map((day) => {
+              const spendPct = Number(state.targets.spend || 0) ? day.spend / Number(state.targets.spend || 1) : 0;
+              return `<tr>
+                <td>${escapeHtml(day.date)}</td>
+                <td>${marketingMoney(day.spend)}</td>
+                <td>${marketingMoney(day.sales)}</td>
+                <td><span class="erp-roas ${marketingRoasPillClass(day.roas)}">${marketingRoas(day.roas)}</span></td>
+                <td>${day.orders}</td>
+                <td>${marketingMoney(day.cpp)}</td>
+                <td>${marketingPct(day.rtsRate)}</td>
+                <td><span class="badge ${spendPct >= .85 ? 'badge-success' : spendPct >= .6 ? 'badge-warning' : 'badge-danger'}">${spendPct >= .85 ? 'On pace' : spendPct >= .6 ? 'Under' : 'Underspend'}</span></td>
+              </tr>`;
+            }).join('') : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No ad spend data yet.</td></tr>'}
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1916,6 +2026,65 @@ function renderMarketingCenter() {
     </div>
   </div>
 
+  <div id="mkt-standup" class="tab-content">
+    <div style="display:grid; grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr); gap:20px; align-items:start;">
+      <div class="card erp-card">
+        <div class="card-header"><div><div class="card-title">Daily Standup Log</div><div class="card-subtitle">Yesterday score, today priority, blockers.</div></div></div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-standup-date" value="${normalizeDateString(new Date())}"></div>
+          <div class="form-group"><label class="form-label">Owner</label><select class="form-control" id="mkt-standup-owner">${state.team.map((member) => `<option value="${escapeHtml(member.name)}">${escapeHtml(member.name)}</option>`).join('')}</select></div>
+        </div>
+        <div class="form-group"><label class="form-label">Yesterday Score</label><input type="text" class="form-control" id="mkt-standup-yesterday" placeholder="Wins / numbers / learning"></div>
+        <div class="form-group"><label class="form-label">Today Priority</label><input type="text" class="form-control" id="mkt-standup-today" placeholder="Top priority"></div>
+        <div class="form-group"><label class="form-label">Blockers</label><input type="text" class="form-control" id="mkt-standup-blockers" placeholder="None"></div>
+        <button class="btn btn-primary" onclick="addMarketingStandup()">Log Standup</button>
+      </div>
+      <div class="card erp-card">
+        <div class="card-header"><div><div class="card-title">Standup Records</div><div class="card-subtitle">Latest team check-ins.</div></div></div>
+        <div class="erp-mini-list">
+          ${latestStandups.length ? latestStandups.map((item, reverseIndex) => {
+            const index = (state.standups || []).length - 1 - reverseIndex;
+            return `<div>
+              <span><strong>${escapeHtml(item.date)}</strong> - ${escapeHtml(item.owner)}</span>
+              <button class="btn btn-ghost btn-sm" onclick="deleteMarketingStandup(${index})">Delete</button>
+              <small>${escapeHtml(item.today || '')}${item.blockers ? ` | Blocker: ${escapeHtml(item.blockers)}` : ''}</small>
+            </div>`;
+          }).join('') : '<div><span>No standups yet.</span><strong>Ready</strong></div>'}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="mkt-adaccounts" class="tab-content">
+    <div class="card erp-card">
+      <div class="card-header"><div><div class="card-title">Ad Accounts Registry</div><div class="card-subtitle">Status, BM, account, page, product, advertiser, and payment reference.</div></div><button class="btn btn-orange" onclick="addMarketingAdAccount()">Add Account</button></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Status</th><th>BM</th><th>Account</th><th>Page</th><th>Product</th><th>Advertiser</th><th>Payment</th><th></th></tr></thead>
+          <tbody>
+            ${(state.adAccounts || []).map((account, index) => `<tr>
+              <td><span class="badge ${['RUNNING','ACTIVE'].includes(String(account.status).toUpperCase()) ? 'badge-success' : 'badge-warning'}">${escapeHtml(account.status)}</span></td>
+              <td>${escapeHtml(account.bm)}</td>
+              <td>${escapeHtml(account.acc)}</td>
+              <td>${escapeHtml(account.page)}</td>
+              <td>${escapeHtml(account.product)}</td>
+              <td>${escapeHtml(account.advertiser)}</td>
+              <td>${escapeHtml(account.payment)}</td>
+              <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingAdAccount(${index})">Delete</button></td>
+            </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No accounts.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="mkt-weekly" class="tab-content">
+    <div class="card erp-card">
+      <div class="card-header"><div><div class="card-title">Weekly Report</div><div class="card-subtitle">Generated from the current month entries.</div></div><button class="btn btn-secondary" onclick="copyMarketingWeeklyReport()">Copy</button></div>
+      <pre class="code-block" id="mkt-weekly-output">${escapeHtml(generateMarketingWeeklyText(state))}</pre>
+    </div>
+  </div>
+
   <div id="mkt-targets" class="tab-content">
     <div class="card">
       <div class="card-header"><div><div class="card-title">Targets</div><div class="card-subtitle">Used for pacing and dashboard status.</div></div></div>
@@ -1926,6 +2095,7 @@ function renderMarketingCenter() {
         <div class="form-group"><label class="form-label">Max RTS Rate %</label><input type="number" class="form-control" id="mkt-target-rts" value="${state.targets.rts}" step="0.1"></div>
       </div>
     </div>
+  </div>
   </div>`;
 }
 
@@ -2724,6 +2894,16 @@ function canManageAccounts() {
 
 function canManageHR() {
   return isAdminUser() || isHRUser();
+}
+
+function isSalesMarketingUser(role = App.user?.role) {
+  const normalized = normalizeRoleName(role);
+  return normalized === 'Sales and Marketing' || normalized === 'Sales and Marketing TL';
+}
+
+function getDefaultPageForCurrentUser() {
+  if (isSalesMarketingUser()) return 'marketing-center';
+  return 'home';
 }
 
 function getAccessiblePagesForCurrentUser() {
@@ -4118,6 +4298,87 @@ function deleteMarketingCreative(index) {
   navigateTo('marketing-center');
 }
 
+function addMarketingStandup() {
+  const state = getMarketingState();
+  state.standups.push({
+    date: document.getElementById('mkt-standup-date')?.value || normalizeDateString(new Date()),
+    owner: document.getElementById('mkt-standup-owner')?.value || '',
+    yesterday: document.getElementById('mkt-standup-yesterday')?.value || '',
+    today: document.getElementById('mkt-standup-today')?.value || '',
+    blockers: document.getElementById('mkt-standup-blockers')?.value || '',
+  });
+  saveMarketingState(state);
+  showToast('success', 'Standup logged', 'Daily standup was saved.');
+  navigateTo('marketing-center');
+}
+
+function deleteMarketingStandup(index) {
+  const state = getMarketingState();
+  if (index < 0 || index >= state.standups.length) return;
+  state.standups.splice(index, 1);
+  saveMarketingState(state);
+  navigateTo('marketing-center');
+}
+
+function addMarketingAdAccount() {
+  const state = getMarketingState();
+  state.adAccounts.push({
+    status: window.prompt('Status', 'RUNNING') || 'RUNNING',
+    bm: window.prompt('BM', '') || '',
+    acc: window.prompt('Account', '') || '',
+    page: window.prompt('Page', '') || '',
+    product: window.prompt('Product', '') || '',
+    advertiser: window.prompt('Advertiser', '') || '',
+    payment: window.prompt('Payment reference', '') || '',
+  });
+  saveMarketingState(state);
+  showToast('success', 'Ad account added', 'Account registry was updated.');
+  navigateTo('marketing-center');
+}
+
+function deleteMarketingAdAccount(index) {
+  const state = getMarketingState();
+  if (index < 0 || index >= state.adAccounts.length) return;
+  state.adAccounts.splice(index, 1);
+  saveMarketingState(state);
+  navigateTo('marketing-center');
+}
+
+function generateMarketingWeeklyText(state = getMarketingState()) {
+  const entries = getMarketingMonthEntries(state);
+  const totals = aggregateMarketing(entries);
+  const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
+  const topPage = byPage[0];
+  return [
+    'YNT SALES & MARKETING WEEKLY REPORT',
+    `Generated: ${new Date().toLocaleString('en-PH')}`,
+    '',
+    `Sales: ${marketingMoney(totals.sales)}`,
+    `Ad Spend: ${marketingMoney(totals.spend)}`,
+    `Orders: ${totals.orders}`,
+    `ROAS: ${marketingRoas(totals.roas)}`,
+    `CPP: ${marketingMoney(totals.cpp)}`,
+    `RTS Rate: ${marketingPct(totals.rtsRate)}`,
+    '',
+    `Top Page: ${topPage ? `${topPage.page} (${marketingRoas(topPage.roas)})` : 'No entries yet'}`,
+    '',
+    'Priorities:',
+    '- Scale pages above target ROAS.',
+    '- Cut weak creatives below benchmark.',
+    '- Review ad accounts and payment health.',
+  ].join('\n');
+}
+
+async function copyMarketingWeeklyReport() {
+  const text = generateMarketingWeeklyText();
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('success', 'Copied', 'Weekly report copied to clipboard.');
+  } catch {
+    showToast('warning', 'Copy failed', 'Select the report text and copy manually.');
+  }
+}
+
 function saveMarketingTargets() {
   const state = getMarketingState();
   state.targets = {
@@ -5298,7 +5559,7 @@ async function init() {
   await refreshOrderViewsFromBackend();
   await refreshInventoryViewFromBackend();
 
-  navigateTo('home');
+  navigateTo(getDefaultPageForCurrentUser());
 }
 
 window.addEventListener('DOMContentLoaded', init);
