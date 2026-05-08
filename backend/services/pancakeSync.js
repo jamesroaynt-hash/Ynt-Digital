@@ -78,6 +78,62 @@ function buildRef(prefix, externalId, fallback) {
   return `${prefix}-${normalized.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}`;
 }
 
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object') return [value];
+  return [];
+}
+
+function pushItems(target, entityType, value) {
+  const items = asArray(value);
+  if (!items.length) return;
+  target[entityType] = [...(target[entityType] || []), ...items];
+}
+
+function payloadHint(payload) {
+  return [
+    payload?.event,
+    payload?.event_type,
+    payload?.type,
+    payload?.object,
+    payload?.model,
+    payload?.resource,
+    payload?.topic,
+    payload?.action,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function normalizePayloadForSync(payload = {}) {
+  const normalized = {};
+
+  for (const entityType of SUPPORTED_ENTITY_TYPES) {
+    pushItems(normalized, entityType, payload[entityType]);
+    pushItems(normalized, entityType, payload.data?.[entityType]);
+  }
+
+  pushItems(normalized, 'orders', payload.order || payload.data?.order || payload.payload?.order);
+  pushItems(normalized, 'orders', payload.sale_order || payload.data?.sale_order);
+  pushItems(normalized, 'inventory', payload.product || payload.data?.product || payload.payload?.product);
+  pushItems(normalized, 'inventory', payload.item || payload.data?.item);
+  pushItems(normalized, 'customers', payload.customer || payload.data?.customer || payload.payload?.customer);
+
+  const hint = payloadHint(payload);
+  const data = payload.data || payload.payload || payload.body;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    if (hint.includes('order')) pushItems(normalized, 'orders', data);
+    if (hint.includes('product') || hint.includes('inventory') || hint.includes('stock')) pushItems(normalized, 'inventory', data);
+    if (hint.includes('customer')) pushItems(normalized, 'customers', data);
+  }
+
+  if (!Object.values(normalized).some((items) => Array.isArray(items) && items.length)) {
+    if (hint.includes('order')) pushItems(normalized, 'orders', payload);
+    if (hint.includes('product') || hint.includes('inventory') || hint.includes('stock')) pushItems(normalized, 'inventory', payload);
+    if (hint.includes('customer')) pushItems(normalized, 'customers', payload);
+  }
+
+  return normalized;
+}
+
 async function getSetting(db) {
   return await db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
 }
@@ -256,21 +312,53 @@ async function verifyWebhookSignature(db, payload, signature) {
 
 async function syncOrder(db, order) {
   const externalId = stringOrNull(order.id || order.order_id || order.order_ref);
-  const orderRef = stringOrNull(order.order_ref) || buildRef('ORD', externalId, Date.now());
-  const trackingNo = stringOrNull(order.tracking_no || order.tracking || order.shipping_code) || buildTrackingFallback('TRK', externalId || orderRef);
+  const orderRef = stringOrNull(order.order_ref || order.code || order.order_number) || buildRef('ORD', externalId, Date.now());
+  const partner = order.partner || {};
+  const shippingAddress = order.shipping_address || {};
+  const trackingNo = stringOrNull(
+    order.tracking_no ||
+    order.tracking ||
+    order.tracking_number ||
+    order.shipping_code ||
+    partner.tracking_number ||
+    partner.order_number ||
+    partner.code
+  ) || buildTrackingFallback('TRK', externalId || orderRef);
   const product = stringOrNull(order.product) || stringOrNull(order.product_name) || (
     Array.isArray(order.items) && order.items.length
-      ? order.items.map(item => item.name || item.product_name || item.sku || 'Item').join(', ')
+      ? order.items.map(item => item.variation_name || item.name || item.product_name || item.sku || 'Item').join(', ')
       : 'Imported Product'
   );
-  const customer = stringOrNull(order.customer) || stringOrNull(order.customer_name) || stringOrNull(order.buyer_name) || 'Imported Customer';
-  const phone = stringOrNull(order.phone) || stringOrNull(order.customer_phone) || stringOrNull(order.receiver_phone);
-  const qty = Math.max(1, Math.round(numberOrDefault(order.qty ?? order.quantity ?? order.total_quantity, 1)));
-  const codAmount = numberOrDefault(order.cod_amount ?? order.cod ?? order.total_amount ?? order.total_price, 0);
-  const courier = stringOrNull(order.courier) || stringOrNull(order.shipping_partner) || stringOrNull(order.shipping_provider);
+  const customer = stringOrNull(order.customer)
+    || stringOrNull(order.customer_name)
+    || stringOrNull(order.buyer_name)
+    || stringOrNull(order.bill_full_name)
+    || stringOrNull(shippingAddress.name)
+    || 'Imported Customer';
+  const phone = stringOrNull(order.phone)
+    || stringOrNull(order.customer_phone)
+    || stringOrNull(order.receiver_phone)
+    || stringOrNull(order.bill_phone_number)
+    || stringOrNull(shippingAddress.phone_number)
+    || stringOrNull(shippingAddress.phone);
+  const qty = Math.max(1, Math.round(numberOrDefault(
+    order.qty ?? order.quantity ?? order.total_quantity,
+    Array.isArray(order.items) ? order.items.reduce((sum, item) => sum + numberOrDefault(item.quantity ?? item.qty, 0), 0) || 1 : 1
+  )));
+  const codAmount = numberOrDefault(order.cod_amount ?? order.cod ?? order.cash ?? order.total_amount ?? order.total_price ?? order.total, 0);
+  const courier = stringOrNull(order.courier)
+    || stringOrNull(order.shipping_partner)
+    || stringOrNull(order.shipping_provider)
+    || stringOrNull(order.partner_name)
+    || stringOrNull(partner.name)
+    || stringOrNull(partner.partner_name);
   const attempts = Math.max(1, Math.round(numberOrDefault(order.attempts, 1)));
-  const orderDate = stringOrNull(order.order_date) || stringOrNull(order.created_at)?.slice(0, 10) || nowDate();
-  const status = statusFromPancake(order.status);
+  const orderDate = stringOrNull(order.order_date)
+    || stringOrNull(order.created_at)?.slice(0, 10)
+    || stringOrNull(order.inserted_at)?.slice(0, 10)
+    || stringOrNull(order.updated_at)?.slice(0, 10)
+    || nowDate();
+  const status = statusFromPancake(order.status_name || order.status_text || order.status);
 
   const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
@@ -456,17 +544,19 @@ const processors = {
 };
 
 function summarizePayload(payload) {
+  const normalized = normalizePayloadForSync(payload);
   const summary = {};
   for (const entityType of SUPPORTED_ENTITY_TYPES) {
-    if (Array.isArray(payload[entityType])) {
-      summary[entityType] = payload[entityType].length;
+    if (Array.isArray(normalized[entityType])) {
+      summary[entityType] = normalized[entityType].length;
     }
   }
   return summary;
 }
 
 async function syncPayload(db, payload, triggerType = 'manual') {
-  const runId = await startRun(db, triggerType, summarizePayload(payload));
+  const normalizedPayload = normalizePayloadForSync(payload);
+  const runId = await startRun(db, triggerType, summarizePayload(normalizedPayload));
   const result = {
     run_id: runId,
     provider: PROVIDER,
@@ -483,7 +573,7 @@ async function syncPayload(db, payload, triggerType = 'manual') {
     await db.exec('BEGIN');
 
     for (const entityType of SUPPORTED_ENTITY_TYPES) {
-      const items = Array.isArray(payload[entityType]) ? payload[entityType] : [];
+      const items = Array.isArray(normalizedPayload[entityType]) ? normalizedPayload[entityType] : [];
       if (!items.length) continue;
 
       result.entities[entityType] = {
@@ -529,6 +619,19 @@ async function syncPayload(db, payload, triggerType = 'manual') {
           result.entities[entityType].failed += 1;
         }
       }
+    }
+
+    if (!Object.keys(result.entities).length) {
+      const externalId = stringOrNull(payload?.id || payload?.data?.id || payload?.event_id);
+      await recordRaw(db, 'webhook', externalId, payload, { status: 'stored' });
+      result.stored_only += 1;
+      result.entities.webhook = {
+        received: 1,
+        created: 0,
+        updated: 0,
+        stored_only: 1,
+        failed: 0,
+      };
     }
 
     await db.exec('COMMIT');
