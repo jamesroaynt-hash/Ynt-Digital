@@ -91,12 +91,67 @@ function normalizeStatus(value) {
   return 'Pending';
 }
 
-function getSetting(db) {
-  return db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
+function formatDateParts(year, month, day) {
+  if (!year || !month || !day) return null;
+  if (year < 100) year += year >= 70 ? 1900 : 2000;
+  if (year < 1900 || year > 2200 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function getPublicSetting(db) {
-  const setting = getSetting(db);
+function normalizeSheetDate(value) {
+  const text = stringOrNull(value);
+  if (!text) return new Date().toISOString().slice(0, 10);
+
+  const isoMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    return formatDateParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]))
+      || new Date().toISOString().slice(0, 10);
+  }
+
+  const slashMatch = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (slashMatch) {
+    const first = Number(slashMatch[1]);
+    const second = Number(slashMatch[2]);
+    const year = Number(slashMatch[3]);
+    const preferDayFirst = String(process.env.GOOGLE_SHEETS_DATE_FORMAT || '').toLowerCase().startsWith('d');
+    const month = first > 12 || preferDayFirst ? second : first;
+    const day = first > 12 || preferDayFirst ? first : second;
+    return formatDateParts(year, month, day) || new Date().toISOString().slice(0, 10);
+  }
+
+  const serial = Number(text);
+  if (Number.isFinite(serial) && serial > 0 && serial < 100000) {
+    const epoch = Date.UTC(1899, 11, 30);
+    const date = new Date(epoch + Math.floor(serial) * 24 * 60 * 60 * 1000);
+    return formatDateParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
+      || new Date().toISOString().slice(0, 10);
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return formatDateParts(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate())
+      || new Date().toISOString().slice(0, 10);
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function getSetting(db) {
+  return await db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
+}
+
+async function getPublicSetting(db) {
+  const setting = await getSetting(db);
   if (!setting) {
     return {
       provider: PROVIDER,
@@ -127,8 +182,8 @@ function getPublicSetting(db) {
   };
 }
 
-function saveSetting(db, payload = {}) {
-  const current = getSetting(db);
+async function saveSetting(db, payload = {}) {
+  const current = await getSetting(db);
   const next = {
     enabled: payload.enabled ?? current?.enabled ?? 0,
     spreadsheet_id: payload.spreadsheet_id ?? current?.base_url ?? process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? null,
@@ -141,7 +196,7 @@ function saveSetting(db, payload = {}) {
   };
 
   if (current) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE integration_settings
       SET enabled = ?, base_url = ?, api_key = ?, user_access_token = ?, page_id = ?, page_access_token = ?,
           sync_mode = ?, notes = ?, updated_at = datetime('now')
@@ -158,7 +213,7 @@ function saveSetting(db, payload = {}) {
       PROVIDER
     );
   } else {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO integration_settings (
         provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, sync_mode, notes
       )
@@ -176,11 +231,11 @@ function saveSetting(db, payload = {}) {
     );
   }
 
-  return getPublicSetting(db);
+  return await getPublicSetting(db);
 }
 
-function startRun(db, triggerType, payloadSummary) {
-  const result = db.prepare(`
+async function startRun(db, triggerType, payloadSummary) {
+  const result = await db.prepare(`
     INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary)
     VALUES (?, 'inbound', ?, ?)
   `).run(PROVIDER, triggerType, safeJson(payloadSummary));
@@ -188,16 +243,16 @@ function startRun(db, triggerType, payloadSummary) {
   return Number(result.lastInsertRowid);
 }
 
-function finishRun(db, runId, status, resultSummary, errorMessage) {
-  db.prepare(`
+async function finishRun(db, runId, status, resultSummary, errorMessage) {
+  await db.prepare(`
     UPDATE integration_sync_runs
     SET status = ?, result_summary = ?, error_message = ?, finished_at = datetime('now')
     WHERE id = ?
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
 }
 
-function recordRaw(db, entityType, externalId, payload, outcome = {}) {
-  db.prepare(`
+async function recordRaw(db, entityType, externalId, payload, outcome = {}) {
+  await db.prepare(`
     INSERT INTO integration_raw_records (provider, entity_type, external_id, mapped_table, local_id, sync_status, error_message, payload)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -212,10 +267,10 @@ function recordRaw(db, entityType, externalId, payload, outcome = {}) {
   );
 }
 
-function upsertSourceLink(db, entityType, externalId, localTable, localId) {
+async function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   if (!externalId) return;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO integration_source_links (provider, entity_type, external_id, local_table, local_id)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(provider, entity_type, external_id)
@@ -289,11 +344,28 @@ function normalizeOrderRecord(row, sheetName) {
     'tracking_no',
     'tracking_number',
   ]));
+  const trackingNo = stringOrNull(getFirstValue(row, ['tracking_no', 'tracking_number', 'tracking', 'tracking id', 'tracking_id', 'waybill']));
+  const explicitOrderRef = stringOrNull(getFirstValue(row, ['order_ref', 'order_id', 'id']));
+  const rawOrderDate = getFirstValue(row, ['order_date', 'day_created', 'date_created', 'created_at', 'date', 'created_date']);
+  const orderDate = normalizeSheetDate(rawOrderDate);
+  const stableFallback = crypto
+    .createHash('sha1')
+    .update(safeJson({
+      sheetName,
+      trackingNo,
+      customer: getFirstValue(row, ['customer', 'customer_name', 'name', 'buyer_name', 'recipient_name']),
+      phone: getFirstValue(row, ['phone', 'phone_number', 'mobile', 'contact_number']),
+      product: getFirstValue(row, ['product', 'product_name', 'item', 'items']),
+      orderDate,
+    }))
+    .digest('hex')
+    .slice(0, 12)
+    .toUpperCase();
+
   return {
-    externalId,
-    order_ref: stringOrNull(getFirstValue(row, ['order_ref', 'order_id', 'id']))
-      || `GS-${normalizeHeaderKey(sheetName).toUpperCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-    tracking_no: stringOrNull(getFirstValue(row, ['tracking_no', 'tracking_number', 'tracking', 'tracking id', 'tracking_id', 'waybill'])),
+    externalId: externalId || trackingNo || stableFallback,
+    order_ref: explicitOrderRef || (trackingNo ? `GS-${trackingNo}` : `GS-${normalizeHeaderKey(sheetName).toUpperCase()}-${stableFallback}`),
+    tracking_no: trackingNo,
     customer: stringOrNull(getFirstValue(row, ['customer', 'customer_name', 'name', 'buyer_name', 'recipient_name'])) || 'Unknown Customer',
     phone: stringOrNull(getFirstValue(row, ['phone', 'phone_number', 'mobile', 'contact_number'])),
     product: stringOrNull(getFirstValue(row, ['product', 'product_name', 'item', 'items'])) || 'Unknown Product',
@@ -301,14 +373,82 @@ function normalizeOrderRecord(row, sheetName) {
     cod_amount: numberOrDefault(getFirstValue(row, ['cod_amount', 'cod', 'amount']), 0),
     status: normalizeStatus(getFirstValue(row, ['status'])),
     courier: stringOrNull(getFirstValue(row, ['courier', 'shipper', 'shipping_provider', 'logistics', 'delivery_partner'])),
-    order_date: stringOrNull(getFirstValue(row, ['order_date', 'day_created', 'date_created', 'created_at', 'date', 'created_date']))
-      || new Date().toISOString().slice(0, 10),
+    order_date: orderDate,
     source_sheet: stringOrNull(sheetName) || 'Orders',
   };
 }
 
-function upsertOrder(db, record) {
-  const result = db.prepare(`
+async function upsertOrder(db, record) {
+  const existingByOrderRef = await db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(record.order_ref);
+  if (existingByOrderRef) {
+    await db.prepare(`
+      UPDATE orders
+      SET tracking_no = ?,
+          customer = ?,
+          phone = ?,
+          product = ?,
+          qty = ?,
+          cod_amount = ?,
+          status = ?,
+          courier = ?,
+          source_sheet = ?,
+          order_date = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      record.tracking_no,
+      record.customer,
+      record.phone,
+      record.product,
+      record.qty,
+      record.cod_amount,
+      record.status,
+      record.courier,
+      record.source_sheet,
+      record.order_date,
+      existingByOrderRef.id
+    );
+    return Number(existingByOrderRef.id);
+  }
+
+  const existingByTracking = record.tracking_no
+    ? await db.prepare('SELECT id FROM orders WHERE tracking_no = ? ORDER BY updated_at DESC, id DESC LIMIT 1').get(record.tracking_no)
+    : null;
+
+  if (existingByTracking) {
+    await db.prepare(`
+      UPDATE orders
+      SET order_ref = ?,
+          tracking_no = ?,
+          customer = ?,
+          phone = ?,
+          product = ?,
+          qty = ?,
+          cod_amount = ?,
+          status = ?,
+          courier = ?,
+          source_sheet = ?,
+          order_date = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      record.order_ref,
+      record.tracking_no,
+      record.customer,
+      record.phone,
+      record.product,
+      record.qty,
+      record.cod_amount,
+      record.status,
+      record.courier,
+      record.source_sheet,
+      record.order_date,
+      existingByTracking.id
+    );
+    return Number(existingByTracking.id);
+  }
+
+  const result = await db.prepare(`
     INSERT INTO orders (
       order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, order_date, created_by, updated_at
     )
@@ -340,18 +480,41 @@ function upsertOrder(db, record) {
   );
 
   const insertedId = Number(result.lastInsertRowid || 0);
-  const local = db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(record.order_ref);
+  const local = await db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(record.order_ref);
   return insertedId || Number(local?.id || 0);
 }
 
-function getCounts(db) {
+async function deleteDuplicateSyncedOrders(db) {
+  const result = await db.prepare(`
+    DELETE FROM orders
+    WHERE tracking_no IS NOT NULL
+      AND TRIM(tracking_no) <> ''
+      AND id NOT IN (
+        SELECT MAX(id)
+        FROM orders
+        WHERE tracking_no IS NOT NULL AND TRIM(tracking_no) <> ''
+        GROUP BY tracking_no
+      )
+      AND tracking_no IN (
+        SELECT tracking_no
+        FROM orders
+        WHERE tracking_no IS NOT NULL AND TRIM(tracking_no) <> ''
+        GROUP BY tracking_no
+        HAVING COUNT(*) > 1
+      )
+  `).run();
+
+  return Number(result.changes || 0);
+}
+
+async function getCounts(db) {
   return {
-    orders: db.prepare('SELECT COUNT(*) AS count FROM orders').get().count,
+    orders: (await db.prepare('SELECT COUNT(*) AS count FROM orders').get()).count,
   };
 }
 
 async function collectSheetData(db, payload = {}, triggerType = 'manual') {
-  const setting = getSetting(db);
+  const setting = await getSetting(db);
   const enabled = payload.enabled ?? setting?.enabled ?? process.env.GOOGLE_SHEETS_SYNC_ENABLED ?? 0;
   if (!enabled && triggerType === 'scheduled') {
     return { skipped: true, reason: 'Google Sheets sync is disabled.' };
@@ -367,7 +530,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
     throw new Error('Missing Google Sheets configuration. Save spreadsheet ID, service account email, and private key first.');
   }
 
-  const runId = startRun(db, triggerType, {
+  const runId = await startRun(db, triggerType, {
     spreadsheet_id: spreadsheetId,
     sheet_names: sheetNames,
     entity_type: entityType,
@@ -406,8 +569,13 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
         const row = records[index];
         try {
           const normalized = normalizeOrderRecord(row, sheetName);
-          const existing = db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(normalized.order_ref);
-          const localId = upsertOrder(db, normalized);
+          const existing = await db.prepare(`
+            SELECT id
+            FROM orders
+            WHERE order_ref = ? OR (? IS NOT NULL AND tracking_no = ?)
+            LIMIT 1
+          `).get(normalized.order_ref, normalized.tracking_no, normalized.tracking_no);
+          const localId = await upsertOrder(db, normalized);
           if (existing?.id) {
             result.updated += 1;
             sheetSummary.updated += 1;
@@ -415,12 +583,12 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
             result.imported += 1;
             sheetSummary.imported += 1;
           }
-          recordRaw(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, row, {
+          await recordRaw(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, row, {
             status: 'synced',
             mappedTable: 'orders',
             localId,
           });
-          upsertSourceLink(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, 'orders', localId);
+          await upsertSourceLink(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, 'orders', localId);
         } catch (error) {
           result.failed_rows.push({
             sheet_name: sheetName,
@@ -428,7 +596,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
             error: truncate(error.message, 240),
           });
           sheetSummary.failed += 1;
-          recordRaw(db, entityType, `${sheetName}:${row.order_ref || row.id || `row-${index + 2}`}`, row, {
+          await recordRaw(db, entityType, `${sheetName}:${row.order_ref || row.id || `row-${index + 2}`}`, row, {
             status: 'error',
             mappedTable: 'orders',
             errorMessage: truncate(error.message, 240),
@@ -439,17 +607,18 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
       result.sheets.push(sheetSummary);
     }
 
+    result.duplicates_deleted = await deleteDuplicateSyncedOrders(db);
     const status = result.failed_rows.length ? 'partial' : 'success';
-    finishRun(db, runId, status, result, null);
+    await finishRun(db, runId, status, result, null);
     return result;
   } catch (error) {
-    finishRun(db, runId, 'failed', result, truncate(error.message));
+    await finishRun(db, runId, 'failed', result, truncate(error.message));
     throw error;
   }
 }
 
 async function runScheduledSync(db) {
-  const setting = getSetting(db);
+  const setting = await getSetting(db);
   const syncMode = setting?.sync_mode || process.env.GOOGLE_SHEETS_SYNC_MODE || 'manual';
   const enabled = Boolean(setting?.enabled ?? (String(process.env.GOOGLE_SHEETS_SYNC_ENABLED || '').toLowerCase() === 'true'));
 
@@ -457,11 +626,11 @@ async function runScheduledSync(db) {
     return { skipped: true, reason: 'Automatic Google Sheets sync is disabled.' };
   }
 
-  return collectSheetData(db, {}, 'scheduled');
+  return await collectSheetData(db, {}, 'scheduled');
 }
 
-function getLatestFinishedRun(db) {
-  return db.prepare(`
+async function getLatestFinishedRun(db) {
+  return await db.prepare(`
     SELECT status, finished_at
     FROM integration_sync_runs
     WHERE provider = ? AND finished_at IS NOT NULL AND status IN ('success', 'partial')
@@ -470,32 +639,32 @@ function getLatestFinishedRun(db) {
   `).get(PROVIDER) || null;
 }
 
-function shouldUseSheetsAsSource(setting) {
+async function shouldUseSheetsAsSource(setting) {
   const syncMode = setting?.sync_mode || process.env.GOOGLE_SHEETS_SYNC_MODE || 'manual';
   const enabled = Boolean(setting?.enabled ?? (String(process.env.GOOGLE_SHEETS_SYNC_ENABLED || '').toLowerCase() === 'true'));
   return enabled && ['automatic', 'source_of_data'].includes(syncMode);
 }
 
 async function ensureFreshSourceData(db) {
-  const setting = getSetting(db);
-  if (!shouldUseSheetsAsSource(setting)) {
+  const setting = await getSetting(db);
+  if (!(await shouldUseSheetsAsSource(setting))) {
     return { skipped: true, reason: 'Google Sheets is not configured as an order source.' };
   }
 
-  const latestRun = getLatestFinishedRun(db);
-  const intervalMs = getSyncIntervalMs(db);
+  const latestRun = await getLatestFinishedRun(db);
+  const intervalMs = await getSyncIntervalMs(db);
   const finishedAt = latestRun?.finished_at ? new Date(latestRun.finished_at.replace(' ', 'T')) : null;
   const isFresh = finishedAt && !Number.isNaN(finishedAt.getTime()) && (Date.now() - finishedAt.getTime()) < intervalMs;
   if (isFresh) {
     return { skipped: true, reason: 'Google Sheets source data is already fresh.' };
   }
 
-  return collectSheetData(db, {}, 'source_read');
+  return await collectSheetData(db, {}, 'source_read');
 }
 
-function getStatus(db) {
-  const setting = getPublicSetting(db);
-  const latestRuns = db.prepare(`
+async function getStatus(db) {
+  const setting = await getPublicSetting(db);
+  const latestRuns = await db.prepare(`
     SELECT id, status, trigger_type, payload_summary, result_summary, error_message, started_at, finished_at
     FROM integration_sync_runs
     WHERE provider = ?
@@ -510,12 +679,12 @@ function getStatus(db) {
       payload_summary: run.payload_summary ? JSON.parse(run.payload_summary) : null,
       result_summary: run.result_summary ? JSON.parse(run.result_summary) : null,
     })),
-    local_counts: getCounts(db),
+    local_counts: await getCounts(db),
   };
 }
 
-function getSyncIntervalMs(db) {
-  const setting = getSetting(db);
+async function getSyncIntervalMs(db) {
+  const setting = await getSetting(db);
   return Math.max(
     60 * 1000,
     numberOrDefault(setting?.page_access_token || process.env.GOOGLE_SHEETS_SYNC_INTERVAL_MS, DEFAULT_SYNC_INTERVAL_MS)

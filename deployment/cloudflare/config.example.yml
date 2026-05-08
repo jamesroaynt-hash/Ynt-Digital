@@ -1,0 +1,13 @@
+# Copy this file to your cloudflared config directory after creating a
+# named tunnel, then replace the hostname and credentials path.
+#
+# Windows default config directory:
+# C:\Users\YOUR_WINDOWS_USER\.cloudflared\config.yml
+
+tunnel: ynt-dashboard
+credentials-file: C:\Users\YOUR_WINDOWS_USER\.cloudflared\TUNNEL_ID.json
+
+ingress:
+  - hostname: dashboard.example.com
+    service: http://localhost:3001
+  - service: http_status:404

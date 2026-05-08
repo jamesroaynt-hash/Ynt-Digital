@@ -78,12 +78,12 @@ function buildRef(prefix, externalId, fallback) {
   return `${prefix}-${normalized.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}`;
 }
 
-function getSetting(db) {
-  return db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
+async function getSetting(db) {
+  return await db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
 }
 
-function saveSetting(db, payload) {
-  const current = getSetting(db);
+async function saveSetting(db, payload) {
+  const current = await getSetting(db);
   const next = {
     enabled: payload.enabled ?? current?.enabled ?? 0,
     base_url: payload.base_url ?? current?.base_url ?? null,
@@ -97,7 +97,7 @@ function saveSetting(db, payload) {
   };
 
   if (current) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE integration_settings
       SET enabled = ?, base_url = ?, api_key = ?, user_access_token = ?, page_id = ?, page_access_token = ?,
           webhook_secret = ?, sync_mode = ?, notes = ?, updated_at = datetime('now')
@@ -115,7 +115,7 @@ function saveSetting(db, payload) {
       PROVIDER
     );
   } else {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO integration_settings (
         provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, webhook_secret, sync_mode, notes
       )
@@ -134,11 +134,11 @@ function saveSetting(db, payload) {
     );
   }
 
-  return getPublicSetting(db);
+  return await getPublicSetting(db);
 }
 
-function getPublicSetting(db) {
-  const setting = getSetting(db);
+async function getPublicSetting(db) {
+  const setting = await getSetting(db);
   if (!setting) {
     return {
       provider: PROVIDER,
@@ -171,8 +171,8 @@ function getPublicSetting(db) {
   };
 }
 
-function startRun(db, triggerType, payloadSummary) {
-  const result = db.prepare(`
+async function startRun(db, triggerType, payloadSummary) {
+  const result = await db.prepare(`
     INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary)
     VALUES (?, 'inbound', ?, ?)
   `).run(PROVIDER, triggerType, safeJson(payloadSummary));
@@ -180,16 +180,16 @@ function startRun(db, triggerType, payloadSummary) {
   return Number(result.lastInsertRowid);
 }
 
-function finishRun(db, runId, status, resultSummary, errorMessage) {
-  db.prepare(`
+async function finishRun(db, runId, status, resultSummary, errorMessage) {
+  await db.prepare(`
     UPDATE integration_sync_runs
     SET status = ?, result_summary = ?, error_message = ?, finished_at = datetime('now')
     WHERE id = ?
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
 }
 
-function recordRaw(db, entityType, externalId, payload, outcome = {}) {
-  db.prepare(`
+async function recordRaw(db, entityType, externalId, payload, outcome = {}) {
+  await db.prepare(`
     INSERT INTO integration_raw_records (provider, entity_type, external_id, mapped_table, local_id, sync_status, error_message, payload)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -204,10 +204,10 @@ function recordRaw(db, entityType, externalId, payload, outcome = {}) {
   );
 }
 
-function upsertSourceLink(db, entityType, externalId, localTable, localId) {
+async function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   if (!externalId) return;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO integration_source_links (provider, entity_type, external_id, local_table, local_id)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(provider, entity_type, external_id)
@@ -215,9 +215,9 @@ function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   `).run(PROVIDER, entityType, String(externalId), localTable, String(localId));
 }
 
-function findLinkedLocalId(db, entityType, externalId) {
+async function findLinkedLocalId(db, entityType, externalId) {
   if (!externalId) return null;
-  const link = db.prepare(`
+  const link = await db.prepare(`
     SELECT local_id
     FROM integration_source_links
     WHERE provider = ? AND entity_type = ? AND external_id = ?
@@ -226,18 +226,18 @@ function findLinkedLocalId(db, entityType, externalId) {
   return link?.local_id || null;
 }
 
-function getCounts(db) {
+async function getCounts(db) {
   return {
-    orders: db.prepare('SELECT COUNT(*) AS count FROM orders').get().count,
-    inventory: db.prepare('SELECT COUNT(*) AS count FROM inventory').get().count,
-    expenses: db.prepare('SELECT COUNT(*) AS count FROM expenses').get().count,
-    pickups: db.prepare('SELECT COUNT(*) AS count FROM daily_pickups').get().count,
-    scans: db.prepare('SELECT COUNT(*) AS count FROM scan_records').get().count,
+    orders: (await db.prepare('SELECT COUNT(*) AS count FROM orders').get()).count,
+    inventory: (await db.prepare('SELECT COUNT(*) AS count FROM inventory').get()).count,
+    expenses: (await db.prepare('SELECT COUNT(*) AS count FROM expenses').get()).count,
+    pickups: (await db.prepare('SELECT COUNT(*) AS count FROM daily_pickups').get()).count,
+    scans: (await db.prepare('SELECT COUNT(*) AS count FROM scan_records').get()).count,
   };
 }
 
-function validateWebhookSecret(db, suppliedSecret) {
-  const setting = getSetting(db);
+async function validateWebhookSecret(db, suppliedSecret) {
+  const setting = await getSetting(db);
   if (!setting?.webhook_secret) return true;
   return suppliedSecret && suppliedSecret === setting.webhook_secret;
 }
@@ -246,15 +246,15 @@ function makeWebhookHash(payload, secret) {
   return crypto.createHmac('sha256', secret).update(safeJson(payload)).digest('hex');
 }
 
-function verifyWebhookSignature(db, payload, signature) {
-  const setting = getSetting(db);
+async function verifyWebhookSignature(db, payload, signature) {
+  const setting = await getSetting(db);
   if (!setting?.webhook_secret) return true;
   if (!signature) return false;
   const expected = makeWebhookHash(payload, setting.webhook_secret);
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 
-function syncOrder(db, order) {
+async function syncOrder(db, order) {
   const externalId = stringOrNull(order.id || order.order_id || order.order_ref);
   const orderRef = stringOrNull(order.order_ref) || buildRef('ORD', externalId, Date.now());
   const trackingNo = stringOrNull(order.tracking_no || order.tracking || order.shipping_code) || buildTrackingFallback('TRK', externalId || orderRef);
@@ -272,32 +272,32 @@ function syncOrder(db, order) {
   const orderDate = stringOrNull(order.order_date) || stringOrNull(order.created_at)?.slice(0, 10) || nowDate();
   const status = statusFromPancake(order.status);
 
-  const linkedId = findLinkedLocalId(db, 'orders', externalId);
+  const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
-    ? db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id FROM orders WHERE order_ref = ? OR tracking_no = ? LIMIT 1').get(orderRef, trackingNo);
+    ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id FROM orders WHERE order_ref = ? OR tracking_no = ? LIMIT 1').get(orderRef, trackingNo);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE orders
       SET order_ref = ?, tracking_no = ?, customer = ?, phone = ?, product = ?, qty = ?, cod_amount = ?,
           status = ?, courier = ?, attempts = ?, order_date = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(orderRef, trackingNo, customer, phone, product, qty, codAmount, status, courier, attempts, orderDate, existing.id);
-    upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
+    await upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
     return { action: 'updated', localId: existing.id };
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO orders (order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, attempts, order_date, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
   `).run(orderRef, trackingNo, customer, phone, product, qty, codAmount, status, courier, attempts, orderDate);
 
-  upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
+  await upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
   return { action: 'created', localId: result.lastInsertRowid };
 }
 
-function syncInventoryItem(db, item) {
+async function syncInventoryItem(db, item) {
   const externalId = stringOrNull(item.id || item.item_id || item.product_id);
   const sku = stringOrNull(item.sku) || stringOrNull(item.code);
   const itemId = stringOrNull(item.item_id) || sku || buildRef(item.type === 'Supply' ? 'S' : 'P', externalId, Date.now()).replace('-', '');
@@ -309,42 +309,42 @@ function syncInventoryItem(db, item) {
   const costPrice = numberOrDefault(item.cost_price ?? item.cost ?? item.import_price, 0);
   const sellPrice = item.sell_price ?? item.price ?? item.sale_price ?? null;
 
-  const linkedId = findLinkedLocalId(db, 'inventory', externalId);
+  const linkedId = await findLinkedLocalId(db, 'inventory', externalId);
   const existing = linkedId
-    ? db.prepare('SELECT id, item_id, stock FROM inventory WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id, item_id, stock FROM inventory WHERE sku = ? OR item_id = ? LIMIT 1').get(sku, itemId);
+    ? await db.prepare('SELECT id, item_id, stock FROM inventory WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id, item_id, stock FROM inventory WHERE sku = ? OR item_id = ? LIMIT 1').get(sku, itemId);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE inventory
       SET item_id = ?, name = ?, sku = ?, type = ?, unit = ?, stock = ?, reorder_pt = ?, cost_price = ?, sell_price = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(itemId, name, sku, type, unit, stock, reorderPt, costPrice, sellPrice, existing.id);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO inventory_logs (item_id, action, qty_before, qty_change, qty_after, notes, created_by)
       VALUES (?, 'adjustment', ?, ?, ?, ?, 1)
     `).run(existing.item_id, existing.stock, stock - existing.stock, stock, 'Pancake inventory sync');
 
-    upsertSourceLink(db, 'inventory', externalId, 'inventory', existing.id);
+    await upsertSourceLink(db, 'inventory', externalId, 'inventory', existing.id);
     return { action: 'updated', localId: existing.id };
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO inventory (item_id, name, sku, type, unit, stock, reorder_pt, cost_price, sell_price)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(itemId, name, sku, type, unit, stock, reorderPt, costPrice, sellPrice);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO inventory_logs (item_id, action, qty_before, qty_change, qty_after, notes, created_by)
     VALUES (?, 'add', 0, ?, ?, ?, 1)
   `).run(itemId, stock, stock, 'Pancake inventory import');
 
-  upsertSourceLink(db, 'inventory', externalId, 'inventory', result.lastInsertRowid);
+  await upsertSourceLink(db, 'inventory', externalId, 'inventory', result.lastInsertRowid);
   return { action: 'created', localId: result.lastInsertRowid };
 }
 
-function syncExpense(db, expense) {
+async function syncExpense(db, expense) {
   const externalId = stringOrNull(expense.id || expense.expense_id || expense.expense_ref);
   const expenseRef = stringOrNull(expense.expense_ref) || buildRef('EXP', externalId, Date.now());
   const expDate = stringOrNull(expense.exp_date || expense.date || expense.created_at)?.slice(0, 10) || nowDate();
@@ -354,31 +354,31 @@ function syncExpense(db, expense) {
   const unitPrice = numberOrDefault(expense.unit_price ?? expense.amount ?? expense.total, 0);
   const notedBy = stringOrNull(expense.noted_by) || stringOrNull(expense.staff_name) || 'Pancake POS';
 
-  const linkedId = findLinkedLocalId(db, 'expenses', externalId);
+  const linkedId = await findLinkedLocalId(db, 'expenses', externalId);
   const existing = linkedId
-    ? db.prepare('SELECT id FROM expenses WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id FROM expenses WHERE expense_ref = ? LIMIT 1').get(expenseRef);
+    ? await db.prepare('SELECT id FROM expenses WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id FROM expenses WHERE expense_ref = ? LIMIT 1').get(expenseRef);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE expenses
       SET expense_ref = ?, exp_date = ?, category = ?, item_name = ?, quantity = ?, unit_price = ?, noted_by = ?
       WHERE id = ?
     `).run(expenseRef, expDate, category, itemName, quantity, unitPrice, notedBy, existing.id);
-    upsertSourceLink(db, 'expenses', externalId, 'expenses', existing.id);
+    await upsertSourceLink(db, 'expenses', externalId, 'expenses', existing.id);
     return { action: 'updated', localId: existing.id };
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO expenses (expense_ref, exp_date, category, item_name, quantity, unit_price, noted_by, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `).run(expenseRef, expDate, category, itemName, quantity, unitPrice, notedBy);
 
-  upsertSourceLink(db, 'expenses', externalId, 'expenses', result.lastInsertRowid);
+  await upsertSourceLink(db, 'expenses', externalId, 'expenses', result.lastInsertRowid);
   return { action: 'created', localId: result.lastInsertRowid };
 }
 
-function syncPickup(db, pickup) {
+async function syncPickup(db, pickup) {
   const externalId = stringOrNull(pickup.id || pickup.pickup_id || pickup.pickup_ref);
   const pickupRef = stringOrNull(pickup.pickup_ref) || buildRef('PU', externalId, Date.now());
   const pickupDate = stringOrNull(pickup.pickup_date || pickup.date || pickup.created_at)?.slice(0, 10) || nowDate();
@@ -388,31 +388,31 @@ function syncPickup(db, pickup) {
   const totalPieces = Math.max(1, Math.round(numberOrDefault(pickup.total_pieces ?? pickup.pieces ?? pickup.quantity, customerOrders)));
   const notes = stringOrNull(pickup.notes);
 
-  const linkedId = findLinkedLocalId(db, 'pickups', externalId);
+  const linkedId = await findLinkedLocalId(db, 'pickups', externalId);
   const existing = linkedId
-    ? db.prepare('SELECT id FROM daily_pickups WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id FROM daily_pickups WHERE pickup_ref = ? LIMIT 1').get(pickupRef);
+    ? await db.prepare('SELECT id FROM daily_pickups WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id FROM daily_pickups WHERE pickup_ref = ? LIMIT 1').get(pickupRef);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE daily_pickups
       SET pickup_ref = ?, pickup_date = ?, product_name = ?, product_type = ?, customer_orders = ?, total_pieces = ?, notes = ?
       WHERE id = ?
     `).run(pickupRef, pickupDate, productName, productType, customerOrders, totalPieces, notes, existing.id);
-    upsertSourceLink(db, 'pickups', externalId, 'daily_pickups', existing.id);
+    await upsertSourceLink(db, 'pickups', externalId, 'daily_pickups', existing.id);
     return { action: 'updated', localId: existing.id };
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO daily_pickups (pickup_ref, pickup_date, product_name, product_type, customer_orders, total_pieces, notes, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `).run(pickupRef, pickupDate, productName, productType, customerOrders, totalPieces, notes);
 
-  upsertSourceLink(db, 'pickups', externalId, 'daily_pickups', result.lastInsertRowid);
+  await upsertSourceLink(db, 'pickups', externalId, 'daily_pickups', result.lastInsertRowid);
   return { action: 'created', localId: result.lastInsertRowid };
 }
 
-function syncScan(db, scan) {
+async function syncScan(db, scan) {
   const externalId = stringOrNull(scan.id || scan.scan_id || scan.scan_ref);
   const scanRef = stringOrNull(scan.scan_ref) || buildRef('SCN', externalId, Date.now());
   const trackingNo = stringOrNull(scan.tracking_no || scan.tracking) || buildTrackingFallback('SCAN', externalId || scanRef);
@@ -423,27 +423,27 @@ function syncScan(db, scan) {
   const courier = stringOrNull(scan.courier);
   const scanType = scanTypeFromValue(scan.scan_type || scan.type);
 
-  const linkedId = findLinkedLocalId(db, 'scans', externalId);
+  const linkedId = await findLinkedLocalId(db, 'scans', externalId);
   const existing = linkedId
-    ? db.prepare('SELECT id FROM scan_records WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id FROM scan_records WHERE scan_ref = ? OR tracking_no = ? LIMIT 1').get(scanRef, trackingNo);
+    ? await db.prepare('SELECT id FROM scan_records WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id FROM scan_records WHERE scan_ref = ? OR tracking_no = ? LIMIT 1').get(scanRef, trackingNo);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE scan_records
       SET scan_ref = ?, tracking_no = ?, customer = ?, phone = ?, scan_date = ?, status = ?, courier = ?, scan_type = ?
       WHERE id = ?
     `).run(scanRef, trackingNo, customer, phone, scanDate, status, courier, scanType, existing.id);
-    upsertSourceLink(db, 'scans', externalId, 'scan_records', existing.id);
+    await upsertSourceLink(db, 'scans', externalId, 'scan_records', existing.id);
     return { action: 'updated', localId: existing.id };
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO scan_records (scan_ref, tracking_no, customer, phone, scan_date, status, courier, scan_type, scanned_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
   `).run(scanRef, trackingNo, customer, phone, scanDate, status, courier, scanType);
 
-  upsertSourceLink(db, 'scans', externalId, 'scan_records', result.lastInsertRowid);
+  await upsertSourceLink(db, 'scans', externalId, 'scan_records', result.lastInsertRowid);
   return { action: 'created', localId: result.lastInsertRowid };
 }
 
@@ -465,8 +465,8 @@ function summarizePayload(payload) {
   return summary;
 }
 
-function syncPayload(db, payload, triggerType = 'manual') {
-  const runId = startRun(db, triggerType, summarizePayload(payload));
+async function syncPayload(db, payload, triggerType = 'manual') {
+  const runId = await startRun(db, triggerType, summarizePayload(payload));
   const result = {
     run_id: runId,
     provider: PROVIDER,
@@ -475,12 +475,12 @@ function syncPayload(db, payload, triggerType = 'manual') {
     stored_only: 0,
     failed: 0,
     entities: {},
-    counts_before: getCounts(db),
+    counts_before: await getCounts(db),
     counts_after: null,
   };
 
   try {
-    db.exec('BEGIN');
+    await db.exec('BEGIN');
 
     for (const entityType of SUPPORTED_ENTITY_TYPES) {
       const items = Array.isArray(payload[entityType]) ? payload[entityType] : [];
@@ -500,14 +500,14 @@ function syncPayload(db, payload, triggerType = 'manual') {
         try {
           const processor = processors[entityType];
           if (!processor) {
-            recordRaw(db, entityType, externalId, item, { status: 'stored' });
+            await recordRaw(db, entityType, externalId, item, { status: 'stored' });
             result.stored_only += 1;
             result.entities[entityType].stored_only += 1;
             continue;
           }
 
-          const syncOutcome = processor(db, item);
-          recordRaw(db, entityType, externalId, item, {
+          const syncOutcome = await processor(db, item);
+          await recordRaw(db, entityType, externalId, item, {
             status: 'synced',
             mappedTable: entityType === 'inventory' ? 'inventory' : entityType === 'pickups' ? 'daily_pickups' : entityType === 'scans' ? 'scan_records' : entityType,
             localId: syncOutcome.localId,
@@ -521,7 +521,7 @@ function syncPayload(db, payload, triggerType = 'manual') {
             result.entities[entityType].updated += 1;
           }
         } catch (error) {
-          recordRaw(db, entityType, externalId, item, {
+          await recordRaw(db, entityType, externalId, item, {
             status: 'error',
             errorMessage: truncate(error.message),
           });
@@ -531,17 +531,17 @@ function syncPayload(db, payload, triggerType = 'manual') {
       }
     }
 
-    db.exec('COMMIT');
-    result.counts_after = getCounts(db);
+    await db.exec('COMMIT');
+    result.counts_after = await getCounts(db);
 
     const status = result.failed ? (result.created || result.updated || result.stored_only ? 'partial' : 'failed') : 'success';
-    finishRun(db, runId, status, result, null);
+    await finishRun(db, runId, status, result, null);
     return result;
   } catch (error) {
     try {
-      db.exec('ROLLBACK');
+      await db.exec('ROLLBACK');
     } catch {}
-    finishRun(db, runId, 'failed', result, truncate(error.message));
+    await finishRun(db, runId, 'failed', result, truncate(error.message));
     throw error;
   }
 }
@@ -585,11 +585,11 @@ async function pancakeRequest(baseUrl, path, { method = 'GET', query, body } = {
   return data;
 }
 
-function upsertCollectedPage(db, page) {
+async function upsertCollectedPage(db, page) {
   const externalId = stringOrNull(page?.id);
   if (!externalId) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_pages (external_id, platform, name, avatar_url, raw_payload)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
@@ -609,11 +609,11 @@ function upsertCollectedPage(db, page) {
   return externalId;
 }
 
-function upsertCollectedConversation(db, pageId, conversation) {
+async function upsertCollectedConversation(db, pageId, conversation) {
   const externalId = stringOrNull(conversation?.id);
   if (!externalId) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_conversations (
       external_id, page_id, conversation_type, page_uid, updated_at_remote, inserted_at_remote,
       tags_json, last_message_json, participants_json, raw_payload
@@ -646,7 +646,7 @@ function upsertCollectedConversation(db, pageId, conversation) {
   return externalId;
 }
 
-function upsertCollectedMessage(db, pageId, message) {
+async function upsertCollectedMessage(db, pageId, message) {
   const externalId = stringOrNull(message?.id);
   const conversationId = stringOrNull(message?.conversation_id);
   const externalKey = stableExternalKey(
@@ -656,7 +656,7 @@ function upsertCollectedMessage(db, pageId, message) {
   );
   if (!externalKey) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_messages (
       external_key, external_id, conversation_id, page_id, sender_id, sender_name, message_text,
       message_type, has_phone, inserted_at_remote, is_hidden, is_removed, raw_payload
@@ -695,12 +695,12 @@ function upsertCollectedMessage(db, pageId, message) {
   return externalKey;
 }
 
-function upsertCollectedCustomer(db, pageId, customer) {
+async function upsertCollectedCustomer(db, pageId, customer) {
   const externalId = stringOrNull(customer?.id || customer?.psid);
   const externalKey = stableExternalKey(pageId, externalId || stringOrNull(customer?.psid) || stringOrNull(customer?.name));
   if (!externalKey) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_customers (
       external_key, external_id, page_id, name, gender, birthday, lives_in,
       phone_numbers_json, notes_json, inserted_at_remote, raw_payload
@@ -735,11 +735,11 @@ function upsertCollectedCustomer(db, pageId, customer) {
   return externalKey;
 }
 
-function upsertCollectedPost(db, pageId, post) {
+async function upsertCollectedPost(db, pageId, post) {
   const externalId = stringOrNull(post?.id);
   if (!externalId) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_posts (
       external_id, page_id, post_type, message, inserted_at_remote, comment_count,
       reactions_json, phone_number_count, raw_payload
@@ -770,12 +770,12 @@ function upsertCollectedPost(db, pageId, post) {
   return externalId;
 }
 
-function upsertCollectedTag(db, pageId, tag) {
+async function upsertCollectedTag(db, pageId, tag) {
   const externalId = stringOrNull(tag?.id);
   const externalKey = stableExternalKey(pageId, externalId || stringOrNull(tag?.text));
   if (!externalKey) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_tags (external_key, external_id, page_id, text, color, lighten_color, description, raw_payload)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_key) DO UPDATE SET
@@ -801,12 +801,12 @@ function upsertCollectedTag(db, pageId, tag) {
   return externalKey;
 }
 
-function upsertCollectedUser(db, pageId, user) {
+async function upsertCollectedUser(db, pageId, user) {
   const externalId = stringOrNull(user?.id || user?.fb_id);
   const externalKey = stableExternalKey(pageId, externalId || stringOrNull(user?.name));
   if (!externalKey) return null;
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pancake_users (
       external_key, external_id, page_id, name, status, fb_id, status_in_page,
       is_online, user_group, page_permissions_json, raw_payload
@@ -841,24 +841,24 @@ function upsertCollectedUser(db, pageId, user) {
   return externalKey;
 }
 
-function storeCollectedItems(db, resource, items, options = {}) {
+async function storeCollectedItems(db, resource, items, options = {}) {
   const localIds = [];
   for (const item of items) {
     let localId = null;
-    if (resource === 'pages') localId = upsertCollectedPage(db, item);
-    if (resource === 'conversations') localId = upsertCollectedConversation(db, options.page_id, item);
-    if (resource === 'messages') localId = upsertCollectedMessage(db, options.page_id, item);
-    if (resource === 'customers') localId = upsertCollectedCustomer(db, options.page_id, item);
-    if (resource === 'posts') localId = upsertCollectedPost(db, options.page_id, item);
-    if (resource === 'tags') localId = upsertCollectedTag(db, options.page_id, item);
-    if (resource === 'users') localId = upsertCollectedUser(db, options.page_id, item);
+    if (resource === 'pages') localId = await upsertCollectedPage(db, item);
+    if (resource === 'conversations') localId = await upsertCollectedConversation(db, options.page_id, item);
+    if (resource === 'messages') localId = await upsertCollectedMessage(db, options.page_id, item);
+    if (resource === 'customers') localId = await upsertCollectedCustomer(db, options.page_id, item);
+    if (resource === 'posts') localId = await upsertCollectedPost(db, options.page_id, item);
+    if (resource === 'tags') localId = await upsertCollectedTag(db, options.page_id, item);
+    if (resource === 'users') localId = await upsertCollectedUser(db, options.page_id, item);
     if (localId) localIds.push(localId);
   }
   return localIds;
 }
 
 async function listPagesFromApi(db, payload = {}) {
-  const setting = getSetting(db);
+  const setting = await getSetting(db);
   const accessToken = stringOrNull(payload.user_access_token || setting?.user_access_token || setting?.api_key);
   if (!accessToken) {
     throw new Error('Missing Pancake user access token. Save user_access_token first.');
@@ -869,7 +869,7 @@ async function listPagesFromApi(db, payload = {}) {
   });
 
   const pages = Array.isArray(data?.pages) ? data.pages : [];
-  storeCollectedItems(db, 'pages', pages);
+  await storeCollectedItems(db, 'pages', pages);
 
   return {
     pages,
@@ -877,7 +877,7 @@ async function listPagesFromApi(db, payload = {}) {
 }
 
 async function ensurePageAccessToken(db, payload = {}) {
-  const setting = getSetting(db);
+  const setting = await getSetting(db);
   const pageId = stringOrNull(payload.page_id || setting?.page_id);
   const existingToken = stringOrNull(payload.page_access_token || setting?.page_access_token || setting?.api_key);
   if (pageId && existingToken) {
@@ -907,7 +907,7 @@ async function ensurePageAccessToken(db, payload = {}) {
     throw new Error('Pancake did not return a page_access_token.');
   }
 
-  saveSetting(db, {
+  await saveSetting(db, {
     ...setting,
     user_access_token: accessToken,
     page_id: pageId,
@@ -940,7 +940,7 @@ async function collectApiData(db, payload = {}) {
     page_number: Math.max(1, Math.round(numberOrDefault(payload.page_number, 1))),
   };
 
-  const runId = startRun(db, 'api_collect', collectSummaryPayload(requestedResources, options));
+  const runId = await startRun(db, 'api_collect', collectSummaryPayload(requestedResources, options));
   const result = {
     run_id: runId,
     provider: PROVIDER,
@@ -1040,7 +1040,7 @@ async function collectApiData(db, payload = {}) {
 
       try {
         const items = await fetchResource();
-        const localIds = storeCollectedItems(db, resource, items, { page_id: options.page_id });
+        const localIds = await storeCollectedItems(db, resource, items, { page_id: options.page_id });
         result.resources[resource] = {
           count: items.length,
           items,
@@ -1050,7 +1050,7 @@ async function collectApiData(db, payload = {}) {
         };
         for (const item of items) {
           const externalId = item?.id || item?.conversation_id || item?.psid || item?.fb_id;
-          recordRaw(db, resource, externalId, item, {
+          await recordRaw(db, resource, externalId, item, {
             status: 'synced',
             mappedTable: `pancake_${resource}`,
             localId: externalId,
@@ -1062,7 +1062,7 @@ async function collectApiData(db, payload = {}) {
     }
 
     const status = result.failed_resources.length ? 'partial' : 'success';
-    finishRun(db, runId, status, {
+    await finishRun(db, runId, status, {
       page_id: result.page_id,
       token_generated: result.token_generated,
       resources: Object.fromEntries(
@@ -1073,14 +1073,14 @@ async function collectApiData(db, payload = {}) {
     }, null);
     return result;
   } catch (error) {
-    finishRun(db, runId, 'failed', result, truncate(error.message));
+    await finishRun(db, runId, 'failed', result, truncate(error.message));
     throw error;
   }
 }
 
-function getStatus(db) {
-  const setting = getPublicSetting(db);
-  const latestRuns = db.prepare(`
+async function getStatus(db) {
+  const setting = await getPublicSetting(db);
+  const latestRuns = await db.prepare(`
     SELECT id, status, trigger_type, payload_summary, result_summary, error_message, started_at, finished_at
     FROM integration_sync_runs
     WHERE provider = ?
@@ -1088,7 +1088,7 @@ function getStatus(db) {
     LIMIT 10
   `).all(PROVIDER);
 
-  const totals = db.prepare(`
+  const totals = await db.prepare(`
     SELECT entity_type, COUNT(*) AS count
     FROM integration_raw_records
     WHERE provider = ?
@@ -1103,7 +1103,7 @@ function getStatus(db) {
       result_summary: run.result_summary ? JSON.parse(run.result_summary) : null,
     })),
     raw_record_totals: totals,
-    local_counts: getCounts(db),
+    local_counts: await getCounts(db),
   };
 }
 

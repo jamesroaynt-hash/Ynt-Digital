@@ -41,12 +41,12 @@ function unixSecondsFromDate(value, endOfDay = false) {
   return Math.floor(date.getTime() / 1000);
 }
 
-function getSetting(db) {
-  return db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
+async function getSetting(db) {
+  return await db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
 }
 
-function saveSetting(db, payload) {
-  const current = getSetting(db);
+async function saveSetting(db, payload) {
+  const current = await getSetting(db);
   const next = {
     enabled: payload.enabled ?? current?.enabled ?? 0,
     base_url: payload.base_url ?? current?.base_url ?? POS_API_BASE,
@@ -60,7 +60,7 @@ function saveSetting(db, payload) {
   };
 
   if (current) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE integration_settings
       SET enabled = ?, base_url = ?, api_key = ?, user_access_token = ?, page_id = ?, page_access_token = ?,
           webhook_secret = ?, sync_mode = ?, notes = ?, updated_at = datetime('now')
@@ -78,7 +78,7 @@ function saveSetting(db, payload) {
       PROVIDER
     );
   } else {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO integration_settings (
         provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, webhook_secret, sync_mode, notes
       )
@@ -97,11 +97,11 @@ function saveSetting(db, payload) {
     );
   }
 
-  return getPublicSetting(db);
+  return await getPublicSetting(db);
 }
 
-function getPublicSetting(db) {
-  const setting = getSetting(db);
+async function getPublicSetting(db) {
+  const setting = await getSetting(db);
   if (!setting) {
     return {
       provider: PROVIDER,
@@ -128,8 +128,8 @@ function getPublicSetting(db) {
   };
 }
 
-function startRun(db, triggerType, payloadSummary) {
-  const result = db.prepare(`
+async function startRun(db, triggerType, payloadSummary) {
+  const result = await db.prepare(`
     INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary)
     VALUES (?, 'inbound', ?, ?)
   `).run(PROVIDER, triggerType, safeJson(payloadSummary));
@@ -137,16 +137,16 @@ function startRun(db, triggerType, payloadSummary) {
   return Number(result.lastInsertRowid);
 }
 
-function finishRun(db, runId, status, resultSummary, errorMessage) {
-  db.prepare(`
+async function finishRun(db, runId, status, resultSummary, errorMessage) {
+  await db.prepare(`
     UPDATE integration_sync_runs
     SET status = ?, result_summary = ?, error_message = ?, finished_at = datetime('now')
     WHERE id = ?
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
 }
 
-function recordRaw(db, entityType, externalId, payload, outcome = {}) {
-  db.prepare(`
+async function recordRaw(db, entityType, externalId, payload, outcome = {}) {
+  await db.prepare(`
     INSERT INTO integration_raw_records (provider, entity_type, external_id, mapped_table, local_id, sync_status, error_message, payload)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -161,9 +161,9 @@ function recordRaw(db, entityType, externalId, payload, outcome = {}) {
   );
 }
 
-function upsertSourceLink(db, entityType, externalId, localTable, localId) {
+async function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   if (!externalId || !localId) return;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO integration_source_links (provider, entity_type, external_id, local_table, local_id)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(provider, entity_type, external_id) DO UPDATE SET
@@ -173,9 +173,9 @@ function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   `).run(PROVIDER, entityType, String(externalId), localTable, String(localId));
 }
 
-function findLinkedLocalId(db, entityType, externalId) {
+async function findLinkedLocalId(db, entityType, externalId) {
   if (!externalId) return null;
-  const row = db.prepare(`
+  const row = await db.prepare(`
     SELECT local_id
     FROM integration_source_links
     WHERE provider = ? AND entity_type = ? AND external_id = ?
@@ -216,10 +216,10 @@ async function posRequest(baseUrl, path, apiKey, query = {}) {
   return data;
 }
 
-function upsertShop(db, item) {
+async function upsertShop(db, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_shops (external_id, name, avatar_url, pages_json, link_post_marketer_json, raw_payload)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
@@ -240,10 +240,10 @@ function upsertShop(db, item) {
   return externalId;
 }
 
-function upsertWarehouse(db, shopId, item) {
+async function upsertWarehouse(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_warehouses (
       external_id, shop_id, name, address, full_address, phone_number, country_code, allow_create_order, custom_id, raw_payload
     )
@@ -274,10 +274,10 @@ function upsertWarehouse(db, shopId, item) {
   return externalId;
 }
 
-function upsertOrder(db, shopId, item) {
+async function upsertOrder(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, items_json, partner_json, shipping_address_json, raw_payload
@@ -327,12 +327,12 @@ function upsertOrder(db, shopId, item) {
   return externalId;
 }
 
-function upsertProduct(db, shopId, item) {
+async function upsertProduct(db, shopId, item) {
   const productId = stringOrNull(item?.product_id || item?.id);
   const variationId = stringOrNull(item?.variation_id || item?.id);
   const externalKey = stableKey(shopId, productId, variationId || item?.barcode || item?.custom_id || item?.name);
   if (!externalKey) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_products (
       external_key, shop_id, product_id, variation_id, name, sku, barcode, custom_id, category_name,
       retail_price, imported_price, available_quantity, warehouse_json, raw_payload
@@ -372,10 +372,10 @@ function upsertProduct(db, shopId, item) {
   return externalKey;
 }
 
-function upsertCustomer(db, shopId, item) {
+async function upsertCustomer(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_customers (
       external_id, shop_id, name, phone_number, email, address, city, district, ward, level_name, note, raw_payload
     )
@@ -410,11 +410,11 @@ function upsertCustomer(db, shopId, item) {
   return externalId;
 }
 
-function upsertUser(db, shopId, item) {
+async function upsertUser(db, shopId, item) {
   const externalId = stringOrNull(item?.id || item?.user_id || item?.account_id);
   const externalKey = stableKey(shopId, externalId || item?.email || item?.phone_number || item?.username || item?.name);
   if (!externalKey) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_users (
       external_key, shop_id, external_id, name, username, email, phone_number, role_name, is_active, raw_payload
     )
@@ -445,10 +445,10 @@ function upsertUser(db, shopId, item) {
   return externalKey;
 }
 
-function upsertTransaction(db, shopId, item) {
+async function upsertTransaction(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_transactions (
       external_id, shop_id, transaction_type, status, code, value, note, inserted_at_remote, updated_at_remote, contact_name, raw_payload
     )
@@ -481,12 +481,12 @@ function upsertTransaction(db, shopId, item) {
   return externalId;
 }
 
-function upsertInventoryHistory(db, shopId, item) {
+async function upsertInventoryHistory(db, shopId, item) {
   const variationId = stringOrNull(item?.variation_id);
   const productId = stringOrNull(item?.product_id);
   const externalKey = stableKey(shopId, variationId, productId, item?.inserted_at, item?.action_type, item?.changed_quantity);
   if (!externalKey) return null;
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO pos_inventory_histories (
       external_key, shop_id, variation_id, product_id, action_type, changed_quantity, avg_price,
       warehouse_json, current_inventory_json, inserted_at_remote, raw_payload
@@ -555,7 +555,7 @@ function getOrderItemsSummary(item) {
   };
 }
 
-function transferPosOrderToDashboard(db, shopId, item) {
+async function transferPosOrderToDashboard(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
 
@@ -582,13 +582,13 @@ function transferPosOrderToDashboard(db, shopId, item) {
   const customer = stringOrNull(item?.bill_full_name || item?.customer_name || shippingAddress?.name) || 'Pancake POS Customer';
   const phone = stringOrNull(item?.bill_phone_number || item?.customer_phone || shippingAddress?.phone_number || shippingAddress?.phone);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
-  const linkedId = findLinkedLocalId(db, 'orders', externalId);
+  const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
-    ? db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id FROM orders WHERE order_ref = ? LIMIT 1').get(orderRef);
+    ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id FROM orders WHERE order_ref = ? LIMIT 1').get(orderRef);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE orders
       SET order_ref = ?, tracking_no = ?, customer = ?, phone = ?, product = ?, qty = ?, cod_amount = ?,
           status = ?, courier = ?, source_sheet = ?, order_date = ?, updated_at = datetime('now')
@@ -607,11 +607,11 @@ function transferPosOrderToDashboard(db, shopId, item) {
       normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
       existing.id
     );
-    upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
+    await upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
     return existing.id;
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO orders (order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, attempts, order_date)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -628,11 +628,11 @@ function transferPosOrderToDashboard(db, shopId, item) {
     1,
     normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
   );
-  upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
+  await upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
   return result.lastInsertRowid;
 }
 
-function transferPosProductToInventory(db, shopId, item) {
+async function transferPosProductToInventory(db, shopId, item) {
   const productId = stringOrNull(item?.product_id || item?.id);
   const variationId = stringOrNull(item?.variation_id || item?.id);
   const externalKey = stableKey(shopId, productId, variationId || item?.barcode || item?.custom_id || item?.name);
@@ -644,79 +644,79 @@ function transferPosProductToInventory(db, shopId, item) {
   const stock = Math.max(0, Math.round(numberOrNull(item?.remain_quantity || item?.available_quantity || item?.quantity) || 0));
   const cost = numberOrNull(item?.last_imported_price || item?.average_imported_price) || 0;
   const price = numberOrNull(item?.retail_price);
-  const linkedId = findLinkedLocalId(db, 'inventory', externalKey);
+  const linkedId = await findLinkedLocalId(db, 'inventory', externalKey);
   const existing = linkedId
-    ? db.prepare('SELECT id, item_id, stock FROM inventory WHERE id = ?').get(linkedId)
-    : db.prepare('SELECT id, item_id, stock FROM inventory WHERE item_id = ? OR sku = ? LIMIT 1').get(itemId, sku);
+    ? await db.prepare('SELECT id, item_id, stock FROM inventory WHERE id = ?').get(linkedId)
+    : await db.prepare('SELECT id, item_id, stock FROM inventory WHERE item_id = ? OR sku = ? LIMIT 1').get(itemId, sku);
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE inventory
       SET item_id = ?, name = ?, sku = ?, type = 'Product', unit = 'pcs', stock = ?, cost_price = ?, sell_price = ?,
           updated_at = datetime('now')
       WHERE id = ?
     `).run(itemId, name, sku, stock, cost, price, existing.id);
     if (Number(existing.stock) !== stock) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO inventory_logs (item_id, action, qty_before, qty_change, qty_after, notes)
         VALUES (?, 'set', ?, ?, ?, ?)
       `).run(existing.item_id, existing.stock, stock - existing.stock, stock, 'Pancake POS API sync');
     }
-    upsertSourceLink(db, 'inventory', externalKey, 'inventory', existing.id);
+    await upsertSourceLink(db, 'inventory', externalKey, 'inventory', existing.id);
     return existing.id;
   }
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO inventory (item_id, name, sku, type, unit, stock, reorder_pt, cost_price, sell_price)
     VALUES (?, ?, ?, 'Product', 'pcs', ?, 200, ?, ?)
   `).run(itemId, name, sku, stock, cost, price);
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO inventory_logs (item_id, action, qty_before, qty_change, qty_after, notes)
     VALUES (?, 'set', 0, ?, ?, ?)
   `).run(itemId, stock, stock, 'Pancake POS API import');
-  upsertSourceLink(db, 'inventory', externalKey, 'inventory', result.lastInsertRowid);
+  await upsertSourceLink(db, 'inventory', externalKey, 'inventory', result.lastInsertRowid);
   return result.lastInsertRowid;
 }
 
-function storeItems(db, resource, shopId, items) {
+async function storeItems(db, resource, shopId, items) {
   const localIds = [];
   for (const item of items) {
     let localId = null;
-    if (resource === 'shops') localId = upsertShop(db, item);
-    if (resource === 'warehouses') localId = upsertWarehouse(db, shopId, item);
-    if (resource === 'orders') localId = upsertOrder(db, shopId, item);
-    if (resource === 'products') localId = upsertProduct(db, shopId, item);
-    if (resource === 'customers') localId = upsertCustomer(db, shopId, item);
-    if (resource === 'users') localId = upsertUser(db, shopId, item);
-    if (resource === 'transactions') localId = upsertTransaction(db, shopId, item);
-    if (resource === 'inventory_histories') localId = upsertInventoryHistory(db, shopId, item);
-    if (resource === 'orders') transferPosOrderToDashboard(db, shopId, item);
-    if (resource === 'products') transferPosProductToInventory(db, shopId, item);
+    if (resource === 'shops') localId = await upsertShop(db, item);
+    if (resource === 'warehouses') localId = await upsertWarehouse(db, shopId, item);
+    if (resource === 'orders') localId = await upsertOrder(db, shopId, item);
+    if (resource === 'products') localId = await upsertProduct(db, shopId, item);
+    if (resource === 'customers') localId = await upsertCustomer(db, shopId, item);
+    if (resource === 'users') localId = await upsertUser(db, shopId, item);
+    if (resource === 'transactions') localId = await upsertTransaction(db, shopId, item);
+    if (resource === 'inventory_histories') localId = await upsertInventoryHistory(db, shopId, item);
+    if (resource === 'orders') await transferPosOrderToDashboard(db, shopId, item);
+    if (resource === 'products') await transferPosProductToInventory(db, shopId, item);
     if (localId) localIds.push(localId);
   }
   return localIds;
 }
 
-function getCounts(db) {
+async function getCounts(db) {
   return {
-    shops: db.prepare('SELECT COUNT(*) AS count FROM pos_shops').get().count,
-    warehouses: db.prepare('SELECT COUNT(*) AS count FROM pos_warehouses').get().count,
-    orders: db.prepare('SELECT COUNT(*) AS count FROM pos_orders').get().count,
-    products: db.prepare('SELECT COUNT(*) AS count FROM pos_products').get().count,
-    customers: db.prepare('SELECT COUNT(*) AS count FROM pos_customers').get().count,
-    users: db.prepare('SELECT COUNT(*) AS count FROM pos_users').get().count,
-    transactions: db.prepare('SELECT COUNT(*) AS count FROM pos_transactions').get().count,
-    inventory_histories: db.prepare('SELECT COUNT(*) AS count FROM pos_inventory_histories').get().count,
+    shops: (await db.prepare('SELECT COUNT(*) AS count FROM pos_shops').get()).count,
+    warehouses: (await db.prepare('SELECT COUNT(*) AS count FROM pos_warehouses').get()).count,
+    orders: (await db.prepare('SELECT COUNT(*) AS count FROM pos_orders').get()).count,
+    products: (await db.prepare('SELECT COUNT(*) AS count FROM pos_products').get()).count,
+    customers: (await db.prepare('SELECT COUNT(*) AS count FROM pos_customers').get()).count,
+    users: (await db.prepare('SELECT COUNT(*) AS count FROM pos_users').get()).count,
+    transactions: (await db.prepare('SELECT COUNT(*) AS count FROM pos_transactions').get()).count,
+    inventory_histories: (await db.prepare('SELECT COUNT(*) AS count FROM pos_inventory_histories').get()).count,
   };
 }
 
 async function listShopsFromApi(db, payload = {}) {
-  const setting = getSetting(db);
+  const setting = await getSetting(db);
   const apiKey = stringOrNull(payload.api_key || setting?.api_key);
   const baseUrl = stringOrNull(payload.base_url || setting?.base_url) || POS_API_BASE;
   const response = await posRequest(baseUrl, '/shops', apiKey);
   const shops = Array.isArray(response?.shops) ? response.shops : [];
-  storeItems(db, 'shops', null, shops);
+  await storeItems(db, 'shops', null, shops);
   return { shops };
 }
 
@@ -754,7 +754,7 @@ async function firstSuccessfulCollection(fetchers) {
 }
 
 async function collectPosData(db, payload = {}) {
-  const setting = getSetting(db);
+  const setting = await getSetting(db);
   const apiKey = stringOrNull(payload.api_key || setting?.api_key);
   const shopId = stringOrNull(payload.shop_id || setting?.page_id);
   const baseUrl = stringOrNull(payload.base_url || setting?.base_url) || POS_API_BASE;
@@ -771,9 +771,9 @@ async function collectPosData(db, payload = {}) {
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
   };
 
-  saveSetting(db, { ...setting, api_key: apiKey, page_id: shopId, base_url: baseUrl });
+  await saveSetting(db, { ...setting, api_key: apiKey, page_id: shopId, base_url: baseUrl });
 
-  const runId = startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
+  const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
   const result = {
     run_id: runId,
     provider: PROVIDER,
@@ -883,12 +883,12 @@ async function collectPosData(db, payload = {}) {
 
       try {
         const items = await fetcher();
-        const localIds = storeItems(db, resource, shopId, items);
+        const localIds = await storeItems(db, resource, shopId, items);
         result.resources[resource] = { count: items.length, items };
         result.sql_tables[resource] = { stored: localIds.length };
         for (const item of items) {
           const externalId = item?.id || item?.user_id || item?.account_id || item?.product_id || item?.variation_id || item?.code;
-          recordRaw(db, resource, externalId, item, {
+          await recordRaw(db, resource, externalId, item, {
             status: 'synced',
             mappedTable: `pos_${resource}`,
             localId: externalId || localIds[0] || null,
@@ -900,7 +900,7 @@ async function collectPosData(db, payload = {}) {
     }
 
     const status = result.failed_resources.length ? 'partial' : 'success';
-    finishRun(db, runId, status, {
+    await finishRun(db, runId, status, {
       shop_id: shopId,
       resources: Object.fromEntries(Object.entries(result.resources).map(([key, value]) => [key, { count: value.count }])),
       sql_tables: result.sql_tables,
@@ -908,14 +908,14 @@ async function collectPosData(db, payload = {}) {
     }, null);
     return result;
   } catch (error) {
-    finishRun(db, runId, 'failed', result, truncate(error.message));
+    await finishRun(db, runId, 'failed', result, truncate(error.message));
     throw error;
   }
 }
 
-function getStatus(db) {
-  const setting = getPublicSetting(db);
-  const latestRuns = db.prepare(`
+async function getStatus(db) {
+  const setting = await getPublicSetting(db);
+  const latestRuns = await db.prepare(`
     SELECT id, status, trigger_type, payload_summary, result_summary, error_message, started_at, finished_at
     FROM integration_sync_runs
     WHERE provider = ?
@@ -923,7 +923,7 @@ function getStatus(db) {
     LIMIT 10
   `).all(PROVIDER);
 
-  const totals = db.prepare(`
+  const totals = await db.prepare(`
     SELECT entity_type, COUNT(*) AS count
     FROM integration_raw_records
     WHERE provider = ?
@@ -938,7 +938,7 @@ function getStatus(db) {
       result_summary: run.result_summary ? JSON.parse(run.result_summary) : null,
     })),
     raw_record_totals: totals,
-    local_counts: getCounts(db),
+    local_counts: await getCounts(db),
   };
 }
 

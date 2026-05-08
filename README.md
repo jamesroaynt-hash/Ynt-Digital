@@ -288,6 +288,111 @@ FRONTEND_ORIGINS=http://192.168.1.25,http://office-dashboard
 
 ---
 
+### Option D: Cloudflare Tunnel Online Access
+
+Use this option when the dashboard and SQLite data should stay on the local server, but you still want an online HTTPS URL.
+
+Cloudflare Tunnel works like this:
+
+```text
+Online browser -> Cloudflare URL -> tunnel -> local Node server -> local SQLite data
+```
+
+The database remains at `backend/db/ynt.db` on the host PC.
+
+#### Quick temporary tunnel
+
+This is the fastest test. It creates a temporary `https://*.trycloudflare.com` URL.
+
+1. Install `cloudflared`:
+
+```text
+https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+```
+
+2. From the project root, double-click:
+
+```bat
+start-cloudflare-quick-tunnel.bat
+```
+
+3. Keep the tunnel window open and use the printed Cloudflare URL.
+
+#### Stable tunnel with your own domain
+
+Use this when you want a permanent address like:
+
+```text
+https://dashboard.yourdomain.com
+```
+
+1. Add your domain to Cloudflare.
+2. Login cloudflared:
+
+```bash
+cloudflared tunnel login
+```
+
+3. Create a named tunnel:
+
+```bash
+cloudflared tunnel create ynt-dashboard
+```
+
+4. Copy `deployment/cloudflare/config.example.yml` to your Cloudflare config location and edit it:
+
+```text
+C:\Users\YOUR_WINDOWS_USER\.cloudflared\config.yml
+```
+
+Set:
+
+```yaml
+tunnel: ynt-dashboard
+credentials-file: C:\Users\YOUR_WINDOWS_USER\.cloudflared\TUNNEL_ID.json
+
+ingress:
+  - hostname: dashboard.yourdomain.com
+    service: http://localhost:3001
+  - service: http_status:404
+```
+
+5. Route DNS to the tunnel:
+
+```bash
+cloudflared tunnel route dns ynt-dashboard dashboard.yourdomain.com
+```
+
+6. Start the local dashboard:
+
+```bash
+cd backend
+set HOST=127.0.0.1
+set PORT=3001
+npm start
+```
+
+7. In another terminal, run the tunnel:
+
+```bash
+cloudflared tunnel run ynt-dashboard
+```
+
+For production use, install the tunnel as a Windows service:
+
+```bash
+cloudflared service install
+```
+
+Security notes:
+
+- Change `JWT_SECRET` in `backend/.env`.
+- Change the default `admin` and `staff` passwords.
+- Keep the host PC powered on and connected to the internet.
+- Do not delete `backend/db/ynt.db`; that is the local live database.
+
+---
+
 ### Environment Variables (optional)
 
 Create `backend/.env`:
@@ -297,6 +402,111 @@ PORT=3001
 JWT_SECRET=your-super-secret-key-here
 FRONTEND_ORIGINS=http://192.168.1.25,http://office-dashboard
 ```
+
+### Optional: Render Postgres
+
+The backend uses SQLite by default. If `DATABASE_URL` is set, it switches to Postgres automatically and creates the Postgres schema on startup.
+
+On Render:
+
+1. Create a Render Postgres database in the same region as your web service.
+2. Copy the database **Internal Database URL**.
+3. Add it to your web service environment:
+
+```text
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
+JWT_SECRET=use-a-long-random-secret
+```
+
+Use the internal URL for Render-to-Render connections. Do not set `SQLITE_PATH` when using Postgres.
+
+Existing SQLite records are not automatically copied into Postgres. The new Postgres database starts with the seeded `admin` and `staff` accounts unless you run a separate data migration/import.
+
+### Railway Deployment
+
+Use Railway when the dashboard should stay online even when your local PC is off.
+
+This repo includes:
+
+- `railway.json` for Railway/Nixpacks deployment.
+- `.railwayignore` to keep local databases, secrets, and dependencies out of deploy uploads.
+- `backend/db/schema.pg.sql` and `backend/db/seed.pg.sql` for Railway Postgres.
+- `backend/scripts/migrate-sqlite-to-postgres.js` to copy local SQLite rows into Railway Postgres.
+
+#### 1. Create Railway services
+
+1. Create a new Railway project.
+2. Add a **Postgres** database service.
+3. Add this repo as the app service from GitHub, or deploy the local project with Railway CLI.
+4. Make sure the app service has the Postgres `DATABASE_URL` variable available.
+
+Railway normally injects `PORT` automatically. The app already listens on `process.env.PORT`.
+
+#### 2. Set environment variables
+
+In the Railway app service, set:
+
+```text
+JWT_SECRET=use-a-long-random-secret
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+GOOGLE_SHEETS_SYNC_ENABLED=false
+GOOGLE_SHEETS_SYNC_MODE=manual
+```
+
+Optional integration variables:
+
+```text
+GOOGLE_SHEETS_SPREADSHEET_ID=your-sheet-id
+GOOGLE_SHEETS_SHEET_NAME=Orders
+GOOGLE_SHEETS_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+GOOGLE_SHEETS_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
+FRONTEND_ORIGINS=https://your-app.up.railway.app,https://dashboard.yourdomain.com
+```
+
+#### 3. Generate the public URL
+
+In Railway:
+
+1. Open the app service.
+2. Go to **Settings**.
+3. Find **Networking** / **Public Networking**.
+4. Click **Generate Domain**.
+
+Railway will create a URL like:
+
+```text
+https://your-app.up.railway.app
+```
+
+#### 4. Copy local data to Railway Postgres
+
+First deploy the app once so Railway creates the Postgres schema.
+
+Then on your local PC, set `DATABASE_URL` to the Railway Postgres connection string and run:
+
+```bash
+npm run migrate:railway
+```
+
+By default it reads:
+
+```text
+backend/db/ynt.db
+```
+
+To use a different local SQLite file:
+
+```bash
+set SQLITE_PATH=D:\path\to\ynt.db
+npm run migrate:railway
+```
+
+#### 5. Security checklist
+
+- Change the default `admin` and `staff` passwords after first login.
+- Keep `JWT_SECRET` long and private.
+- Use a Railway Postgres backup/export plan before relying on the app as the only live system.
+- If using a custom domain through Cloudflare, add the Railway custom-domain CNAME/TXT records exactly as Railway shows them.
 
 ---
 
@@ -352,7 +562,7 @@ This repo includes a Vercel wrapper:
 
 - `vercel.json` routes `/api/*` to the Express backend and serves `frontend/` as the app shell.
 - `api/index.js` exports the existing backend for Vercel Functions.
-- On Vercel, SQLite uses `/tmp/ynt.db` because the function filesystem is read-only except `/tmp`.
+- On Vercel, SQLite runs from `/tmp/ynt.db`, but the app can now restore/back up that file through Vercel Blob when `BLOB_READ_WRITE_TOKEN` is configured.
 
 Deploy steps:
 
@@ -363,6 +573,8 @@ Deploy steps:
 
 ```text
 JWT_SECRET=use-a-long-random-secret
+BLOB_READ_WRITE_TOKEN=auto-added-when-you-connect-a-vercel-blob-store
+SQLITE_BLOB_PATH=ynt-dashboard/ynt.db
 GOOGLE_SHEETS_SPREADSHEET_ID=your-sheet-id
 GOOGLE_SHEETS_SHEET_NAME=Orders
 GOOGLE_SHEETS_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
@@ -372,4 +584,6 @@ GOOGLE_SHEETS_SYNC_ENABLED=false
 FRONTEND_ORIGINS=https://your-project.vercel.app
 ```
 
-Important Vercel note: this app's current SQLite database is not persistent on Vercel serverless. It works for preview/demo, login, and manual API testing, but records imported into `/tmp` can disappear when the function instance is recycled. For production data, move the backend from SQLite to a hosted database such as Vercel Postgres, Neon, Supabase, or another persistent SQL service before relying on Vercel as the live system of record.
+5. In Vercel, open the project **Storage** tab, create a **Blob** store, choose private access, and connect it to this project/environment. Vercel will provide `BLOB_READ_WRITE_TOKEN`.
+
+Important Vercel note: the live SQLite file still runs from `/tmp`, so Blob backup is a persistence bridge for this existing SQLite app. After each successful API write, the app checkpoints SQLite and uploads `ynt.db` to Blob; on cold start it restores from that Blob before opening the database. For higher-write production use, a real hosted SQL database such as Neon, Supabase, or Vercel Postgres is still the stronger long-term system of record.

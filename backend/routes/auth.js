@@ -22,12 +22,12 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     return input === stored;
   }
 
-  function getRequestUser(req) {
+  async function getRequestUser(req) {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return null;
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = db.prepare(`
+      const user = await db.prepare(`
         SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, is_active
         FROM users
         WHERE id = ?
@@ -51,8 +51,8 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     }
   }
 
-  function requireAdmin(req, res, next) {
-    const user = getRequestUser(req);
+  async function requireAdmin(req, res, next) {
+    const user = await getRequestUser(req);
     if (!user || String(user.role || '').trim() !== 'Administrator') {
       return res.status(403).json({ error: 'Administrator access required' });
     }
@@ -60,8 +60,8 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     next();
   }
 
-  function requireAuth(req, res, next) {
-    const user = getRequestUser(req);
+  async function requireAuth(req, res, next) {
+    const user = await getRequestUser(req);
     if (!user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -76,8 +76,8 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     return allowedRoles.has(value) ? value : fallback;
   }
 
-  function getActiveAdminCount() {
-    const row = db.prepare(`
+  async function getActiveAdminCount() {
+    const row = await db.prepare(`
       SELECT COUNT(*) AS count
       FROM users
       WHERE is_active = 1 AND role = 'Administrator'
@@ -86,11 +86,11 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
   }
 
   // POST /api/auth/login
-  router.post('/login', (req, res) => {
+  router.post('/login', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
-    const user = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username);
+    const user = await db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username);
     if (!user || !isPasswordMatch(password, user.password)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -113,7 +113,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
   });
 
   // POST /api/auth/register
-  router.post('/register', requireAdmin, (req, res) => {
+  router.post('/register', requireAdmin, async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
     const fullName = String(req.body?.full_name || req.body?.name || '').trim();
@@ -128,7 +128,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       return res.status(400).json({ error: 'Username, password, and full name are required' });
     }
 
-    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    const existing = await db.prepare('SELECT id FROM users WHERE username = ?').get(username);
     if (existing) {
       return res.status(409).json({ error: 'Username already exists' });
     }
@@ -138,9 +138,9 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       INSERT INTO users (username, password, full_name, role, birthday, address, phone_number, email_address, fb_account_name)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = insert.run(username, hashedPassword, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null);
+    const result = await insert.run(username, hashedPassword, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null);
 
-    const user = db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name FROM users WHERE id = ?').get(result.lastInsertRowid);
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
 
     res.status(201).json({
@@ -165,21 +165,21 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
   });
 
   // GET /api/auth/me
-  router.get('/me', (req, res) => {
+  router.get('/me', async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token' });
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name FROM users WHERE id=?').get(decoded.id);
+      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name FROM users WHERE id=?').get(decoded.id);
       res.json(user);
     } catch {
       res.status(401).json({ error: 'Invalid token' });
     }
   });
 
-  router.put('/me', requireAuth, (req, res) => {
+  router.put('/me', requireAuth, async (req, res) => {
     const userId = Number(req.user.id);
-    const existing = db.prepare('SELECT id, username, role, is_active FROM users WHERE id = ?').get(userId);
+    const existing = await db.prepare('SELECT id, username, role, is_active FROM users WHERE id = ?').get(userId);
     if (!existing || !existing.is_active) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -197,13 +197,13 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       return res.status(400).json({ error: 'Username and full name are required' });
     }
 
-    const usernameOwner = db.prepare('SELECT id FROM users WHERE username = ? AND id <> ?').get(username, userId);
+    const usernameOwner = await db.prepare('SELECT id FROM users WHERE username = ? AND id <> ?').get(username, userId);
     if (usernameOwner) {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
     const nextPassword = password ? bcrypt.hashSync(password, 10) : null;
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
       SET username = ?,
           full_name = ?,
@@ -217,7 +217,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       WHERE id = ?
     `).run(username, fullName, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, nextPassword, userId);
 
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name
       FROM users
       WHERE id = ?
@@ -238,8 +238,8 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     });
   });
 
-  router.get('/users', requireAdmin, (req, res) => {
-    const users = db.prepare(`
+  router.get('/users', requireAdmin, async (req, res) => {
+    const users = await db.prepare(`
       SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, is_active, created_at, updated_at
       FROM users
       WHERE is_active = 1
@@ -263,13 +263,13 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     res.json({ users });
   });
 
-  router.put('/users/:id', requireAdmin, (req, res) => {
+  router.put('/users/:id', requireAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });
     }
 
-    const existing = db.prepare('SELECT id, username, role, is_active FROM users WHERE id = ?').get(userId);
+    const existing = await db.prepare('SELECT id, username, role, is_active FROM users WHERE id = ?').get(userId);
     if (!existing || !existing.is_active) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -288,17 +288,17 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       return res.status(400).json({ error: 'Username and full name are required' });
     }
 
-    const usernameOwner = db.prepare('SELECT id FROM users WHERE username = ? AND id <> ?').get(username, userId);
+    const usernameOwner = await db.prepare('SELECT id FROM users WHERE username = ? AND id <> ?').get(username, userId);
     if (usernameOwner) {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
-    if (existing.role === 'Administrator' && role !== 'Administrator' && getActiveAdminCount() <= 1) {
+    if (existing.role === 'Administrator' && role !== 'Administrator' && (await getActiveAdminCount()) <= 1) {
       return res.status(400).json({ error: 'At least one active administrator account must remain' });
     }
 
     const nextPassword = password ? bcrypt.hashSync(password, 10) : null;
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
       SET username = ?,
           full_name = ?,
@@ -313,7 +313,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       WHERE id = ?
     `).run(username, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, nextPassword, userId);
 
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, is_active, created_at, updated_at
       FROM users
       WHERE id = ?
@@ -335,7 +335,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     });
   });
 
-  router.delete('/users/:id', requireAdmin, (req, res) => {
+  router.delete('/users/:id', requireAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });
@@ -345,16 +345,16 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       return res.status(400).json({ error: 'You cannot delete your own account while signed in' });
     }
 
-    const existing = db.prepare('SELECT id, role, is_active FROM users WHERE id = ?').get(userId);
+    const existing = await db.prepare('SELECT id, role, is_active FROM users WHERE id = ?').get(userId);
     if (!existing || !existing.is_active) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (existing.role === 'Administrator' && getActiveAdminCount() <= 1) {
+    if (existing.role === 'Administrator' && (await getActiveAdminCount()) <= 1) {
       return res.status(400).json({ error: 'At least one active administrator account must remain' });
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE users
       SET is_active = 0,
           updated_at = datetime('now')

@@ -8,11 +8,26 @@ const os = require('os');
 const crypto = require('crypto');
 const { createDatabaseClient } = require('./db/client');
 const { initializeDatabaseAsync } = require('./db/init');
+const googleSheetsSync = require('./services/googleSheetsSync');
+
+let blobPersistence = {
+  restoreDatabaseFromBlob: async () => false,
+  createBackupScheduler: () => ({
+    schedule() {},
+    uploadBackup: async () => {},
+  }),
+};
+
+try {
+  blobPersistence = require('./db/blobPersistence');
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND') throw error;
+}
+
 const {
   restoreDatabaseFromBlob,
   createBackupScheduler,
-} = require('./db/blobPersistence');
-const googleSheetsSync = require('./services/googleSheetsSync');
+} = blobPersistence;
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '.env');
@@ -57,7 +72,10 @@ function isPrivateLanHost(hostname = '') {
 
 function isHostedAppHost(hostname = '') {
   return /\.onrender\.com$/i.test(hostname)
-    || /\.vercel\.app$/i.test(hostname);
+    || /\.vercel\.app$/i.test(hostname)
+    || /\.up\.railway\.app$/i.test(hostname)
+    || /\.railway\.app$/i.test(hostname)
+    || /\.trycloudflare\.com$/i.test(hostname);
 }
 
 function isAllowedOrigin(origin) {
