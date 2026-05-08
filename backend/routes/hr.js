@@ -117,6 +117,17 @@ function normalizeMoney(value) {
   return Number.isFinite(amount) ? Math.max(0, amount) : 0;
 }
 
+function normalizeTime(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 async function getActiveUser(db, userId) {
   return db.prepare(`
     SELECT id, username, full_name, role, daily_rate, is_active
@@ -239,6 +250,80 @@ module.exports = function hrRoutes(db) {
     });
   });
 
+  router.put('/attendance/self', async (req, res) => {
+    const today = manilaParts().date;
+    const fields = ['time_in', 'break_out', 'break_in', 'time_out'];
+    const existing = await db.prepare(`
+      SELECT *
+      FROM attendance_records
+      WHERE user_id = ? AND work_date = ?
+    `).get(req.currentUser.id, today);
+
+    const next = {
+      ...(existing || {}),
+      user_id: req.currentUser.id,
+      work_date: today,
+      break_minutes: DEFAULT_BREAK_MINUTES,
+    };
+
+    for (const field of fields) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, field)) {
+        const value = String(req.body?.[field] || '').trim();
+        const normalized = normalizeTime(value);
+        if (value && !normalized) return res.status(400).json({ error: `${field.replace('_', ' ')} must be HH:MM` });
+        next[field] = normalized;
+      }
+    }
+
+    const notes = Object.prototype.hasOwnProperty.call(req.body || {}, 'notes')
+      ? String(req.body?.notes || '').trim()
+      : (existing?.notes || '');
+    next.notes = notes || null;
+    next.ot_minutes = calculateOtMinutes(next);
+
+    if (!existing) {
+      const result = await db.prepare(`
+        INSERT INTO attendance_records (user_id, work_date, time_in, break_out, break_in, time_out, break_minutes, ot_minutes, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        req.currentUser.id,
+        today,
+        next.time_in || null,
+        next.break_out || null,
+        next.break_in || null,
+        next.time_out || null,
+        DEFAULT_BREAK_MINUTES,
+        next.ot_minutes,
+        next.notes,
+      );
+      const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(result.lastInsertRowid);
+      return res.status(201).json({ record });
+    }
+
+    await db.prepare(`
+      UPDATE attendance_records
+      SET time_in = ?,
+          break_out = ?,
+          break_in = ?,
+          time_out = ?,
+          ot_minutes = ?,
+          notes = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      next.time_in || null,
+      next.break_out || null,
+      next.break_in || null,
+      next.time_out || null,
+      next.ot_minutes,
+      next.notes,
+      existing.id,
+    );
+
+    const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(existing.id);
+    res.json({ record });
+  });
+
   router.put('/attendance/:id', requireHrManager, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid attendance id' });
@@ -343,6 +428,87 @@ module.exports = function hrRoutes(db) {
 
     const advance = await db.prepare('SELECT * FROM cash_advances WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json({ advance });
+  });
+
+  router.post('/cash-advances/request', async (req, res) => {
+    const amount = normalizeMoney(req.body?.amount);
+    const advanceDate = manilaParts().date;
+    const reason = String(req.body?.reason || '').trim();
+
+    if (amount <= 0) return res.status(400).json({ error: 'Cash advance amount is required' });
+
+    const result = await db.prepare(`
+      INSERT INTO cash_advances (user_id, advance_date, amount, reason, created_by)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(req.currentUser.id, advanceDate, amount, reason || null, req.currentUser.id);
+
+    const advance = await db.prepare('SELECT * FROM cash_advances WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ advance });
+  });
+
+  router.get('/leave-requests', async (req, res) => {
+    const today = manilaParts().date;
+    const from = normalizeDate(req.query?.from, today);
+    const to = normalizeDate(req.query?.to, from);
+    const users = await listUsersForScope(req);
+    if (!users.length) return res.json({ requests: [] });
+
+    const ids = users.map((user) => Number(user.id));
+    const placeholders = ids.map(() => '?').join(',');
+    const requests = await db.prepare(`
+      SELECT l.*, u.full_name, u.username, reviewer.full_name AS reviewed_by_name
+      FROM leave_requests l
+      JOIN users u ON u.id = l.user_id
+      LEFT JOIN users reviewer ON reviewer.id = l.reviewed_by
+      WHERE l.user_id IN (${placeholders})
+        AND l.leave_date_from <= ?
+        AND l.leave_date_to >= ?
+      ORDER BY l.created_at DESC
+    `).all(...ids, to, from);
+
+    res.json({ requests });
+  });
+
+  router.post('/leave-requests', async (req, res) => {
+    const today = manilaParts().date;
+    const from = normalizeDate(req.body?.leave_date_from, today);
+    const to = normalizeDate(req.body?.leave_date_to, from);
+    const leaveType = String(req.body?.leave_type || 'Personal').trim() || 'Personal';
+    const reason = String(req.body?.reason || '').trim();
+
+    if (to < from) return res.status(400).json({ error: 'Leave end date must be after start date' });
+
+    const result = await db.prepare(`
+      INSERT INTO leave_requests (user_id, leave_date_from, leave_date_to, leave_type, reason)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(req.currentUser.id, from, to, leaveType, reason || null);
+
+    const request = await db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ request });
+  });
+
+  router.patch('/leave-requests/:id', requireHrManager, async (req, res) => {
+    const id = Number(req.params.id);
+    const status = String(req.body?.status || '').trim();
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid leave request id' });
+    if (!['pending', 'approved', 'rejected', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid leave status' });
+    }
+
+    const existing = await db.prepare('SELECT id FROM leave_requests WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Leave request not found' });
+
+    await db.prepare(`
+      UPDATE leave_requests
+      SET status = ?,
+          reviewed_by = ?,
+          reviewed_at = datetime('now'),
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(status, req.currentUser.id, id);
+
+    const request = await db.prepare('SELECT * FROM leave_requests WHERE id = ?').get(id);
+    res.json({ request });
   });
 
   router.patch('/users/:id/rate', requireHrManager, async (req, res) => {

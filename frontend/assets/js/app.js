@@ -9,19 +9,20 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
-  HR: ['home', 'hr', 'manage-users', 'expenses', 'view-records'],
-  Trainee: ['home', 'sales', 'csr', 'view-records'],
-  CSR: ['home', 'sales', 'csr', 'view-records', 'manage-users'],
-  'CSR TL': ['home', 'sales', 'csr', 'view-records', 'manage-users'],
-  RMO: ['home', 'sales', 'inventory', 'expenses', 'view-records'],
-  'RMO TL': ['home', 'sales', 'inventory', 'expenses', 'view-records'],
-  Logistics: ['home', 'sales', 'inventory', 'expenses'],
-  'Sales and Marketing': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
-  'Sales and Marketing TL': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  HR: ['home', 'attendance', 'hr', 'manage-users', 'expenses', 'view-records'],
+  Trainee: ['home', 'attendance', 'sales', 'csr', 'view-records'],
+  CSR: ['home', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
+  'CSR TL': ['home', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
+  RMO: ['home', 'attendance', 'sales', 'inventory', 'expenses', 'view-records'],
+  'RMO TL': ['home', 'attendance', 'sales', 'inventory', 'expenses', 'view-records'],
+  Logistics: ['home', 'attendance', 'sales', 'inventory', 'expenses'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
+let attendanceState = { today: null, date: '', advances: [], leaves: [], activeTab: 'clock' };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
@@ -88,6 +89,7 @@ function loadPage(page) {
   // Render page content
   const renderFns = {
     home: renderHome,
+    attendance: renderAttendance,
     sales: renderSales,
     'marketing-center': renderMarketingCenter,
     csr: renderCSR,
@@ -112,6 +114,7 @@ function loadPage(page) {
 
 const pageNames = {
   home: 'Home',
+  attendance: 'Attendance',
   sales: 'Sales Dashboard',
   'marketing-center': 'Marketing Center',
   csr: 'CSR Daily Records',
@@ -1548,6 +1551,138 @@ function renderHR() {
     <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Edit OT minutes and holiday percentage per day</div></div></div>
     <div class="card-body" id="hr-attendance-table-wrap">
       <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
+    </div>
+  </div>`;
+}
+
+function renderAttendance() {
+  const today = normalizeDateString(new Date());
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Attendance</h1>
+      <p>Clock in, record breaks, request cash advance, and file leave requests.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadAttendanceDashboard()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="tabs" style="margin-bottom:16px;">
+    <button class="tab-btn active" onclick="switchTab(this,'attendance-tab-clock')">Time Clock</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-cash')">Cash Advance</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-leave')">Request Leave</button>
+  </div>
+
+  <div id="attendance-tab-clock" class="tab-content active">
+    <div style="display:grid; grid-template-columns:minmax(0, .9fr) minmax(320px, 1.1fr); gap:16px;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Today Status</div><div class="card-subtitle">Use the buttons for live time, or edit the time fields manually.</div></div></div>
+        <div class="card-body">
+          <div id="attendance-clock-status" class="empty-state"><h3>Loading attendance</h3><p>Checking today time record.</p></div>
+          <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;">
+            <button class="btn btn-primary" onclick="submitTimeClock('time_in')">Time In</button>
+            <button class="btn btn-secondary" onclick="submitTimeClock('break_out')">Break Out</button>
+            <button class="btn btn-secondary" onclick="submitTimeClock('break_in')">Break In</button>
+            <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Time Inputs</div><div class="card-subtitle">Adjust your current day record when needed.</div></div></div>
+        <div class="card-body">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Time In</label>
+              <input type="time" id="attendance-time-in" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Time Out</label>
+              <input type="time" id="attendance-time-out" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Break Out</label>
+              <input type="time" id="attendance-break-out" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Break In</label>
+              <input type="time" id="attendance-break-in" class="form-control">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <textarea id="attendance-notes" class="form-control" rows="3" placeholder="Optional attendance note"></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="saveAttendanceTimes()">Save Time Record</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="attendance-tab-cash" class="tab-content">
+    <div style="display:grid; grid-template-columns:minmax(320px, .75fr) minmax(0, 1.25fr); gap:16px;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Cash Advance Request</div><div class="card-subtitle">Requests are saved under your account for HR review.</div></div></div>
+        <div class="card-body">
+          <form onsubmit="requestCashAdvance(event)">
+            <div class="form-group">
+              <label class="form-label">Amount</label>
+              <input type="number" min="0" step="0.01" id="attendance-cash-amount" class="form-control" placeholder="0.00">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reason</label>
+              <textarea id="attendance-cash-reason" class="form-control" rows="4" placeholder="Reason for cash advance"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">Submit Cash Advance</button>
+          </form>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Cash Advance Records</div><div class="card-subtitle">Recent requests and deductions</div></div></div>
+        <div class="card-body" id="attendance-cash-list"><div class="empty-state"><h3>Loading records</h3><p>Checking cash advance list.</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="attendance-tab-leave" class="tab-content">
+    <div style="display:grid; grid-template-columns:minmax(320px, .75fr) minmax(0, 1.25fr); gap:16px;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Leave Request</div><div class="card-subtitle">Submit the dates and reason for HR approval.</div></div></div>
+        <div class="card-body">
+          <form onsubmit="requestLeave(event)">
+            <div class="form-group">
+              <label class="form-label">Leave Type</label>
+              <select id="attendance-leave-type" class="form-control">
+                <option>Personal</option>
+                <option>Sick Leave</option>
+                <option>Emergency Leave</option>
+                <option>Vacation Leave</option>
+                <option>Unpaid Leave</option>
+              </select>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label">From</label>
+                <input type="date" id="attendance-leave-from" class="form-control" value="${today}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">To</label>
+                <input type="date" id="attendance-leave-to" class="form-control" value="${today}">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reason</label>
+              <textarea id="attendance-leave-reason" class="form-control" rows="4" placeholder="Reason for leave"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">Submit Leave Request</button>
+          </form>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Leave Records</div><div class="card-subtitle">Pending and reviewed requests</div></div></div>
+        <div class="card-body" id="attendance-leave-list"><div class="empty-state"><h3>Loading leave</h3><p>Checking request list.</p></div></div>
+      </div>
     </div>
   </div>`;
 }
@@ -3474,10 +3609,179 @@ async function submitTimeClock(action) {
       body: JSON.stringify({ action }),
     });
     renderTimeClockStatus(data?.record, data?.record?.work_date);
+    if (document.getElementById('attendance-clock-status')) {
+      await loadAttendanceDashboard();
+    }
     showToast('success', labels[action] || 'Clock', 'Attendance record updated.');
   } catch (error) {
     showToast('error', 'Clock failed', error.message || 'Could not update time clock.');
   }
+}
+
+function initAttendancePage() {
+  loadAttendanceDashboard();
+}
+
+function renderAttendanceClockStatus(record, date) {
+  const wrapper = document.getElementById('attendance-clock-status');
+  if (!wrapper) return;
+  wrapper.className = '';
+  wrapper.innerHTML = `
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; text-align:left;">
+      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong></div>
+      <div><div class="text-xs text-muted">Break</div><strong>${Number(record?.break_minutes || 15)} mins</strong></div>
+      <div><div class="text-xs text-muted">Time In</div><strong>${formatClockValue(record?.time_in)}</strong></div>
+      <div><div class="text-xs text-muted">Time Out</div><strong>${formatClockValue(record?.time_out)}</strong></div>
+      <div><div class="text-xs text-muted">Break Out</div><strong>${formatClockValue(record?.break_out)}</strong></div>
+      <div><div class="text-xs text-muted">Break In</div><strong>${formatClockValue(record?.break_in)}</strong></div>
+    </div>`;
+}
+
+function fillAttendanceInputs(record) {
+  const setValue = (id, value) => {
+    const input = document.getElementById(id);
+    if (input) input.value = value || '';
+  };
+  setValue('attendance-time-in', record?.time_in);
+  setValue('attendance-time-out', record?.time_out);
+  setValue('attendance-break-out', record?.break_out);
+  setValue('attendance-break-in', record?.break_in);
+  setValue('attendance-notes', record?.notes);
+}
+
+async function loadAttendanceDashboard() {
+  const today = normalizeDateString(new Date());
+  const monthStart = today.slice(0, 8) + '01';
+  const query = new URLSearchParams({ from: monthStart, to: today, _: Date.now().toString() });
+  try {
+    const [todayData, advancesData, leavesData] = await Promise.all([
+      authorizedJsonRequest(`/hr/today?_=${Date.now()}`),
+      authorizedJsonRequest(`/hr/cash-advances?${query.toString()}`),
+      authorizedJsonRequest(`/hr/leave-requests?${query.toString()}`),
+    ]);
+    attendanceState.today = todayData?.record || null;
+    attendanceState.date = todayData?.date || today;
+    attendanceState.advances = Array.isArray(advancesData?.advances) ? advancesData.advances : [];
+    attendanceState.leaves = Array.isArray(leavesData?.requests) ? leavesData.requests : [];
+    renderAttendanceClockStatus(attendanceState.today, attendanceState.date);
+    fillAttendanceInputs(attendanceState.today);
+    renderAttendanceCashList();
+    renderAttendanceLeaveList();
+  } catch (error) {
+    showToast('error', 'Attendance load failed', error.message || 'Could not load attendance records.');
+  }
+}
+
+async function saveAttendanceTimes() {
+  try {
+    const data = await authorizedJsonRequest('/hr/attendance/self', {
+      method: 'PUT',
+      body: JSON.stringify({
+        time_in: document.getElementById('attendance-time-in')?.value || '',
+        time_out: document.getElementById('attendance-time-out')?.value || '',
+        break_out: document.getElementById('attendance-break-out')?.value || '',
+        break_in: document.getElementById('attendance-break-in')?.value || '',
+        notes: document.getElementById('attendance-notes')?.value || '',
+      }),
+    });
+    attendanceState.today = data?.record || attendanceState.today;
+    renderAttendanceClockStatus(attendanceState.today, attendanceState.today?.work_date || attendanceState.date);
+    showToast('success', 'Time saved', 'Attendance time record was updated.');
+  } catch (error) {
+    showToast('error', 'Time save failed', error.message || 'Could not save attendance time.');
+  }
+}
+
+async function requestCashAdvance(event) {
+  event.preventDefault();
+  try {
+    await authorizedJsonRequest('/hr/cash-advances/request', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: Number(document.getElementById('attendance-cash-amount')?.value || 0),
+        reason: document.getElementById('attendance-cash-reason')?.value || '',
+      }),
+    });
+    const amount = document.getElementById('attendance-cash-amount');
+    const reason = document.getElementById('attendance-cash-reason');
+    if (amount) amount.value = '';
+    if (reason) reason.value = '';
+    showToast('success', 'Cash advance sent', 'Your cash advance request was saved.');
+    await loadAttendanceDashboard();
+  } catch (error) {
+    showToast('error', 'Request failed', error.message || 'Could not submit cash advance.');
+  }
+}
+
+async function requestLeave(event) {
+  event.preventDefault();
+  try {
+    await authorizedJsonRequest('/hr/leave-requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        leave_type: document.getElementById('attendance-leave-type')?.value || 'Personal',
+        leave_date_from: document.getElementById('attendance-leave-from')?.value,
+        leave_date_to: document.getElementById('attendance-leave-to')?.value,
+        reason: document.getElementById('attendance-leave-reason')?.value || '',
+      }),
+    });
+    const reason = document.getElementById('attendance-leave-reason');
+    if (reason) reason.value = '';
+    showToast('success', 'Leave requested', 'Your leave request was saved.');
+    await loadAttendanceDashboard();
+  } catch (error) {
+    showToast('error', 'Leave failed', error.message || 'Could not submit leave request.');
+  }
+}
+
+function renderAttendanceCashList() {
+  const wrap = document.getElementById('attendance-cash-list');
+  if (!wrap) return;
+  if (!attendanceState.advances.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No cash advances</h3><p>Submitted requests will appear here.</p></div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>User</th><th>Amount</th><th>Status</th><th>Reason</th></tr></thead>
+        <tbody>
+          ${attendanceState.advances.map((advance) => `
+            <tr>
+              <td>${escapeHtml(advance.advance_date || '')}</td>
+              <td>${escapeHtml(advance.full_name || App.user?.full_name || 'User')}</td>
+              <td><strong>${formatPHP(advance.amount)}</strong></td>
+              <td><span class="badge ${advance.status === 'void' ? 'badge-danger' : 'badge-info'}">${escapeHtml(advance.status || 'open')}</span></td>
+              <td>${escapeHtml(advance.reason || '')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderAttendanceLeaveList() {
+  const wrap = document.getElementById('attendance-leave-list');
+  if (!wrap) return;
+  if (!attendanceState.leaves.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No leave requests</h3><p>Submitted leave requests will appear here.</p></div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>User</th><th>Type</th><th>Status</th><th>Reason</th></tr></thead>
+        <tbody>
+          ${attendanceState.leaves.map((leave) => `
+            <tr>
+              <td>${escapeHtml(leave.leave_date_from || '')}${leave.leave_date_to && leave.leave_date_to !== leave.leave_date_from ? ` to ${escapeHtml(leave.leave_date_to)}` : ''}</td>
+              <td>${escapeHtml(leave.full_name || App.user?.full_name || 'User')}</td>
+              <td>${escapeHtml(leave.leave_type || 'Personal')}</td>
+              <td><span class="badge ${leave.status === 'approved' ? 'badge-success' : leave.status === 'rejected' ? 'badge-danger' : 'badge-warning'}">${escapeHtml(leave.status || 'pending')}</span></td>
+              <td>${escapeHtml(leave.reason || '')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function initCharts(page) {
@@ -3549,6 +3853,10 @@ function initPage(page) {
 
   if (page === 'home') {
     loadTimeClockStatus();
+  }
+
+  if (page === 'attendance') {
+    initAttendancePage();
   }
 
   if (page === 'sales') {
@@ -3816,14 +4124,16 @@ function renderHRAttendanceTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>Date</th><th>User</th><th>Time</th><th>Break</th><th>OT Min</th><th>Holiday %</th><th>Note</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Time Out</th><th>Break Out</th><th>Break In</th><th>OT Min</th><th>Holiday %</th><th>Note</th><th></th></tr></thead>
         <tbody>
           ${hrState.attendance.map((record) => `
             <tr>
               <td>${escapeHtml(record.work_date || '')}</td>
               <td><strong>${escapeHtml(record.full_name || '')}</strong></td>
-              <td>${escapeHtml(record.time_in || '--')} - ${escapeHtml(record.time_out || '--')}</td>
-              <td>${escapeHtml(record.break_out || '--')} - ${escapeHtml(record.break_in || '--')}</td>
+              <td><input type="time" class="form-control" style="width:112px;" id="att-time-in-${record.id}" value="${escapeHtml(record.time_in || '')}"></td>
+              <td><input type="time" class="form-control" style="width:112px;" id="att-time-out-${record.id}" value="${escapeHtml(record.time_out || '')}"></td>
+              <td><input type="time" class="form-control" style="width:112px;" id="att-break-out-${record.id}" value="${escapeHtml(record.break_out || '')}"></td>
+              <td><input type="time" class="form-control" style="width:112px;" id="att-break-in-${record.id}" value="${escapeHtml(record.break_in || '')}"></td>
               <td><input type="number" min="0" step="1" class="form-control" style="width:90px;" id="att-ot-${record.id}" value="${Number(record.ot_minutes || record.calculated_ot_minutes || 0)}"></td>
               <td><input type="number" min="100" step="1" class="form-control" style="width:90px;" id="att-holiday-${record.id}" value="${Number(record.holiday_percentage || 100)}"></td>
               <td><input type="text" class="form-control" id="att-note-${record.id}" value="${escapeHtml(record.notes || '')}" placeholder="Optional"></td>
@@ -3856,10 +4166,10 @@ async function saveAttendanceAdjustments(recordId) {
     await authorizedJsonRequest(`/hr/attendance/${recordId}`, {
       method: 'PUT',
       body: JSON.stringify({
-        time_in: record.time_in,
-        break_out: record.break_out,
-        break_in: record.break_in,
-        time_out: record.time_out,
+        time_in: document.getElementById(`att-time-in-${recordId}`)?.value || '',
+        break_out: document.getElementById(`att-break-out-${recordId}`)?.value || '',
+        break_in: document.getElementById(`att-break-in-${recordId}`)?.value || '',
+        time_out: document.getElementById(`att-time-out-${recordId}`)?.value || '',
         break_minutes: record.break_minutes || 15,
         ot_minutes: Number(document.getElementById(`att-ot-${recordId}`)?.value || 0),
         holiday_type: Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100) > 100 ? 'Holiday' : 'Regular day',
