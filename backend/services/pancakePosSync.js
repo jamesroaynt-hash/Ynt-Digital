@@ -1,6 +1,6 @@
 const PROVIDER = 'pancake_pos';
 const POS_API_BASE = 'https://pos.pages.fm/api/v1';
-const DEFAULT_RESOURCES = ['shops', 'warehouses', 'orders', 'products', 'customers', 'users', 'transactions', 'inventory_histories'];
+const DEFAULT_RESOURCES = ['orders'];
 
 function stringOrNull(value) {
   if (value === undefined || value === null) return null;

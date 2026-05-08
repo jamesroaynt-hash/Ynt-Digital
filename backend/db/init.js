@@ -30,6 +30,21 @@ async function ensureColumnAsync(db, tableName, columnName, definition) {
 }
 
 function runMigrations(db) {
+  [
+    'pancake_messages',
+    'pancake_conversations',
+    'pancake_customers',
+    'pancake_posts',
+    'pancake_tags',
+    'pancake_users',
+    'pancake_pages',
+  ].forEach((tableName) => {
+    db.exec(`DROP TABLE IF EXISTS ${tableName}`);
+  });
+  db.exec("DELETE FROM integration_settings WHERE provider = 'pancake'");
+  db.exec("DELETE FROM integration_sync_runs WHERE provider = 'pancake'");
+  db.exec("DELETE FROM integration_source_links WHERE provider = 'pancake'");
+  db.exec("DELETE FROM integration_raw_records WHERE provider = 'pancake'");
   ensureColumn(db, 'integration_settings', 'user_access_token', 'TEXT');
   ensureColumn(db, 'integration_settings', 'page_id', 'TEXT');
   ensureColumn(db, 'integration_settings', 'page_access_token', 'TEXT');
@@ -112,6 +127,21 @@ function runMigrations(db) {
 }
 
 async function runPostgresMigrations(db) {
+  for (const tableName of [
+    'pancake_messages',
+    'pancake_conversations',
+    'pancake_customers',
+    'pancake_posts',
+    'pancake_tags',
+    'pancake_users',
+    'pancake_pages',
+  ]) {
+    await db.exec(`DROP TABLE IF EXISTS ${tableName}`);
+  }
+  await db.exec("DELETE FROM integration_settings WHERE provider = 'pancake'");
+  await db.exec("DELETE FROM integration_sync_runs WHERE provider = 'pancake'");
+  await db.exec("DELETE FROM integration_source_links WHERE provider = 'pancake'");
+  await db.exec("DELETE FROM integration_raw_records WHERE provider = 'pancake'");
   await ensureColumnAsync(db, 'integration_settings', 'user_access_token', 'TEXT');
   await ensureColumnAsync(db, 'integration_settings', 'page_id', 'TEXT');
   await ensureColumnAsync(db, 'integration_settings', 'page_access_token', 'TEXT');

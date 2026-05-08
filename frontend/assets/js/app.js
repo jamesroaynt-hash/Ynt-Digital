@@ -685,19 +685,6 @@ function saveCsrRecords() {
 
 function getDefaultIntegrationState() {
   return {
-    pancake: {
-      enabled: false,
-      syncMode: 'webhook_only',
-      webhookSecret: '',
-      baseUrl: '',
-      userAccessToken: '',
-      pageId: '',
-      pageAccessToken: '',
-      notes: '',
-      lastSavedAt: null,
-      lastCollectedAt: null,
-      lastCollectionSummary: '',
-    },
     pancakePos: {
       enabled: false,
       syncMode: 'pull_only',
@@ -731,10 +718,6 @@ function getIntegrationState() {
     const saved = JSON.parse(localStorage.getItem(INTEGRATION_STORAGE_KEY) || '{}');
     return {
       ...fallback,
-      pancake: {
-        ...fallback.pancake,
-        ...(saved.pancake || {}),
-      },
       pancakePos: {
         ...fallback.pancakePos,
         ...(saved.pancakePos || {}),
@@ -751,20 +734,6 @@ function getIntegrationState() {
 
 function saveIntegrationState(nextState) {
   localStorage.setItem(INTEGRATION_STORAGE_KEY, JSON.stringify(nextState));
-}
-
-function getPancakeWebhookUrl() {
-  if (location.protocol === 'http:' || location.protocol === 'https:') {
-    return `${location.origin}/api/public/integrations/pancake/webhook`;
-  }
-  return 'http://localhost:3001/api/public/integrations/pancake/webhook';
-}
-
-function getPancakePublicApiBase() {
-  if (location.protocol === 'http:' || location.protocol === 'https:') {
-    return `${location.origin}/api/public/integrations/pancake`;
-  }
-  return 'http://localhost:3001/api/public/integrations/pancake';
 }
 
 function getPancakePosPublicApiBase() {
@@ -891,18 +860,12 @@ function renderApiConnections() {
   }
 
   const state = getIntegrationState();
-  const settings = state.pancake;
   const posSettings = state.pancakePos;
   const googleSettings = state.googleSheets;
-  const webhookUrl = getPancakeWebhookUrl();
-  const statusTone = settings.enabled ? 'success' : 'warning';
-  const statusText = settings.enabled ? 'Connected' : 'Setup Needed';
   const posStatusTone = posSettings.enabled ? 'success' : 'warning';
   const posStatusText = posSettings.enabled ? 'Ready' : 'Setup Needed';
   const googleStatusTone = googleSettings.enabled ? 'success' : 'warning';
   const googleStatusText = googleSettings.enabled ? 'Ready' : 'Setup Needed';
-  const savedAt = settings.lastSavedAt ? new Date(settings.lastSavedAt).toLocaleString() : 'Not saved yet';
-  const collectedAt = settings.lastCollectedAt ? new Date(settings.lastCollectedAt).toLocaleString() : 'No API collection yet';
   const posCollectedAt = posSettings.lastCollectedAt ? new Date(posSettings.lastCollectedAt).toLocaleString() : 'No POS sync yet';
   const googleSavedAt = googleSettings.lastSavedAt ? new Date(googleSettings.lastSavedAt).toLocaleString() : 'Not saved yet';
   const googleCollectedAt = googleSettings.lastCollectedAt ? new Date(googleSettings.lastCollectedAt).toLocaleString() : 'No sheet sync yet';
@@ -911,26 +874,14 @@ function renderApiConnections() {
   <div class="page-header">
     <div class="page-title">
       <h1>API Connections</h1>
-      <p>Manage Pancake webhook delivery and automate Google Sheets imports into the dashboard database.</p>
+      <p>Sync Pancake POS orders and automate Google Sheets imports into the dashboard database.</p>
     </div>
     <div class="page-actions">
-      <button class="btn btn-secondary" onclick="fetchPancakePages()">
-        Get Pages
-      </button>
-      <button class="btn btn-secondary" onclick="collectPancakeApiData()">
-        Collect API Data
-      </button>
       <button class="btn btn-secondary" onclick="fetchPancakePosShops()">
         Get POS Shops
       </button>
       <button class="btn btn-secondary" onclick="collectPancakePosData()">
-        Sync POS Data
-      </button>
-      <button class="btn btn-secondary" onclick="copyWebhookUrl()">
-        Copy Webhook URL
-      </button>
-      <button class="btn btn-primary" onclick="savePancakeConnection()">
-        Save Connection
+        Sync POS Orders
       </button>
       <button class="btn btn-secondary" onclick="collectGoogleSheetsData()">
         Sync Google Sheets
@@ -942,26 +893,14 @@ function renderApiConnections() {
     <div class="stat-card blue">
       <div class="stat-card-accent"></div>
       <div class="stat-label">Provider</div>
-      <div class="stat-value" style="font-size:22px;">Pancake</div>
-      <div class="stat-meta">Webhook + API collection</div>
-    </div>
-    <div class="stat-card ${statusTone === 'success' ? 'green' : 'amber'}">
-      <div class="stat-card-accent"></div>
-      <div class="stat-label">Connection Status</div>
-      <div class="stat-value" style="font-size:22px;">${statusText}</div>
-      <div class="stat-meta">${settings.enabled ? 'Webhook and API config can be used' : 'Enable and save the connection first'}</div>
+      <div class="stat-value" style="font-size:22px;">Pancake POS</div>
+      <div class="stat-meta">Orders only</div>
     </div>
     <div class="stat-card ${posStatusTone === 'success' ? 'green' : 'amber'}">
       <div class="stat-card-accent"></div>
-      <div class="stat-label">Pancake POS SQL Sync</div>
+      <div class="stat-label">POS Orders SQL Sync</div>
       <div class="stat-value" style="font-size:18px;">${posCollectedAt}</div>
-      <div class="stat-meta">${escapeHtml(posSettings.lastCollectionSummary || `${posStatusText}. POS orders/products transfer into SQL.`)}</div>
-    </div>
-    <div class="stat-card navy">
-      <div class="stat-card-accent"></div>
-      <div class="stat-label">Last API Collection</div>
-      <div class="stat-value" style="font-size:18px;">${collectedAt}</div>
-      <div class="stat-meta">${escapeHtml(settings.lastCollectionSummary || 'Ready to collect conversations, customers, posts, tags, users, and messages.')}</div>
+      <div class="stat-meta">${escapeHtml(posSettings.lastCollectionSummary || `${posStatusText}. POS orders transfer into SQL.`)}</div>
     </div>
     <div class="stat-card ${googleStatusTone === 'success' ? 'green' : 'amber'}">
       <div class="stat-card-accent"></div>
@@ -972,102 +911,16 @@ function renderApiConnections() {
   </div>
 
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'api-tab-pancake')">Pancake Webhook</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
+    <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS Orders</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-guide')">Setup Guide</button>
   </div>
 
-  <div id="api-tab-pancake" class="tab-content active">
+  <div id="api-tab-pos" class="tab-content active">
     <section class="card integration-card">
       <div class="card-header">
         <div>
-          <div class="card-title">Pancake Webhook Setup</div>
-          <div class="card-subtitle">Use this when Pancake pushes orders or stock updates into the dashboard.</div>
-        </div>
-      </div>
-      <div class="card-body integration-body">
-        <div class="integration-toggle">
-          <div>
-            <div class="integration-toggle-title">Enable Pancake connection</div>
-            <div class="integration-toggle-copy">Turn this on when your Pancake webhook and page API credentials are ready.</div>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="pancake-enabled" ${settings.enabled ? 'checked' : ''}>
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">User Access Token</label>
-            <input type="text" class="form-control mono-input" id="pancake-user-access-token" placeholder="Pancake account access_token" value="${escapeHtml(settings.userAccessToken)}">
-            <div class="field-help">Used for <code>GET /pages</code> and generating a page access token.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Page ID</label>
-            <input type="text" class="form-control mono-input" id="pancake-page-id" placeholder="Selected Pancake page_id" value="${escapeHtml(settings.pageId)}">
-            <div class="field-help">Pick the page you want this dashboard to collect from.</div>
-          </div>
-        </div>
-
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">Page Access Token</label>
-            <input type="text" class="form-control mono-input" id="pancake-page-access-token" placeholder="Generated page_access_token" value="${escapeHtml(settings.pageAccessToken)}">
-            <div class="field-help">Optional if already generated in Pancake. If blank, the collector will try to generate it from the user token.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Webhook URL</label>
-            <div class="integration-inline">
-              <input type="text" class="form-control mono-input" id="pancake-webhook-url" value="${escapeHtml(webhookUrl)}" readonly>
-              <button class="btn btn-secondary" type="button" onclick="copyWebhookUrl()">Copy</button>
-            </div>
-            <div class="field-help">Paste this URL into Pancake's webhook destination field.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Sync Mode</label>
-            <select class="form-control" id="pancake-sync-mode">
-              <option value="webhook_only" ${settings.syncMode === 'webhook_only' ? 'selected' : ''}>Webhook only</option>
-              <option value="webhook_plus_manual" ${settings.syncMode === 'webhook_plus_manual' ? 'selected' : ''}>Webhook + manual retry</option>
-              <option value="manual_backup" ${settings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
-            </select>
-            <div class="field-help">Recommended for your current setup: <strong>Webhook only</strong>.</div>
-          </div>
-        </div>
-
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">Webhook Secret</label>
-            <input type="text" class="form-control mono-input" id="pancake-webhook-secret" placeholder="example: ynt-pancake-secret-2026" value="${escapeHtml(settings.webhookSecret)}">
-            <div class="field-help">Use the same secret in Pancake and in this dashboard to validate incoming payloads.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Pancake Base URL <span style="color:var(--text-muted); font-weight:400;">optional</span></label>
-            <input type="text" class="form-control mono-input" id="pancake-base-url" placeholder="https://pos.pancake.ph" value="${escapeHtml(settings.baseUrl)}">
-            <div class="field-help">Optional reference only. Not required for webhook mode.</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Internal Notes</label>
-          <textarea class="form-control" id="pancake-notes" rows="4" placeholder="Example: Pancake sends orders + inventory updates. Verified in production store.">${escapeHtml(settings.notes)}</textarea>
-        </div>
-
-        <div class="integration-actions">
-          <button class="btn btn-primary" type="button" onclick="savePancakeConnection()">Save Connection</button>
-          <button class="btn btn-secondary" type="button" onclick="sendWebhookTest()">Send Test Webhook</button>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <div id="api-tab-pos" class="tab-content">
-    <section class="card integration-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Pancake POS API to SQL</div>
-          <div class="card-subtitle">Pull POS orders, products, customers, account users, shops, warehouses, transactions, and inventory history into SQLite.</div>
+          <div class="card-title">Pancake POS Orders to SQL</div>
+          <div class="card-subtitle">Pull POS orders only into SQL and the Sales Dashboard.</div>
         </div>
       </div>
       <div class="card-body integration-body">
@@ -1107,7 +960,7 @@ function renderApiConnections() {
               <option value="pull_only" ${posSettings.syncMode === 'pull_only' ? 'selected' : ''}>Pull API to SQL</option>
               <option value="manual_backup" ${posSettings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
             </select>
-            <div class="field-help">Sync POS Data transfers API results into POS SQL tables, including account users, plus dashboard orders/inventory.</div>
+            <div class="field-help">Sync POS Data transfers order results into POS SQL and dashboard orders.</div>
           </div>
         </div>
 
@@ -1119,7 +972,7 @@ function renderApiConnections() {
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" onclick="savePancakePosConnection()">Save POS Connection</button>
           <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
-          <button class="btn btn-secondary" type="button" onclick="collectPancakePosData()">Sync POS Data</button>
+          <button class="btn btn-secondary" type="button" onclick="collectPancakePosData()">Sync POS Orders</button>
         </div>
       </div>
     </section>
@@ -1199,84 +1052,7 @@ function renderApiConnections() {
     </section>
   </div>
 
-  <div id="api-tab-guide" class="tab-content">
-    <aside class="integration-stack">
-      <section class="card integration-card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Collection Checklist</div>
-            <div class="card-subtitle">Quick setup using the Pancake API doc you shared.</div>
-          </div>
-        </div>
-        <div class="card-body integration-body">
-          <div class="check-list">
-            <div class="check-item"><span>1</span> Paste your Pancake <code>access_token</code> from Personal Settings.</div>
-            <div class="check-item"><span>2</span> Click <strong>Get Pages</strong> to confirm the account token works.</div>
-            <div class="check-item"><span>3</span> Save the target <code>page_id</code>.</div>
-            <div class="check-item"><span>4</span> Let the collector generate <code>page_access_token</code>, or paste one manually.</div>
-            <div class="check-item"><span>5</span> Click <strong>Collect API Data</strong> to store page data locally.</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="card integration-card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Collection Scope</div>
-            <div class="card-subtitle">Current collector uses the endpoints present in your Pancake OpenAPI file.</div>
-          </div>
-        </div>
-        <div class="card-body integration-body">
-          <pre class="code-block">${escapeHtml(JSON.stringify({
-            resources: ['conversations', 'customers', 'posts', 'tags', 'users', 'messages'],
-            routes: [
-              'GET /pages',
-              'POST /pages/{page_id}/generate_page_access_token',
-              'GET /pages/{page_id}/conversations',
-              'GET /pages/{page_id}/page_customers',
-              'GET /pages/{page_id}/posts',
-              'GET /pages/{page_id}/tags',
-              'GET /pages/{page_id}/users',
-              'GET /pages/{page_id}/conversations/{conversation_id}/messages'
-            ]
-          }, null, 2))}</pre>
-        </div>
-      </section>
-    </aside>
-  </div>
   `;
-}
-
-function getPancakeSamplePayload() {
-  return {
-    orders: [
-      {
-        id: 'pc-order-1001',
-        order_ref: 'PC-1001',
-        tracking_no: 'JT123456789PH',
-        customer_name: 'Maria Santos',
-        customer_phone: '09171234567',
-        product_name: 'YNT Serum Glow 30ml',
-        quantity: 2,
-        cod_amount: 1198,
-        status: 'shipping',
-        shipping_provider: 'J&T Express',
-        created_at: new Date().toISOString(),
-      },
-    ],
-    inventory: [
-      {
-        id: 'pc-item-001',
-        sku: 'SKU-001',
-        product_name: 'YNT Serum Glow 30ml',
-        type: 'Product',
-        stock: 148,
-        reorder_pt: 200,
-        cost_price: 120,
-        sell_price: 599,
-      },
-    ],
-  };
 }
 
 // ─── RENDER: HOME ──────────────────────────────────────────
@@ -5514,23 +5290,6 @@ function setExpCatFilter(cat, btn) {
 }
 
 // ─── EXPORT CSV ────────────────────────────────────────────
-function collectPancakeFormState() {
-  const previous = getIntegrationState().pancake;
-  return {
-    enabled: Boolean(document.getElementById('pancake-enabled')?.checked),
-    syncMode: document.getElementById('pancake-sync-mode')?.value || 'webhook_only',
-    webhookSecret: (document.getElementById('pancake-webhook-secret')?.value || '').trim(),
-    baseUrl: (document.getElementById('pancake-base-url')?.value || '').trim(),
-    userAccessToken: (document.getElementById('pancake-user-access-token')?.value || '').trim(),
-    pageId: (document.getElementById('pancake-page-id')?.value || '').trim(),
-    pageAccessToken: (document.getElementById('pancake-page-access-token')?.value || '').trim(),
-    notes: (document.getElementById('pancake-notes')?.value || '').trim(),
-    lastSavedAt: new Date().toISOString(),
-    lastCollectedAt: previous.lastCollectedAt || null,
-    lastCollectionSummary: previous.lastCollectionSummary || '',
-  };
-}
-
 function collectGoogleSheetsFormState() {
   const previous = getIntegrationState().googleSheets;
   return {
@@ -5561,22 +5320,6 @@ function collectPancakePosFormState() {
     lastCollectedAt: previous.lastCollectedAt || null,
     lastCollectionSummary: previous.lastCollectionSummary || '',
   };
-}
-
-async function syncPancakeConfigToBackend(settings) {
-  return authorizedJsonRequest('/integrations/pancake/config', {
-    method: 'POST',
-    body: JSON.stringify({
-      enabled: settings.enabled,
-      base_url: settings.baseUrl,
-      user_access_token: settings.userAccessToken,
-      page_id: settings.pageId,
-      page_access_token: settings.pageAccessToken,
-      webhook_secret: settings.webhookSecret,
-      sync_mode: settings.syncMode,
-      notes: settings.notes,
-    }),
-  });
 }
 
 async function syncPancakePosConfigToBackend(settings) {
@@ -5610,22 +5353,6 @@ async function syncGoogleSheetsConfigToBackend(settings) {
   });
 }
 
-function savePancakeConnection() {
-  const state = getIntegrationState();
-  state.pancake = collectPancakeFormState();
-
-  saveIntegrationState(state);
-  syncPancakeConfigToBackend(state.pancake)
-    .then(() => {
-      showToast('success', 'Connection saved', 'Pancake webhook and API settings were saved to the dashboard.');
-      navigateTo('api-connections');
-    })
-    .catch(() => {
-      showToast('warning', 'Saved locally only', 'The browser settings were saved, but the backend config endpoint was not reachable.');
-      navigateTo('api-connections');
-    });
-}
-
 function saveGoogleSheetsConnection() {
   const state = getIntegrationState();
   state.googleSheets = collectGoogleSheetsFormState();
@@ -5656,124 +5383,6 @@ function savePancakePosConnection() {
       showToast('warning', 'Saved locally only', 'The browser POS settings were saved, but the backend config endpoint was not reachable.');
       navigateTo('api-connections');
     });
-}
-
-async function copyWebhookUrl() {
-  const url = getPancakeWebhookUrl();
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(url);
-    } else {
-      const input = document.getElementById('pancake-webhook-url');
-      input?.select();
-      document.execCommand('copy');
-    }
-    showToast('success', 'Webhook URL copied', url);
-  } catch {
-    showToast('warning', 'Copy failed', 'Please copy the webhook URL manually.');
-  }
-}
-
-async function sendWebhookTest() {
-  const webhookUrl = getPancakeWebhookUrl();
-  const secret = (document.getElementById('pancake-webhook-secret')?.value || '').trim();
-  const payload = getPancakeSamplePayload();
-
-  try {
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(secret ? { 'x-webhook-secret': secret } : {}),
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Webhook test failed with status ${response.status}`);
-    }
-
-    showToast('success', 'Webhook test sent', 'Sample Pancake payload was accepted by the backend webhook endpoint.');
-  } catch (error) {
-    showToast(
-      'warning',
-      'Backend not reachable',
-      `The test payload could not be delivered. Start the backend on ${getExpectedDashboardUrl()} to test the webhook endpoint.`
-    );
-    console.warn(error);
-  }
-}
-
-async function fetchPancakePages() {
-  const state = getIntegrationState();
-  state.pancake = collectPancakeFormState();
-  saveIntegrationState(state);
-
-  if (!state.pancake.userAccessToken) {
-    showToast('warning', 'User token required', 'Enter the Pancake user access token first.');
-    return;
-  }
-
-  try {
-    const data = await authorizedJsonRequest('/integrations/pancake/pages', {
-      method: 'POST',
-      body: JSON.stringify({ user_access_token: state.pancake.userAccessToken }),
-    });
-
-    const pages = Array.isArray(data.pages) ? data.pages : [];
-    if (!pages.length) {
-      showToast('warning', 'No pages returned', 'The token worked, but Pancake did not return any pages.');
-      return;
-    }
-
-    const firstPage = pages[0];
-    const pageInput = document.getElementById('pancake-page-id');
-    if (pageInput) pageInput.value = firstPage.id || '';
-    showToast('success', 'Pages loaded', `Found ${pages.length} page(s). Filled page_id with ${firstPage.name || firstPage.id}.`);
-  } catch (error) {
-    showToast('error', 'Get Pages failed', error.message || 'Could not load pages from Pancake.');
-  }
-}
-
-async function collectPancakeApiData() {
-  const state = getIntegrationState();
-  state.pancake = collectPancakeFormState();
-  saveIntegrationState(state);
-
-  if (!state.pancake.pageId) {
-    showToast('warning', 'Page ID required', 'Enter or fetch a Pancake page_id first.');
-    return;
-  }
-
-  try {
-    const data = await authorizedJsonRequest('/integrations/pancake/collect', {
-      method: 'POST',
-      body: JSON.stringify({
-        user_access_token: state.pancake.userAccessToken,
-        page_id: state.pancake.pageId,
-        page_access_token: state.pancake.pageAccessToken,
-        resources: ['conversations', 'customers', 'posts', 'tags', 'users', 'messages'],
-      }),
-    });
-
-    const collectedResources = Object.entries(data.resources || {}).map(([name, details]) => `${name}:${details.count}`).join(', ');
-    const refreshed = getIntegrationState();
-    refreshed.pancake = {
-      ...state.pancake,
-      lastCollectedAt: new Date().toISOString(),
-      lastCollectionSummary: collectedResources || 'Collection completed',
-    };
-    saveIntegrationState(refreshed);
-
-    const returnedToken = data.page_access_token || data.pageAccessToken;
-    const tokenInput = document.getElementById('pancake-page-access-token');
-    if (returnedToken && tokenInput) tokenInput.value = returnedToken;
-
-    showToast('success', 'Collection complete', collectedResources || 'Pancake data was collected and stored.');
-    navigateTo('api-connections');
-  } catch (error) {
-    showToast('error', 'Collection failed', error.message || 'Could not collect Pancake API data.');
-  }
 }
 
 async function fetchPancakePosShops() {
@@ -5829,7 +5438,7 @@ async function collectPancakePosData() {
         api_key: state.pancakePos.apiKey,
         base_url: state.pancakePos.baseUrl,
         shop_id: state.pancakePos.shopId,
-        resources: ['shops', 'warehouses', 'orders', 'products', 'customers', 'users', 'transactions', 'inventory_histories'],
+        resources: ['orders'],
         page_size: 100,
         max_pages: 200,
         startDateTime: 0,
@@ -5842,11 +5451,11 @@ async function collectPancakePosData() {
     refreshed.pancakePos = {
       ...state.pancakePos,
       lastCollectedAt: new Date().toISOString(),
-      lastCollectionSummary: collectedResources || 'POS data transferred to SQL',
+      lastCollectionSummary: collectedResources || 'POS orders transferred to SQL',
     };
     saveIntegrationState(refreshed);
 
-    await Promise.all([refreshOrderViewsFromBackend(), refreshInventoryViewFromBackend()]);
+    await refreshOrderViewsFromBackend();
     showToast('success', 'POS SQL sync complete', refreshed.pancakePos.lastCollectionSummary);
     navigateTo('api-connections');
   } catch (error) {
