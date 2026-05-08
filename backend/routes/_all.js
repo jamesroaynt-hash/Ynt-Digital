@@ -156,6 +156,13 @@ function inventoryRoutes(db) {
   const r = express.Router();
   const allowedTypes = new Set(['Product', 'Supply']);
 
+  function requireAdmin(req, res, next) {
+    if (String(req.user?.role || '').trim() !== 'Administrator') {
+      return res.status(403).json({ error: 'Administrator access required' });
+    }
+    return next();
+  }
+
   function cleanInventoryItem(row = {}, index = 0) {
     const type = allowedTypes.has(row.type) ? row.type : 'Product';
     return {
@@ -210,14 +217,14 @@ function inventoryRoutes(db) {
     res.json(await db.prepare('SELECT * FROM inventory WHERE stock < reorder_pt').all());
   });
 
-  r.post('/', async (req, res) => {
+  r.post('/', requireAdmin, async (req, res) => {
     const { name, sku, type, unit, stock, reorder_pt, cost_price, sell_price } = req.body;
     const item_id = `${type === 'Product' ? 'P' : 'S'}${String(Date.now()).slice(-4)}`;
     await db.prepare(`INSERT INTO inventory (item_id,name,sku,type,unit,stock,reorder_pt,cost_price,sell_price) VALUES (?,?,?,?,?,?,?,?,?)`).run(item_id, name, sku||null, type||'Product', unit||'pcs', stock||0, reorder_pt||(type==='Product'?200:15), cost_price||0, sell_price||null);
     res.status(201).json({ item_id });
   });
 
-  r.post('/import', async (req, res) => {
+  r.post('/import', requireAdmin, async (req, res) => {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: 'No rows to import' });
 
@@ -238,7 +245,7 @@ function inventoryRoutes(db) {
     res.status(201).json({ imported, failed_rows });
   });
 
-  r.patch('/:item_id/stock', async (req, res) => {
+  r.patch('/:item_id/stock', requireAdmin, async (req, res) => {
     const { action, qty, notes } = req.body;
     const item = await db.prepare('SELECT * FROM inventory WHERE item_id=?').get(req.params.item_id);
     if (!item) return res.status(404).json({ error: 'Item not found' });

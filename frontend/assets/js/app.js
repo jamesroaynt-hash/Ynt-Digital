@@ -2239,23 +2239,24 @@ function renderCSR() {
 
 function renderInventory() {
   const lowStock = DB.inventory.filter(i => i.stock < i.reorder);
+  const canEditStock = canManageInventoryStock();
 
   return `
   <div class="page-header">
     <div class="page-title"><h1>Inventory</h1><p>Manage products, supplies, and stock levels.</p></div>
     <div class="page-actions">
-      <button class="btn btn-secondary" onclick="startCsvImport('inventory')">
+      ${canEditStock ? `<button class="btn btn-secondary" onclick="startCsvImport('inventory')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
         Import CSV
-      </button>
-      <button class="btn btn-secondary" onclick="openModal('stocks-modal')">
+      </button>` : ''}
+      ${canEditStock ? `<button class="btn btn-secondary" onclick="openStockModal()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
         Stocks Update
-      </button>
-      <button class="btn btn-primary" onclick="openModal('add-inventory-modal')">
+      </button>` : ''}
+      ${canEditStock ? `<button class="btn btn-primary" onclick="openModal('add-inventory-modal')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
         Add Item
-      </button>
+      </button>` : ''}
     </div>
   </div>
 
@@ -2295,7 +2296,7 @@ function renderInventory() {
   </div>
 
   <!-- Add/Edit Inventory Modal -->
-  <div class="modal-overlay" id="add-inventory-modal">
+  ${canEditStock ? `<div class="modal-overlay" id="add-inventory-modal">
     <div class="modal">
       <div class="modal-header"><div class="modal-title">Add Inventory Item</div><button class="modal-close" onclick="closeModal('add-inventory-modal')">×</button></div>
       <div class="modal-body">
@@ -2318,10 +2319,10 @@ function renderInventory() {
         <button class="btn btn-primary" onclick="saveInventoryItem()">Save Item</button>
       </div>
     </div>
-  </div>
+  </div>` : ''}
 
   <!-- Stocks Update Modal -->
-  <div class="modal-overlay" id="stocks-modal">
+  ${canEditStock ? `<div class="modal-overlay" id="stocks-modal">
     <div class="modal">
       <div class="modal-header"><div class="modal-title">Update Stock</div><button class="modal-close" onclick="closeModal('stocks-modal')">×</button></div>
       <div class="modal-body">
@@ -2343,7 +2344,7 @@ function renderInventory() {
         <button class="btn btn-primary" onclick="updateStock()">Update Stock</button>
       </div>
     </div>
-  </div>`;
+  </div>` : ''}`;
 }
 
 function renderInventoryTable(items) {
@@ -2372,13 +2373,25 @@ function renderInventoryTable(items) {
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
               <div class="flex gap-2">
-                <button class="btn btn-ghost btn-sm" onclick="openModal('stocks-modal')">Restock</button>
+                ${canManageInventoryStock() ? `<button class="btn btn-ghost btn-sm" onclick="openStockModal('${escapeHtml(item.id)}')">Restock</button>` : '<span class="text-xs text-muted">View only</span>'}
               </div>
             </td>
           </tr>`;
         }).join('') : '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
     </table>`;
+}
+
+function openStockModal(itemId = '') {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Admin only', 'Only administrators can edit inventory stock.');
+    return;
+  }
+  openModal('stocks-modal');
+  if (itemId) {
+    const select = document.getElementById('stocks-item');
+    if (select) select.value = itemId;
+  }
 }
 
 // ─── RENDER: EXPENSES ──────────────────────────────────────
@@ -2898,6 +2911,10 @@ function canManageAccounts() {
 
 function canManageHR() {
   return isAdminUser() || isHRUser();
+}
+
+function canManageInventoryStock() {
+  return isAdminUser();
 }
 
 function isSalesMarketingUser(role = App.user?.role) {
@@ -4959,6 +4976,10 @@ function savePickup() {
 
 // ─── INVENTORY HELPERS ─────────────────────────────────────
 async function saveInventoryItem() {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Admin only', 'Only administrators can add inventory items.');
+    return;
+  }
   const name = document.getElementById('inv-name')?.value;
   const sku = document.getElementById('inv-sku')?.value;
   const type = document.getElementById('inv-type')?.value;
@@ -5001,6 +5022,10 @@ async function saveInventoryItem() {
 }
 
 async function updateStock() {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Admin only', 'Only administrators can edit inventory stock.');
+    return;
+  }
   const itemId = document.getElementById('stocks-item')?.value;
   const action = document.getElementById('stocks-action')?.value;
   const qty = parseInt(document.getElementById('stocks-qty')?.value || 0);
