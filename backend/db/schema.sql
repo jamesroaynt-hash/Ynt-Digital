@@ -11,10 +11,45 @@ CREATE TABLE IF NOT EXISTS users (
   phone_number TEXT,
   email_address TEXT,
   fb_account_name TEXT,
+  daily_rate REAL NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS attendance_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  work_date TEXT NOT NULL DEFAULT (date('now')),
+  time_in TEXT,
+  break_out TEXT,
+  break_in TEXT,
+  time_out TEXT,
+  break_minutes INTEGER NOT NULL DEFAULT 15,
+  ot_minutes INTEGER NOT NULL DEFAULT 0,
+  holiday_type TEXT NOT NULL DEFAULT 'Regular day',
+  holiday_percentage REAL NOT NULL DEFAULT 100,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, work_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance_records(user_id, work_date);
+
+CREATE TABLE IF NOT EXISTS cash_advances (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  advance_date TEXT NOT NULL DEFAULT (date('now')),
+  amount REAL NOT NULL DEFAULT 0,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'deducted', 'void')),
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cash_advances_user_date ON cash_advances(user_id, advance_date);
 
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

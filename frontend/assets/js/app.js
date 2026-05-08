@@ -7,9 +7,10 @@ const App = {
   user: JSON.parse(localStorage.getItem('ynt_user') || 'null'),
   currentPage: 'home',
 };
-const ROLE_OPTIONS = ['Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
+const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  Administrator: ['home', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  HR: ['home', 'hr', 'manage-users', 'expenses', 'view-records'],
   Trainee: ['home', 'sales', 'csr', 'view-records'],
   CSR: ['home', 'sales', 'csr', 'view-records', 'manage-users'],
   'CSR TL': ['home', 'sales', 'csr', 'view-records', 'manage-users'],
@@ -20,6 +21,7 @@ const NAV_ACCESS = {
   'Sales and Marketing TL': ['home', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
 };
 let managedUsers = [];
+let hrState = { users: [], summary: [], attendance: [], advances: [] };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
@@ -91,6 +93,7 @@ function loadPage(page) {
     csr: renderCSR,
     inventory: renderInventory,
     expenses: renderExpenses,
+    hr: renderHR,
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
     scanning: renderScanning,
@@ -114,6 +117,7 @@ const pageNames = {
   csr: 'CSR Daily Records',
   inventory: 'Inventory',
   expenses: 'Expenses',
+  hr: 'HR / Payroll',
   'daily-pickup': 'Daily Pickup',
   'rts-scanning': 'RTS Scanning',
   scanning: 'Scanning',
@@ -841,7 +845,7 @@ function renderLogin() {
 }
 
 function renderApiConnections() {
-  if (!isAdminUser()) {
+  if (!canManageAccounts()) {
     return `
     <div class="empty-state">
       <h3>Administrator access required</h3>
@@ -1273,13 +1277,14 @@ function renderHome() {
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Low Stock Items</div><div class="stat-value">${DB.inventory.filter(i => i.stock < i.reorder).length}</div><div class="stat-meta"><span class="stat-badge down">↓ needs reorder</span></div></div>
   </div>
 
-  <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px;">
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px;">
     <div class="card">
       <div class="card-header"><div><div class="card-title">Order Status Overview</div><div class="card-subtitle">Last 30 days</div></div></div>
       <div class="card-body" style="padding: 16px;">
         <canvas id="home-donut-chart" height="200"></canvas>
       </div>
     </div>
+    ${renderTimeClockCard()}
     <div class="card">
       <div class="card-header"><div><div class="card-title">Quick Actions</div><div class="card-subtitle">Shortcuts based on your role</div></div></div>
       <div class="card-body">
@@ -1316,9 +1321,35 @@ function renderHome() {
   </div>`;
 }
 
+function renderTimeClockCard() {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Time Clock</div>
+          <div class="card-subtitle">Today attendance and 15-minute break</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="time-clock-status" class="empty-state" style="padding:12px; margin-bottom:12px;">
+          <h3>Loading clock</h3>
+          <p>Checking today record.</p>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <button class="btn btn-primary" onclick="submitTimeClock('time_in')">Time In</button>
+          <button class="btn btn-secondary" onclick="submitTimeClock('break_out')">Break Out</button>
+          <button class="btn btn-secondary" onclick="submitTimeClock('break_in')">Break In</button>
+          <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
+        </div>
+        ${canAccessPage('hr') ? "<button class=\"btn btn-ghost btn-sm\" style=\"margin-top:12px;\" onclick=\"navigateTo('hr')\">Open HR records</button>" : ''}
+      </div>
+    </div>`;
+}
+
 function getUserRoleBadgeClass(role) {
   const normalizedRole = normalizeRoleName(role);
   if (normalizedRole === 'Administrator') return 'badge-purple';
+  if (normalizedRole === 'HR') return 'badge-warning';
   if (normalizedRole.includes('CSR')) return 'badge-info';
   return 'badge-gray';
 }
@@ -1402,6 +1433,91 @@ function renderOwnAccountSection() {
   </div>`;
 }
 
+function renderHR() {
+  const today = normalizeDateString(new Date());
+  const monthStart = today.slice(0, 8) + '01';
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>HR / Payroll</h1>
+      <p>Attendance, OT, holidays, cash advances, and printable payslips.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadHRDashboard()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-body">
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label class="form-label">From</label>
+          <input type="date" id="hr-date-from" class="form-control" value="${monthStart}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">To</label>
+          <input type="date" id="hr-date-to" class="form-control" value="${today}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">User</label>
+          <select id="hr-user-filter" class="form-control">
+            <option value="">All users</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="btn btn-primary" onclick="loadHRDashboard()">Apply</button>
+        <button class="btn btn-secondary" onclick="printSelectedPayslip()">Print Payslip</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="hr-summary-wrap" class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:20px;"></div>
+
+  <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .8fr); gap:16px; margin-bottom:20px;">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">User Payroll</div><div class="card-subtitle">Days worked, OT, holiday pay, cash advances, and net pay</div></div></div>
+      <div class="card-body" id="hr-payroll-table-wrap">
+        <div class="empty-state"><h3>Loading payroll</h3><p>Preparing HR records.</p></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Cash Advance</div><div class="card-subtitle">Deducted on selected period payslip</div></div></div>
+      <div class="card-body">
+        <form onsubmit="createCashAdvance(event)">
+          <div class="form-group">
+            <label class="form-label">User</label>
+            <select id="cash-advance-user" class="form-control"></select>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Date</label>
+              <input type="date" id="cash-advance-date" class="form-control" value="${today}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Amount</label>
+              <input type="number" min="0" step="0.01" id="cash-advance-amount" class="form-control" placeholder="0.00">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reason</label>
+            <input type="text" id="cash-advance-reason" class="form-control" placeholder="Cash advance note">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Save Cash Advance</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Edit OT minutes and holiday percentage per day</div></div></div>
+    <div class="card-body" id="hr-attendance-table-wrap">
+      <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
+    </div>
+  </div>`;
+}
+
 function renderManageUsers() {
   const ownAccountSection = renderOwnAccountSection();
   if (!isAdminUser()) {
@@ -1437,8 +1553,8 @@ function renderManageUsers() {
     <div class="card-body" style="padding:16px 20px;">
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
-          <div class="card-title" style="margin-bottom:4px;">Admin-only controls</div>
-          <div class="card-subtitle">Only administrators can edit or delete user accounts from this screen.</div>
+          <div class="card-title" style="margin-bottom:4px;">Account controls</div>
+          <div class="card-subtitle">Administrator and HR accounts can edit or deactivate user accounts from this screen.</div>
         </div>
         <div class="badge badge-warning">Delete = deactivate account</div>
       </div>
@@ -2598,6 +2714,18 @@ function isAdminUser() {
   return normalizeText(normalizeRoleName(App.user?.role)) === 'administrator';
 }
 
+function isHRUser() {
+  return normalizeText(normalizeRoleName(App.user?.role)) === 'hr';
+}
+
+function canManageAccounts() {
+  return isAdminUser() || isHRUser();
+}
+
+function canManageHR() {
+  return isAdminUser() || isHRUser();
+}
+
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
   const role = normalizeRoleName(App.user.role);
@@ -2990,6 +3118,55 @@ function saveCSRRecord() {
   showToast('success', 'CSR record saved', `${record.customerName} • ${record.pageName} • ₱${record.price.toLocaleString()}`);
 }
 
+function formatClockValue(value) {
+  return value ? escapeHtml(value) : '<span class="text-muted">--:--</span>';
+}
+
+function renderTimeClockStatus(record, date) {
+  const wrapper = document.getElementById('time-clock-status');
+  if (!wrapper) return;
+  wrapper.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:left;">
+      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong></div>
+      <div><div class="text-xs text-muted">Break</div><strong>${Number(record?.break_minutes || 15)} mins</strong></div>
+      <div><div class="text-xs text-muted">Time In</div><strong>${formatClockValue(record?.time_in)}</strong></div>
+      <div><div class="text-xs text-muted">Break Out</div><strong>${formatClockValue(record?.break_out)}</strong></div>
+      <div><div class="text-xs text-muted">Break In</div><strong>${formatClockValue(record?.break_in)}</strong></div>
+      <div><div class="text-xs text-muted">Time Out</div><strong>${formatClockValue(record?.time_out)}</strong></div>
+    </div>`;
+}
+
+async function loadTimeClockStatus() {
+  const wrapper = document.getElementById('time-clock-status');
+  try {
+    const data = await authorizedJsonRequest(`/hr/today?_=${Date.now()}`);
+    renderTimeClockStatus(data?.record, data?.date);
+  } catch (error) {
+    if (wrapper) {
+      wrapper.innerHTML = `<h3>Clock unavailable</h3><p>${escapeHtml(error.message || 'Could not load today attendance.')}</p>`;
+    }
+  }
+}
+
+async function submitTimeClock(action) {
+  const labels = {
+    time_in: 'Time in',
+    break_out: 'Break out',
+    break_in: 'Break in',
+    time_out: 'Time out',
+  };
+  try {
+    const data = await authorizedJsonRequest('/hr/clock', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+    renderTimeClockStatus(data?.record, data?.record?.work_date);
+    showToast('success', labels[action] || 'Clock', 'Attendance record updated.');
+  } catch (error) {
+    showToast('error', 'Clock failed', error.message || 'Could not update time clock.');
+  }
+}
+
 function initCharts(page) {
   if (typeof Chart === 'undefined') return;
 
@@ -3057,6 +3234,10 @@ function initCharts(page) {
 function initPage(page) {
   setTimeout(() => initCharts(page), 50);
 
+  if (page === 'home') {
+    loadTimeClockStatus();
+  }
+
   if (page === 'sales') {
     const today = new Date().toISOString().split('T')[0];
     const salesDateFromInput = document.getElementById('sales-date-from');
@@ -3086,7 +3267,11 @@ function initPage(page) {
   }
 
   if (page === 'manage-users') {
-    if (isAdminUser()) loadManagedUsers();
+    if (canManageAccounts()) loadManagedUsers();
+  }
+
+  if (page === 'hr') {
+    initHRPage();
   }
 
   if (page === 'scanning' || page === 'rts-scanning') {
@@ -3176,9 +3361,286 @@ async function loadManagedUsers() {
   }
 }
 
+function formatPHP(value) {
+  return `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatMinutes(value) {
+  const minutes = Math.max(0, Number(value || 0));
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return hours ? `${hours}h ${mins}m` : `${mins}m`;
+}
+
+function getHRFilters() {
+  const today = normalizeDateString(new Date());
+  return {
+    from: document.getElementById('hr-date-from')?.value || today,
+    to: document.getElementById('hr-date-to')?.value || today,
+    userId: document.getElementById('hr-user-filter')?.value || '',
+  };
+}
+
+function populateHRUserSelects() {
+  const options = [
+    '<option value="">All users</option>',
+    ...hrState.users.map((user) => `<option value="${user.id}">${escapeHtml(user.full_name)} (${escapeHtml(formatRoleLabel(user.role))})</option>`),
+  ].join('');
+  const filter = document.getElementById('hr-user-filter');
+  if (filter && !filter.dataset.ready) {
+    filter.innerHTML = options;
+    filter.dataset.ready = '1';
+  }
+  const cashSelect = document.getElementById('cash-advance-user');
+  if (cashSelect) {
+    cashSelect.innerHTML = hrState.users.map((user) => `<option value="${user.id}">${escapeHtml(user.full_name)}</option>`).join('');
+  }
+}
+
+async function initHRPage() {
+  if (!canManageHR()) {
+    const wrap = document.getElementById('hr-payroll-table-wrap');
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><h3>HR access required</h3><p>Your account can only use the Home time clock.</p></div>';
+    return;
+  }
+
+  try {
+    const data = await authorizedJsonRequest('/auth/users');
+    hrState.users = Array.isArray(data?.users) ? data.users : [];
+    populateHRUserSelects();
+  } catch (error) {
+    showToast('error', 'Users unavailable', error.message || 'Could not load HR users.');
+  }
+  await loadHRDashboard();
+}
+
+async function loadHRDashboard() {
+  if (!canManageHR()) return;
+  const { from, to, userId } = getHRFilters();
+  const query = new URLSearchParams({ from, to, _: Date.now().toString() });
+  if (userId) query.set('user_id', userId);
+
+  try {
+    const [summaryData, attendanceData, advancesData] = await Promise.all([
+      authorizedJsonRequest(`/hr/summary?${query.toString()}`),
+      authorizedJsonRequest(`/hr/attendance?${query.toString()}`),
+      authorizedJsonRequest(`/hr/cash-advances?${query.toString()}`),
+    ]);
+    hrState.summary = Array.isArray(summaryData?.summary) ? summaryData.summary : [];
+    hrState.attendance = Array.isArray(attendanceData?.records) ? attendanceData.records : [];
+    hrState.advances = Array.isArray(advancesData?.advances) ? advancesData.advances : [];
+    renderHRSummary();
+    renderHRPayrollTable();
+    renderHRAttendanceTable();
+  } catch (error) {
+    showToast('error', 'HR load failed', error.message || 'Could not load HR records.');
+  }
+}
+
+function renderHRSummary() {
+  const wrap = document.getElementById('hr-summary-wrap');
+  if (!wrap) return;
+  const totals = hrState.summary.reduce((acc, item) => {
+    acc.days += Number(item.days_worked || 0);
+    acc.ot += Number(item.ot_minutes || 0);
+    acc.cash += Number(item.cash_advances || 0);
+    acc.net += Number(item.net_pay || 0);
+    return acc;
+  }, { days: 0, ot: 0, cash: 0, net: 0 });
+
+  wrap.innerHTML = `
+    <div class="stat-card blue"><div class="stat-label">Work Days</div><div class="stat-value">${totals.days}</div></div>
+    <div class="stat-card amber"><div class="stat-label">OT Time</div><div class="stat-value">${formatMinutes(totals.ot)}</div></div>
+    <div class="stat-card red"><div class="stat-label">Cash Advances</div><div class="stat-value">${formatPHP(totals.cash)}</div></div>
+    <div class="stat-card green"><div class="stat-label">Net Pay</div><div class="stat-value">${formatPHP(totals.net)}</div></div>`;
+}
+
+function renderHRPayrollTable() {
+  const wrap = document.getElementById('hr-payroll-table-wrap');
+  if (!wrap) return;
+  if (!hrState.summary.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No payroll records</h3><p>No attendance in this period yet.</p></div>';
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${hrState.summary.map((item) => {
+            const user = item.user || {};
+            return `
+              <tr>
+                <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
+                <td><input type="number" min="0" step="0.01" class="form-control" style="width:120px;" id="daily-rate-${user.id}" value="${Number(user.daily_rate || 0)}"></td>
+                <td>${Number(item.days_worked || 0)}</td>
+                <td>${formatMinutes(item.ot_minutes)}</td>
+                <td>${formatPHP(item.holiday_pay)}</td>
+                <td>${formatPHP(item.cash_advances)}</td>
+                <td><strong>${formatPHP(item.net_pay)}</strong></td>
+                <td>
+                  <div class="flex gap-2">
+                    <button class="btn btn-ghost btn-sm" onclick="saveDailyRate(${user.id})">Rate</button>
+                    <button class="btn btn-secondary btn-sm" onclick="printPayslip(${user.id})">Payslip</button>
+                  </div>
+                </td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderHRAttendanceTable() {
+  const wrap = document.getElementById('hr-attendance-table-wrap');
+  if (!wrap) return;
+  if (!hrState.attendance.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No attendance logs</h3><p>Users can create records from the Home time clock.</p></div>';
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>User</th><th>Time</th><th>Break</th><th>OT Min</th><th>Holiday %</th><th>Note</th><th></th></tr></thead>
+        <tbody>
+          ${hrState.attendance.map((record) => `
+            <tr>
+              <td>${escapeHtml(record.work_date || '')}</td>
+              <td><strong>${escapeHtml(record.full_name || '')}</strong></td>
+              <td>${escapeHtml(record.time_in || '--')} - ${escapeHtml(record.time_out || '--')}</td>
+              <td>${escapeHtml(record.break_out || '--')} - ${escapeHtml(record.break_in || '--')}</td>
+              <td><input type="number" min="0" step="1" class="form-control" style="width:90px;" id="att-ot-${record.id}" value="${Number(record.ot_minutes || record.calculated_ot_minutes || 0)}"></td>
+              <td><input type="number" min="100" step="1" class="form-control" style="width:90px;" id="att-holiday-${record.id}" value="${Number(record.holiday_percentage || 100)}"></td>
+              <td><input type="text" class="form-control" id="att-note-${record.id}" value="${escapeHtml(record.notes || '')}" placeholder="Optional"></td>
+              <td><button class="btn btn-ghost btn-sm" onclick="saveAttendanceAdjustments(${record.id})">Save</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function saveDailyRate(userId) {
+  const input = document.getElementById(`daily-rate-${userId}`);
+  const dailyRate = Number(input?.value || 0);
+  try {
+    await authorizedJsonRequest(`/hr/users/${userId}/rate`, {
+      method: 'PATCH',
+      body: JSON.stringify({ daily_rate: dailyRate }),
+    });
+    showToast('success', 'Rate saved', 'Daily rate was updated.');
+    await loadHRDashboard();
+  } catch (error) {
+    showToast('error', 'Rate failed', error.message || 'Could not update rate.');
+  }
+}
+
+async function saveAttendanceAdjustments(recordId) {
+  const record = hrState.attendance.find((item) => Number(item.id) === Number(recordId));
+  if (!record) return;
+  try {
+    await authorizedJsonRequest(`/hr/attendance/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        time_in: record.time_in,
+        break_out: record.break_out,
+        break_in: record.break_in,
+        time_out: record.time_out,
+        break_minutes: record.break_minutes || 15,
+        ot_minutes: Number(document.getElementById(`att-ot-${recordId}`)?.value || 0),
+        holiday_type: Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100) > 100 ? 'Holiday' : 'Regular day',
+        holiday_percentage: Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100),
+        notes: document.getElementById(`att-note-${recordId}`)?.value || '',
+      }),
+    });
+    showToast('success', 'Attendance saved', 'OT or holiday adjustment was updated.');
+    await loadHRDashboard();
+  } catch (error) {
+    showToast('error', 'Attendance failed', error.message || 'Could not save attendance.');
+  }
+}
+
+async function createCashAdvance(event) {
+  event.preventDefault();
+  try {
+    await authorizedJsonRequest('/hr/cash-advances', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: Number(document.getElementById('cash-advance-user')?.value || 0),
+        advance_date: document.getElementById('cash-advance-date')?.value,
+        amount: Number(document.getElementById('cash-advance-amount')?.value || 0),
+        reason: document.getElementById('cash-advance-reason')?.value || '',
+      }),
+    });
+    const amount = document.getElementById('cash-advance-amount');
+    const reason = document.getElementById('cash-advance-reason');
+    if (amount) amount.value = '';
+    if (reason) reason.value = '';
+    showToast('success', 'Cash advance saved', 'Payroll deduction was recorded.');
+    await loadHRDashboard();
+  } catch (error) {
+    showToast('error', 'Cash advance failed', error.message || 'Could not save cash advance.');
+  }
+}
+
+function printSelectedPayslip() {
+  const selected = document.getElementById('hr-user-filter')?.value;
+  const firstUser = hrState.summary[0]?.user?.id || hrState.users[0]?.id;
+  printPayslip(selected || firstUser);
+}
+
+async function printPayslip(userId) {
+  if (!userId) {
+    showToast('warning', 'Choose user', 'Select a user before printing a payslip.');
+    return;
+  }
+  const { from, to } = getHRFilters();
+  const query = new URLSearchParams({ user_id: String(userId), from, to, _: Date.now().toString() });
+  try {
+    const data = await authorizedJsonRequest(`/hr/payslip?${query.toString()}`);
+    const slip = data?.payslip;
+    if (!slip) throw new Error('Payslip not found');
+    const totals = slip.totals || {};
+    const user = slip.user || {};
+    const win = window.open('', '_blank', 'width=860,height=900');
+    if (!win) throw new Error('Popup was blocked');
+    win.document.write(`
+      <html><head><title>Payslip - ${escapeHtml(user.full_name || '')}</title>
+      <style>
+        body{font-family:Arial,sans-serif;color:#111827;padding:32px}
+        h1{margin:0 0 4px;font-size:24px}.muted{color:#6b7280}
+        table{width:100%;border-collapse:collapse;margin-top:20px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}
+        .totals{max-width:380px;margin-left:auto}.total{font-size:20px;font-weight:700}
+        @media print{button{display:none}}
+      </style></head><body>
+      <button onclick="window.print()">Print</button>
+      <h1>YNT Digital Marketing Payslip</h1>
+      <div class="muted">${escapeHtml(slip.from)} to ${escapeHtml(slip.to)}</div>
+      <h2>${escapeHtml(user.full_name || user.username || 'User')}</h2>
+      <div>${escapeHtml(formatRoleLabel(user.role))} | Daily rate: ${formatPHP(user.daily_rate)}</div>
+      <table><tbody>
+        <tr><th>Days Worked</th><td>${Number(totals.days_worked || 0)}</td></tr>
+        <tr><th>Base Pay</th><td>${formatPHP(totals.base_pay)}</td></tr>
+        <tr><th>OT (${formatMinutes(totals.ot_minutes)})</th><td>${formatPHP(totals.ot_pay)}</td></tr>
+        <tr><th>Holiday Pay</th><td>${formatPHP(totals.holiday_pay)}</td></tr>
+        <tr><th>Cash Advances</th><td>-${formatPHP(totals.cash_advances)}</td></tr>
+        <tr><th class="total">Net Pay</th><td class="total">${formatPHP(totals.net_pay)}</td></tr>
+      </tbody></table>
+      <table><thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>OT</th><th>Holiday %</th></tr></thead><tbody>
+        ${(slip.attendance || []).map((record) => `<tr><td>${escapeHtml(record.work_date || '')}</td><td>${escapeHtml(record.time_in || '')}</td><td>${escapeHtml(record.time_out || '')}</td><td>${formatMinutes(record.calculated_ot_minutes || record.ot_minutes)}</td><td>${Number(record.holiday_percentage || 100)}%</td></tr>`).join('')}
+      </tbody></table>
+      </body></html>`);
+    win.document.close();
+    win.focus();
+  } catch (error) {
+    showToast('error', 'Payslip failed', error.message || 'Could not print payslip.');
+  }
+}
+
 function openManageUserEditor(userId) {
-  if (!isAdminUser()) {
-    showToast('warning', 'Admin only', 'Only administrators can edit accounts.');
+  if (!canManageAccounts()) {
+    showToast('warning', 'Access denied', 'Only Administrator or HR accounts can edit accounts.');
     return;
   }
 
@@ -3212,7 +3674,7 @@ function setManageUserModalState(mode, user = null) {
 
   if (titleEl) titleEl.textContent = isCreateMode ? 'Create Account' : 'Edit Account';
   if (copyEl) copyEl.textContent = isCreateMode
-    ? 'Admin can create new accounts and assign positions here.'
+    ? 'Administrator and HR can create new accounts and assign positions here.'
     : 'Update an existing account profile and role.';
   if (passwordLabelEl) passwordLabelEl.textContent = isCreateMode ? 'Password *' : 'New Password';
   if (passwordHelpEl) passwordHelpEl.textContent = isCreateMode
@@ -3235,8 +3697,8 @@ function setManageUserModalState(mode, user = null) {
 }
 
 function openManageUserCreator() {
-  if (!isAdminUser()) {
-    showToast('warning', 'Admin only', 'Only administrators can create accounts.');
+  if (!canManageAccounts()) {
+    showToast('warning', 'Access denied', 'Only Administrator or HR accounts can create accounts.');
     return;
   }
 
@@ -3257,6 +3719,7 @@ function syncCurrentUserFromManagedAccount(user) {
       phone_number: user.phone_number,
       email_address: user.email_address,
       fb_account_name: user.fb_account_name,
+      daily_rate: user.daily_rate,
     },
     getAuthToken(),
   );
@@ -3308,6 +3771,7 @@ async function handleOwnAccountSave(event) {
         phone_number: data.user.phone_number,
         email_address: data.user.email_address,
         fb_account_name: data.user.fb_account_name,
+        daily_rate: data.user.daily_rate,
       },
       getAuthToken(),
     );
@@ -3372,7 +3836,7 @@ async function handleManageUserSave(event) {
     }
 
     closeModal('manage-user-modal');
-    if (!isAdminUser()) {
+    if (!canManageAccounts()) {
       navigateTo('home');
       return;
     }
@@ -3383,8 +3847,8 @@ async function handleManageUserSave(event) {
 }
 
 async function deleteManagedUser(userId) {
-  if (!isAdminUser()) {
-    showToast('warning', 'Admin only', 'Only administrators can delete accounts.');
+  if (!canManageAccounts()) {
+    showToast('warning', 'Access denied', 'Only Administrator or HR accounts can delete accounts.');
     return;
   }
 

@@ -42,7 +42,29 @@ function base64UrlEncode(value) {
 
 function normalizePrivateKey(value) {
   const text = stringOrNull(value);
-  return text ? text.replace(/\\n/g, '\n') : null;
+  if (!text) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.private_key) {
+      return String(parsed.private_key).replace(/\\n/g, '\n');
+    }
+  } catch {}
+
+  return text.replace(/\\n/g, '\n');
+}
+
+function parseServiceAccountJson(value) {
+  const text = stringOrNull(value);
+  if (!text || !text.startsWith('{')) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.type !== 'service_account') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeHeaderKey(value) {
@@ -184,12 +206,14 @@ async function getPublicSetting(db) {
 
 async function saveSetting(db, payload = {}) {
   const current = await getSetting(db);
+  const serviceAccountJson = parseServiceAccountJson(payload.private_key)
+    || parseServiceAccountJson(payload.service_account_json);
   const next = {
     enabled: payload.enabled ?? current?.enabled ?? 0,
     spreadsheet_id: payload.spreadsheet_id ?? current?.base_url ?? process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? null,
     sheet_name: payload.sheet_name ?? current?.page_id ?? process.env.GOOGLE_SHEETS_SHEET_NAME ?? 'Orders',
-    service_account_email: payload.service_account_email ?? current?.api_key ?? process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? null,
-    private_key: payload.private_key ?? current?.user_access_token ?? process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? null,
+    service_account_email: serviceAccountJson?.client_email ?? payload.service_account_email ?? current?.api_key ?? process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? null,
+    private_key: serviceAccountJson?.private_key ?? payload.private_key ?? current?.user_access_token ?? process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? null,
     sync_mode: payload.sync_mode ?? current?.sync_mode ?? process.env.GOOGLE_SHEETS_SYNC_MODE ?? 'manual',
     sync_interval_ms: String(payload.sync_interval_ms ?? current?.page_access_token ?? process.env.GOOGLE_SHEETS_SYNC_INTERVAL_MS ?? DEFAULT_SYNC_INTERVAL_MS),
     notes: payload.notes ?? current?.notes ?? null,

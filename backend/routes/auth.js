@@ -4,6 +4,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
   const router = express.Router();
   const allowedRoles = new Set([
     'Administrator',
+    'HR',
     'Trainee',
     'RMO',
     'RMO TL',
@@ -28,7 +29,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
       const user = await db.prepare(`
-        SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, is_active
+        SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active
         FROM users
         WHERE id = ?
       `).get(decoded.id);
@@ -45,6 +46,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
         phone_number: user.phone_number,
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
+        daily_rate: user.daily_rate,
       };
     } catch {
       return null;
@@ -53,8 +55,8 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
 
   async function requireAdmin(req, res, next) {
     const user = await getRequestUser(req);
-    if (!user || String(user.role || '').trim() !== 'Administrator') {
-      return res.status(403).json({ error: 'Administrator access required' });
+    if (!user || !['Administrator', 'HR'].includes(String(user.role || '').trim())) {
+      return res.status(403).json({ error: 'Administrator or HR access required' });
     }
     req.user = user;
     next();
@@ -108,6 +110,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
         phone_number: user.phone_number,
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
+        daily_rate: user.daily_rate,
       },
     });
   });
@@ -140,7 +143,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     `);
     const result = await insert.run(username, hashedPassword, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null);
 
-    const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate FROM users WHERE id = ?').get(result.lastInsertRowid);
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
 
     res.status(201).json({
@@ -155,6 +158,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
         phone_number: user.phone_number,
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
+        daily_rate: user.daily_rate,
       },
     });
   });
@@ -170,7 +174,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     if (!token) return res.status(401).json({ error: 'No token' });
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name FROM users WHERE id=?').get(decoded.id);
+      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate FROM users WHERE id=?').get(decoded.id);
       res.json(user);
     } catch {
       res.status(401).json({ error: 'Invalid token' });
@@ -218,7 +222,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     `).run(username, fullName, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, nextPassword, userId);
 
     const user = await db.prepare(`
-      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name
+      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate
       FROM users
       WHERE id = ?
     `).get(userId);
@@ -234,26 +238,28 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
         phone_number: user.phone_number,
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
+        daily_rate: user.daily_rate,
       },
     });
   });
 
   router.get('/users', requireAdmin, async (req, res) => {
     const users = await db.prepare(`
-      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, is_active, created_at, updated_at
+      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active, created_at, updated_at
       FROM users
       WHERE is_active = 1
       ORDER BY
         CASE
           WHEN role = 'Administrator' THEN 0
-          WHEN role = 'CSR' THEN 1
-          WHEN role = 'CSR TL' THEN 2
-          WHEN role = 'Trainee' THEN 3
-          WHEN role = 'RMO' THEN 4
-          WHEN role = 'RMO TL' THEN 5
-          WHEN role = 'Logistics' THEN 6
-          WHEN role = 'Sales and Marketing' THEN 7
-          WHEN role = 'Sales and Marketing TL' THEN 8
+          WHEN role = 'HR' THEN 1
+          WHEN role = 'CSR' THEN 2
+          WHEN role = 'CSR TL' THEN 3
+          WHEN role = 'Trainee' THEN 4
+          WHEN role = 'RMO' THEN 5
+          WHEN role = 'RMO TL' THEN 6
+          WHEN role = 'Logistics' THEN 7
+          WHEN role = 'Sales and Marketing' THEN 8
+          WHEN role = 'Sales and Marketing TL' THEN 9
           ELSE 9
         END,
         full_name COLLATE NOCASE ASC,
@@ -314,7 +320,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     `).run(username, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, nextPassword, userId);
 
     const user = await db.prepare(`
-      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, is_active, created_at, updated_at
+      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active, created_at, updated_at
       FROM users
       WHERE id = ?
     `).get(userId);
@@ -330,6 +336,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
         phone_number: user.phone_number,
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
+        daily_rate: user.daily_rate,
       },
       meta: { is_active: user.is_active, created_at: user.created_at, updated_at: user.updated_at },
     });
