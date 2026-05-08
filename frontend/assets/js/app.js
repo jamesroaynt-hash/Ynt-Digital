@@ -840,9 +840,9 @@ function renderLogin() {
   <div class="login-page" id="login-page">
     <div class="login-panel">
       <div class="brand">
-        <div class="brand-logo">Y</div>
+        <img class="brand-logo" src="/Images/yntlogo.png" alt="YNT logo">
         <div class="brand-text">
-          <div class="name">YNT Dashboard</div>
+          <div class="name">YNT ERP</div>
           <div class="sub">Digital Marketing</div>
         </div>
       </div>
