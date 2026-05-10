@@ -2862,16 +2862,21 @@ function renderDamageSheets() {
     </div>
     <div class="card-body">
       <div class="form-grid two-col">
-        <div class="form-group"><label class="form-label">Order ID</label><input type="text" class="form-control" id="damage-order-id" placeholder="Order ID"></div>
-        <div class="form-group"><label class="form-label">Tracking No.</label><input type="text" class="form-control" id="damage-tracking" placeholder="Tracking number"></div>
-        <div class="form-group"><label class="form-label">Customer</label><input type="text" class="form-control" id="damage-customer" placeholder="Customer name"></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="damage-product" placeholder="Product name"></div>
         <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="damage-date" value="${normalizeDateString(new Date())}"></div>
+        <div class="form-group"><label class="form-label">Page Name</label><input type="text" class="form-control" id="damage-page-name" placeholder="Page name"></div>
+        <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="damage-product" placeholder="Product name"></div>
+        <div class="form-group"><label class="form-label">Tracking</label><input type="text" class="form-control" id="damage-tracking" placeholder="Tracking number"></div>
         <div class="form-group"><label class="form-label">COD Amount</label><input type="number" class="form-control" id="damage-cod" min="0" step="0.01" placeholder="0"></div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Damage Notes</label>
-        <textarea class="form-control" id="damage-notes" rows="3" placeholder="Example: broken bottle, leaked parcel, incomplete item"></textarea>
+        <div class="form-group">
+          <label class="form-label">Damage Reason</label>
+          <select class="form-control" id="damage-reason">
+            <option value="">Select reason...</option>
+            <option value="Missing">Missing</option>
+            <option value="Switch Item">Switch Item</option>
+            <option value="Damage Item">Damage Item</option>
+            <option value="Repack Pouch">Repack Pouch</option>
+          </select>
+        </div>
       </div>
       <div class="integration-actions">
         <button class="btn btn-primary" onclick="saveDamageReport()">Save Damage Report</button>
@@ -2902,26 +2907,24 @@ function renderDamageSheets() {
       <thead>
         <tr style="background:var(--surface-2);">
           <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">#</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Order ID</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Tracking No.</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Customer</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Product</th>
           <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Date</th>
+          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Page Name</th>
+          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Product</th>
+          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Tracking</th>
           <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">COD Amt</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Damage Notes</th>
+          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Damage Reason</th>
         </tr>
       </thead>
       <tbody>
         ${damaged.map((o, i) => `
           <tr style="${i%2===1?'background:var(--surface-2);':''}">
             <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${i+1}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${escapeHtml(o.orderId || '')}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${escapeHtml(o.tracking || '')}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:500; font-size:13px;">${escapeHtml(o.customer || '')}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${escapeHtml(o.product || '')}</td>
             <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${o.date}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:500; font-size:13px;">${escapeHtml(o.pageName || o.customer || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${escapeHtml(o.product || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${escapeHtml(o.tracking || '')}</td>
             <td style="padding:10px 12px; border:1px solid var(--border); font-weight:600; font-size:13px;">₱${Number(o.cod || 0).toLocaleString()}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${escapeHtml(o.notes || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${escapeHtml(o.reason || o.notes || '')}</td>
           </tr>
         `).join('') || '<tr><td colspan="8" style="padding:24px; text-align:center; border:1px solid var(--border); color:var(--text-muted);">No damage reports saved yet.</td></tr>'}
       </tbody>
@@ -2946,7 +2949,7 @@ function renderDamageSheets() {
 
 // ─── CHARTS ────────────────────────────────────────────────
 function clearDamageReportForm() {
-  ['damage-order-id', 'damage-tracking', 'damage-customer', 'damage-product', 'damage-cod', 'damage-notes'].forEach((id) => {
+  ['damage-page-name', 'damage-product', 'damage-tracking', 'damage-cod', 'damage-reason'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -2957,27 +2960,22 @@ function clearDamageReportForm() {
 function saveDamageReport() {
   const record = {
     id: `DMG-${Date.now()}`,
-    orderId: document.getElementById('damage-order-id')?.value.trim() || '',
+    pageName: document.getElementById('damage-page-name')?.value.trim() || '',
     tracking: document.getElementById('damage-tracking')?.value.trim() || '',
-    customer: document.getElementById('damage-customer')?.value.trim() || '',
     product: document.getElementById('damage-product')?.value.trim() || '',
     date: document.getElementById('damage-date')?.value || normalizeDateString(new Date()),
     cod: Number(document.getElementById('damage-cod')?.value || 0),
-    notes: document.getElementById('damage-notes')?.value.trim() || '',
+    reason: document.getElementById('damage-reason')?.value || '',
   };
 
-  if (!record.orderId && !record.tracking) {
-    showToast('warning', 'Order reference required', 'Enter an order ID or tracking number.');
-    return;
-  }
-  if (!record.customer || !record.product) {
-    showToast('warning', 'Missing details', 'Customer and product are required.');
+  if (!record.date || !record.pageName || !record.product || !record.tracking || !record.reason) {
+    showToast('warning', 'Missing details', 'Fill in date, page name, product, tracking, and damage reason.');
     return;
   }
 
   DB.damageReports.unshift(record);
   saveDamageReports();
-  showToast('success', 'Damage report saved', record.orderId || record.tracking);
+  showToast('success', 'Damage report saved', record.tracking);
   clearDamageReportForm();
   loadPage('damage-sheets');
 }
