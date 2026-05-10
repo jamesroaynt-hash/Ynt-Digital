@@ -973,7 +973,7 @@ function renderApiConnections() {
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" onclick="savePancakePosConnection()">Save POS Connection</button>
           <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
-          <button class="btn btn-secondary" type="button" onclick="collectPancakePosData()">Sync POS Orders</button>
+          <button class="btn btn-secondary" type="button" id="pancake-pos-sync-button" onclick="collectPancakePosData()">Sync POS Orders</button>
         </div>
       </div>
     </section>
@@ -5475,6 +5475,7 @@ async function collectPancakePosData() {
   const state = getIntegrationState();
   state.pancakePos = collectPancakePosFormState();
   saveIntegrationState(state);
+  const syncButton = document.getElementById('pancake-pos-sync-button');
 
   if (!state.pancakePos.apiKey || !state.pancakePos.shopId) {
     showToast('warning', 'POS setup required', 'Enter the Pancake POS API key and shop ID first.');
@@ -5482,7 +5483,13 @@ async function collectPancakePosData() {
   }
 
   try {
+    if (syncButton) {
+      syncButton.disabled = true;
+      syncButton.textContent = 'Syncing...';
+    }
+    showToast('info', 'POS sync started', 'Pulling Pancake POS orders from January 1 to today.');
     await syncPancakePosConfigToBackend(state.pancakePos);
+    const currentYearStart = Math.floor(new Date(new Date().getFullYear(), 0, 1).getTime() / 1000);
     const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
       method: 'POST',
       body: JSON.stringify({
@@ -5490,9 +5497,9 @@ async function collectPancakePosData() {
         base_url: state.pancakePos.baseUrl,
         shop_id: state.pancakePos.shopId,
         resources: ['orders'],
-        page_size: 100,
-        max_pages: 200,
-        startDateTime: 0,
+        page_size: 50,
+        max_pages: 50,
+        startDateTime: currentYearStart,
         endDateTime: Math.floor(Date.now() / 1000),
       }),
     });
@@ -5519,6 +5526,11 @@ async function collectPancakePosData() {
     navigateTo('api-connections');
   } catch (error) {
     showToast('error', 'POS sync failed', error.message || 'Could not transfer Pancake POS API data to SQL.');
+  } finally {
+    if (syncButton) {
+      syncButton.disabled = false;
+      syncButton.textContent = 'Sync POS Orders';
+    }
   }
 }
 

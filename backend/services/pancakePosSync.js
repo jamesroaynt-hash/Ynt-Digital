@@ -227,7 +227,19 @@ async function posRequest(baseUrl, path, apiKey, query = {}) {
   if (!apiKey) throw new Error('Missing Pancake POS api_key.');
   const selectedBaseUrl = baseUrl || POS_API_BASE;
   const url = buildUrl(selectedBaseUrl, path, { ...query, api_key: apiKey });
-  const response = await fetch(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  let response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Pancake POS API GET ${url.pathname} timed out after 30 seconds.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await response.text();
   let data = null;
   try {
