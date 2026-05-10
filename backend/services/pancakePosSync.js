@@ -563,6 +563,7 @@ function normalizeDateString(value) {
 
 function dashboardStatusFromPos(item) {
   const value = String(item?.status_name || item?.status_text || item?.status || '').toLowerCase();
+  if (value.includes('confirm') || value === '1' || value === '20') return 'Pending';
   if (value.includes('delivering') || value.includes('out for delivery')) return 'Shipped';
   if (value.includes('delivered') || value.includes('complete') || value === '4') return 'Delivered';
   if (value.includes('returning')) return 'Returning';
@@ -683,10 +684,16 @@ function getPosTrackingNumber(item = {}, partner = {}, shippingAddress = {}) {
 }
 
 function getOrderItemsSummary(item) {
-  const items = Array.isArray(item?.items) ? item.items : [];
+  const items = Array.isArray(item?.items)
+    ? item.items
+    : Array.isArray(item?.products)
+      ? item.products
+      : Array.isArray(item?.variations)
+        ? item.variations
+        : [];
   if (!items.length) {
     return {
-      product: getPosOrderProductName(item) || 'Pancake POS Order',
+      product: getPosOrderProductName(item),
       qty: Math.max(1, Math.round(numberOrNull(item?.quantity || item?.qty) || 1)),
     };
   }
@@ -696,7 +703,7 @@ function getOrderItemsSummary(item) {
     .filter(Boolean);
   const qty = items.reduce((sum, entry) => sum + Math.max(0, Math.round(numberOrNull(entry?.quantity || entry?.qty) || 0)), 0);
   return {
-    product: productNames.length ? productNames.slice(0, 3).join(', ') : 'Pancake POS Order',
+    product: productNames.length ? productNames.slice(0, 3).join(', ') : null,
     qty: Math.max(1, qty || items.length),
   };
 }
@@ -727,6 +734,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const orderRef = getPosOrderRef(item, externalId);
   const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
   if (!trackingNo) return null;
+  if (!summary.product) return null;
 
   const courier = stringOrNull(
     item?.courier ||
