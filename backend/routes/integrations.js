@@ -20,6 +20,17 @@ module.exports = function integrationRoutes(db) {
     return bearer === expected || req.query.secret === expected;
   }
 
+  async function pancakeWebhookAllowed(req) {
+    const setting = await posSync.getPublicSetting(db);
+    const expected = process.env.PANCAKE_POS_WEBHOOK_SECRET || setting.webhook_secret;
+    if (!expected) return true;
+    const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    return bearer === expected
+      || req.headers['x-pancake-signature'] === expected
+      || req.headers['x-webhook-secret'] === expected
+      || req.query.secret === expected;
+  }
+
   router.use(requireAdmin);
 
   router.get('/pancake-pos/status', async (req, res) => {
@@ -100,6 +111,22 @@ module.exports = function integrationRoutes(db) {
       const result = await googleSheetsSync.runScheduledSync(db);
       res.status(202).json({
         message: result?.skipped ? 'Google Sheets scheduled sync skipped.' : 'Google Sheets scheduled sync completed.',
+        ...result,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  publicRouter.post('/pancake-pos/webhook', async (req, res) => {
+    if (!(await pancakeWebhookAllowed(req))) {
+      return res.status(401).json({ error: 'Invalid Pancake POS webhook secret' });
+    }
+
+    try {
+      const result = await posSync.receiveWebhook(db, req.body || {});
+      res.status(202).json({
+        message: 'Pancake POS webhook received.',
         ...result,
       });
     } catch (error) {

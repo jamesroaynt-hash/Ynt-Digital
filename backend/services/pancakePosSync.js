@@ -927,6 +927,37 @@ async function collectPosData(db, payload = {}) {
   }
 }
 
+function extractWebhookOrders(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.orders)) return payload.orders;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.orders)) return payload.data.orders;
+  if (payload?.order) return [payload.order];
+  if (payload?.data?.order) return [payload.data.order];
+  return [payload].filter(value => value && typeof value === 'object');
+}
+
+async function receiveWebhook(db, payload = {}) {
+  const setting = await getSetting(db);
+  const shopId = stringOrNull(payload.shop_id || payload.shopId || payload.shop?.id || setting?.page_id);
+  const orders = extractWebhookOrders(payload);
+  const localIds = [];
+
+  for (const item of orders) {
+    const localId = await upsertOrder(db, shopId, item);
+    if (localId) localIds.push(localId);
+    await transferPosOrderToDashboard(db, shopId, item);
+  }
+
+  return {
+    provider: PROVIDER,
+    mode: 'webhook',
+    shop_id: shopId,
+    received: orders.length,
+    stored: localIds.length,
+  };
+}
+
 async function getStatus(db) {
   const setting = await getPublicSetting(db);
   const latestRuns = await db.prepare(`
@@ -964,4 +995,5 @@ module.exports = {
   saveSetting,
   listShopsFromApi,
   collectPosData,
+  receiveWebhook,
 };
