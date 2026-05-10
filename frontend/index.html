@@ -32,7 +32,7 @@
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-section-label" id="nav-section-main">Main</div>
+        <div class="nav-section-label" id="nav-section-main">Dashboard</div>
 
         <a class="nav-item" data-page="home" onclick="navigateTo('home')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -41,39 +41,78 @@
           Home
         </a>
 
-        <a class="nav-item" data-page="sales" onclick="navigateTo('sales')">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="10" width="3" height="4" rx=".5"/><rect x="6.5" y="6" width="3" height="8" rx=".5"/><rect x="11" y="2" width="3" height="12" rx=".5"/>
-          </svg>
-          Sales Dashboard
-        </a>
-
         <a class="nav-item" data-page="attendance" onclick="navigateTo('attendance')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="8" cy="8" r="5.5"/><path d="M8 4.5V8l2.5 1.5"/><path d="M3 2.5L1.75 4M13 2.5L14.25 4"/>
           </svg>
-          Attendance
+          Time & Attendance
+        </a>
+
+        <div class="nav-section-label" id="nav-section-sales">Sales & Ops</div>
+
+        <a class="nav-item" data-page="sales" onclick="navigateTo('sales')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="10" width="3" height="4" rx=".5"/><rect x="6.5" y="6" width="3" height="8" rx=".5"/><rect x="11" y="2" width="3" height="12" rx=".5"/>
+          </svg>
+          Sales
         </a>
 
         <a class="nav-item" data-page="marketing-center" onclick="navigateTo('marketing-center')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M2 11.5h2.5l6.5 2V2L4.5 4H2v7.5z"/><path d="M4.5 4v7.5M12.5 5.5c.8.7 1.2 1.5 1.2 2.5s-.4 1.8-1.2 2.5"/>
           </svg>
-          Marketing Center
+          Marketing
         </a>
 
         <a class="nav-item" data-page="csr" onclick="navigateTo('csr')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="5" cy="5" r="2.25"/><path d="M1.75 12.5c.7-1.9 2.1-3 3.25-3s2.55 1.1 3.25 3M11.5 5.25h2.75M11.5 8h2.75M10.75 10.75h3.5"/>
           </svg>
-          CSR Daily Records
+          CSR Records
         </a>
 
         <a class="nav-item" data-page="inventory" onclick="navigateTo('inventory')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="2" width="5.5" height="5.5" rx=".5"/><rect x="8.5" y="2" width="5.5" height="5.5" rx=".5"/><rect x="2" y="8.5" width="5.5" height="5.5" rx=".5"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx=".5"/>
           </svg>
-          Inventory
+          Stock
+        </a>
+
+        <a class="nav-item" data-page="daily-pickup" onclick="navigateTo('daily-pickup')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 3h10l1 3H2L3 3zM2 6v7a1 1 0 001 1h10a1 1 0 001-1V6"/><path d="M6 9l2 2 3-3"/>
+          </svg>
+          Pickup
+        </a>
+
+        <a class="nav-item" data-page="rts-scanning" onclick="navigateTo('rts-scanning')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM11 10h2v4h-2z"/><path d="M8 7v3"/>
+          </svg>
+          RTS Scan
+        </a>
+
+        <a class="nav-item" data-page="scanning" onclick="navigateTo('scanning')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM7 10h2v4H7zM11 10h2v4h-2z"/>
+          </svg>
+          Scan Orders
+        </a>
+
+        <div class="nav-section-label" id="nav-section-reports">Reports</div>
+
+        <a class="nav-item" data-page="view-records" onclick="navigateTo('view-records')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="1"/><path d="M5 6h6M5 8h6M5 10h4"/>
+          </svg>
+          Records
+        </a>
+
+        <a class="nav-item" data-page="damage-sheets" onclick="navigateTo('damage-sheets')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4 2h6l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M10 2v4h4"/><path d="M6 9h4M6 11h2"/>
+          </svg>
+          Damage Reports
         </a>
 
         <a class="nav-item" data-page="expenses" onclick="navigateTo('expenses')">
@@ -83,66 +122,29 @@
           Expenses
         </a>
 
+        <div class="nav-section-label" id="nav-section-people">People</div>
+
         <a class="nav-item" data-page="hr" onclick="navigateTo('hr')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="5" cy="5" r="2.25"/><path d="M1.75 12.5c.7-1.9 2.1-3 3.25-3s2.55 1.1 3.25 3"/><path d="M10.5 3v4M8.5 5h4"/><path d="M10 10.5h4M10 13h3"/>
           </svg>
-          HR / Payroll
+          HR & Payroll
         </a>
-
-        <div class="nav-section-label" id="nav-section-operations">Operations</div>
-
-        <a class="nav-item" data-page="daily-pickup" onclick="navigateTo('daily-pickup')">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 3h10l1 3H2L3 3zM2 6v7a1 1 0 001 1h10a1 1 0 001-1V6"/><path d="M6 9l2 2 3-3"/>
-          </svg>
-          Daily Pickup
-        </a>
-
-        <a class="nav-item" data-page="rts-scanning" onclick="navigateTo('rts-scanning')">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM11 10h2v4h-2z"/><path d="M8 7v3"/>
-          </svg>
-          RTS Scanning
-        </a>
-
-        <a class="nav-item" data-page="scanning" onclick="navigateTo('scanning')">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM7 10h2v4H7zM11 10h2v4h-2z"/>
-          </svg>
-          Scanning
-        </a>
-
-        <div class="nav-section-label" id="nav-section-reports">Reports</div>
-
-        <a class="nav-item" data-page="view-records" onclick="navigateTo('view-records')">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="2" width="12" height="12" rx="1"/><path d="M5 6h6M5 8h6M5 10h4"/>
-          </svg>
-          View Records
-        </a>
-
-        <a class="nav-item" data-page="damage-sheets" onclick="navigateTo('damage-sheets')">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M4 2h6l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M10 2v4h4"/><path d="M6 9h4M6 11h2"/>
-          </svg>
-          Damage Sheets
-        </a>
-
-        <div class="nav-section-label" id="nav-section-system">System</div>
 
         <a class="nav-item" id="manage-users-nav" data-page="manage-users" onclick="navigateTo('manage-users')" style="display:none;">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="5" cy="5" r="2.25"/><circle cx="11.25" cy="5.75" r="1.75"/><path d="M1.75 12.5c.7-1.9 2.1-3 3.25-3s2.55 1.1 3.25 3"/><path d="M9.25 11.75c.45-1.2 1.3-1.95 2.15-1.95.8 0 1.55.55 2.1 1.45"/><path d="M11.5 2.5v1.5M10.75 3.25H12.25"/>
           </svg>
-          Account
+          Users
         </a>
+
+        <div class="nav-section-label" id="nav-section-system">System</div>
 
         <a class="nav-item" data-page="api-connections" onclick="navigateTo('api-connections')">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M5 5.5a2.5 2.5 0 013.8-.3l.7.7a2.5 2.5 0 010 3.6l-.7.7a2.5 2.5 0 01-3.6 0"/><path d="M11 10.5a2.5 2.5 0 01-3.8.3l-.7-.7a2.5 2.5 0 010-3.6l.7-.7a2.5 2.5 0 013.6 0"/>
           </svg>
-          API Connections
+          Integrations
         </a>
       </nav>
 
@@ -201,6 +203,6 @@
 </div>
 <!-- /app-root -->
 
-<script src="assets/js/app.js?v=20260510-home-no-clock"></script>
+<script src="assets/js/app.js?v=20260510-nav-refresh"></script>
 </body>
 </html>

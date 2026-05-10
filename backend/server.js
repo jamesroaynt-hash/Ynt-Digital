@@ -144,10 +144,12 @@ async function createApp() {
   }
 
   const db = createDatabaseClient({ filename: dbPath });
+  console.log(`[database] Using ${db.type}${db.type === 'sqlite' ? ` at ${dbPath}` : ' from DATABASE_URL'}.`);
   await db.pragma('journal_mode = WAL');
   await db.pragma('foreign_keys = ON');
 
   await initializeDatabaseAsync(db);
+  console.log('[database] Schema initialized.');
 
   const backupScheduler = createBackupScheduler(db, dbPath);
 

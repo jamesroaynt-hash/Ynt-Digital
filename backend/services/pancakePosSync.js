@@ -21,6 +21,18 @@ function safeJson(value) {
   return JSON.stringify(value ?? {});
 }
 
+function shouldStoreRawPayloads() {
+  return process.env.POS_STORE_RAW_PAYLOADS === 'true';
+}
+
+function shouldStoreRawRecords() {
+  return process.env.POS_STORE_RAW_RECORDS === 'true';
+}
+
+function rawPayloadForStorage(value) {
+  return shouldStoreRawPayloads() ? safeJson(value) : '{}';
+}
+
 function truncate(value, length = 500) {
   if (!value) return null;
   const text = String(value);
@@ -146,6 +158,8 @@ async function finishRun(db, runId, status, resultSummary, errorMessage) {
 }
 
 async function recordRaw(db, entityType, externalId, payload, outcome = {}) {
+  if (!shouldStoreRawRecords()) return;
+
   await db.prepare(`
     INSERT INTO integration_raw_records (provider, entity_type, external_id, mapped_table, local_id, sync_status, error_message, payload)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -235,7 +249,7 @@ async function upsertShop(db, item) {
     stringOrNull(item?.avatar_url),
     safeJson(item?.pages || []),
     safeJson(item?.link_post_marketer || []),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalId;
 }
@@ -269,7 +283,7 @@ async function upsertWarehouse(db, shopId, item) {
     stringOrNull(item?.country_code),
     boolToInt(item?.allow_create_order),
     stringOrNull(item?.custom_id),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalId;
 }
@@ -322,7 +336,7 @@ async function upsertOrder(db, shopId, item) {
     safeJson(item?.items || []),
     safeJson(item?.partner || null),
     safeJson(item?.shipping_address || null),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalId;
 }
@@ -367,7 +381,7 @@ async function upsertProduct(db, shopId, item) {
     numberOrNull(item?.last_imported_price || item?.average_imported_price),
     numberOrNull(item?.remain_quantity || item?.available_quantity || item?.quantity),
     safeJson(item?.warehouse || item?.warehouses || null),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalKey;
 }
@@ -405,7 +419,7 @@ async function upsertCustomer(db, shopId, item) {
     stringOrNull(item?.ward),
     stringOrNull(item?.level_name || item?.customer_level?.name),
     stringOrNull(item?.note),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalId;
 }
@@ -440,7 +454,7 @@ async function upsertUser(db, shopId, item) {
     stringOrNull(item?.phone_number || item?.phone),
     stringOrNull(item?.role_name || item?.role || item?.user_group || item?.permission_name),
     item?.is_active === false || item?.active === false || item?.status === false ? 0 : 1,
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalKey;
 }
@@ -476,7 +490,7 @@ async function upsertTransaction(db, shopId, item) {
     stringOrNull(item?.inserted_at),
     stringOrNull(item?.updated_at),
     stringOrNull(item?.contact_name || item?.partner_name),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalId;
 }
@@ -515,7 +529,7 @@ async function upsertInventoryHistory(db, shopId, item) {
     safeJson(item?.warehouse || null),
     safeJson(item?.current_inventory || []),
     stringOrNull(item?.inserted_at || item?.created_at),
-    safeJson(item)
+    rawPayloadForStorage(item)
   );
   return externalKey;
 }

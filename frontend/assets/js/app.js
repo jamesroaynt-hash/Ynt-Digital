@@ -114,20 +114,20 @@ function loadPage(page) {
 
 const pageNames = {
   home: 'Home',
-  attendance: 'Attendance',
-  sales: 'Sales Dashboard',
-  'marketing-center': 'Marketing Center',
-  csr: 'CSR Daily Records',
-  inventory: 'Inventory',
+  attendance: 'Time & Attendance',
+  sales: 'Sales',
+  'marketing-center': 'Marketing',
+  csr: 'CSR Records',
+  inventory: 'Stock',
   expenses: 'Expenses',
-  hr: 'HR / Payroll',
-  'daily-pickup': 'Daily Pickup',
-  'rts-scanning': 'RTS Scanning',
-  scanning: 'Scanning',
-  'view-records': 'View Records',
-  'damage-sheets': 'Damage Sheets',
-  'manage-users': 'Account',
-  'api-connections': 'API Connections',
+  hr: 'HR & Payroll',
+  'daily-pickup': 'Pickup',
+  'rts-scanning': 'RTS Scan',
+  scanning: 'Scan Orders',
+  'view-records': 'Records',
+  'damage-sheets': 'Damage Reports',
+  'manage-users': 'Users',
+  'api-connections': 'Integrations',
 };
 
 // ─── AUTH ──────────────────────────────────────────────────

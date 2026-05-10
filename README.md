@@ -430,17 +430,20 @@ This repo includes:
 
 - `railway.json` for Railway/Nixpacks deployment.
 - `.railwayignore` to keep local databases, secrets, and dependencies out of deploy uploads.
-- `backend/db/schema.pg.sql` and `backend/db/seed.pg.sql` for Railway Postgres.
-- `backend/scripts/migrate-sqlite-to-postgres.js` to copy local SQLite rows into Railway Postgres.
+- `backend/db/schema.pg.sql` and `backend/db/seed.pg.sql` for Supabase/Railway Postgres.
+- `backend/scripts/migrate-sqlite-to-postgres.js` to copy local SQLite rows into hosted Postgres.
 
-#### 1. Create Railway services
+#### 1. Create Railway + Supabase
 
 1. Create a new Railway project.
-2. Add a **Postgres** database service.
-3. Add this repo as the app service from GitHub, or deploy the local project with Railway CLI.
-4. Make sure the app service has the Postgres `DATABASE_URL` variable available.
+2. Add this repo as the app service from GitHub, or deploy the local project with Railway CLI.
+3. Create a Supabase project.
+4. In Supabase, open **Project Settings** -> **Database** and copy the Postgres connection string.
+5. Add that connection string to the Railway app service as `DATABASE_URL`.
 
 Railway normally injects `PORT` automatically. The app already listens on `process.env.PORT`.
+
+The current dashboard keeps its existing username/password login. Supabase is used here as hosted Postgres storage; switching the login system to Supabase Auth is a separate application change.
 
 #### 2. Set environment variables
 
@@ -448,7 +451,8 @@ In the Railway app service, set:
 
 ```text
 JWT_SECRET=use-a-long-random-secret
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_URL=postgresql://postgres.your-project:YOUR-PASSWORD@aws-0-region.pooler.supabase.com:6543/postgres
+POSTGRES_SSL=true
 GOOGLE_SHEETS_SYNC_ENABLED=false
 GOOGLE_SHEETS_SYNC_MODE=manual
 PANCAKE_POS_SYNC_ENABLED=false
@@ -474,7 +478,30 @@ PANCAKE_POS_SYNC_INTERVAL_MS=300000
 
 `300000` means every 5 minutes. The server skips automatic POS sync until the Pancake POS integration is enabled and has both API key and Shop ID saved.
 
-#### 3. Generate the public URL
+#### 3. Add Cloudflare R2 for cheap large storage
+
+Use R2 for large files or, if you still run SQLite somewhere, for cheap database backup storage. When `DATABASE_URL` is set, the app uses Supabase Postgres and does not need SQLite backup.
+
+In Cloudflare:
+
+1. Open **R2 Object Storage** and create a bucket, for example `ynt-dashboard`.
+2. Open **Manage R2 API Tokens** and create an access key with read/write access to that bucket.
+3. Copy the account ID, access key ID, and secret access key.
+
+If you want the existing SQLite cloud backup helper to use R2, set these variables:
+
+```text
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+R2_BUCKET=ynt-dashboard
+R2_SQLITE_BACKUP_KEY=ynt-dashboard/ynt.db
+R2_SQLITE_BACKUP=true
+```
+
+For the recommended Railway + Supabase setup, keep the big file objects in R2 and save only file metadata in Supabase Postgres. The backend is ready to connect to R2; add upload routes when the dashboard needs user-uploaded files.
+
+#### 4. Generate the public URL
 
 In Railway:
 
@@ -489,11 +516,11 @@ Railway will create a URL like:
 https://your-app.up.railway.app
 ```
 
-#### 4. Copy local data to Railway Postgres
+#### 5. Copy local data to Supabase Postgres
 
-First deploy the app once so Railway creates the Postgres schema.
+First deploy the app once so the backend creates the Postgres schema in Supabase.
 
-Then on your local PC, set `DATABASE_URL` to the Railway Postgres connection string and run:
+Then on your local PC, set `DATABASE_URL` to the Supabase Postgres connection string and run:
 
 ```bash
 npm run migrate:railway
@@ -512,11 +539,12 @@ set SQLITE_PATH=D:\path\to\ynt.db
 npm run migrate:railway
 ```
 
-#### 5. Security checklist
+#### 6. Security checklist
 
 - Change the default `admin` and `staff` passwords after first login.
 - Keep `JWT_SECRET` long and private.
-- Use a Railway Postgres backup/export plan before relying on the app as the only live system.
+- Use Supabase backups/export before relying on the app as the only live system.
+- Keep `R2_SECRET_ACCESS_KEY` only in Railway/backend environment variables.
 - If using a custom domain through Cloudflare, add the Railway custom-domain CNAME/TXT records exactly as Railway shows them.
 
 ---
