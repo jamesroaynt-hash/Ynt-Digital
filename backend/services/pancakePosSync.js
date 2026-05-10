@@ -585,6 +585,8 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     partner?.order_number ||
     partner?.code
   );
+  if (!trackingNo) return null;
+
   const courier = stringOrNull(
     item?.courier ||
     item?.shipping_provider ||
