@@ -27,6 +27,7 @@ const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
 const MARKETING_STORAGE_KEY = 'ynt_marketing_center';
+const DAMAGE_REPORT_STORAGE_KEY = 'ynt_damage_reports';
 const CSR_PAGE_OPTIONS = [
   'AGELESS',
   'GINSENG PH',
@@ -383,6 +384,7 @@ const DB = {
   expenses: [],
   dailyPickups: [],
   scanRecords: [],
+  damageReports: loadDamageReports(),
   customers: [],
 };
 
@@ -682,6 +684,18 @@ function loadCsrRecords() {
 
 function saveCsrRecords() {
   localStorage.setItem(CSR_STORAGE_KEY, JSON.stringify(DB.csrRecords));
+}
+
+function loadDamageReports() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DAMAGE_REPORT_STORAGE_KEY) || '[]');
+    if (Array.isArray(saved)) return saved;
+  } catch {}
+  return [];
+}
+
+function saveDamageReports() {
+  localStorage.setItem(DAMAGE_REPORT_STORAGE_KEY, JSON.stringify(DB.damageReports));
 }
 
 function getDefaultIntegrationState() {
@@ -2815,12 +2829,12 @@ function renderViewRecords() {
 
 // ─── RENDER: DAMAGE SHEETS ─────────────────────────────────
 function renderDamageSheets() {
-  const damaged = DB.orders.filter(o => o.status === 'Returned').slice(0, 8);
+  const damaged = DB.damageReports;
   const today = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
 
   return `
   <div class="page-header">
-    <div class="page-title"><h1>Damage Sheets</h1><p>View and print damage/return reports.</p></div>
+    <div class="page-title"><h1>Damage Sheets</h1><p>Create manual damage and return reports.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary" onclick="window.print()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="6" width="10" height="8" rx="1"/><path d="M3 6V4a1 1 0 011-1h8a1 1 0 011 1v2M6 10h4M6 12h2"/><circle cx="11" cy="8" r="0.5" fill="currentColor"/></svg>
@@ -2828,6 +2842,33 @@ function renderDamageSheets() {
       </button>
     </div>
   </div>
+
+  <section class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Damage Report Form</div>
+        <div class="card-subtitle">Records appear only after you save them here.</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-grid two-col">
+        <div class="form-group"><label class="form-label">Order ID</label><input type="text" class="form-control" id="damage-order-id" placeholder="Order ID"></div>
+        <div class="form-group"><label class="form-label">Tracking No.</label><input type="text" class="form-control" id="damage-tracking" placeholder="Tracking number"></div>
+        <div class="form-group"><label class="form-label">Customer</label><input type="text" class="form-control" id="damage-customer" placeholder="Customer name"></div>
+        <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="damage-product" placeholder="Product name"></div>
+        <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="damage-date" value="${normalizeDateString(new Date())}"></div>
+        <div class="form-group"><label class="form-label">COD Amount</label><input type="number" class="form-control" id="damage-cod" min="0" step="0.01" placeholder="0"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Damage Notes</label>
+        <textarea class="form-control" id="damage-notes" rows="3" placeholder="Example: broken bottle, leaked parcel, incomplete item"></textarea>
+      </div>
+      <div class="integration-actions">
+        <button class="btn btn-primary" onclick="saveDamageReport()">Save Damage Report</button>
+        <button class="btn btn-secondary" onclick="clearDamageReportForm()">Clear Form</button>
+      </div>
+    </div>
+  </section>
 
   <div class="damage-sheet" id="damage-sheet-print">
     <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; padding-bottom:20px; border-bottom:2px solid var(--primary);">
@@ -2864,15 +2905,15 @@ function renderDamageSheets() {
         ${damaged.map((o, i) => `
           <tr style="${i%2===1?'background:var(--surface-2);':''}">
             <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${i+1}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${o.id}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${o.tracking}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:500; font-size:13px;">${o.customer}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${o.product}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${escapeHtml(o.orderId || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${escapeHtml(o.tracking || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:500; font-size:13px;">${escapeHtml(o.customer || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${escapeHtml(o.product || '')}</td>
             <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${o.date}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:600; font-size:13px;">₱${o.cod.toLocaleString()}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);"></td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:600; font-size:13px;">₱${Number(o.cod || 0).toLocaleString()}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${escapeHtml(o.notes || '')}</td>
           </tr>
-        `).join('')}
+        `).join('') || '<tr><td colspan="8" style="padding:24px; text-align:center; border:1px solid var(--border); color:var(--text-muted);">No damage reports saved yet.</td></tr>'}
       </tbody>
     </table>
 
@@ -2894,6 +2935,43 @@ function renderDamageSheets() {
 }
 
 // ─── CHARTS ────────────────────────────────────────────────
+function clearDamageReportForm() {
+  ['damage-order-id', 'damage-tracking', 'damage-customer', 'damage-product', 'damage-cod', 'damage-notes'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const dateInput = document.getElementById('damage-date');
+  if (dateInput) dateInput.value = normalizeDateString(new Date());
+}
+
+function saveDamageReport() {
+  const record = {
+    id: `DMG-${Date.now()}`,
+    orderId: document.getElementById('damage-order-id')?.value.trim() || '',
+    tracking: document.getElementById('damage-tracking')?.value.trim() || '',
+    customer: document.getElementById('damage-customer')?.value.trim() || '',
+    product: document.getElementById('damage-product')?.value.trim() || '',
+    date: document.getElementById('damage-date')?.value || normalizeDateString(new Date()),
+    cod: Number(document.getElementById('damage-cod')?.value || 0),
+    notes: document.getElementById('damage-notes')?.value.trim() || '',
+  };
+
+  if (!record.orderId && !record.tracking) {
+    showToast('warning', 'Order reference required', 'Enter an order ID or tracking number.');
+    return;
+  }
+  if (!record.customer || !record.product) {
+    showToast('warning', 'Missing details', 'Customer and product are required.');
+    return;
+  }
+
+  DB.damageReports.unshift(record);
+  saveDamageReports();
+  showToast('success', 'Damage report saved', record.orderId || record.tracking);
+  clearDamageReportForm();
+  loadPage('damage-sheets');
+}
+
 const chartRefs = {};
 let csrPage = 1;
 let csrFilter = 'daily';
