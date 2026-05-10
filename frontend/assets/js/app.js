@@ -5446,6 +5446,14 @@ async function collectPancakePosData() {
     });
 
     const collectedResources = Object.entries(data.resources || {}).map(([name, details]) => `${name}:${details.count}`).join(', ');
+    const failedResources = Array.isArray(data.failed_resources) ? data.failed_resources : [];
+    if (failedResources.length) {
+      const details = failedResources
+        .map((item) => `${item.resource || 'resource'}: ${item.error || 'failed'}`)
+        .join('; ');
+      throw new Error(details || 'Pancake POS returned a partial sync error.');
+    }
+
     const refreshed = getIntegrationState();
     refreshed.pancakePos = {
       ...state.pancakePos,
