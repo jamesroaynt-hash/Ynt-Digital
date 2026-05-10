@@ -13,6 +13,7 @@ function ordersRoutes(db) {
       customer: String(row.customer || row.customer_name || row.name || '').trim(),
       phone: String(row.phone || row.phone_number || row.mobile || '').trim() || null,
       product: String(row.product || row.product_name || row.item || '').trim(),
+      tags: String(row.tags || row.tag || row.labels || '').trim() || null,
       qty: Number.parseInt(row.qty || row.quantity || 1, 10) || 1,
       cod_amount: Number.parseFloat(row.cod_amount || row.cod || row.amount || row.price || 0) || 0,
       status: allowedStatuses.has(row.status) ? row.status : 'Pending',
@@ -25,14 +26,15 @@ function ordersRoutes(db) {
   async function upsertOrder(row) {
     await db.prepare(`
       INSERT INTO orders (
-        order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, order_date, created_by, updated_at
+        order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, order_date, created_by, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
       ON CONFLICT(order_ref) DO UPDATE SET
         tracking_no = excluded.tracking_no,
         customer = excluded.customer,
         phone = excluded.phone,
         product = excluded.product,
+        tags = excluded.tags,
         qty = excluded.qty,
         cod_amount = excluded.cod_amount,
         status = excluded.status,
@@ -46,6 +48,7 @@ function ordersRoutes(db) {
       row.customer,
       row.phone,
       row.product,
+      row.tags,
       row.qty,
       row.cod_amount,
       row.status,
@@ -70,7 +73,7 @@ function ordersRoutes(db) {
     if (source_sheet && source_sheet !== 'all') { sql += ' AND COALESCE(source_sheet, "")=?'; params.push(source_sheet); }
     if (month && month !== 'all') { sql += ` AND strftime('%m',order_date)=?`; params.push(String(month).padStart(2, '0')); }
     if (year && year !== 'all') { sql += ` AND strftime('%Y',order_date)=?`; params.push(String(year)); }
-    if (search) { sql += ' AND (customer LIKE ? OR order_ref LIKE ? OR tracking_no LIKE ? OR courier LIKE ? OR source_sheet LIKE ?)'; const q=`%${search}%`; params.push(q,q,q,q,q); }
+    if (search) { sql += ' AND (customer LIKE ? OR order_ref LIKE ? OR tracking_no LIKE ? OR courier LIKE ? OR source_sheet LIKE ? OR tags LIKE ?)'; const q=`%${search}%`; params.push(q,q,q,q,q,q); }
 
     if (filter === 'weekly')  { sql += ` AND order_date >= date('now','-7 days')`; }
     if (filter === 'monthly') { sql += ` AND strftime('%Y-%m',order_date)=strftime('%Y-%m','now')`; }
@@ -90,10 +93,10 @@ function ordersRoutes(db) {
   });
 
   r.post('/', async (req, res) => {
-    const { customer, phone, product, qty, cod_amount, status, courier, tracking_no, order_date } = req.body;
+    const { customer, phone, product, tags, qty, cod_amount, status, courier, tracking_no, order_date } = req.body;
     const ref = `ORD-${Date.now()}`;
-    const stmt = db.prepare(`INSERT INTO orders (order_ref,tracking_no,customer,phone,product,qty,cod_amount,status,courier,order_date,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
-    const result = await stmt.run(ref, tracking_no||null, customer, phone||null, product, qty||1, cod_amount||0, status||'Pending', courier||null, order_date||new Date().toISOString().split('T')[0], req.user?.id||1);
+    const stmt = db.prepare(`INSERT INTO orders (order_ref,tracking_no,customer,phone,product,tags,qty,cod_amount,status,courier,order_date,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+    const result = await stmt.run(ref, tracking_no||null, customer, phone||null, product, tags||null, qty||1, cod_amount||0, status||'Pending', courier||null, order_date||new Date().toISOString().split('T')[0], req.user?.id||1);
     res.status(201).json({ id: result.lastInsertRowid, order_ref: ref });
   });
 
@@ -128,7 +131,7 @@ function ordersRoutes(db) {
   });
 
   r.put('/:id', async (req, res) => {
-    const { status, tracking_no, courier, source_sheet, order_date } = req.body;
+    const { status, tracking_no, courier, source_sheet, tags, order_date } = req.body;
     const next = (value) => value === undefined ? null : value;
     await db.prepare(`
       UPDATE orders
@@ -136,10 +139,11 @@ function ordersRoutes(db) {
           tracking_no=COALESCE(?,tracking_no),
           courier=COALESCE(?,courier),
           source_sheet=COALESCE(?,source_sheet),
+          tags=COALESCE(?,tags),
           order_date=COALESCE(?,order_date),
           updated_at=datetime('now')
       WHERE id=?
-    `).run(next(status), next(tracking_no), next(courier), next(source_sheet), next(order_date), req.params.id);
+    `).run(next(status), next(tracking_no), next(courier), next(source_sheet), next(tags), next(order_date), req.params.id);
     res.json({ success: true });
   });
 

@@ -602,6 +602,48 @@ function getPosOrderProductName(item = {}) {
   );
 }
 
+function normalizePosTagValue(value) {
+  if (!value) return null;
+  if (typeof value === 'string' || typeof value === 'number') return stringOrNull(value);
+  return stringOrNull(
+    value?.name ||
+    value?.tag_name ||
+    value?.label ||
+    value?.title ||
+    value?.text ||
+    value?.code ||
+    value?.id
+  );
+}
+
+function getPosOrderTags(item = {}) {
+  const candidates = [
+    item?.tags,
+    item?.tag,
+    item?.tag_names,
+    item?.tag_name,
+    item?.labels,
+    item?.order_tags,
+    item?.customer?.tags,
+  ];
+  const values = [];
+
+  candidates.forEach((candidate) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach((entry) => {
+        const value = normalizePosTagValue(entry);
+        if (value) values.push(value);
+      });
+      return;
+    }
+
+    const value = normalizePosTagValue(candidate);
+    if (value) values.push(value);
+  });
+
+  return [...new Set(values)].join(', ') || null;
+}
+
 function getPosCustomerName(item = {}, shippingAddress = {}) {
   const customer = item?.customer || {};
   return stringOrNull(
@@ -746,6 +788,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   );
   const customer = getPosCustomerName(item, shippingAddress) || 'Pancake POS Customer';
   const phone = getPosCustomerPhone(item, shippingAddress);
+  const tags = getPosOrderTags(item);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
   const sourceName = getPosOrderSourceName(shopId, item);
   const linkedId = await findLinkedLocalId(db, 'orders', externalId);
@@ -757,7 +800,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     await db.prepare(`
       UPDATE orders
       SET order_ref = ?, tracking_no = ?, customer = ?, phone = ?, product = ?, qty = ?, cod_amount = ?,
-          status = ?, courier = ?, source_sheet = ?, order_date = ?, updated_at = datetime('now')
+          status = ?, courier = ?, source_sheet = ?, tags = ?, order_date = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
       orderRef,
@@ -770,6 +813,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       dashboardStatusFromPos(item),
       courier,
       sourceName,
+      tags,
       normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
       existing.id
     );
@@ -778,14 +822,15 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   }
 
   const result = await db.prepare(`
-    INSERT INTO orders (order_ref, tracking_no, customer, phone, product, qty, cod_amount, status, courier, source_sheet, attempts, order_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, attempts, order_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     orderRef,
     trackingNo,
     customer,
     phone,
     summary.product,
+    tags,
     summary.qty,
     cod,
     dashboardStatusFromPos(item),

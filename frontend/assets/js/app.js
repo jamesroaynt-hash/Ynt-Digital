@@ -205,6 +205,7 @@ function mapBackendOrder(row) {
     customer: row.customer || '',
     phone: row.phone || '',
     product: row.product || '',
+    tags: row.tags || '',
     qty: Number(row.qty || 0),
     cod: Number(row.cod_amount || 0),
     status: row.status || 'Pending',
@@ -2718,19 +2719,20 @@ function renderViewRecords() {
         </div>
       </div>
       <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
           ${DB.orders.map(o => `<tr data-status="${o.status}">
             <td class="font-mono text-xs text-muted">${o.id}</td>
             <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
             <td>${escapeHtml(o.sourceSheet || 'Manual')}</td>
             <td>${o.date}</td>
-            <td style="font-weight:500">${o.customer}</td>
+            <td style="font-weight:500">${escapeHtml(o.customer || '')}</td>
             <td class="font-mono text-xs">${escapeHtml(o.phone || '')}</td>
-            <td>${o.product}</td>
+            <td>${escapeHtml(o.product || '')}</td>
+            <td>${escapeHtml(o.tags || '')}</td>
             <td>${o.qty}</td>
             <td>₱${o.cod.toLocaleString()}</td>
-            <td>${o.courier}</td>
+            <td>${escapeHtml(o.courier || '')}</td>
             <td>${statusBadge(o.status)}</td>
             <td></td>
           </tr>`).join('')}
@@ -4752,6 +4754,7 @@ function getFilteredViewRecordOrders() {
       || order.customer.toLowerCase().includes(query)
       || (order.phone || '').toLowerCase().includes(query)
       || order.product.toLowerCase().includes(query)
+      || (order.tags || '').toLowerCase().includes(query)
       || order.courier.toLowerCase().includes(query)
       || order.status.toLowerCase().includes(query)
       || order.tracking.toLowerCase().includes(query)
@@ -4760,6 +4763,28 @@ function getFilteredViewRecordOrders() {
   }
 
   return data.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+}
+
+function renderPaginationButtons(currentPage, totalPages, onClickName) {
+  const windowStart = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const windowEnd = Math.min(totalPages, windowStart + 4);
+  const buttons = [];
+
+  if (windowStart > 1) {
+    buttons.push(`<button class="page-btn" onclick="${onClickName}(1)">1</button>`);
+    if (windowStart > 2) buttons.push('<span class="page-ellipsis">...</span>');
+  }
+
+  for (let page = windowStart; page <= windowEnd; page += 1) {
+    buttons.push(`<button class="page-btn ${page === currentPage ? 'active' : ''}" onclick="${onClickName}(${page})">${page}</button>`);
+  }
+
+  if (windowEnd < totalPages) {
+    if (windowEnd < totalPages - 1) buttons.push('<span class="page-ellipsis">...</span>');
+    buttons.push(`<button class="page-btn" onclick="${onClickName}(${totalPages})">${totalPages}</button>`);
+  }
+
+  return buttons.join('');
 }
 
 function renderViewRecordsOrdersTable() {
@@ -4777,12 +4802,13 @@ function renderViewRecordsOrdersTable() {
     <td class="font-mono text-xs">${escapeHtml(order.tracking || '')}</td>
     <td>${escapeHtml(order.sourceSheet || 'Manual')}</td>
     <td>${order.date}</td>
-    <td style="font-weight:500">${order.customer}</td>
+    <td style="font-weight:500">${escapeHtml(order.customer || '')}</td>
     <td class="font-mono text-xs">${escapeHtml(order.phone || '')}</td>
-    <td>${order.product}</td>
+    <td>${escapeHtml(order.product || '')}</td>
+    <td>${escapeHtml(order.tags || '')}</td>
     <td>${order.qty}</td>
     <td>₱${order.cod.toLocaleString()}</td>
-    <td>${order.courier}</td>
+    <td>${escapeHtml(order.courier || '')}</td>
     <td>${statusBadge(order.status)}</td>
     <td>
       <div class="flex gap-2">
@@ -4790,7 +4816,7 @@ function renderViewRecordsOrdersTable() {
         <button class="btn btn-danger btn-sm" onclick="deleteOrderRecord('${escapeHtml(order.dbId || order.id)}')">Delete</button>
       </div>
     </td>
-  </tr>`).join('') || '<tr><td colspan="12" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
 
   const pagination = document.getElementById('records-pagination');
   if (pagination) {
@@ -4800,7 +4826,7 @@ function renderViewRecordsOrdersTable() {
       <span>${start}-${end} of ${records.length} orders</span>
       <div class="pagination-buttons">
         <button class="page-btn" onclick="changeRecordsPage(${recordsPage - 1})" ${recordsPage <= 1 ? 'disabled' : ''}>‹</button>
-        ${Array.from({ length: Math.min(pages, 5) }, (_, index) => `<button class="page-btn ${index + 1 === recordsPage ? 'active' : ''}" onclick="changeRecordsPage(${index + 1})">${index + 1}</button>`).join('')}
+        ${renderPaginationButtons(recordsPage, pages, 'changeRecordsPage')}
         <button class="page-btn" onclick="changeRecordsPage(${recordsPage + 1})" ${recordsPage >= pages ? 'disabled' : ''}>›</button>
       </div>`;
   }
@@ -4885,12 +4911,15 @@ async function editOrderRecord(orderId) {
   if (tracking === null) return;
   const pageName = window.prompt('Page / sheet name', order.sourceSheet || 'Manual');
   if (pageName === null) return;
+  const tags = window.prompt('Tags', order.tags || '');
+  if (tags === null) return;
   const courier = window.prompt(`Courier (${getCourierOptions().join(', ')})`, order.courier || '');
   if (courier === null) return;
 
   const payload = {
     tracking_no: tracking.trim(),
     source_sheet: pageName.trim() || 'Manual',
+    tags: tags.trim(),
     courier: courier.trim(),
   };
 
@@ -4904,6 +4933,7 @@ async function editOrderRecord(orderId) {
     } else {
       order.tracking = payload.tracking_no;
       order.sourceSheet = payload.source_sheet;
+      order.tags = payload.tags;
       order.courier = payload.courier;
     }
     saveCourierOptions([...getCourierOptions(), payload.courier]);

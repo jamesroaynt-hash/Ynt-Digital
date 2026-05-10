@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS orders (
   customer TEXT NOT NULL,
   phone TEXT,
   product TEXT NOT NULL,
+  tags TEXT,
   qty INTEGER NOT NULL DEFAULT 1,
   cod_amount REAL NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'Pending'
