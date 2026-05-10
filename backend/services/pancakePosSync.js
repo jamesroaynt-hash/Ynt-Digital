@@ -550,23 +550,148 @@ function dashboardStatusFromPos(item) {
   return 'Pending';
 }
 
+function getPosItemProductName(entry = {}) {
+  const product = entry?.product || {};
+  const variation = entry?.variation || {};
+  return stringOrNull(
+    entry?.variation_name ||
+    entry?.product_name ||
+    entry?.name ||
+    entry?.product_display_name ||
+    entry?.display_name ||
+    variation?.name ||
+    variation?.variation_name ||
+    variation?.product_name ||
+    product?.name ||
+    product?.product_name
+  );
+}
+
+function getPosOrderProductName(item = {}) {
+  return stringOrNull(
+    item?.product_name ||
+    item?.product_display_name ||
+    item?.variation_name ||
+    (typeof item?.product === 'string' ? item.product : null) ||
+    item?.product?.name ||
+    item?.product?.product_name ||
+    item?.variation?.name ||
+    item?.variation?.variation_name
+  );
+}
+
+function getPosCustomerName(item = {}, shippingAddress = {}) {
+  const customer = item?.customer || {};
+  return stringOrNull(
+    item?.bill_full_name ||
+    item?.customer_name ||
+    item?.recipient_name ||
+    item?.buyer_name ||
+    customer?.name ||
+    customer?.full_name ||
+    shippingAddress?.name ||
+    item?.name
+  );
+}
+
+function getPosCustomerPhone(item = {}, shippingAddress = {}) {
+  const customer = item?.customer || {};
+  return stringOrNull(
+    item?.bill_phone_number ||
+    item?.customer_phone ||
+    item?.phone_number ||
+    item?.phone ||
+    customer?.phone_number ||
+    customer?.phone ||
+    shippingAddress?.phone_number ||
+    shippingAddress?.phone
+  );
+}
+
+function getPosOrderRef(item = {}, externalId) {
+  return stringOrNull(
+    item?.order_ref ||
+    item?.order_number ||
+    item?.order_id ||
+    item?.order_code ||
+    item?.code ||
+    item?.custom_id ||
+    item?.system_id ||
+    item?.display_id ||
+    item?.ref ||
+    item?.reference ||
+    item?.bill_code ||
+    item?.invoice_number ||
+    item?.shipping_code
+  ) || `POS-${externalId}`;
+}
+
+function getPosTrackingNumber(item = {}, partner = {}, shippingAddress = {}) {
+  const shipping = item?.shipping || {};
+  const delivery = item?.delivery || {};
+  return stringOrNull(
+    item?.tracking_no ||
+    item?.tracking_number ||
+    item?.tracking_code ||
+    item?.shipping_tracking_code ||
+    item?.shipping_code ||
+    item?.delivery_code ||
+    item?.bill_code ||
+    item?.shipping_order_code ||
+    item?.partner_order_code ||
+    item?.partner_tracking_code ||
+    partner?.tracking_no ||
+    partner?.tracking_number ||
+    partner?.tracking_code ||
+    partner?.order_number ||
+    partner?.order_code ||
+    partner?.code ||
+    shipping?.tracking_no ||
+    shipping?.tracking_number ||
+    shipping?.tracking_code ||
+    shipping?.code ||
+    delivery?.tracking_no ||
+    delivery?.tracking_number ||
+    delivery?.tracking_code ||
+    delivery?.code ||
+    shippingAddress?.tracking_no ||
+    shippingAddress?.tracking_number
+  );
+}
+
 function getOrderItemsSummary(item) {
   const items = Array.isArray(item?.items) ? item.items : [];
   if (!items.length) {
     return {
-      product: stringOrNull(item?.product_name || item?.product || item?.name) || 'Pancake POS Order',
+      product: getPosOrderProductName(item) || 'Pancake POS Order',
       qty: Math.max(1, Math.round(numberOrNull(item?.quantity || item?.qty) || 1)),
     };
   }
 
   const productNames = items
-    .map(entry => stringOrNull(entry?.variation_name || entry?.product_name || entry?.name || entry?.product?.name))
+    .map(getPosItemProductName)
     .filter(Boolean);
   const qty = items.reduce((sum, entry) => sum + Math.max(0, Math.round(numberOrNull(entry?.quantity || entry?.qty) || 0)), 0);
   return {
     product: productNames.length ? productNames.slice(0, 3).join(', ') : 'Pancake POS Order',
     qty: Math.max(1, qty || items.length),
   };
+}
+
+function getPosOrderSourceName(shopId, item) {
+  const page = item?.page || item?.fanpage || item?.facebook_page || {};
+  const shop = item?.shop || {};
+  const sourceName = stringOrNull(
+    item?.page_name ||
+    item?.fanpage_name ||
+    item?.facebook_page_name ||
+    item?.fb_page_name ||
+    item?.source_name ||
+    page?.name ||
+    page?.page_name ||
+    shop?.name
+  );
+  return sourceName || (shopId ? `Shop ${shopId}` : 'Pancake POS');
 }
 
 async function transferPosOrderToDashboard(db, shopId, item) {
@@ -576,15 +701,8 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const summary = getOrderItemsSummary(item);
   const partner = item?.partner || {};
   const shippingAddress = item?.shipping_address || {};
-  const orderRef = stringOrNull(item?.order_ref || item?.code || item?.order_number) || `POS-${externalId}`;
-  const trackingNo = stringOrNull(
-    item?.tracking_no ||
-    item?.tracking_number ||
-    item?.shipping_code ||
-    partner?.tracking_number ||
-    partner?.order_number ||
-    partner?.code
-  );
+  const orderRef = getPosOrderRef(item, externalId);
+  const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
   if (!trackingNo) return null;
 
   const courier = stringOrNull(
@@ -595,9 +713,10 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     partner?.partner_name ||
     partner?.shipping_partner_name
   );
-  const customer = stringOrNull(item?.bill_full_name || item?.customer_name || shippingAddress?.name) || 'Pancake POS Customer';
-  const phone = stringOrNull(item?.bill_phone_number || item?.customer_phone || shippingAddress?.phone_number || shippingAddress?.phone);
+  const customer = getPosCustomerName(item, shippingAddress) || 'Pancake POS Customer';
+  const phone = getPosCustomerPhone(item, shippingAddress);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
+  const sourceName = getPosOrderSourceName(shopId, item);
   const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
@@ -619,7 +738,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       cod,
       dashboardStatusFromPos(item),
       courier,
-      `Pancake POS${shopId ? ` ${shopId}` : ''}`,
+      sourceName,
       normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
       existing.id
     );
@@ -640,7 +759,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     cod,
     dashboardStatusFromPos(item),
     courier,
-    `Pancake POS${shopId ? ` ${shopId}` : ''}`,
+    sourceName,
     1,
     normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
   );
