@@ -212,7 +212,8 @@ function buildUrl(baseUrl, path, query = {}) {
 
 async function posRequest(baseUrl, path, apiKey, query = {}) {
   if (!apiKey) throw new Error('Missing Pancake POS api_key.');
-  const url = buildUrl(baseUrl || POS_API_BASE, path, { ...query, api_key: apiKey });
+  const selectedBaseUrl = baseUrl || POS_API_BASE;
+  const url = buildUrl(selectedBaseUrl, path, { ...query, api_key: apiKey });
   const response = await fetch(url);
   const text = await response.text();
   let data = null;
@@ -223,6 +224,13 @@ async function posRequest(baseUrl, path, apiKey, query = {}) {
   }
 
   if (!response.ok) {
+    const fallbackBaseUrl = selectedBaseUrl.includes('pos.pancake.ph')
+      ? POS_API_BASE
+      : 'https://pos.pancake.ph/api/v1';
+    if (response.status === 404 && fallbackBaseUrl !== selectedBaseUrl) {
+      return posRequest(fallbackBaseUrl, path, apiKey, query);
+    }
+
     const details = typeof data === 'string' ? data : safeJson(data);
     throw new Error(`Pancake POS API GET ${url.pathname} failed (${response.status}): ${details}`);
   }
