@@ -627,6 +627,9 @@ function normalizePosTagValue(value) {
 }
 
 function getPosOrderTags(item = {}) {
+  const latestPartnerUpdate = Array.isArray(item?.partner?.extend_update)
+    ? [...item.partner.extend_update].reverse().find(update => stringOrNull(update?.status))
+    : null;
   const candidates = [
     item?.tags,
     item?.tag,
@@ -637,6 +640,10 @@ function getPosOrderTags(item = {}) {
     item?.order_tags,
     item?.customer?.tags,
     item?.shipping_address?.tags,
+    item?.shipping_address?.customer_tags,
+    item?.tag_names_text,
+    item?.tags_text,
+    latestPartnerUpdate?.status,
   ];
   const values = [];
 
@@ -915,11 +922,12 @@ async function cleanupMalformedDashboardOrders(db) {
       OR tracking_no LIKE 'Shop %'
     )
     AND (
-      source_sheet LIKE 'Pancake POS%'
+      product = 'Pancake POS Order'
+      OR source_sheet LIKE 'Pancake POS%'
       OR source_sheet LIKE 'Shop %'
       OR tracking_no LIKE 'Pancake POS%'
       OR tracking_no LIKE 'Shop %'
-      )
+    )
   `).run();
   return result.changes || 0;
 }
@@ -1159,13 +1167,40 @@ async function collectPosData(db, payload = {}) {
   }
 }
 
+function isWebhookOrderLike(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Boolean(
+    value.id &&
+    (
+      Array.isArray(value.items) ||
+      Array.isArray(value.products) ||
+      Array.isArray(value.variations) ||
+      Array.isArray(value.order_items) ||
+      value.bill_full_name ||
+      value.bill_phone_number ||
+      value.shipping_address ||
+      value.partner ||
+      value.status_name
+    )
+  );
+}
+
 function extractWebhookOrders(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.orders)) return payload.orders;
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.data?.orders)) return payload.data.orders;
+  if (Array.isArray(payload?.entry)) {
+    return payload.entry.flatMap((entry) => extractWebhookOrders(entry));
+  }
+  if (Array.isArray(payload?.changes)) {
+    return payload.changes.flatMap((change) => extractWebhookOrders(change?.value || change));
+  }
   if (payload?.order) return [payload.order];
   if (payload?.data?.order) return [payload.data.order];
+  if (payload?.value) return extractWebhookOrders(payload.value);
+  if (payload?.object && typeof payload.object === 'object') return extractWebhookOrders(payload.object);
+  if (isWebhookOrderLike(payload)) return [payload];
   if (payload?.data && typeof payload.data === 'object') return [payload.data];
   return [payload].filter(value => value && typeof value === 'object');
 }
