@@ -1030,11 +1030,16 @@ function storedPosOrderToPayload(row = {}) {
 async function replayStoredOrdersToDashboard(db, payload = {}) {
   const setting = await getSetting(db);
   const shopId = stringOrNull(payload.shop_id || setting?.page_id);
-  const limit = Math.max(1, Math.min(5000, Number(payload.limit || 1000)));
+  const allRows = payload.all === true || payload.all === 'true' || payload.limit === 0 || payload.limit === '0';
+  const limit = allRows ? null : Math.max(1, Math.min(5000, Number(payload.limit || 1000)));
   const tagFilter = stringOrNull(payload.tag_filter || payload.tag || payload.only_tag);
-  const rows = shopId
-    ? await db.prepare('SELECT * FROM pos_orders WHERE shop_id = ? ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(shopId, limit)
-    : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(limit);
+  const rows = allRows
+    ? (shopId
+      ? await db.prepare('SELECT * FROM pos_orders WHERE shop_id = ? ORDER BY updated_at_remote DESC, id DESC').all(shopId)
+      : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC').all())
+    : (shopId
+      ? await db.prepare('SELECT * FROM pos_orders WHERE shop_id = ? ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(shopId, limit)
+      : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(limit));
   let transferred = 0;
   let skipped = 0;
   const skip_reasons = {};
@@ -1072,6 +1077,7 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
     skipped,
     skip_reasons,
     tag_filter: tagFilter,
+    limit: allRows ? 'all' : limit,
   };
 }
 

@@ -5560,7 +5560,7 @@ async function replayPancakePosOrders(options = {}) {
       method: 'POST',
       body: JSON.stringify({
         shop_id: state.pancakePos.shopId,
-        limit: 1000,
+        all: true,
       }),
     });
     await refreshOrderViewsFromBackend();
