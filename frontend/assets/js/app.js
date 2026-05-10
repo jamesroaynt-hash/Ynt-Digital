@@ -1064,12 +1064,12 @@ function renderHome() {
 
 
   const productGalleryItems = [
-    { title: 'DRAGON BLOOD SERUM', desc: 'YNT product line', image: '../Images/DRAGON%20BLOOD.png' },
-    { title: 'DRAGON BLOOD CREAM', desc: 'YNT product line', image: '../Images/DRAGON%20CREAM.png' },
-    { title: 'GINSENG SERUM', desc: 'YNT product line', image: '../Images/Ginseng%20Serum.png' },
-    { title: 'HALLY LOTIONS', desc: 'YNT product line', image: '../Images/HALLY%20LOTION.png' },
-    { title: 'WHITE CREAM', desc: 'YNT product line', image: '../Images/White%20Cream.png' },
-    { title: 'NIACINAMIDE', desc: 'YNT product line', image: '../Images/NIACINAMIDE.png' },
+    { title: 'DRAGON BLOOD SERUM', desc: 'YNT product line', icon: 'DB', tone: 'red' },
+    { title: 'DRAGON BLOOD CREAM', desc: 'YNT product line', icon: 'DC', tone: 'rose' },
+    { title: 'GINSENG SERUM', desc: 'YNT product line', icon: 'GS', tone: 'green' },
+    { title: 'HALLY LOTIONS', desc: 'YNT product line', icon: 'HL', tone: 'blue' },
+    { title: 'WHITE CREAM', desc: 'YNT product line', icon: 'WC', tone: 'slate' },
+    { title: 'NIACINAMIDE', desc: 'YNT product line', icon: 'NA', tone: 'amber' },
   ];
 
   return `
@@ -1122,7 +1122,7 @@ function renderHome() {
       <div class="gallery-grid">
         ${productGalleryItems.map((item) => `
           <div class="gallery-item">
-            <img class="gallery-img" src="${item.image}" alt="${escapeHtml(item.title)}" loading="lazy">
+            <div class="gallery-icon gallery-icon-${item.tone}" aria-hidden="true">${item.icon}</div>
             <div class="gallery-info">
               <h4>${item.title}</h4>
               <p>${item.desc}</p>
