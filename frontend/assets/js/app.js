@@ -2650,49 +2650,71 @@ function renderViewRecords() {
 
   <div id="rec-orders" class="tab-content active">
     <div class="table-container">
-      <div class="table-toolbar">
-        <div class="table-search">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-          <input type="text" placeholder="Search orders..." id="rec-orders-search" value="${escapeHtml(recordsSearch)}" oninput="filterViewRecordsTable()">
+      <div class="records-filter-panel">
+        <div class="records-filter-row records-filter-primary">
+          <div class="records-filter-field records-search-field">
+            <label class="records-filter-label" for="rec-orders-search">Search</label>
+            <div class="table-search">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+              <input type="text" placeholder="Order, tracking, customer..." id="rec-orders-search" value="${escapeHtml(recordsSearch)}" oninput="filterViewRecordsTable()">
+            </div>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label" for="rec-orders-product">Product</label>
+            <select class="form-control records-product-filter" id="rec-orders-product" onchange="filterRecordsByProduct()">
+              ${productOptions.map((product) => `<option value="${escapeHtml(product)}" ${recordsProductFilter === product ? 'selected' : ''}>${product === 'all' ? 'All Products' : escapeHtml(product)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label" for="rec-orders-source">Page</label>
+            <select class="form-control records-product-filter" id="rec-orders-source" onchange="filterRecordsBySource()">
+              <option value="all">All Pages</option>
+              ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${recordsSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="records-filter-field records-period-field">
+            <label class="records-filter-label">Period</label>
+            <div class="records-period-selects">
+              <select class="form-control records-product-filter" id="rec-orders-year" onchange="filterRecordsByYear()">
+                <option value="all">All Years</option>
+                ${yearOptions.map((year) => `<option value="${year}" ${recordsYearFilter === year ? 'selected' : ''}>${year}</option>`).join('')}
+              </select>
+              <select class="form-control records-product-filter" id="rec-orders-month" onchange="filterRecordsByMonth()">
+                <option value="all">All Months</option>
+                ${monthOptions.map((month) => `<option value="${month.value}" ${recordsMonthFilter === month.value ? 'selected' : ''}>${month.label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
         </div>
-        <div class="records-toolbar-group">
-          <select class="form-control records-product-filter" id="rec-orders-product" onchange="filterRecordsByProduct()">
-            ${productOptions.map((product) => `<option value="${escapeHtml(product)}" ${recordsProductFilter === product ? 'selected' : ''}>${product === 'all' ? 'All Products' : escapeHtml(product)}</option>`).join('')}
-          </select>
-          <select class="form-control records-product-filter" id="rec-orders-source" onchange="filterRecordsBySource()">
-            <option value="all">All Sheets</option>
-            ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${recordsSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
-          </select>
-          <select class="form-control records-product-filter" id="rec-orders-year" onchange="filterRecordsByYear()">
-            <option value="all">All Years</option>
-            ${yearOptions.map((year) => `<option value="${year}" ${recordsYearFilter === year ? 'selected' : ''}>${year}</option>`).join('')}
-          </select>
-          <select class="form-control records-product-filter" id="rec-orders-month" onchange="filterRecordsByMonth()">
-            <option value="all">All Months</option>
-            ${monthOptions.map((month) => `<option value="${month.value}" ${recordsMonthFilter === month.value ? 'selected' : ''}>${month.label}</option>`).join('')}
-          </select>
-        </div>
-        <div class="table-filters" id="rec-orders-status-filters">
-          ${['All','Shipped','Delivered','Returned','Returning','Pending'].map((s,i) =>
-            `<button class="filter-pill ${recordsStatusFilter === s || (!recordsStatusFilter && i===0) ? 'active' : ''}" onclick="setRecordsStatusFilter('${s}',this)">${s}</button>`
-          ).join('')}
-        </div>
-        <div class="table-filters" id="rec-orders-date-filters">
-          ${[
-            ['all', 'All'],
-            ['today', 'Today'],
-            ['yesterday', 'Yesterday'],
-            ['month', 'Month'],
-            ['year', 'Year'],
-            ['custom', 'Custom'],
-          ].map(([value, label]) =>
-            `<button class="filter-pill ${recordsDateFilter === value ? 'active' : ''}" onclick="setRecordsDateFilter('${value}',this)">${label}</button>`
-          ).join('')}
-        </div>
-        <div class="custom-range ${recordsDateFilter === 'custom' ? '' : 'hidden'}" id="rec-orders-custom-range">
-          <input type="date" class="form-control" id="rec-orders-date-from" value="${recordsDateFrom}">
-          <input type="date" class="form-control" id="rec-orders-date-to" value="${recordsDateTo}">
-          <button class="btn btn-secondary btn-sm" onclick="applyRecordsCustomDateRange()">Apply</button>
+        <div class="records-filter-row records-chip-row">
+          <div class="records-chip-group">
+            <div class="records-filter-label">Status</div>
+            <div class="table-filters" id="rec-orders-status-filters">
+              ${['All','Shipped','Delivered','Returned','Returning','Pending'].map((s,i) =>
+                `<button class="filter-pill ${recordsStatusFilter === s || (!recordsStatusFilter && i===0) ? 'active' : ''}" onclick="setRecordsStatusFilter('${s}',this)">${s}</button>`
+              ).join('')}
+            </div>
+          </div>
+          <div class="records-chip-group">
+            <div class="records-filter-label">Date</div>
+            <div class="table-filters" id="rec-orders-date-filters">
+              ${[
+                ['all', 'All'],
+                ['today', 'Today'],
+                ['yesterday', 'Yesterday'],
+                ['month', 'Month'],
+                ['year', 'Year'],
+                ['custom', 'Custom'],
+              ].map(([value, label]) =>
+                `<button class="filter-pill ${recordsDateFilter === value ? 'active' : ''}" onclick="setRecordsDateFilter('${value}',this)">${label}</button>`
+              ).join('')}
+            </div>
+          </div>
+          <div class="custom-range records-custom-range ${recordsDateFilter === 'custom' ? '' : 'hidden'}" id="rec-orders-custom-range">
+            <input type="date" class="form-control" id="rec-orders-date-from" value="${recordsDateFrom}">
+            <input type="date" class="form-control" id="rec-orders-date-to" value="${recordsDateTo}">
+            <button class="btn btn-secondary btn-sm" onclick="applyRecordsCustomDateRange()">Apply</button>
+          </div>
         </div>
       </div>
       <table id="records-table">

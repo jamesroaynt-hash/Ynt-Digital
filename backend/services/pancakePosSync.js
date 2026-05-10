@@ -637,7 +637,12 @@ function getPosOrderRef(item = {}, externalId) {
 function getPosTrackingNumber(item = {}, partner = {}, shippingAddress = {}) {
   const shipping = item?.shipping || {};
   const delivery = item?.delivery || {};
+  const latestPartnerUpdate = Array.isArray(partner?.extend_update)
+    ? [...partner.extend_update].reverse().find(update => stringOrNull(update?.tracking_id))
+    : null;
   return stringOrNull(
+    partner?.extend_code ||
+    latestPartnerUpdate?.tracking_id ||
     item?.tracking_no ||
     item?.tracking_number ||
     item?.tracking_code ||
@@ -651,9 +656,6 @@ function getPosTrackingNumber(item = {}, partner = {}, shippingAddress = {}) {
     partner?.tracking_no ||
     partner?.tracking_number ||
     partner?.tracking_code ||
-    partner?.order_number ||
-    partner?.order_code ||
-    partner?.code ||
     shipping?.tracking_no ||
     shipping?.tracking_number ||
     shipping?.tracking_code ||
@@ -819,6 +821,18 @@ async function transferPosProductToInventory(db, shopId, item) {
   `).run(itemId, stock, stock, 'Pancake POS API import');
   await upsertSourceLink(db, 'inventory', externalKey, 'inventory', result.lastInsertRowid);
   return result.lastInsertRowid;
+}
+
+async function cleanupMalformedDashboardOrders(db) {
+  const result = await db.prepare(`
+    DELETE FROM orders
+    WHERE customer = 'Pancake POS Customer'
+      AND (
+        source_sheet LIKE 'Pancake POS%'
+        OR source_sheet LIKE 'Shop %'
+      )
+  `).run();
+  return result.changes || 0;
 }
 
 async function storeItems(db, resource, shopId, items) {
@@ -1125,4 +1139,5 @@ module.exports = {
   listShopsFromApi,
   collectPosData,
   receiveWebhook,
+  cleanupMalformedDashboardOrders,
 };
