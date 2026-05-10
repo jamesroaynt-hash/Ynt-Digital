@@ -575,25 +575,35 @@ function dashboardStatusFromPos(item) {
 function getPosItemProductName(entry = {}) {
   const product = entry?.product || {};
   const variation = entry?.variation || {};
+  const variationInfo = entry?.variation_info || {};
+  const comboInfo = entry?.combo_product_info || {};
   return stringOrNull(
     entry?.variation_name ||
     entry?.product_name ||
     entry?.name ||
     entry?.product_display_name ||
     entry?.display_name ||
+    variationInfo?.name ||
+    variationInfo?.product_name ||
+    variationInfo?.detail ||
     variation?.name ||
     variation?.variation_name ||
     variation?.product_name ||
+    comboInfo?.name ||
+    comboInfo?.product_name ||
     product?.name ||
     product?.product_name
   );
 }
 
 function getPosOrderProductName(item = {}) {
+  const variationInfo = item?.variation_info || {};
   return stringOrNull(
     item?.product_name ||
     item?.product_display_name ||
     item?.variation_name ||
+    variationInfo?.name ||
+    variationInfo?.product_name ||
     (typeof item?.product === 'string' ? item.product : null) ||
     item?.product?.name ||
     item?.product?.product_name ||
@@ -620,11 +630,13 @@ function getPosOrderTags(item = {}) {
   const candidates = [
     item?.tags,
     item?.tag,
+    item?.customer_tags,
     item?.tag_names,
     item?.tag_name,
     item?.labels,
     item?.order_tags,
     item?.customer?.tags,
+    item?.shipping_address?.tags,
   ];
   const values = [];
 
@@ -732,7 +744,11 @@ function getOrderItemsSummary(item) {
       ? item.products
       : Array.isArray(item?.variations)
         ? item.variations
-        : [];
+        : Array.isArray(item?.order_items)
+          ? item.order_items
+          : Array.isArray(item?.line_items)
+            ? item.line_items
+            : [];
   if (!items.length) {
     return {
       product: getPosOrderProductName(item),
@@ -1150,6 +1166,7 @@ function extractWebhookOrders(payload) {
   if (Array.isArray(payload?.data?.orders)) return payload.data.orders;
   if (payload?.order) return [payload.order];
   if (payload?.data?.order) return [payload.data.order];
+  if (payload?.data && typeof payload.data === 'object') return [payload.data];
   return [payload].filter(value => value && typeof value === 'object');
 }
 
