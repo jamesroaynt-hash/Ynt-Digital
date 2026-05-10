@@ -46,6 +46,19 @@ function stableKey(...parts) {
     .join(':');
 }
 
+function looksLikeTrackingNumber(value) {
+  const text = stringOrNull(value);
+  if (!text) return false;
+  if (/pancake\s*pos/i.test(text)) return false;
+  if (/^shop\s+\d+$/i.test(text)) return false;
+  if (/^[a-f0-9-]{24,}$/i.test(text)) return false;
+  return /[A-Za-z0-9]/.test(text) && text.length >= 5;
+}
+
+function firstTrackingValue(...values) {
+  return values.map(stringOrNull).find(looksLikeTrackingNumber) || null;
+}
+
 function unixSecondsFromDate(value, endOfDay = false) {
   const date = value ? new Date(value) : new Date();
   if (endOfDay) date.setHours(23, 59, 59, 999);
@@ -640,7 +653,7 @@ function getPosTrackingNumber(item = {}, partner = {}, shippingAddress = {}) {
   const latestPartnerUpdate = Array.isArray(partner?.extend_update)
     ? [...partner.extend_update].reverse().find(update => stringOrNull(update?.tracking_id))
     : null;
-  return stringOrNull(
+  return firstTrackingValue(
     partner?.extend_code ||
     latestPartnerUpdate?.tracking_id ||
     item?.tracking_no ||
@@ -826,10 +839,17 @@ async function transferPosProductToInventory(db, shopId, item) {
 async function cleanupMalformedDashboardOrders(db) {
   const result = await db.prepare(`
     DELETE FROM orders
-    WHERE customer = 'Pancake POS Customer'
-      AND (
-        source_sheet LIKE 'Pancake POS%'
-        OR source_sheet LIKE 'Shop %'
+    WHERE (
+      customer = 'Pancake POS Customer'
+      OR product = 'Pancake POS Order'
+      OR tracking_no LIKE 'Pancake POS%'
+      OR tracking_no LIKE 'Shop %'
+    )
+    AND (
+      source_sheet LIKE 'Pancake POS%'
+      OR source_sheet LIKE 'Shop %'
+      OR tracking_no LIKE 'Pancake POS%'
+      OR tracking_no LIKE 'Shop %'
       )
   `).run();
   return result.changes || 0;
