@@ -2627,6 +2627,8 @@ function renderViewRecords() {
   const sourceOptions = getSourceSheetOptions();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
+  const dashboardStatusOptions = ['All','Shipped','Delivered','Returned','Returning','Pending'];
+  const posStatusOptions = ['All','Confirmed','Packaging','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled','Removed'];
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
@@ -2692,8 +2694,16 @@ function renderViewRecords() {
           <div class="records-chip-group">
             <div class="records-filter-label">Status</div>
             <div class="table-filters" id="rec-orders-status-filters">
-              ${['All','Shipped','Delivered','Returned','Returning','Pending'].map((s,i) =>
+              ${dashboardStatusOptions.map((s,i) =>
                 `<button class="filter-pill ${recordsStatusFilter === s || (!recordsStatusFilter && i===0) ? 'active' : ''}" onclick="setRecordsStatusFilter('${s}',this)">${s}</button>`
+              ).join('')}
+            </div>
+          </div>
+          <div class="records-chip-group">
+            <div class="records-filter-label">POS Status</div>
+            <div class="table-filters" id="rec-orders-pos-status-filters">
+              ${posStatusOptions.map((s,i) =>
+                `<button class="filter-pill ${recordsPosStatusFilter === s || (!recordsPosStatusFilter && i===0) ? 'active' : ''}" onclick="setRecordsPosStatusFilter('${s}',this)">${s}</button>`
               ).join('')}
             </div>
           </div>
@@ -4306,6 +4316,7 @@ let salesMonthFilter = 'all';
 let recordsPage = 1;
 let recordsSearch = '';
 let recordsStatusFilter = 'All';
+let recordsPosStatusFilter = 'All';
 let recordsProductFilter = 'all';
 let recordsDateFilter = 'all';
 let recordsDateFrom = '';
@@ -4718,6 +4729,14 @@ function getFilteredViewRecordOrders() {
     data = data.filter((order) => order.status === recordsStatusFilter);
   }
 
+  if (recordsPosStatusFilter !== 'All') {
+    const posStatus = recordsPosStatusFilter.toLowerCase();
+    data = data.filter((order) =>
+      String(order.status || '').toLowerCase() === posStatus
+      || String(order.tags || '').toLowerCase().split(',').map((tag) => tag.trim()).includes(posStatus)
+    );
+  }
+
   if (recordsProductFilter !== 'all') {
     data = data.filter((order) => order.product === recordsProductFilter);
   }
@@ -4973,6 +4992,14 @@ function setRecordsStatusFilter(status, btn) {
   recordsStatusFilter = status;
   recordsPage = 1;
   document.querySelectorAll('#rec-orders-status-filters .filter-pill').forEach((pill) => pill.classList.remove('active'));
+  btn.classList.add('active');
+  renderViewRecordsOrdersTable();
+}
+
+function setRecordsPosStatusFilter(status, btn) {
+  recordsPosStatusFilter = status;
+  recordsPage = 1;
+  document.querySelectorAll('#rec-orders-pos-status-filters .filter-pill').forEach((pill) => pill.classList.remove('active'));
   btn.classList.add('active');
   renderViewRecordsOrdersTable();
 }
