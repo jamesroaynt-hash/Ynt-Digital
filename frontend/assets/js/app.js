@@ -209,7 +209,7 @@ function mapBackendOrder(row) {
     tags: row.tags || '',
     qty: Number(row.qty || 0),
     cod: Number(row.cod_amount || 0),
-    status: row.status || 'Pending',
+    status: row.status || 'Confirmed',
     courier: row.courier || '',
     date: normalizeDateString(row.order_date || row.created_at || new Date()),
     sourceSheet: row.source_sheet || '',
@@ -389,7 +389,7 @@ const DB = {
 };
 
 function generateOrders(n) {
-  const statuses = ['Shipped', 'Delivered', 'Returned', 'Returning', 'Pending'];
+  const statuses = ['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const products = ['DRAGON BLOOD SERUM', 'DRAGON BLOOD CREAM', 'GINSENG SERUM', 'HALLY LOTIONS', 'WHITE CREAM', 'NIACINAMIDE'];
   const names = ['Maria Santos', 'Juan dela Cruz', 'Ana Reyes', 'Carlo Mendoza', 'Liza Tan', 'Ben Aquino', 'Rosa Cruz', 'Mark Lim', 'Joy Castro', 'Ryan Ong'];
   return Array.from({ length: n }, (_, i) => {
@@ -1606,11 +1606,13 @@ function renderManageUsers() {
 
 // ─── RENDER: SALES DASHBOARD ───────────────────────────────
 function renderSales() {
+  const confirmed = DB.orders.filter((o) => o.status === 'Confirmed').length;
+  const waiting = DB.orders.filter((o) => o.status === 'Waiting for pickup').length;
   const shipped = DB.orders.filter((o) => o.status === 'Shipped').length;
   const delivered = DB.orders.filter((o) => o.status === 'Delivered').length;
   const returned = DB.orders.filter((o) => o.status === 'Returned').length;
   const returning = DB.orders.filter((o) => o.status === 'Returning').length;
-  const pending = DB.orders.filter((o) => o.status === 'Pending').length;
+  const canceled = DB.orders.filter((o) => o.status === 'Canceled').length;
   const totalCOD = DB.orders.reduce((sum, o) => sum + Number(o.cod || 0), 0);
   const sourceOptions = getSourceSheetOptions();
   const yearOptions = getOrderYearOptions();
@@ -1630,12 +1632,14 @@ function renderSales() {
     </div>
   </div>
 
-  <div class="stats-grid" style="grid-template-columns: repeat(6, 1fr);" id="sales-summary-cards">
+  <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);" id="sales-summary-cards">
+    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Confirmed</div><div class="stat-value">${confirmed}</div><div class="stat-meta">Ready to process</div></div>
+    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Waiting Pickup</div><div class="stat-value">${waiting}</div><div class="stat-meta">Packaging or pickup</div></div>
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">${shipped}</div><div class="stat-meta">Awaiting delivery</div></div>
     <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta"><span class="stat-badge up">✓ Completed</span></div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
-    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Pending</div><div class="stat-value">${pending}</div><div class="stat-meta">Needs action</div></div>
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Canceled orders</div></div>
     <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">₱${(totalCOD/1000).toFixed(1)}K</div><div class="stat-meta">Total collected</div></div>
   </div>
 
@@ -2615,6 +2619,8 @@ function renderScanPage(pageId, pageTitle, scanType) {
 
 function statusBadge(status) {
   const map = {
+    'Confirmed': 'badge-gray',
+    'Waiting for pickup': 'badge-warning',
     'Delivered': 'badge-success',
     'DELIVERED': 'badge-success',
     'For Delivery': 'badge-info',
@@ -2630,6 +2636,7 @@ function statusBadge(status) {
     'Returning': 'badge-warning',
     'Pending': 'badge-gray',
     'PENDING': 'badge-gray',
+    'Canceled': 'badge-danger',
     'FOR RETURN': 'badge-warning',
     'FOR MONITORING': 'badge-warning',
     'DASHBOARD CANCELLED': 'badge-danger',
@@ -2644,8 +2651,8 @@ function renderViewRecords() {
   const sourceOptions = getSourceSheetOptions();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
-  const dashboardStatusOptions = ['All','Shipped','Delivered','Returned','Returning','Pending'];
-  const posStatusOptions = ['All','Confirmed','Packaging','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled','Removed'];
+  const dashboardStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
+  const posStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
@@ -4410,19 +4417,23 @@ function renderSalesSummaryCards(data) {
   const summary = document.getElementById('sales-summary-cards');
   if (!summary) return;
 
+  const confirmed = data.filter((order) => order.status === 'Confirmed').length;
+  const waiting = data.filter((order) => order.status === 'Waiting for pickup').length;
   const shipped = data.filter((order) => order.status === 'Shipped').length;
   const delivered = data.filter((order) => order.status === 'Delivered').length;
   const returned = data.filter((order) => order.status === 'Returned').length;
   const returning = data.filter((order) => order.status === 'Returning').length;
-  const pending = data.filter((order) => order.status === 'Pending').length;
+  const canceled = data.filter((order) => order.status === 'Canceled').length;
   const totalCOD = data.reduce((sum, order) => sum + Number(order.cod || 0), 0);
 
   summary.innerHTML = `
+    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Confirmed</div><div class="stat-value">${confirmed}</div><div class="stat-meta">Filtered results</div></div>
+    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Waiting Pickup</div><div class="stat-value">${waiting}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">${shipped}</div><div class="stat-meta">Awaiting delivery</div></div>
     <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta">Filtered results</div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
-    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Pending</div><div class="stat-value">${pending}</div><div class="stat-meta">Filtered results</div></div>
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">PHP ${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
 }
 

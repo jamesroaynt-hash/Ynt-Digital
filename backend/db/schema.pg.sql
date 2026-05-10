@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS orders (
   tags TEXT,
   qty INTEGER NOT NULL DEFAULT 1,
   cod_amount REAL NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'Pending'
-    CHECK(status IN ('Pending', 'Shipped', 'Delivered', 'Returned', 'Returning')),
+  status TEXT NOT NULL DEFAULT 'Confirmed'
+    CHECK(status IN ('Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending')),
   courier TEXT,
   source_sheet TEXT,
   attempts INTEGER DEFAULT 1,

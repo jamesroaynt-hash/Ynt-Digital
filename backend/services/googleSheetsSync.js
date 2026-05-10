@@ -105,15 +105,18 @@ function getFirstValue(row, aliases = []) {
 
 function normalizeStatus(value) {
   const text = stringOrNull(value);
-  if (!text) return 'Pending';
+  if (!text) return 'Confirmed';
 
   const normalized = text.toLowerCase().replace(/[_-]+/g, ' ').trim();
-  if (['pending', 'new', 'draft', 'created'].includes(normalized)) return 'Pending';
-  if (['shipped', 'shipping', 'submitted', 'confirmed', 'in transit', 'delivering'].includes(normalized)) return 'Shipped';
+  if (['confirmed', 'confirm', 'purchased'].includes(normalized)) return 'Confirmed';
+  if (['waiting for pickup', 'waiting pickup', 'waiting for pick up', 'waiting pick up', 'packaging'].includes(normalized)) return 'Waiting for pickup';
+  if (['pending', 'new', 'draft', 'created'].includes(normalized)) return 'Confirmed';
+  if (['shipped', 'shipping', 'submitted', 'in transit', 'delivering'].includes(normalized)) return 'Shipped';
   if (['delivered', 'complete', 'completed', 'success'].includes(normalized)) return 'Delivered';
   if (['returned', 'return', 'rts', 'return to sender', 'failed delivery'].includes(normalized)) return 'Returned';
   if (['returning', 'for return', 'returning to seller'].includes(normalized)) return 'Returning';
-  return 'Pending';
+  if (['canceled', 'cancelled', 'removed', 'deleted'].includes(normalized)) return 'Canceled';
+  return 'Confirmed';
 }
 
 function formatDateParts(year, month, day) {

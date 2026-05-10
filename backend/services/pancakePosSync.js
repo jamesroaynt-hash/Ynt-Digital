@@ -589,10 +589,12 @@ function dashboardStatusFromPos(item) {
   const value = String(item?.status_name || item?.status_text || item?.status || '').toLowerCase();
   if (value.includes('delivered') || value.includes('received') || value.includes('complete') || value === '3') return 'Delivered';
   if (value.includes('returning') || value === '4') return 'Returning';
-  if (value.includes('return') || value.includes('cancel') || value.includes('removed') || value.includes('deleted') || value === '5' || value === '6' || value === '7' || value === '15') return 'Returned';
-  if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value.includes('pickup') || value.includes('packaging') || value === '2' || value === '8' || value === '9') return 'Shipped';
-  if (value.includes('confirm') || value.includes('purchased') || value === '1' || value === '20') return 'Pending';
-  return 'Pending';
+  if (value.includes('cancel') || value.includes('removed') || value.includes('deleted') || value === '6' || value === '7') return 'Canceled';
+  if (value.includes('return') || value === '5' || value === '15') return 'Returned';
+  if (value.includes('pickup') || value.includes('packaging') || value === '8' || value === '9') return 'Waiting for pickup';
+  if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value === '2') return 'Shipped';
+  if (value.includes('confirm') || value.includes('purchased') || value === '1' || value === '20') return 'Confirmed';
+  return 'Confirmed';
 }
 
 function getPosItemProductName(entry = {}) {

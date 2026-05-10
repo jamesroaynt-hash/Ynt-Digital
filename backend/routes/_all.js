@@ -4,7 +4,7 @@ const googleSheetsSync = require('../services/googleSheetsSync');
 
 function ordersRoutes(db) {
   const r = express.Router();
-  const allowedStatuses = new Set(['Pending', 'Shipped', 'Delivered', 'Returned', 'Returning']);
+  const allowedStatuses = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending']);
 
   function cleanOrder(row = {}, index = 0) {
     return {
@@ -16,7 +16,7 @@ function ordersRoutes(db) {
       tags: String(row.tags || row.tag || row.labels || '').trim() || null,
       qty: Number.parseInt(row.qty || row.quantity || 1, 10) || 1,
       cod_amount: Number.parseFloat(row.cod_amount || row.cod || row.amount || row.price || 0) || 0,
-      status: allowedStatuses.has(row.status) ? row.status : 'Pending',
+      status: allowedStatuses.has(row.status) ? row.status : 'Confirmed',
       courier: String(row.courier || row.shipper || '').trim() || null,
       source_sheet: String(row.source_sheet || row.source || 'CSV Import').trim() || 'CSV Import',
       order_date: String(row.order_date || row.date || row.created_at || '').slice(0, 10) || new Date().toISOString().split('T')[0],
@@ -96,7 +96,7 @@ function ordersRoutes(db) {
     const { customer, phone, product, tags, qty, cod_amount, status, courier, tracking_no, order_date } = req.body;
     const ref = `ORD-${Date.now()}`;
     const stmt = db.prepare(`INSERT INTO orders (order_ref,tracking_no,customer,phone,product,tags,qty,cod_amount,status,courier,order_date,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-    const result = await stmt.run(ref, tracking_no||null, customer, phone||null, product, tags||null, qty||1, cod_amount||0, status||'Pending', courier||null, order_date||new Date().toISOString().split('T')[0], req.user?.id||1);
+    const result = await stmt.run(ref, tracking_no||null, customer, phone||null, product, tags||null, qty||1, cod_amount||0, status||'Confirmed', courier||null, order_date||new Date().toISOString().split('T')[0], req.user?.id||1);
     res.status(201).json({ id: result.lastInsertRowid, order_ref: ref });
   });
 

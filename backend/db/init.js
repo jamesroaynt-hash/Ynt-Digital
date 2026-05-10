@@ -29,6 +29,63 @@ async function ensureColumnAsync(db, tableName, columnName, definition) {
   await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
+function ensureOrderStatusConstraint(db) {
+  if (db.type === 'postgres') return;
+  const allowed = "'Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled','Pending'";
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('ALTER TABLE orders RENAME TO orders_old_status_migration');
+  db.exec(`
+    CREATE TABLE orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_ref TEXT NOT NULL UNIQUE,
+      tracking_no TEXT,
+      customer TEXT NOT NULL,
+      phone TEXT,
+      product TEXT NOT NULL,
+      tags TEXT,
+      qty INTEGER NOT NULL DEFAULT 1,
+      cod_amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'Confirmed' CHECK(status IN (${allowed})),
+      courier TEXT,
+      source_sheet TEXT,
+      attempts INTEGER DEFAULT 1,
+      order_date TEXT NOT NULL DEFAULT (date('now')),
+      created_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`
+    INSERT INTO orders (
+      id, order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier,
+      source_sheet, attempts, order_date, created_by, created_at, updated_at
+    )
+    SELECT id, order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier,
+      source_sheet, attempts, order_date, created_by, created_at, updated_at
+    FROM orders_old_status_migration
+  `);
+  db.exec('DROP TABLE orders_old_status_migration');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
+  db.exec('PRAGMA foreign_keys = ON');
+}
+
+async function ensureOrderStatusConstraintAsync(db) {
+  if (db.type !== 'postgres') {
+    ensureOrderStatusConstraint(db);
+    return;
+  }
+
+  await db.exec('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check');
+  await db.exec("ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'Confirmed'");
+  await db.exec(`
+    ALTER TABLE orders
+    ADD CONSTRAINT orders_status_check
+    CHECK(status IN ('Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending'))
+  `);
+}
+
 function runMigrations(db) {
   [
     'pancake_messages',
@@ -57,6 +114,8 @@ function runMigrations(db) {
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   ensureColumn(db, 'orders', 'tags', 'TEXT');
   ensureColumn(db, 'pos_orders', 'tags_json', 'TEXT');
+  ensureOrderStatusConstraint(db);
+  db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS attendance_records (
@@ -156,6 +215,8 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'orders', 'source_sheet', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'tags_json', 'TEXT');
+  await ensureOrderStatusConstraintAsync(db);
+  await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
   await db.exec(`
     CREATE TABLE IF NOT EXISTS attendance_records (
