@@ -5565,7 +5565,10 @@ async function replayPancakePosOrders(options = {}) {
     });
     await refreshOrderViewsFromBackend();
     if (!options.silent) {
-      showToast('success', 'POS SQL transfer complete', `${data.transferred || 0} transferred, ${data.skipped || 0} skipped.`);
+      const reasons = Object.entries(data.skip_reasons || {})
+        .map(([reason, count]) => `${reason}: ${count}`)
+        .join(', ');
+      showToast('success', 'POS SQL transfer complete', `${data.transferred || 0} transferred, ${data.skipped || 0} skipped${reasons ? ` (${reasons})` : ''}.`);
     }
     return data;
   } catch (error) {

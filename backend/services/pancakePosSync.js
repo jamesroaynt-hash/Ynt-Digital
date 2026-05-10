@@ -813,6 +813,19 @@ function getPosOrderSourceName(shopId, item) {
   return sourceName || (shopId ? `Shop ${shopId}` : 'Pancake POS');
 }
 
+function getDashboardTransferSkipReason(item = {}) {
+  const externalId = stringOrNull(item?.id);
+  if (!externalId) return 'missing_external_id';
+
+  const summary = getOrderItemsSummary(item);
+  const partner = item?.partner || {};
+  const shippingAddress = item?.shipping_address || {};
+  const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
+  if (!trackingNo) return 'missing_tracking';
+  if (!summary.product) return 'missing_product';
+  return null;
+}
+
 async function transferPosOrderToDashboard(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
@@ -1024,6 +1037,7 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
     : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(limit);
   let transferred = 0;
   let skipped = 0;
+  const skip_reasons = {};
 
   for (const row of rows) {
     const item = storedPosOrderToPayload(row);
@@ -1031,12 +1045,22 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
       const tags = getPosOrderTags(item).toLowerCase();
       if (!tags.includes(tagFilter.toLowerCase())) {
         skipped += 1;
+        skip_reasons.tag_filter_mismatch = (skip_reasons.tag_filter_mismatch || 0) + 1;
         continue;
       }
     }
+    const skipReason = getDashboardTransferSkipReason(item);
+    if (skipReason) {
+      skipped += 1;
+      skip_reasons[skipReason] = (skip_reasons[skipReason] || 0) + 1;
+      continue;
+    }
     const localId = await transferPosOrderToDashboard(db, item.shop_id || shopId, item);
     if (localId) transferred += 1;
-    else skipped += 1;
+    else {
+      skipped += 1;
+      skip_reasons.unknown = (skip_reasons.unknown || 0) + 1;
+    }
   }
 
   return {
@@ -1046,6 +1070,7 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
     scanned: rows.length,
     transferred,
     skipped,
+    skip_reasons,
     tag_filter: tagFilter,
   };
 }
