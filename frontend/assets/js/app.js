@@ -1090,14 +1090,13 @@ function renderHome() {
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Low Stock Items</div><div class="stat-value">${DB.inventory.filter(i => i.stock < i.reorder).length}</div><div class="stat-meta"><span class="stat-badge down">↓ needs reorder</span></div></div>
   </div>
 
-  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px;">
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
     <div class="card">
       <div class="card-header"><div><div class="card-title">Order Status Overview</div><div class="card-subtitle">Last 30 days</div></div></div>
       <div class="card-body" style="padding: 16px;">
         <canvas id="home-donut-chart" height="200"></canvas>
       </div>
     </div>
-    ${renderTimeClockCard()}
     <div class="card">
       <div class="card-header"><div><div class="card-title">Quick Actions</div><div class="card-subtitle">Shortcuts based on your role</div></div></div>
       <div class="card-body">
