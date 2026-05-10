@@ -974,6 +974,7 @@ function renderApiConnections() {
           <button class="btn btn-primary" type="button" onclick="savePancakePosConnection()">Save POS Connection</button>
           <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
           <button class="btn btn-secondary" type="button" id="pancake-pos-sync-button" onclick="collectPancakePosData()">Sync POS Orders</button>
+          <button class="btn btn-secondary" type="button" id="pancake-pos-replay-button" onclick="replayPancakePosOrders()">Transfer POS SQL</button>
         </div>
       </div>
     </section>
@@ -5513,11 +5514,12 @@ async function collectPancakePosData() {
       throw new Error(details || 'Pancake POS returned a partial sync error.');
     }
 
+    const replay = await replayPancakePosOrders({ silent: true });
     const refreshed = getIntegrationState();
     refreshed.pancakePos = {
       ...state.pancakePos,
       lastCollectedAt: new Date().toISOString(),
-      lastCollectionSummary: collectedResources || 'POS orders transferred to SQL',
+      lastCollectionSummary: `${collectedResources || 'POS orders transferred to SQL'}; dashboard:${replay?.transferred || 0}`,
     };
     saveIntegrationState(refreshed);
 
@@ -5530,6 +5532,49 @@ async function collectPancakePosData() {
     if (syncButton) {
       syncButton.disabled = false;
       syncButton.textContent = 'Sync POS Orders';
+    }
+  }
+}
+
+async function replayPancakePosOrders(options = {}) {
+  const state = getIntegrationState();
+  state.pancakePos = collectPancakePosFormState();
+  saveIntegrationState(state);
+  const replayButton = document.getElementById('pancake-pos-replay-button');
+
+  if (!state.pancakePos.shopId) {
+    showToast('warning', 'POS setup required', 'Enter the Pancake POS shop ID first.');
+    return null;
+  }
+
+  try {
+    if (replayButton) {
+      replayButton.disabled = true;
+      replayButton.textContent = 'Transferring...';
+    }
+    if (!options.silent) {
+      showToast('info', 'POS transfer started', 'Re-mapping saved POS SQL orders into dashboard records.');
+    }
+    await syncPancakePosConfigToBackend(state.pancakePos);
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/replay', {
+      method: 'POST',
+      body: JSON.stringify({
+        shop_id: state.pancakePos.shopId,
+        limit: 1000,
+      }),
+    });
+    await refreshOrderViewsFromBackend();
+    if (!options.silent) {
+      showToast('success', 'POS SQL transfer complete', `${data.transferred || 0} transferred, ${data.skipped || 0} skipped.`);
+    }
+    return data;
+  } catch (error) {
+    showToast('error', 'POS transfer failed', error.message || 'Could not transfer saved POS orders to dashboard.');
+    return null;
+  } finally {
+    if (replayButton) {
+      replayButton.disabled = false;
+      replayButton.textContent = 'Transfer POS SQL';
     }
   }
 }

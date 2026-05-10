@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   total_discount REAL,
   note TEXT,
   items_json TEXT,
+  tags_json TEXT,
   partner_json TEXT,
   shipping_address_json TEXT,
   raw_payload TEXT NOT NULL,

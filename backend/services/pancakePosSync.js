@@ -21,6 +21,16 @@ function safeJson(value) {
   return JSON.stringify(value ?? {});
 }
 
+function parseJsonObject(value, fallback = null) {
+  if (!value) return fallback;
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return parsed === null || parsed === undefined ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
 function shouldStoreRawPayloads() {
   return process.env.POS_STORE_RAW_PAYLOADS === 'true';
 }
@@ -327,9 +337,9 @@ async function upsertOrder(db, shopId, item) {
   await db.prepare(`
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
-      customer_email, page_id, shipping_fee, cod, cash, total_discount, note, items_json, partner_json, shipping_address_json, raw_payload
+      customer_email, page_id, shipping_fee, cod, cash, total_discount, note, items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -346,6 +356,7 @@ async function upsertOrder(db, shopId, item) {
       total_discount = excluded.total_discount,
       note = excluded.note,
       items_json = excluded.items_json,
+      tags_json = excluded.tags_json,
       partner_json = excluded.partner_json,
       shipping_address_json = excluded.shipping_address_json,
       raw_payload = excluded.raw_payload,
@@ -367,6 +378,7 @@ async function upsertOrder(db, shopId, item) {
     numberOrNull(item?.total_discount),
     stringOrNull(item?.note),
     safeJson(item?.items || []),
+    safeJson(item?.tags || item?.customer_tags || []),
     safeJson(item?.partner || null),
     safeJson(item?.shipping_address || null),
     rawPayloadForStorage(item)
@@ -976,6 +988,68 @@ async function getCounts(db) {
   };
 }
 
+function storedPosOrderToPayload(row = {}) {
+  const rawPayload = parseJsonObject(row.raw_payload, {});
+  const rawIsUseful = rawPayload && Object.keys(rawPayload).length;
+  return {
+    ...(rawIsUseful ? rawPayload : {}),
+    id: rawPayload?.id || row.external_id,
+    shop_id: rawPayload?.shop_id || row.shop_id,
+    inserted_at: rawPayload?.inserted_at || row.inserted_at_remote,
+    updated_at: rawPayload?.updated_at || row.updated_at_remote,
+    status: rawPayload?.status ?? row.status,
+    status_name: rawPayload?.status_name || row.status_name,
+    bill_full_name: rawPayload?.bill_full_name || row.customer_name,
+    bill_phone_number: rawPayload?.bill_phone_number || row.customer_phone,
+    bill_email: rawPayload?.bill_email || row.customer_email,
+    page_id: rawPayload?.page_id || row.page_id,
+    cod: rawPayload?.cod ?? row.cod,
+    cash: rawPayload?.cash ?? row.cash,
+    note: rawPayload?.note || row.note,
+    items: Array.isArray(rawPayload?.items) ? rawPayload.items : parseJsonObject(row.items_json, []),
+    tags: Array.isArray(rawPayload?.tags) ? rawPayload.tags : parseJsonObject(row.tags_json, []),
+    customer_tags: Array.isArray(rawPayload?.customer_tags) ? rawPayload.customer_tags : [],
+    partner: rawPayload?.partner || parseJsonObject(row.partner_json, null),
+    shipping_address: rawPayload?.shipping_address || parseJsonObject(row.shipping_address_json, null),
+  };
+}
+
+async function replayStoredOrdersToDashboard(db, payload = {}) {
+  const setting = await getSetting(db);
+  const shopId = stringOrNull(payload.shop_id || setting?.page_id);
+  const limit = Math.max(1, Math.min(5000, Number(payload.limit || 1000)));
+  const tagFilter = stringOrNull(payload.tag_filter || payload.tag || payload.only_tag);
+  const rows = shopId
+    ? await db.prepare('SELECT * FROM pos_orders WHERE shop_id = ? ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(shopId, limit)
+    : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(limit);
+  let transferred = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const item = storedPosOrderToPayload(row);
+    if (tagFilter) {
+      const tags = getPosOrderTags(item).toLowerCase();
+      if (!tags.includes(tagFilter.toLowerCase())) {
+        skipped += 1;
+        continue;
+      }
+    }
+    const localId = await transferPosOrderToDashboard(db, item.shop_id || shopId, item);
+    if (localId) transferred += 1;
+    else skipped += 1;
+  }
+
+  return {
+    provider: PROVIDER,
+    mode: 'pos_replay',
+    shop_id: shopId,
+    scanned: rows.length,
+    transferred,
+    skipped,
+    tag_filter: tagFilter,
+  };
+}
+
 async function listShopsFromApi(db, payload = {}) {
   const setting = await getSetting(db);
   const apiKey = stringOrNull(payload.api_key || setting?.api_key);
@@ -1275,6 +1349,7 @@ module.exports = {
   saveSetting,
   listShopsFromApi,
   collectPosData,
+  replayStoredOrdersToDashboard,
   receiveWebhook,
   cleanupMalformedDashboardOrders,
 };

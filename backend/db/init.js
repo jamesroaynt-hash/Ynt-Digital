@@ -56,6 +56,7 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'daily_rate', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   ensureColumn(db, 'orders', 'tags', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'tags_json', 'TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS attendance_records (
@@ -154,6 +155,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'users', 'daily_rate', 'REAL NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'orders', 'source_sheet', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'tags_json', 'TEXT');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
   await db.exec(`
     CREATE TABLE IF NOT EXISTS attendance_records (

@@ -72,6 +72,18 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.post('/pancake-pos/replay', async (req, res) => {
+    try {
+      const result = await posSync.replayStoredOrdersToDashboard(db, req.body || {});
+      res.status(202).json({
+        message: 'Pancake POS SQL orders transferred to dashboard.',
+        ...result,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/google-sheets/collect', async (req, res) => {
     try {
       const result = await googleSheetsSync.collectSheetData(db, req.body || {});
@@ -97,6 +109,7 @@ module.exports = function integrationRoutes(db) {
     '/google-sheets/config',
     '/pancake-pos/shops',
     '/pancake-pos/collect',
+    '/pancake-pos/replay',
     '/google-sheets/collect',
   ], (req, res) => {
     res.status(403).json({ error: 'Administrator access required' });
