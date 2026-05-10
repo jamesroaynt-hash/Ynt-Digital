@@ -1610,7 +1610,8 @@ function renderSales() {
   const delivered = DB.orders.filter((o) => o.status === 'Delivered').length;
   const returned = DB.orders.filter((o) => o.status === 'Returned').length;
   const returning = DB.orders.filter((o) => o.status === 'Returning').length;
-  const totalCOD = DB.orders.reduce((sum, o) => sum + o.cod, 0);
+  const pending = DB.orders.filter((o) => o.status === 'Pending').length;
+  const totalCOD = DB.orders.reduce((sum, o) => sum + Number(o.cod || 0), 0);
   const sourceOptions = getSourceSheetOptions();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
@@ -1629,11 +1630,12 @@ function renderSales() {
     </div>
   </div>
 
-  <div class="stats-grid" style="grid-template-columns: repeat(5, 1fr);" id="sales-summary-cards">
-    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">0</div><div class="stat-meta">Awaiting delivery</div></div>
+  <div class="stats-grid" style="grid-template-columns: repeat(6, 1fr);" id="sales-summary-cards">
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">${shipped}</div><div class="stat-meta">Awaiting delivery</div></div>
     <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta"><span class="stat-badge up">✓ Completed</span></div></div>
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
+    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Pending</div><div class="stat-value">${pending}</div><div class="stat-meta">Needs action</div></div>
     <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">₱${(totalCOD/1000).toFixed(1)}K</div><div class="stat-meta">Total collected</div></div>
   </div>
 
@@ -1655,6 +1657,7 @@ function renderSales() {
         <input type="text" placeholder="Search orders, customers..." id="sales-search" oninput="filterSalesTable()" />
       </div>
       <div class="table-filters" id="sales-filter-group">
+        <button class="filter-pill ${salesFilter === 'all' ? 'active' : ''}" onclick="setSalesFilter('all',this)">All</button>
         <button class="filter-pill ${salesFilter === 'daily' ? 'active' : ''}" onclick="setSalesFilter('daily',this)">Daily</button>
         <button class="filter-pill ${salesFilter === 'weekly' ? 'active' : ''}" onclick="setSalesFilter('weekly',this)">Weekly</button>
         <button class="filter-pill ${salesFilter === 'monthly' ? 'active' : ''}" onclick="setSalesFilter('monthly',this)">Month</button>
@@ -1692,7 +1695,7 @@ function renderSales() {
     <div id="sales-table-wrapper">
       <table id="sales-table">
         <thead><tr>
-          <th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th>
+          <th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th><th>Tags</th>
           <th>Qty</th><th>COD</th><th>Courier</th><th>Status</th>
         </tr></thead>
         <tbody id="sales-tbody"></tbody>
@@ -4384,7 +4387,7 @@ async function deleteManagedUser(userId) {
 
 // ─── SALES TABLE ───────────────────────────────────────────
 let salesPage = 1;
-let salesFilter = 'daily';
+let salesFilter = 'all';
 let salesSearch = '';
 let salesDateFrom = '';
 let salesDateTo = '';
@@ -4411,6 +4414,7 @@ function renderSalesSummaryCards(data) {
   const delivered = data.filter((order) => order.status === 'Delivered').length;
   const returned = data.filter((order) => order.status === 'Returned').length;
   const returning = data.filter((order) => order.status === 'Returning').length;
+  const pending = data.filter((order) => order.status === 'Pending').length;
   const totalCOD = data.reduce((sum, order) => sum + Number(order.cod || 0), 0);
 
   summary.innerHTML = `
@@ -4418,13 +4422,16 @@ function renderSalesSummaryCards(data) {
     <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
+    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Pending</div><div class="stat-value">${pending}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">PHP ${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
 }
 
 function getFilteredSalesOrders() {
   let data = [...DB.orders];
   const today = normalizeDateString(new Date());
-  if (salesFilter === 'daily') {
+  if (salesFilter === 'all') {
+    data = [...DB.orders];
+  } else if (salesFilter === 'daily') {
     data = data.filter((order) => order.date === today);
   } else if (salesFilter === 'weekly') {
     const week = getDateDaysAgo(6);
@@ -4445,10 +4452,11 @@ function getFilteredSalesOrders() {
   if (salesSearch) {
     const q = salesSearch.toLowerCase();
     data = data.filter(o =>
-      o.id.toLowerCase().includes(q) ||
-      o.customer.toLowerCase().includes(q) ||
-      o.product.toLowerCase().includes(q) ||
-      o.tracking.toLowerCase().includes(q) ||
+      String(o.id || '').toLowerCase().includes(q) ||
+      String(o.customer || '').toLowerCase().includes(q) ||
+      String(o.product || '').toLowerCase().includes(q) ||
+      String(o.tags || '').toLowerCase().includes(q) ||
+      String(o.tracking || '').toLowerCase().includes(q) ||
       (o.sourceSheet || '').toLowerCase().includes(q) ||
       (o.courier || '').toLowerCase().includes(q)
     );
@@ -4471,17 +4479,18 @@ function renderSalesTable() {
   const sliced = data.slice((salesPage - 1) * perPage, salesPage * perPage);
 
   tbody.innerHTML = sliced.map(o => `<tr>
-    <td class="font-mono text-xs text-muted">${o.id}</td>
+    <td class="font-mono text-xs text-muted">${escapeHtml(o.id || '')}</td>
     <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
     <td>${escapeHtml(o.sourceSheet || 'Manual')}</td>
     <td>${o.date}</td>
-    <td style="font-weight:500">${o.customer}</td>
-    <td>${o.product}</td>
-    <td>${o.qty}</td>
-    <td>₱${o.cod.toLocaleString()}</td>
-    <td>${o.courier}</td>
+    <td style="font-weight:500">${escapeHtml(o.customer || '')}</td>
+    <td>${escapeHtml(o.product || '')}</td>
+    <td>${escapeHtml(o.tags || '')}</td>
+    <td>${Number(o.qty || 0)}</td>
+    <td>₱${Number(o.cod || 0).toLocaleString()}</td>
+    <td>${escapeHtml(o.courier || '')}</td>
     <td>${statusBadge(o.status)}</td>
-  </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
 
   // Pagination
   const pag = document.getElementById('sales-pagination');
