@@ -587,12 +587,11 @@ function normalizeDateString(value) {
 
 function dashboardStatusFromPos(item) {
   const value = String(item?.status_name || item?.status_text || item?.status || '').toLowerCase();
-  if (value.includes('confirm') || value === '1' || value === '20') return 'Pending';
-  if (value.includes('delivering') || value.includes('out for delivery')) return 'Shipped';
-  if (value.includes('delivered') || value.includes('complete') || value === '4') return 'Delivered';
-  if (value.includes('returning')) return 'Returning';
-  if (value.includes('return') || value.includes('cancel') || value === '5') return 'Returned';
-  if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value === '3') return 'Shipped';
+  if (value.includes('delivered') || value.includes('received') || value.includes('complete') || value === '3') return 'Delivered';
+  if (value.includes('returning') || value === '4') return 'Returning';
+  if (value.includes('return') || value.includes('cancel') || value.includes('removed') || value.includes('deleted') || value === '5' || value === '6' || value === '7' || value === '15') return 'Returned';
+  if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value.includes('pickup') || value.includes('packaging') || value === '2' || value === '8' || value === '9') return 'Shipped';
+  if (value.includes('confirm') || value.includes('purchased') || value === '1' || value === '20') return 'Pending';
   return 'Pending';
 }
 
@@ -818,10 +817,6 @@ function getDashboardTransferSkipReason(item = {}) {
   if (!externalId) return 'missing_external_id';
 
   const summary = getOrderItemsSummary(item);
-  const partner = item?.partner || {};
-  const shippingAddress = item?.shipping_address || {};
-  const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
-  if (!trackingNo) return 'missing_tracking';
   if (!summary.product) return 'missing_product';
   return null;
 }
@@ -835,7 +830,6 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const shippingAddress = item?.shipping_address || {};
   const orderRef = getPosOrderRef(item, externalId);
   const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
-  if (!trackingNo) return null;
   if (!summary.product) return null;
 
   const courier = stringOrNull(
