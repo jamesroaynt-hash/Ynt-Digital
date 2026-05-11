@@ -10,10 +10,10 @@ const App = {
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
   Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
-  HR: ['home', 'attendance', 'hr', 'manage-users', 'expenses', 'view-records'],
-  Trainee: ['home', 'attendance', 'sales', 'csr', 'view-records'],
-  CSR: ['home', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
-  'CSR TL': ['home', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
+  HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'view-records'],
+  Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records'],
+  CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
   Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses'],
@@ -3201,7 +3201,7 @@ function getDefaultPageForCurrentUser() {
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
   const role = normalizeRoleName(App.user.role);
-  return NAV_ACCESS[role] || ['home', 'sales'];
+  return NAV_ACCESS[role] || ['home', 'rts-rate', 'sales'];
 }
 
 function canAccessPage(page) {
