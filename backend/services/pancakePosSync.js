@@ -135,8 +135,17 @@ async function getSetting(db) {
 
 async function saveSetting(db, payload) {
   const current = await getSetting(db);
+  const currentConnections = getSavedConnectionsFromSetting(current);
   const connections = Array.isArray(payload.connections)
-    ? payload.connections.map((connection, index) => normalizeConnection(connection, { name: `POS ${index + 1}` }))
+    ? payload.connections.map((connection, index) => {
+      const shopId = stringOrNull(connection.shop_id || connection.shopId || connection.page_id);
+      const id = stringOrNull(connection.id || connection.connection_id);
+      const existing = currentConnections.find((saved) => (
+        (id && saved.id === id)
+        || (shopId && saved.shop_id === shopId)
+      ));
+      return normalizeConnection(connection, existing || { name: `POS ${index + 1}` });
+    })
       .filter((connection) => connection.api_key && connection.shop_id)
     : null;
   const primaryConnection = connections?.[0] || null;

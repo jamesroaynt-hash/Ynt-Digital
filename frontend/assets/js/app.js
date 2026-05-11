@@ -716,6 +716,7 @@ function getDefaultIntegrationState() {
       syncMode: 'pull_only',
       baseUrl: 'https://pos.pages.fm/api/v1',
       apiKey: '',
+      shopName: '',
       shopId: '',
       connections: [],
       notes: '',
@@ -788,6 +789,7 @@ function mapBackendPosStatusToState(status = {}, previous = {}) {
     syncMode: status.sync_mode || previous.syncMode || 'pull_only',
     baseUrl: status.base_url || previous.baseUrl || 'https://pos.pages.fm/api/v1',
     apiKey: previous.apiKey || '',
+    shopName: connections.find((connection) => connection.id === 'primary')?.name || previous.shopName || '',
     shopId: status.shop_id || previous.shopId || '',
     connections: connections.length ? connections : previousConnections,
     notes: status.notes ?? previous.notes ?? '',
@@ -1040,13 +1042,18 @@ function renderApiConnections() {
             <div class="field-help">Use the key from Pancake POS Webhook - API.</div>
           </div>
           <div class="form-group">
-            <label class="form-label">Shop ID</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" placeholder="Pancake POS shop_id" value="${escapeHtml(posSettings.shopId)}">
-            <div class="field-help">Click Get POS Shops to fill this from the API.</div>
+            <label class="form-label">Page Name</label>
+            <input type="text" class="form-control" id="pancake-pos-shop-name" placeholder="Example: Korean Expert" value="${escapeHtml(posSettings.shopName || '')}">
+            <div class="field-help">This name appears in the Page column instead of Primary POS.</div>
           </div>
         </div>
 
         <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">Shop ID</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" placeholder="Pancake POS shop_id" value="${escapeHtml(posSettings.shopId)}">
+            <div class="field-help">Click Get POS Shops to fill this from the API.</div>
+          </div>
           <div class="form-group">
             <label class="form-label">POS Base URL</label>
             <input type="text" class="form-control mono-input" id="pancake-pos-base-url" placeholder="https://pos.pages.fm/api/v1" value="${escapeHtml(posSettings.baseUrl)}">
@@ -5917,6 +5924,7 @@ function collectGoogleSheetsFormState() {
 function formatPancakePosConnections(connections = []) {
   return connections
     .filter((connection) => connection && (connection.apiKey || connection.api_key || connection.shopId || connection.shop_id))
+    .filter((connection) => connection.id !== 'primary')
     .map((connection) => [
       connection.name || '',
       connection.apiKey || connection.api_key || '',
@@ -5952,19 +5960,21 @@ function collectPancakePosFormState() {
   const syncMode = document.getElementById('pancake-pos-sync-mode')?.value || 'pull_only';
   const baseUrl = (document.getElementById('pancake-pos-base-url')?.value || 'https://pos.pages.fm/api/v1').trim();
   const primaryApiKey = (document.getElementById('pancake-pos-api-key')?.value || '').trim();
+  const primaryShopName = (document.getElementById('pancake-pos-shop-name')?.value || '').trim();
   const primaryShopId = (document.getElementById('pancake-pos-shop-id')?.value || '').trim();
   const extraConnections = parsePancakePosConnections(
     document.getElementById('pancake-pos-connections')?.value || '',
     baseUrl,
     syncMode
   );
-  const primaryConnection = primaryApiKey && primaryShopId ? [{
+  const primaryConnection = primaryShopId && (primaryApiKey || primaryShopName) ? [{
     id: 'primary',
-    name: 'Primary POS',
+    name: primaryShopName || `Shop ${primaryShopId}`,
     enabled: true,
     syncMode,
     baseUrl,
     apiKey: primaryApiKey,
+    shopName: primaryShopName,
     shopId: primaryShopId,
   }] : [];
   return {
@@ -5983,7 +5993,7 @@ function collectPancakePosFormState() {
 
 async function syncPancakePosConfigToBackend(settings) {
   const connectionPayload = (settings.connections || [])
-    .filter((connection) => connection.apiKey || connection.api_key)
+    .filter((connection) => connection.apiKey || connection.api_key || connection.shopId || connection.shop_id || connection.name)
     .map((connection) => ({
       id: connection.id,
       name: connection.name,
@@ -6088,7 +6098,9 @@ async function fetchPancakePosShops() {
 
     const firstShop = shops[0];
     const shopInput = document.getElementById('pancake-pos-shop-id');
+    const nameInput = document.getElementById('pancake-pos-shop-name');
     if (shopInput) shopInput.value = firstShop.id || '';
+    if (nameInput && firstShop.name) nameInput.value = firstShop.name;
     showToast('success', 'POS shops loaded', `Found ${shops.length} shop(s). Filled shop_id with ${firstShop.name || firstShop.id}.`);
   } catch (error) {
     showToast('error', 'Get POS Shops failed', error.message || 'Could not load shops from Pancake POS.');
