@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
   HR: ['home', 'attendance', 'hr', 'manage-users', 'expenses', 'view-records'],
   Trainee: ['home', 'attendance', 'sales', 'csr', 'view-records'],
   CSR: ['home', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
   'CSR TL': ['home', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
-  RMO: ['home', 'attendance', 'sales', 'inventory', 'expenses', 'view-records'],
-  'RMO TL': ['home', 'attendance', 'sales', 'inventory', 'expenses', 'view-records'],
-  Logistics: ['home', 'attendance', 'sales', 'inventory', 'expenses'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'inventory', 'expenses', 'view-records'],
+  RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
+  'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
+  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'rts-rate', 'inventory', 'expenses', 'view-records'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'rts-rate', 'inventory', 'expenses', 'view-records'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -99,6 +99,7 @@ function loadPage(page) {
     hr: renderHR,
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
+    'rts-rate': renderRTSRate,
     scanning: renderScanning,
     'view-records': renderViewRecords,
     'damage-sheets': renderDamageSheets,
@@ -124,6 +125,7 @@ const pageNames = {
   hr: 'HR & Payroll',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
+  'rts-rate': 'RTS Rate',
   scanning: 'Scan Orders',
   'view-records': 'Records',
   'damage-sheets': 'Damage Reports',
@@ -274,6 +276,9 @@ async function refreshOrderViewsFromBackend() {
     }
     if (App.currentPage === 'view-records') {
       renderViewRecordsOrdersTable();
+    }
+    if (App.currentPage === 'rts-rate') {
+      renderRTSRateDashboard();
     }
   } catch (error) {
     if (!App.user && /session expired/i.test(error.message || '')) return;
@@ -1709,6 +1714,161 @@ function renderSales() {
   </div>`;
 }
 
+function renderRTSRate() {
+  const sourceOptions = getSourceSheetOptions();
+  return `
+  <div class="rts-rate-page">
+    <div class="page-header">
+      <div class="page-title"><h1>RTS Rate Dashboard</h1><p>Track delivery, return-to-sender, and COD exposure by sheet.</p></div>
+    </div>
+
+    <div class="rts-filter-bar">
+      <div class="rts-filter-group">
+        <div class="rts-filter-label">Time Filter</div>
+        <div class="table-filters" id="rts-rate-filter-group">
+          <button class="filter-pill ${rtsRateFilter === 'all' ? 'active' : ''}" onclick="setRTSRateFilter('all',this)">All Time</button>
+          <button class="filter-pill ${rtsRateFilter === 'weekly' ? 'active' : ''}" onclick="setRTSRateFilter('weekly',this)">Weekly</button>
+          <button class="filter-pill ${rtsRateFilter === 'monthly' ? 'active' : ''}" onclick="setRTSRateFilter('monthly',this)">Monthly</button>
+          <button class="filter-pill ${rtsRateFilter === 'custom' ? 'active' : ''}" onclick="setRTSRateFilter('custom',this)">Custom Date Range</button>
+        </div>
+      </div>
+      <div class="rts-filter-group rts-sheet-filter">
+        <label class="rts-filter-label" for="rts-rate-source-filter">Sheet Filter</label>
+        <select class="form-control" id="rts-rate-source-filter" onchange="setRTSRateSourceFilter()">
+          <option value="all">All Sheets</option>
+          ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${rtsRateSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="rts-custom-range ${rtsRateFilter === 'custom' ? '' : 'hidden'}" id="rts-rate-custom-range">
+        <input type="date" class="form-control" id="rts-rate-date-from">
+        <input type="date" class="form-control" id="rts-rate-date-to">
+        <button class="btn btn-secondary btn-sm" onclick="applyRTSRateCustomRange()">Apply</button>
+      </div>
+    </div>
+
+    <div id="rts-rate-dashboard"></div>
+  </div>`;
+}
+
+function getOrderStatusKey(status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (['delivered', 'completed'].includes(value)) return 'delivered';
+  if (['returned', 'return to sender', 'rts'].includes(value)) return 'returned';
+  if (['returning', 'for return', 'return in transit'].includes(value)) return 'returning';
+  if (['shipped', 'in transit', 'out for delivery'].includes(value)) return 'shipped';
+  return value;
+}
+
+function getFilteredRTSRateOrders() {
+  let data = [...DB.orders];
+  const today = normalizeDateString(new Date());
+
+  if (rtsRateFilter === 'weekly') {
+    const week = getDateDaysAgo(6);
+    data = data.filter((order) => new Date(order.date) >= week);
+  } else if (rtsRateFilter === 'monthly') {
+    data = data.filter((order) => String(order.date || '').startsWith(today.slice(0, 7)));
+  } else if (rtsRateFilter === 'custom') {
+    if (rtsRateDateFrom) data = data.filter((order) => order.date >= rtsRateDateFrom);
+    if (rtsRateDateTo) data = data.filter((order) => order.date <= rtsRateDateTo);
+  }
+
+  if (rtsRateSourceFilter !== 'all') {
+    data = data.filter((order) => (order.sourceSheet || 'Manual') === rtsRateSourceFilter);
+  }
+
+  return data;
+}
+
+function getRTSRateMetrics() {
+  const orders = getFilteredRTSRateOrders();
+  const counts = { delivered: 0, returned: 0, returning: 0, shipped: 0 };
+  const cod = { total: 0, delivered: 0, lost: 0, shipped: 0 };
+
+  orders.forEach((order) => {
+    const key = getOrderStatusKey(order.status);
+    const amount = Number(order.cod || 0);
+    cod.total += amount;
+
+    if (counts[key] !== undefined) counts[key] += 1;
+    if (key === 'delivered') cod.delivered += amount;
+    if (key === 'returned' || key === 'returning') cod.lost += amount;
+    if (key === 'shipped') cod.shipped += amount;
+  });
+
+  const deliveryBase = counts.delivered + counts.returned + counts.returning;
+  const rtsRate = deliveryBase ? ((counts.returned + counts.returning) / deliveryBase) * 100 : 0;
+  return { orders, counts, cod, deliveryBase, rtsRate };
+}
+
+function formatPercent(value) {
+  return `${Number.isFinite(value) ? value.toFixed(1) : '0.0'}%`;
+}
+
+function formatPeso(value) {
+  return `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function renderRTSMetricCard(label, value, color, total) {
+  const rate = total ? (value / total) * 100 : 0;
+  return `
+    <div class="rts-metric-card ${color}">
+      <div class="stat-label">${label}</div>
+      <div class="rts-metric-value">${Number(value || 0).toLocaleString()}</div>
+      <div class="stat-meta">Delivery Rate: ${formatPercent(rate)}</div>
+    </div>`;
+}
+
+function renderRTSCodCard(label, value, color, subtitle) {
+  return `
+    <div class="rts-cod-card ${color}">
+      <div class="stat-label">${label}</div>
+      <div class="rts-cod-value">${formatPeso(value)}</div>
+      <div class="stat-meta">${subtitle}</div>
+    </div>`;
+}
+
+function renderRTSRateDashboard() {
+  const wrapper = document.getElementById('rts-rate-dashboard');
+  if (!wrapper) return;
+
+  const { orders, counts, cod, deliveryBase, rtsRate } = getRTSRateMetrics();
+  const progress = Math.min(100, Math.max(0, rtsRate));
+
+  wrapper.innerHTML = `
+    <div class="rts-overview-grid">
+      ${renderRTSMetricCard('Delivered Orders', counts.delivered, 'green', orders.length)}
+      ${renderRTSMetricCard('Returned', counts.returned, 'red', orders.length)}
+      ${renderRTSMetricCard('Returning', counts.returning, 'amber', orders.length)}
+      ${renderRTSMetricCard('Shipped', counts.shipped, 'blue', orders.length)}
+      <div class="rts-metric-card yellow">
+        <div class="stat-label">RTS Rate</div>
+        <div class="rts-metric-value">${formatPercent(rtsRate)}</div>
+        <div class="stat-meta">(Returned + Returning) / (Delivered + Returned + Returning)</div>
+        <div class="rts-progress"><span style="width:${progress}%"></span></div>
+      </div>
+    </div>
+
+    <div class="rts-formula-card">
+      <div>
+        <div class="card-title">RTS Rate Formula</div>
+        <div class="card-subtitle">Based on ${deliveryBase.toLocaleString()} delivered, returned, and returning orders.</div>
+      </div>
+      <div class="rts-formula">
+        <span>RTS Rate =</span>
+        <strong>(Returned + Returning) / (Delivered + Returned + Returning) x 100</strong>
+      </div>
+    </div>
+
+    <div class="rts-section-title">Additional COD Metrics</div>
+    <div class="rts-cod-grid">
+      ${renderRTSCodCard('Total COD', cod.total, 'purple', 'All filtered orders')}
+      ${renderRTSCodCard('Total Delivered COD', cod.delivered, 'green', 'Successfully collected')}
+      ${renderRTSCodCard('Lost COD', cod.lost, 'red', 'Returned + Returning')}
+      ${renderRTSCodCard('Shipped COD', cod.shipped, 'blue', 'In transit')}
+    </div>`;
+}
+
 function renderMarketingCenter() {
   const state = getMarketingState();
   const entries = getMarketingMonthEntries(state);
@@ -3055,7 +3215,7 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasOperations = ['daily-pickup', 'rts-scanning', 'scanning'].some((page) => accessiblePages.has(page));
+  const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['view-records', 'damage-sheets'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
@@ -3764,6 +3924,15 @@ function initPage(page) {
     renderSalesTable();
   }
 
+  if (page === 'rts-rate') {
+    const today = new Date().toISOString().split('T')[0];
+    const dateFromInput = document.getElementById('rts-rate-date-from');
+    const dateToInput = document.getElementById('rts-rate-date-to');
+    if (dateFromInput && !dateFromInput.value) dateFromInput.value = today;
+    if (dateToInput && !dateToInput.value) dateToInput.value = today;
+    renderRTSRateDashboard();
+  }
+
   if (page === 'marketing-center') {
     syncMarketingPageMeta();
   }
@@ -4399,6 +4568,10 @@ let salesDateTo = '';
 let salesSourceFilter = 'all';
 let salesYearFilter = 'all';
 let salesMonthFilter = 'all';
+let rtsRateFilter = 'all';
+let rtsRateSourceFilter = 'all';
+let rtsRateDateFrom = '';
+let rtsRateDateTo = '';
 let recordsPage = 1;
 let recordsSearch = '';
 let recordsStatusFilter = 'All';
@@ -4567,6 +4740,26 @@ function setSalesMonthFilter() {
   salesMonthFilter = document.getElementById('sales-month-filter')?.value || 'all';
   salesPage = 1;
   renderSalesTable();
+}
+
+function setRTSRateFilter(filter, btn) {
+  rtsRateFilter = filter;
+  document.querySelectorAll('#rts-rate-filter-group .filter-pill').forEach((pill) => pill.classList.remove('active'));
+  btn?.classList.add('active');
+  const customRange = document.getElementById('rts-rate-custom-range');
+  if (customRange) customRange.classList.toggle('hidden', filter !== 'custom');
+  if (filter !== 'custom') renderRTSRateDashboard();
+}
+
+function setRTSRateSourceFilter() {
+  rtsRateSourceFilter = document.getElementById('rts-rate-source-filter')?.value || 'all';
+  renderRTSRateDashboard();
+}
+
+function applyRTSRateCustomRange() {
+  rtsRateDateFrom = document.getElementById('rts-rate-date-from')?.value || '';
+  rtsRateDateTo = document.getElementById('rts-rate-date-to')?.value || '';
+  renderRTSRateDashboard();
 }
 
 function syncMarketingPageMeta() {
