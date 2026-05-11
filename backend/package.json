@@ -8,7 +8,8 @@
     "dev": "nodemon --exec \"node --experimental-sqlite\" server.js",
     "seed": "node --experimental-sqlite -e \"const Database = require('./db/client'); const { initializeDatabase } = require('./db/init'); const db = new Database('./db/ynt.db'); db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = ON'); initializeDatabase(db); db.close();\"",
     "reset-db": "node -e \"const fs = require('fs'); try { fs.rmSync('./db/ynt.db', { force: true }); } catch {}\" && npm run seed",
-    "migrate:railway": "node --experimental-sqlite scripts/migrate-sqlite-to-postgres.js"
+    "migrate:railway": "node --experimental-sqlite scripts/migrate-sqlite-to-postgres.js",
+    "backup:railway": "node --experimental-sqlite scripts/backup-to-railway-postgres.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",

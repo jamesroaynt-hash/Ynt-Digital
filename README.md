@@ -432,6 +432,7 @@ This repo includes:
 - `.railwayignore` to keep local databases, secrets, and dependencies out of deploy uploads.
 - `backend/db/schema.pg.sql` and `backend/db/seed.pg.sql` for Supabase/Railway Postgres.
 - `backend/scripts/migrate-sqlite-to-postgres.js` to copy local SQLite rows into hosted Postgres.
+- `backend/scripts/backup-to-railway-postgres.js` to copy the current live database into a separate Railway Postgres backup database.
 
 #### 1. Create Railway + Supabase
 
@@ -539,11 +540,39 @@ set SQLITE_PATH=D:\path\to\ynt.db
 npm run migrate:railway
 ```
 
-#### 6. Security checklist
+#### 6. Use a separate Railway Postgres database as backup
+
+Create a second Railway Postgres database for backups only. Do not set this backup URL as `DATABASE_URL`, because `DATABASE_URL` is the live app database.
+
+Set the backup database URL:
+
+```text
+RAILWAY_BACKUP_DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/railway
+POSTGRES_SSL=true
+```
+
+If the live database is local SQLite, leave `DATABASE_URL` empty and run:
+
+```bash
+npm run backup:railway
+```
+
+If the live database is already Postgres, set the live source URL separately and run the same command:
+
+```bash
+set BACKUP_SOURCE_DATABASE_URL=postgresql://USER:PASSWORD@LIVE-HOST:PORT/live-db
+set RAILWAY_BACKUP_DATABASE_URL=postgresql://USER:PASSWORD@BACKUP-HOST:PORT/railway
+npm run backup:railway
+```
+
+The backup command creates/updates the Postgres schema, clears the backup tables, copies all rows from the source, and resets identity sequences. It refuses to run if the source URL and backup URL are the same.
+
+#### 7. Security checklist
 
 - Change the default `admin` and `staff` passwords after first login.
 - Keep `JWT_SECRET` long and private.
 - Use Supabase backups/export before relying on the app as the only live system.
+- Keep `RAILWAY_BACKUP_DATABASE_URL` private and separate from `DATABASE_URL`.
 - Keep `R2_SECRET_ACCESS_KEY` only in Railway/backend environment variables.
 - If using a custom domain through Cloudflare, add the Railway custom-domain CNAME/TXT records exactly as Railway shows them.
 

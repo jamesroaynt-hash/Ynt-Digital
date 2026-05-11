@@ -50,6 +50,7 @@ let salesBarChart = null;
 let salesDonutChart = null;
 let homeDonutChart = null;
 let homeRtsBarChart = null;
+let integrationsBackendHydrated = false;
 
 // ─── ROUTER / PAGE LOADER ──────────────────────────────────
 function navigateTo(page) {
@@ -760,6 +761,77 @@ function getIntegrationState() {
 
 function saveIntegrationState(nextState) {
   localStorage.setItem(INTEGRATION_STORAGE_KEY, JSON.stringify(nextState));
+}
+
+function mapBackendPosStatusToState(status = {}, previous = {}) {
+  const previousConnections = Array.isArray(previous.connections) ? previous.connections : [];
+  const backendConnections = Array.isArray(status.connections) ? status.connections : [];
+  const connections = backendConnections.map((connection, index) => {
+    const saved = previousConnections.find((item) => (
+      (item.id && item.id === connection.id)
+      || ((item.shopId || item.shop_id) && (item.shopId || item.shop_id) === connection.shop_id)
+    )) || {};
+    return {
+      id: connection.id || saved.id || `pos-${index + 1}`,
+      name: connection.name || saved.name || `POS ${index + 1}`,
+      enabled: connection.enabled ?? saved.enabled ?? true,
+      syncMode: connection.sync_mode || saved.syncMode || saved.sync_mode || status.sync_mode || 'pull_only',
+      baseUrl: connection.base_url || saved.baseUrl || saved.base_url || status.base_url || 'https://pos.pages.fm/api/v1',
+      apiKey: saved.apiKey || saved.api_key || '',
+      shopId: connection.shop_id || saved.shopId || saved.shop_id || '',
+      notes: connection.notes || saved.notes || '',
+    };
+  });
+  return {
+    ...previous,
+    enabled: Boolean(status.enabled),
+    syncMode: status.sync_mode || previous.syncMode || 'pull_only',
+    baseUrl: status.base_url || previous.baseUrl || 'https://pos.pages.fm/api/v1',
+    apiKey: previous.apiKey || '',
+    shopId: status.shop_id || previous.shopId || '',
+    connections: connections.length ? connections : previousConnections,
+    notes: status.notes ?? previous.notes ?? '',
+    updatedAt: status.updated_at || previous.updatedAt || null,
+  };
+}
+
+function mapBackendGoogleStatusToState(status = {}, previous = {}) {
+  return {
+    ...previous,
+    enabled: Boolean(status.enabled),
+    syncMode: status.sync_mode || previous.syncMode || 'manual',
+    spreadsheetId: status.spreadsheet_id || previous.spreadsheetId || '',
+    sheetName: status.sheet_name || previous.sheetName || 'Orders',
+    syncIntervalMinutes: status.sync_interval_ms
+      ? String(Math.max(1, Math.round(Number(status.sync_interval_ms) / 60000)))
+      : previous.syncIntervalMinutes || '5',
+    notes: status.notes ?? previous.notes ?? '',
+    updatedAt: status.updated_at || previous.updatedAt || null,
+  };
+}
+
+async function hydrateIntegrationStateFromBackend() {
+  if (integrationsBackendHydrated || !canManageAccounts()) return;
+  integrationsBackendHydrated = true;
+
+  try {
+    const [posStatus, googleStatus] = await Promise.all([
+      authorizedJsonRequest('/integrations/pancake-pos/status'),
+      authorizedJsonRequest('/integrations/google-sheets/status'),
+    ]);
+    const current = getIntegrationState();
+    const next = {
+      ...current,
+      pancakePos: mapBackendPosStatusToState(posStatus, current.pancakePos),
+      googleSheets: mapBackendGoogleStatusToState(googleStatus, current.googleSheets),
+    };
+    saveIntegrationState(next);
+    if (App.currentPage === 'api-connections') {
+      loadPage('api-connections');
+    }
+  } catch (error) {
+    console.warn('[integrations] Could not load saved backend settings:', error.message || error);
+  }
 }
 
 function getPancakePosPublicApiBase() {
@@ -2838,7 +2910,6 @@ function renderViewRecords() {
   const sourceOptions = getSourceSheetOptions();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
-  const dashboardStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
   const posStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
   return `
   <div class="page-header">
@@ -2902,14 +2973,6 @@ function renderViewRecords() {
           </div>
         </div>
         <div class="records-filter-row records-chip-row">
-          <div class="records-chip-group">
-            <div class="records-filter-label">Status</div>
-            <div class="table-filters" id="rec-orders-status-filters">
-              ${dashboardStatusOptions.map((s,i) =>
-                `<button class="filter-pill ${recordsStatusFilter === s || (!recordsStatusFilter && i===0) ? 'active' : ''}" onclick="setRecordsStatusFilter('${s}',this)">${s}</button>`
-              ).join('')}
-            </div>
-          </div>
           <div class="records-chip-group">
             <div class="records-filter-label">POS Status</div>
             <div class="table-filters" id="rec-orders-pos-status-filters">
@@ -3979,6 +4042,10 @@ function initPage(page) {
     if (canManageAccounts()) loadManagedUsers();
   }
 
+  if (page === 'api-connections') {
+    hydrateIntegrationStateFromBackend();
+  }
+
   if (page === 'hr') {
     initHRPage();
   }
@@ -4597,7 +4664,6 @@ let rtsRateDateFrom = '';
 let rtsRateDateTo = '';
 let recordsPage = 1;
 let recordsSearch = '';
-let recordsStatusFilter = 'All';
 let recordsPosStatusFilter = 'All';
 let recordsProductFilter = 'all';
 let recordsDateFilter = 'all';
@@ -5199,10 +5265,6 @@ function getFilteredViewRecordOrders() {
   let data = [...DB.orders];
   const today = normalizeDateString(new Date());
 
-  if (recordsStatusFilter !== 'All') {
-    data = data.filter((order) => order.status === recordsStatusFilter);
-  }
-
   if (recordsPosStatusFilter !== 'All') {
     const posStatus = recordsPosStatusFilter.toLowerCase();
     data = data.filter((order) =>
@@ -5460,14 +5522,6 @@ async function deleteOrderRecord(orderId) {
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete order.');
   }
-}
-
-function setRecordsStatusFilter(status, btn) {
-  recordsStatusFilter = status;
-  recordsPage = 1;
-  document.querySelectorAll('#rec-orders-status-filters .filter-pill').forEach((pill) => pill.classList.remove('active'));
-  btn.classList.add('active');
-  renderViewRecordsOrdersTable();
 }
 
 function setRecordsPosStatusFilter(status, btn) {
@@ -5928,43 +5982,49 @@ function collectPancakePosFormState() {
 }
 
 async function syncPancakePosConfigToBackend(settings) {
+  const connectionPayload = (settings.connections || [])
+    .filter((connection) => connection.apiKey || connection.api_key)
+    .map((connection) => ({
+      id: connection.id,
+      name: connection.name,
+      enabled: connection.enabled,
+      sync_mode: connection.syncMode || connection.sync_mode || settings.syncMode,
+      base_url: connection.baseUrl || connection.base_url || settings.baseUrl,
+      api_key: connection.apiKey || connection.api_key,
+      shop_id: connection.shopId || connection.shop_id,
+      notes: connection.notes || '',
+    }));
+  const payload = {
+    enabled: settings.enabled,
+    base_url: settings.baseUrl,
+    page_id: settings.shopId || undefined,
+    sync_mode: settings.syncMode,
+    notes: settings.notes,
+  };
+  if (settings.apiKey) payload.api_key = settings.apiKey;
+  if (connectionPayload.length) payload.connections = connectionPayload;
+
   return authorizedJsonRequest('/integrations/pancake-pos/config', {
     method: 'POST',
-    body: JSON.stringify({
-      enabled: settings.enabled,
-      base_url: settings.baseUrl,
-      api_key: settings.apiKey,
-      shop_id: settings.shopId,
-      page_id: settings.shopId,
-      sync_mode: settings.syncMode,
-      connections: (settings.connections || []).map((connection) => ({
-        id: connection.id,
-        name: connection.name,
-        enabled: connection.enabled,
-        sync_mode: connection.syncMode || connection.sync_mode || settings.syncMode,
-        base_url: connection.baseUrl || connection.base_url || settings.baseUrl,
-        api_key: connection.apiKey || connection.api_key,
-        shop_id: connection.shopId || connection.shop_id,
-        notes: connection.notes || '',
-      })),
-      notes: settings.notes,
-    }),
+    body: JSON.stringify(payload),
   });
 }
 
 async function syncGoogleSheetsConfigToBackend(settings) {
+  const payload = {
+    enabled: settings.enabled,
+    spreadsheet_id: settings.spreadsheetId,
+    sheet_name: settings.sheetName,
+    sync_mode: settings.syncMode,
+    sync_interval_ms: Math.max(1, Number(settings.syncIntervalMinutes || 5)) * 60 * 1000,
+    notes: settings.notes,
+  };
+  if (settings.serviceAccountEmail) payload.service_account_email = settings.serviceAccountEmail;
+  if (settings.privateKey && settings.privateKey.trim()) payload.private_key = settings.privateKey;
+
   return authorizedJsonRequest('/integrations/google-sheets/config', {
     method: 'POST',
-    body: JSON.stringify({
-      enabled: settings.enabled,
-      spreadsheet_id: settings.spreadsheetId,
-      sheet_name: settings.sheetName,
-      service_account_email: settings.serviceAccountEmail,
-      private_key: settings.privateKey,
-      sync_mode: settings.syncMode,
-      sync_interval_ms: Math.max(1, Number(settings.syncIntervalMinutes || 5)) * 60 * 1000,
-      notes: settings.notes,
-    }),
+    body: JSON.stringify(payload),
   });
 }
 

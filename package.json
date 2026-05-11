@@ -7,7 +7,8 @@
     "start": "node --experimental-sqlite backend/server.js",
     "vercel-build": "node --experimental-sqlite --check backend/server.js",
     "railway-build": "node --experimental-sqlite --check backend/server.js",
-    "migrate:railway": "node --experimental-sqlite backend/scripts/migrate-sqlite-to-postgres.js"
+    "migrate:railway": "node --experimental-sqlite backend/scripts/migrate-sqlite-to-postgres.js",
+    "backup:railway": "node --experimental-sqlite backend/scripts/backup-to-railway-postgres.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",

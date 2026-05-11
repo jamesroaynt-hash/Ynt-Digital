@@ -348,7 +348,7 @@ async function upsertShop(db, item) {
     INSERT INTO pos_shops (external_id, name, avatar_url, pages_json, link_post_marketer_json, raw_payload)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
-      name = excluded.name,
+      name = COALESCE(excluded.name, pos_shops.name),
       avatar_url = excluded.avatar_url,
       pages_json = excluded.pages_json,
       link_post_marketer_json = excluded.link_post_marketer_json,
@@ -969,6 +969,15 @@ async function findStoredPageName(db, shopId, pageId) {
     || stringOrNull(shop.name);
 }
 
+async function findSavedConnectionName(db, shopId) {
+  const target = stringOrNull(shopId);
+  if (!target) return null;
+
+  const connections = getSavedConnectionsFromSetting(await getSetting(db));
+  const match = connections.find((connection) => stringOrNull(connection.shop_id) === target);
+  return stringOrNull(match?.name);
+}
+
 async function getResolvedPosOrderSourceName(db, shopId, item) {
   const page = item?.page || item?.fanpage || item?.facebook_page || {};
   const directPageName = stringOrNull(
@@ -988,7 +997,8 @@ async function getResolvedPosOrderSourceName(db, shopId, item) {
     item?.fb_page_id
   );
   const pageName = await findStoredPageName(db, shopId, pageId);
-  return pageName || getPosOrderSourceName(shopId, item);
+  const connectionName = await findSavedConnectionName(db, shopId);
+  return pageName || connectionName || getPosOrderSourceName(shopId, item);
 }
 
 function getDashboardTransferSkipReason(item = {}) {

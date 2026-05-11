@@ -107,10 +107,21 @@ function ordersRoutes(db) {
       : null;
     const pages = parseJsonObject(shop?.pages_json, []);
     const shopPayload = parseJsonObject(shop?.raw_payload, {});
+    const setting = await db.prepare(`
+      SELECT user_access_token
+      FROM integration_settings
+      WHERE provider = 'pancake_pos'
+      LIMIT 1
+    `).get();
+    const savedConnections = parseJsonObject(setting?.user_access_token, []);
+    const connection = Array.isArray(savedConnections)
+      ? savedConnections.find((item) => stringOrNull(item?.shop_id || item?.shopId || item?.page_id) === shopId)
+      : null;
     return findPageNameById({ pages }, pageId)
       || findPageNameById(shopPayload, pageId)
       || getPageName(rawPayload?.page || rawPayload?.fanpage || rawPayload?.facebook_page || rawPayload?.fb_page)
       || stringOrNull(shop?.name)
+      || stringOrNull(connection?.name || connection?.label)
       || rawSource;
   }
 
