@@ -6357,10 +6357,10 @@ async function init() {
   loginScreen.innerHTML = '';
   shell.style.display = 'flex';
   refreshCurrentUserChip();
-  await refreshOrderViewsFromBackend();
-  await refreshInventoryViewFromBackend();
 
   navigateTo(getDefaultPageForCurrentUser());
+  refreshOrderViewsFromBackend();
+  refreshInventoryViewFromBackend();
 }
 
 window.addEventListener('DOMContentLoaded', init);
