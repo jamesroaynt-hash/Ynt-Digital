@@ -6430,9 +6430,11 @@ async function init() {
   shell.style.display = 'flex';
   refreshCurrentUserChip();
 
+  await Promise.allSettled([
+    refreshOrdersFromBackend(),
+    refreshInventoryFromBackend(),
+  ]);
   navigateTo(getDefaultPageForCurrentUser());
-  refreshOrderViewsFromBackend();
-  refreshInventoryViewFromBackend();
 }
 
 window.addEventListener('DOMContentLoaded', init);
