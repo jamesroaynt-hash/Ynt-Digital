@@ -250,6 +250,19 @@ async function createApp() {
         console.log(`[pancake_pos] ${trigger} sync skipped: integration is disabled.`);
         return;
       }
+      const savedConnections = await pancakePosSync.getSavedConnections(db);
+      const automaticConnections = savedConnections.filter((connection) => (
+        connection.enabled !== false
+        && connection.api_key
+        && connection.shop_id
+        && connection.sync_mode === 'automatic'
+      ));
+      if (trigger !== 'manual' && automaticConnections.length) {
+        const result = await pancakePosSync.collectPosData(db, { connections: automaticConnections });
+        backupScheduler.schedule();
+        console.log(`[pancake_pos] ${trigger} multi-sync completed: connections=${automaticConnections.length}`);
+        return result;
+      }
       if (status.sync_mode === 'manual_backup') {
         console.log(`[pancake_pos] ${trigger} sync skipped: sync mode is manual backup only.`);
         return;

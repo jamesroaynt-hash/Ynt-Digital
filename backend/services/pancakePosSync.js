@@ -31,6 +31,59 @@ function parseJsonObject(value, fallback = null) {
   }
 }
 
+function parseSavedConnections(value) {
+  const parsed = parseJsonObject(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function normalizeConnection(value = {}, fallback = {}) {
+  const apiKey = stringOrNull(value.api_key || value.apiKey || fallback.api_key);
+  const shopId = stringOrNull(value.shop_id || value.shopId || value.page_id || fallback.shop_id);
+  return {
+    id: stringOrNull(value.id || value.connection_id || value.name || shopId) || `pos-${Date.now()}`,
+    name: stringOrNull(value.name || value.label || fallback.name) || (shopId ? `POS ${shopId}` : 'Pancake POS'),
+    enabled: value.enabled ?? fallback.enabled ?? true,
+    sync_mode: stringOrNull(value.sync_mode || value.syncMode || fallback.sync_mode) || 'pull_only',
+    base_url: stringOrNull(value.base_url || value.baseUrl || fallback.base_url) || POS_API_BASE,
+    api_key: apiKey,
+    shop_id: shopId,
+    notes: stringOrNull(value.notes || fallback.notes) || '',
+  };
+}
+
+function getSavedConnectionsFromSetting(setting) {
+  if (!setting) return [];
+  const saved = parseSavedConnections(setting.user_access_token)
+    .map((connection) => normalizeConnection(connection))
+    .filter((connection) => connection.api_key && connection.shop_id);
+  if (saved.length) return saved;
+
+  const legacy = normalizeConnection({
+    id: 'default',
+    name: 'Default POS',
+    enabled: Boolean(setting.enabled),
+    sync_mode: setting.sync_mode,
+    base_url: setting.base_url,
+    api_key: setting.api_key,
+    shop_id: setting.page_id,
+    notes: setting.notes,
+  });
+  return legacy.api_key && legacy.shop_id ? [legacy] : [];
+}
+
+function publicConnection(connection) {
+  return {
+    id: connection.id,
+    name: connection.name,
+    enabled: Boolean(connection.enabled),
+    sync_mode: connection.sync_mode,
+    base_url: connection.base_url,
+    shop_id: connection.shop_id,
+    has_api_key: Boolean(connection.api_key),
+    notes: connection.notes || '',
+  };
+}
+
 function shouldStoreRawPayloads() {
   return process.env.POS_STORE_RAW_PAYLOADS === 'true';
 }
@@ -82,17 +135,23 @@ async function getSetting(db) {
 
 async function saveSetting(db, payload) {
   const current = await getSetting(db);
+  const connections = Array.isArray(payload.connections)
+    ? payload.connections.map((connection, index) => normalizeConnection(connection, { name: `POS ${index + 1}` }))
+      .filter((connection) => connection.api_key && connection.shop_id)
+    : null;
+  const primaryConnection = connections?.[0] || null;
   const next = {
-    enabled: payload.enabled ?? current?.enabled ?? 0,
-    base_url: payload.base_url ?? current?.base_url ?? POS_API_BASE,
-    api_key: payload.api_key ?? current?.api_key ?? null,
+    enabled: payload.enabled ?? primaryConnection?.enabled ?? current?.enabled ?? 0,
+    base_url: payload.base_url ?? primaryConnection?.base_url ?? current?.base_url ?? POS_API_BASE,
+    api_key: payload.api_key ?? primaryConnection?.api_key ?? current?.api_key ?? null,
     user_access_token: payload.user_access_token ?? current?.user_access_token ?? null,
-    page_id: payload.page_id ?? current?.page_id ?? null,
+    page_id: payload.page_id ?? primaryConnection?.shop_id ?? current?.page_id ?? null,
     page_access_token: payload.page_access_token ?? current?.page_access_token ?? null,
     webhook_secret: payload.webhook_secret ?? current?.webhook_secret ?? null,
-    sync_mode: payload.sync_mode ?? current?.sync_mode ?? 'pull_only',
+    sync_mode: payload.sync_mode ?? primaryConnection?.sync_mode ?? current?.sync_mode ?? 'pull_only',
     notes: payload.notes ?? current?.notes ?? null,
   };
+  if (connections) next.user_access_token = safeJson(connections);
 
   if (current) {
     await db.prepare(`
@@ -147,8 +206,11 @@ async function getPublicSetting(db) {
       notes: null,
       shop_id: null,
       has_api_key: false,
+      connections: [],
+      connection_count: 0,
     };
   }
+  const connections = getSavedConnectionsFromSetting(setting);
 
   return {
     provider: PROVIDER,
@@ -159,8 +221,14 @@ async function getPublicSetting(db) {
     notes: setting.notes,
     shop_id: setting.page_id || null,
     has_api_key: Boolean(setting.api_key),
+    connections: connections.map(publicConnection),
+    connection_count: connections.length,
     updated_at: setting.updated_at,
   };
+}
+
+async function getSavedConnections(db) {
+  return getSavedConnectionsFromSetting(await getSetting(db));
 }
 
 async function startRun(db, triggerType, payloadSummary) {
@@ -1229,6 +1297,44 @@ async function firstSuccessfulCollection(fetchers) {
 }
 
 async function collectPosData(db, payload = {}) {
+  if (Array.isArray(payload.connections) && payload.connections.length) {
+    const connections = payload.connections
+      .map((connection, index) => normalizeConnection(connection, { name: `POS ${index + 1}` }))
+      .filter((connection) => connection.enabled !== false && connection.api_key && connection.shop_id);
+    const result = {
+      provider: PROVIDER,
+      mode: 'pos_collect_multi',
+      connections: [],
+      resources: {},
+      failed_resources: [],
+    };
+    for (const connection of connections) {
+      const connectionResult = await collectPosData(db, {
+        ...payload,
+        connections: undefined,
+        api_key: connection.api_key,
+        base_url: connection.base_url,
+        shop_id: connection.shop_id,
+        connection_name: connection.name,
+        skip_save: true,
+      });
+      result.connections.push({
+        name: connection.name,
+        shop_id: connection.shop_id,
+        resources: connectionResult.resources,
+        failed_resources: connectionResult.failed_resources,
+      });
+      Object.entries(connectionResult.resources || {}).forEach(([resource, details]) => {
+        result.resources[resource] = { count: (result.resources[resource]?.count || 0) + Number(details.count || 0) };
+      });
+      result.failed_resources.push(...(connectionResult.failed_resources || []).map((failure) => ({
+        ...failure,
+        connection: connection.name,
+      })));
+    }
+    return result;
+  }
+
   const setting = await getSetting(db);
   const apiKey = stringOrNull(payload.api_key || setting?.api_key);
   const shopId = stringOrNull(payload.shop_id || setting?.page_id);
@@ -1246,7 +1352,9 @@ async function collectPosData(db, payload = {}) {
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
   };
 
-  await saveSetting(db, { ...setting, api_key: apiKey, page_id: shopId, base_url: baseUrl });
+  if (!payload.skip_save) {
+    await saveSetting(db, { ...setting, api_key: apiKey, page_id: shopId, base_url: baseUrl });
+  }
 
   const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
   const result = {
@@ -1254,6 +1362,7 @@ async function collectPosData(db, payload = {}) {
     provider: PROVIDER,
     mode: 'pos_collect',
     shop_id: shopId,
+    connection_name: stringOrNull(payload.connection_name),
     resources: {},
     sql_tables: {},
     failed_resources: [],
@@ -1481,6 +1590,7 @@ module.exports = {
   POS_API_BASE,
   getStatus,
   getPublicSetting,
+  getSavedConnections,
   saveSetting,
   listShopsFromApi,
   collectPosData,

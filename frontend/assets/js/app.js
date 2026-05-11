@@ -716,6 +716,7 @@ function getDefaultIntegrationState() {
       baseUrl: 'https://pos.pages.fm/api/v1',
       apiKey: '',
       shopId: '',
+      connections: [],
       notes: '',
       lastSavedAt: null,
       lastCollectedAt: null,
@@ -993,6 +994,12 @@ function renderApiConnections() {
         <div class="form-group">
           <label class="form-label">Internal Notes</label>
           <textarea class="form-control" id="pancake-pos-notes" rows="3" placeholder="Example: Main Pancake POS shop.">${escapeHtml(posSettings.notes)}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Additional POS Accounts</label>
+          <textarea class="form-control mono-input" id="pancake-pos-connections" rows="5" placeholder="Name | API Key | Shop ID | Base URL&#10;Korean Expert | api_xxx | 123456 | https://pos.pages.fm/api/v1">${escapeHtml(formatPancakePosConnections(posSettings.connections || []))}</textarea>
+          <div class="field-help">One POS account per line. The main API Key and Shop ID above are also included as the first connection.</div>
         </div>
 
         <div class="integration-actions">
@@ -5853,14 +5860,66 @@ function collectGoogleSheetsFormState() {
   };
 }
 
+function formatPancakePosConnections(connections = []) {
+  return connections
+    .filter((connection) => connection && (connection.apiKey || connection.api_key || connection.shopId || connection.shop_id))
+    .map((connection) => [
+      connection.name || '',
+      connection.apiKey || connection.api_key || '',
+      connection.shopId || connection.shop_id || '',
+      connection.baseUrl || connection.base_url || '',
+    ].join(' | '))
+    .join('\n');
+}
+
+function parsePancakePosConnections(text = '', fallbackBaseUrl = 'https://pos.pages.fm/api/v1', fallbackSyncMode = 'pull_only') {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line, index) => {
+      const parts = line.split('|').map((part) => part.trim());
+      if (parts.length < 3) return null;
+      const [name, apiKey, shopId, baseUrl] = parts;
+      if (!apiKey || !shopId) return null;
+      return {
+        id: `${normalizeText(name || shopId) || 'pos'}-${index + 1}`,
+        name: name || `POS ${index + 1}`,
+        enabled: true,
+        syncMode: fallbackSyncMode,
+        baseUrl: baseUrl || fallbackBaseUrl,
+        apiKey,
+        shopId,
+      };
+    })
+    .filter(Boolean);
+}
+
 function collectPancakePosFormState() {
   const previous = getIntegrationState().pancakePos;
+  const syncMode = document.getElementById('pancake-pos-sync-mode')?.value || 'pull_only';
+  const baseUrl = (document.getElementById('pancake-pos-base-url')?.value || 'https://pos.pages.fm/api/v1').trim();
+  const primaryApiKey = (document.getElementById('pancake-pos-api-key')?.value || '').trim();
+  const primaryShopId = (document.getElementById('pancake-pos-shop-id')?.value || '').trim();
+  const extraConnections = parsePancakePosConnections(
+    document.getElementById('pancake-pos-connections')?.value || '',
+    baseUrl,
+    syncMode
+  );
+  const primaryConnection = primaryApiKey && primaryShopId ? [{
+    id: 'primary',
+    name: 'Primary POS',
+    enabled: true,
+    syncMode,
+    baseUrl,
+    apiKey: primaryApiKey,
+    shopId: primaryShopId,
+  }] : [];
   return {
     enabled: Boolean(document.getElementById('pancake-pos-enabled')?.checked),
-    syncMode: document.getElementById('pancake-pos-sync-mode')?.value || 'pull_only',
-    baseUrl: (document.getElementById('pancake-pos-base-url')?.value || 'https://pos.pages.fm/api/v1').trim(),
-    apiKey: (document.getElementById('pancake-pos-api-key')?.value || '').trim(),
-    shopId: (document.getElementById('pancake-pos-shop-id')?.value || '').trim(),
+    syncMode,
+    baseUrl,
+    apiKey: primaryApiKey,
+    shopId: primaryShopId,
+    connections: [...primaryConnection, ...extraConnections],
     notes: (document.getElementById('pancake-pos-notes')?.value || '').trim(),
     lastSavedAt: new Date().toISOString(),
     lastCollectedAt: previous.lastCollectedAt || null,
@@ -5878,6 +5937,16 @@ async function syncPancakePosConfigToBackend(settings) {
       shop_id: settings.shopId,
       page_id: settings.shopId,
       sync_mode: settings.syncMode,
+      connections: (settings.connections || []).map((connection) => ({
+        id: connection.id,
+        name: connection.name,
+        enabled: connection.enabled,
+        sync_mode: connection.syncMode || connection.sync_mode || settings.syncMode,
+        base_url: connection.baseUrl || connection.base_url || settings.baseUrl,
+        api_key: connection.apiKey || connection.api_key,
+        shop_id: connection.shopId || connection.shop_id,
+        notes: connection.notes || '',
+      })),
       notes: settings.notes,
     }),
   });
@@ -5972,8 +6041,8 @@ async function collectPancakePosData() {
   saveIntegrationState(state);
   const syncButton = document.getElementById('pancake-pos-sync-button');
 
-  if (!state.pancakePos.apiKey || !state.pancakePos.shopId) {
-    showToast('warning', 'POS setup required', 'Enter the Pancake POS API key and shop ID first.');
+  if (!state.pancakePos.connections.length) {
+    showToast('warning', 'POS setup required', 'Enter at least one Pancake POS API key and shop ID first.');
     return;
   }
 
@@ -5991,6 +6060,7 @@ async function collectPancakePosData() {
         api_key: state.pancakePos.apiKey,
         base_url: state.pancakePos.baseUrl,
         shop_id: state.pancakePos.shopId,
+        connections: state.pancakePos.connections,
         resources: ['orders'],
         page_size: 50,
         max_pages: 50,
@@ -6008,12 +6078,13 @@ async function collectPancakePosData() {
       throw new Error(details || 'Pancake POS returned a partial sync error.');
     }
 
-    const replay = await replayPancakePosOrders({ silent: true });
     const refreshed = getIntegrationState();
     refreshed.pancakePos = {
       ...state.pancakePos,
       lastCollectedAt: new Date().toISOString(),
-      lastCollectionSummary: `${collectedResources || 'POS orders transferred to SQL'}; dashboard:${replay?.transferred || 0}`,
+      lastCollectionSummary: data.connections?.length
+        ? `${data.connections.length} POS account(s) synced`
+        : `${collectedResources || 'POS orders transferred to SQL'}`,
     };
     saveIntegrationState(refreshed);
 
