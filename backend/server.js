@@ -244,12 +244,18 @@ async function createApp() {
   }
 
   async function runPancakePosSync(trigger) {
-    if (process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') return;
-
     try {
       const status = await pancakePosSync.getStatus(db);
       if (!status.enabled) {
         console.log(`[pancake_pos] ${trigger} sync skipped: integration is disabled.`);
+        return;
+      }
+      if (status.sync_mode === 'manual_backup') {
+        console.log(`[pancake_pos] ${trigger} sync skipped: sync mode is manual backup only.`);
+        return;
+      }
+      if (trigger !== 'manual' && status.sync_mode !== 'automatic' && process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') {
+        console.log(`[pancake_pos] ${trigger} sync skipped: automatic sync mode is not enabled.`);
         return;
       }
       if (!status.has_api_key || !status.shop_id) {
@@ -269,8 +275,6 @@ async function createApp() {
   }
 
   function schedulePancakePosSync() {
-    if (process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') return;
-
     setTimeout(async () => {
       await runPancakePosSync('interval');
       schedulePancakePosSync();

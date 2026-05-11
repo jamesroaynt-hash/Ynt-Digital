@@ -983,9 +983,10 @@ function renderApiConnections() {
             <label class="form-label">Sync Mode</label>
             <select class="form-control" id="pancake-pos-sync-mode">
               <option value="pull_only" ${posSettings.syncMode === 'pull_only' ? 'selected' : ''}>Pull API to SQL</option>
+              <option value="automatic" ${posSettings.syncMode === 'automatic' ? 'selected' : ''}>Automatic every few minutes</option>
               <option value="manual_backup" ${posSettings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
             </select>
-            <div class="field-help">Sync POS Data transfers order results into POS SQL and dashboard orders.</div>
+            <div class="field-help">Automatic mode pulls POS orders into SQL and dashboard orders on the server interval.</div>
           </div>
         </div>
 
