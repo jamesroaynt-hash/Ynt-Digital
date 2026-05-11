@@ -4600,6 +4600,12 @@ let homeOrderFilter = 'all';
 let homeSourceFilter = 'all';
 let homeDateFrom = '';
 let homeDateTo = '';
+const HOME_STATUS_CHART_ITEMS = [
+  { status: 'Delivered', color: '#10b981' },
+  { status: 'Shipped', color: '#f59e0b' },
+  { status: 'Returning', color: '#fca5a5' },
+  { status: 'Returned', color: '#ef4444' },
+];
 
 function getFilteredHomeOrders() {
   let data = [...DB.orders];
@@ -4634,20 +4640,21 @@ function getHomeFilterLabel() {
 }
 
 function getStatusDistribution(orders) {
-  return orders.reduce((map, order) => {
-    const status = order.status || 'Unknown';
-    map[status] = (map[status] || 0) + 1;
-    return map;
-  }, {});
+  const counts = {};
+  HOME_STATUS_CHART_ITEMS.forEach((item) => {
+    counts[item.status] = orders.filter((order) => order.status === item.status).length;
+  });
+  return counts;
 }
 
 function getHomeRtsDistribution(orders) {
-  const labels = ['Delivered', 'Returned', 'Returning', 'Shipped'];
+  const labels = HOME_STATUS_CHART_ITEMS.map((item) => item.status);
   const counts = labels.map((status) => orders.filter((order) => order.status === status).length);
   const total = counts.reduce((sum, count) => sum + count, 0);
   return {
     labels,
     counts,
+    colors: HOME_STATUS_CHART_ITEMS.map((item) => item.color),
     percentages: counts.map((count) => total ? Number(((count / total) * 100).toFixed(1)) : 0),
   };
 }
@@ -4669,7 +4676,7 @@ function renderHomeOrderCharts() {
         labels: Object.keys(statusCounts),
         datasets: [{
           data: Object.values(statusCounts),
-          backgroundColor: ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#64748b', '#14b8a6'],
+          backgroundColor: HOME_STATUS_CHART_ITEMS.map((item) => item.color),
           borderWidth: 0,
         }]
       },
@@ -4693,7 +4700,7 @@ function renderHomeOrderCharts() {
         datasets: [{
           label: 'Percentage',
           data: rts.percentages,
-          backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6'],
+          backgroundColor: rts.colors,
           borderRadius: 6,
         }]
       },
