@@ -1943,6 +1943,42 @@ tbody td {
   .rts-cod-grid { grid-template-columns: 1fr; }
 }
 
+.home-chart-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 16px 0;
+}
+
+.home-sheet-filter {
+  width: 160px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.home-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.home-custom-range .form-control {
+  width: 145px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .home-chart-filters,
+  .home-sheet-filter,
+  .home-custom-range,
+  .home-custom-range .form-control {
+    width: 100%;
+  }
+}
+
 @media print {
   .sidebar, .topbar, .page-header .page-actions, #toast-container { display: none !important; }
   .main-content { margin-left: 0; }

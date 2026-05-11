@@ -48,6 +48,8 @@ const DEFAULT_COURIER_OPTIONS = ['J&T Express', 'Ninja Van', 'LBC', '2GO', 'Flas
 let authMode = 'login';
 let salesBarChart = null;
 let salesDonutChart = null;
+let homeDonutChart = null;
+let homeRtsBarChart = null;
 
 // ─── ROUTER / PAGE LOADER ──────────────────────────────────
 function navigateTo(page) {
@@ -279,6 +281,9 @@ async function refreshOrderViewsFromBackend() {
     }
     if (App.currentPage === 'rts-rate') {
       renderRTSRateDashboard();
+    }
+    if (App.currentPage === 'home') {
+      loadPage('home');
     }
   } catch (error) {
     if (!App.user && /session expired/i.test(error.message || '')) return;
@@ -1078,10 +1083,10 @@ function renderApiConnections() {
 
 // ─── RENDER: HOME ──────────────────────────────────────────
 function renderHome() {
-  const quickActions = getHomeQuickActions();
   const total = DB.orders.length;
   const delivered = DB.orders.filter(o => o.status === 'Delivered').length;
   const totalCOD = DB.orders.reduce((s, o) => s + o.cod, 0);
+  const sourceOptions = getSourceSheetOptions();
 
 
   const productGalleryItems = [
@@ -1113,22 +1118,34 @@ function renderHome() {
 
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
     <div class="card">
-      <div class="card-header"><div><div class="card-title">Order Status Overview</div><div class="card-subtitle">Last 30 days</div></div></div>
+      <div class="card-header">
+        <div><div class="card-title">Order Status Overview</div><div class="card-subtitle" id="home-status-subtitle">Filtered order data</div></div>
+      </div>
+      <div class="home-chart-filters">
+        <div class="table-filters" id="home-order-filter-group">
+          <button class="filter-pill ${homeOrderFilter === 'all' ? 'active' : ''}" onclick="setHomeOrderFilter('all',this)">All Time</button>
+          <button class="filter-pill ${homeOrderFilter === 'weekly' ? 'active' : ''}" onclick="setHomeOrderFilter('weekly',this)">Weekly</button>
+          <button class="filter-pill ${homeOrderFilter === 'monthly' ? 'active' : ''}" onclick="setHomeOrderFilter('monthly',this)">Monthly</button>
+          <button class="filter-pill ${homeOrderFilter === 'custom' ? 'active' : ''}" onclick="setHomeOrderFilter('custom',this)">Custom</button>
+        </div>
+        <select class="form-control home-sheet-filter" id="home-source-filter" onchange="setHomeSourceFilter()">
+          <option value="all">All Sheets</option>
+          ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${homeSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+        </select>
+        <div class="home-custom-range ${homeOrderFilter === 'custom' ? '' : 'hidden'}" id="home-custom-range">
+          <input type="date" class="form-control" id="home-date-from">
+          <input type="date" class="form-control" id="home-date-to">
+          <button class="btn btn-secondary btn-sm" onclick="applyHomeCustomRange()">Apply</button>
+        </div>
+      </div>
       <div class="card-body" style="padding: 16px;">
         <canvas id="home-donut-chart" height="200"></canvas>
       </div>
     </div>
     <div class="card">
-      <div class="card-header"><div><div class="card-title">Quick Actions</div><div class="card-subtitle">Shortcuts based on your role</div></div></div>
-      <div class="card-body">
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-          ${quickActions.map(([icon, label, page]) => `
-            <button onclick="navigateTo('${page}')" class="btn btn-secondary" style="justify-content:flex-start; padding:14px; height:auto; flex-direction:column; align-items:flex-start; gap:6px;">
-              <span style="font-size:20px">${icon}</span>
-              <span style="font-size:13px; font-weight:500; color:var(--text-primary)">${label}</span>
-            </button>
-          `).join('')}
-        </div>
+      <div class="card-header"><div><div class="card-title">RTS Percentage</div><div class="card-subtitle">Delivered, returned, returning, and shipped</div></div></div>
+      <div class="card-body" style="padding: 16px;">
+        <canvas id="home-rts-bar-chart" height="200"></canvas>
       </div>
     </div>
   </div>
@@ -3847,16 +3864,7 @@ function initCharts(page) {
   Chart.defaults.color = '#94a3b8';
 
   if (page === 'home') {
-    const statusCounts = {};
-    DB.orders.forEach(o => { statusCounts[o.status] = (statusCounts[o.status]||0) + 1; });
-    new Chart(document.getElementById('home-donut-chart'), {
-      type: 'doughnut',
-      data: {
-        labels: Object.keys(statusCounts),
-        datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#3b82f6','#10b981','#ef4444','#f59e0b','#6b7280'], borderWidth: 0 }]
-      },
-      options: { responsive:true, maintainAspectRatio:true, plugins: { legend: { position:'right' } }, cutout: '65%' }
-    });
+    renderHomeOrderCharts();
   }
 
   if (page === 'sales') {
@@ -3908,6 +3916,11 @@ function initPage(page) {
   setTimeout(() => initCharts(page), 50);
 
   if (page === 'home') {
+    const today = new Date().toISOString().split('T')[0];
+    const homeDateFromInput = document.getElementById('home-date-from');
+    const homeDateToInput = document.getElementById('home-date-to');
+    if (homeDateFromInput && !homeDateFromInput.value) homeDateFromInput.value = today;
+    if (homeDateToInput && !homeDateToInput.value) homeDateToInput.value = today;
     loadTimeClockStatus();
   }
 
@@ -4583,6 +4596,151 @@ let recordsDateTo = '';
 let recordsSourceFilter = 'all';
 let recordsYearFilter = 'all';
 let recordsMonthFilter = 'all';
+let homeOrderFilter = 'all';
+let homeSourceFilter = 'all';
+let homeDateFrom = '';
+let homeDateTo = '';
+
+function getFilteredHomeOrders() {
+  let data = [...DB.orders];
+  const today = normalizeDateString(new Date());
+
+  if (homeOrderFilter === 'weekly') {
+    const week = getDateDaysAgo(6);
+    data = data.filter((order) => new Date(order.date) >= week);
+  } else if (homeOrderFilter === 'monthly') {
+    data = data.filter((order) => String(order.date || '').startsWith(today.slice(0, 7)));
+  } else if (homeOrderFilter === 'custom') {
+    if (homeDateFrom) data = data.filter((order) => order.date >= homeDateFrom);
+    if (homeDateTo) data = data.filter((order) => order.date <= homeDateTo);
+  }
+
+  if (homeSourceFilter !== 'all') {
+    data = data.filter((order) => (order.sourceSheet || 'Manual') === homeSourceFilter);
+  }
+
+  return data;
+}
+
+function getHomeFilterLabel() {
+  const filterLabels = {
+    all: 'All time',
+    weekly: 'Last 7 days',
+    monthly: 'This month',
+    custom: homeDateFrom || homeDateTo ? `${homeDateFrom || 'Start'} to ${homeDateTo || 'Today'}` : 'Custom range',
+  };
+  const sheetLabel = homeSourceFilter === 'all' ? 'All sheets' : homeSourceFilter;
+  return `${filterLabels[homeOrderFilter] || 'All time'} - ${sheetLabel}`;
+}
+
+function getStatusDistribution(orders) {
+  return orders.reduce((map, order) => {
+    const status = order.status || 'Unknown';
+    map[status] = (map[status] || 0) + 1;
+    return map;
+  }, {});
+}
+
+function getHomeRtsDistribution(orders) {
+  const labels = ['Delivered', 'Returned', 'Returning', 'Shipped'];
+  const counts = labels.map((status) => orders.filter((order) => order.status === status).length);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  return {
+    labels,
+    counts,
+    percentages: counts.map((count) => total ? Number(((count / total) * 100).toFixed(1)) : 0),
+  };
+}
+
+function renderHomeOrderCharts() {
+  if (typeof Chart === 'undefined') return;
+
+  const orders = getFilteredHomeOrders();
+  const subtitle = document.getElementById('home-status-subtitle');
+  if (subtitle) subtitle.textContent = `${getHomeFilterLabel()} - ${orders.length.toLocaleString()} orders`;
+
+  const donutCanvas = document.getElementById('home-donut-chart');
+  if (donutCanvas) {
+    const statusCounts = getStatusDistribution(orders);
+    if (homeDonutChart) homeDonutChart.destroy();
+    homeDonutChart = new Chart(donutCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(statusCounts),
+        datasets: [{
+          data: Object.values(statusCounts),
+          backgroundColor: ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#64748b', '#14b8a6'],
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { position: 'right' } },
+        cutout: '65%',
+      }
+    });
+  }
+
+  const barCanvas = document.getElementById('home-rts-bar-chart');
+  if (barCanvas) {
+    const rts = getHomeRtsDistribution(orders);
+    if (homeRtsBarChart) homeRtsBarChart.destroy();
+    homeRtsBarChart = new Chart(barCanvas, {
+      type: 'bar',
+      data: {
+        labels: rts.labels,
+        datasets: [{
+          label: 'Percentage',
+          data: rts.percentages,
+          backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6'],
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.parsed.y}% (${rts.counts[context.dataIndex].toLocaleString()} orders)`,
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            grid: { color: '#f1f5f9' },
+            ticks: { callback: (value) => `${value}%` },
+          },
+          x: { grid: { display: false } },
+        }
+      }
+    });
+  }
+}
+
+function setHomeOrderFilter(filter, btn) {
+  homeOrderFilter = filter;
+  document.querySelectorAll('#home-order-filter-group .filter-pill').forEach((pill) => pill.classList.remove('active'));
+  btn?.classList.add('active');
+  const customRange = document.getElementById('home-custom-range');
+  if (customRange) customRange.classList.toggle('hidden', filter !== 'custom');
+  if (filter !== 'custom') renderHomeOrderCharts();
+}
+
+function setHomeSourceFilter() {
+  homeSourceFilter = document.getElementById('home-source-filter')?.value || 'all';
+  renderHomeOrderCharts();
+}
+
+function applyHomeCustomRange() {
+  homeDateFrom = document.getElementById('home-date-from')?.value || '';
+  homeDateTo = document.getElementById('home-date-to')?.value || '';
+  renderHomeOrderCharts();
+}
 
 function renderSalesSummaryCards(data) {
   const summary = document.getElementById('sales-summary-cards');
