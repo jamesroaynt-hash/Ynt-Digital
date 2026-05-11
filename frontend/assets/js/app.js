@@ -1139,12 +1139,14 @@ function renderHome() {
         </div>
       </div>
       <div class="card-body" style="padding: 16px;">
+        <div class="empty-state hidden" id="home-donut-empty" style="padding:24px;"><h3>No matching orders</h3><p>Try another period or sheet filter.</p></div>
         <canvas id="home-donut-chart" height="200"></canvas>
       </div>
     </div>
     <div class="card">
       <div class="card-header"><div><div class="card-title">RTS Percentage</div><div class="card-subtitle">Delivered, returned, returning, and shipped</div></div></div>
       <div class="card-body" style="padding: 16px;">
+        <div class="empty-state hidden" id="home-rts-empty" style="padding:24px;"><h3>No delivery status data</h3><p>Delivered, shipped, returning, or returned orders will appear here.</p></div>
         <canvas id="home-rts-bar-chart" height="200"></canvas>
       </div>
     </div>
@@ -4601,10 +4603,10 @@ let homeSourceFilter = 'all';
 let homeDateFrom = '';
 let homeDateTo = '';
 const HOME_STATUS_CHART_ITEMS = [
-  { status: 'Delivered', color: '#10b981' },
-  { status: 'Shipped', color: '#f59e0b' },
-  { status: 'Returning', color: '#fca5a5' },
-  { status: 'Returned', color: '#ef4444' },
+  { status: 'Delivered', key: 'delivered', color: '#10b981' },
+  { status: 'Shipped', key: 'shipped', color: '#f59e0b' },
+  { status: 'Returning', key: 'returning', color: '#fca5a5' },
+  { status: 'Returned', key: 'returned', color: '#ef4444' },
 ];
 
 function getFilteredHomeOrders() {
@@ -4642,14 +4644,16 @@ function getHomeFilterLabel() {
 function getStatusDistribution(orders) {
   const counts = {};
   HOME_STATUS_CHART_ITEMS.forEach((item) => {
-    counts[item.status] = orders.filter((order) => order.status === item.status).length;
+    counts[item.status] = orders.filter((order) => getOrderStatusKey(order.status) === item.key).length;
   });
   return counts;
 }
 
 function getHomeRtsDistribution(orders) {
   const labels = HOME_STATUS_CHART_ITEMS.map((item) => item.status);
-  const counts = labels.map((status) => orders.filter((order) => order.status === status).length);
+  const counts = HOME_STATUS_CHART_ITEMS.map((item) => (
+    orders.filter((order) => getOrderStatusKey(order.status) === item.key).length
+  ));
   const total = counts.reduce((sum, count) => sum + count, 0);
   return {
     labels,
@@ -4669,8 +4673,12 @@ function renderHomeOrderCharts() {
   const donutCanvas = document.getElementById('home-donut-chart');
   if (donutCanvas) {
     const statusCounts = getStatusDistribution(orders);
+    const donutTotal = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+    const donutEmpty = document.getElementById('home-donut-empty');
+    if (donutEmpty) donutEmpty.classList.toggle('hidden', donutTotal > 0);
+    donutCanvas.style.display = donutTotal > 0 ? '' : 'none';
     if (homeDonutChart) homeDonutChart.destroy();
-    homeDonutChart = new Chart(donutCanvas, {
+    homeDonutChart = donutTotal > 0 ? new Chart(donutCanvas, {
       type: 'doughnut',
       data: {
         labels: Object.keys(statusCounts),
@@ -4686,14 +4694,18 @@ function renderHomeOrderCharts() {
         plugins: { legend: { position: 'right' } },
         cutout: '65%',
       }
-    });
+    }) : null;
   }
 
   const barCanvas = document.getElementById('home-rts-bar-chart');
   if (barCanvas) {
     const rts = getHomeRtsDistribution(orders);
+    const rtsTotal = rts.counts.reduce((sum, count) => sum + count, 0);
+    const rtsEmpty = document.getElementById('home-rts-empty');
+    if (rtsEmpty) rtsEmpty.classList.toggle('hidden', rtsTotal > 0);
+    barCanvas.style.display = rtsTotal > 0 ? '' : 'none';
     if (homeRtsBarChart) homeRtsBarChart.destroy();
-    homeRtsBarChart = new Chart(barCanvas, {
+    homeRtsBarChart = rtsTotal > 0 ? new Chart(barCanvas, {
       type: 'bar',
       data: {
         labels: rts.labels,
@@ -4725,7 +4737,7 @@ function renderHomeOrderCharts() {
           x: { grid: { display: false } },
         }
       }
-    });
+    }) : null;
   }
 }
 
