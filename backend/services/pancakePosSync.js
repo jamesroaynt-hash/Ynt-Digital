@@ -1066,7 +1066,6 @@ async function cleanupMalformedDashboardOrders(db) {
     AND (
       product = 'Pancake POS Order'
       OR source_sheet LIKE 'Pancake POS%'
-      OR source_sheet LIKE 'Shop %'
       OR tracking_no LIKE 'Pancake POS%'
       OR tracking_no LIKE 'Shop %'
     )

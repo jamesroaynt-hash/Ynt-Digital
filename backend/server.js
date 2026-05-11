@@ -150,7 +150,7 @@ async function createApp() {
 
   await initializeDatabaseAsync(db);
   console.log('[database] Schema initialized.');
-  if (process.env.POS_CLEAN_MALFORMED_ORDERS !== 'false') {
+  if (process.env.POS_CLEAN_MALFORMED_ORDERS === 'true') {
     const cleaned = await pancakePosSync.cleanupMalformedDashboardOrders(db);
     if (cleaned) {
       console.log(`[pancake_pos] Removed ${cleaned} malformed dashboard order(s).`);
