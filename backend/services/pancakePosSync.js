@@ -814,6 +814,115 @@ function getPosOrderSourceName(shopId, item) {
   return sourceName || (shopId ? `Shop ${shopId}` : 'Pancake POS');
 }
 
+function getNestedValues(value, keys = []) {
+  const matches = [];
+  const seen = new Set();
+  const keySet = new Set(keys);
+
+  function visit(node) {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+
+    Object.entries(node).forEach(([key, entry]) => {
+      if (keySet.has(key)) matches.push(entry);
+      visit(entry);
+    });
+  }
+
+  visit(value);
+  return matches;
+}
+
+function getPageNameFromPayload(page) {
+  return stringOrNull(
+    page?.name ||
+    page?.page_name ||
+    page?.fanpage_name ||
+    page?.facebook_page_name ||
+    page?.fb_page_name ||
+    page?.label ||
+    page?.title
+  );
+}
+
+function getPageIdFromPayload(page) {
+  return stringOrNull(
+    page?.id ||
+    page?.page_id ||
+    page?.fanpage_id ||
+    page?.facebook_page_id ||
+    page?.fb_page_id
+  );
+}
+
+function findPageNameById(payload, pageId) {
+  const target = stringOrNull(pageId);
+  if (!target) return null;
+
+  const candidates = [
+    payload?.pages,
+    payload?.page,
+    payload?.fanpage,
+    payload?.facebook_page,
+    payload?.fb_page,
+    payload?.data,
+    ...getNestedValues(payload, ['pages', 'page', 'fanpage', 'facebook_page', 'fb_page']),
+  ];
+
+  for (const candidate of candidates) {
+    const list = Array.isArray(candidate) ? candidate : [candidate];
+    for (const page of list) {
+      if (!page || typeof page !== 'object') continue;
+      if (getPageIdFromPayload(page) === target) {
+        const name = getPageNameFromPayload(page);
+        if (name) return name;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function findStoredPageName(db, shopId, pageId) {
+  const shop = shopId
+    ? await db.prepare('SELECT name, pages_json, raw_payload FROM pos_shops WHERE external_id = ? LIMIT 1').get(shopId)
+    : null;
+  if (!shop) return null;
+
+  const pages = parseJsonObject(shop.pages_json, []);
+  const rawPayload = parseJsonObject(shop.raw_payload, {});
+  return findPageNameById({ pages }, pageId)
+    || findPageNameById(rawPayload, pageId)
+    || stringOrNull(shop.name);
+}
+
+async function getResolvedPosOrderSourceName(db, shopId, item) {
+  const page = item?.page || item?.fanpage || item?.facebook_page || {};
+  const directPageName = stringOrNull(
+    item?.page_name ||
+    item?.fanpage_name ||
+    item?.facebook_page_name ||
+    item?.fb_page_name ||
+    page?.name ||
+    page?.page_name
+  );
+  if (directPageName) return directPageName;
+
+  const pageId = stringOrNull(
+    item?.page_id ||
+    item?.fanpage_id ||
+    item?.facebook_page_id ||
+    item?.fb_page_id
+  );
+  const pageName = await findStoredPageName(db, shopId, pageId);
+  return pageName || getPosOrderSourceName(shopId, item);
+}
+
 function getDashboardTransferSkipReason(item = {}) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return 'missing_external_id';
@@ -846,7 +955,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const phone = getPosCustomerPhone(item, shippingAddress);
   const tags = getPosOrderTags(item);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
-  const sourceName = getPosOrderSourceName(shopId, item);
+  const sourceName = await getResolvedPosOrderSourceName(db, shopId, item);
   const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)

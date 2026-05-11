@@ -6,6 +6,123 @@ function ordersRoutes(db) {
   const r = express.Router();
   const allowedStatuses = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending']);
 
+  function parseJsonObject(value, fallback = null) {
+    if (!value) return fallback;
+    try {
+      const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+      return parsed === null || parsed === undefined ? fallback : parsed;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function stringOrNull(value) {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text ? text : null;
+  }
+
+  function getPageName(page) {
+    return stringOrNull(
+      page?.name ||
+      page?.page_name ||
+      page?.fanpage_name ||
+      page?.facebook_page_name ||
+      page?.fb_page_name ||
+      page?.label ||
+      page?.title
+    );
+  }
+
+  function getPageId(page) {
+    return stringOrNull(
+      page?.id ||
+      page?.page_id ||
+      page?.fanpage_id ||
+      page?.facebook_page_id ||
+      page?.fb_page_id
+    );
+  }
+
+  function findPageNameById(payload, pageId) {
+    const target = stringOrNull(pageId);
+    if (!target || !payload || typeof payload !== 'object') return null;
+    const seen = new Set();
+
+    function visit(node) {
+      if (!node || typeof node !== 'object' || seen.has(node)) return null;
+      seen.add(node);
+
+      if (Array.isArray(node)) {
+        for (const entry of node) {
+          const match = visit(entry);
+          if (match) return match;
+        }
+        return null;
+      }
+
+      if (getPageId(node) === target) {
+        const name = getPageName(node);
+        if (name) return name;
+      }
+
+      for (const value of Object.values(node)) {
+        const match = visit(value);
+        if (match) return match;
+      }
+      return null;
+    }
+
+    return visit(payload);
+  }
+
+  async function resolvePancakeSourceName(order) {
+    const rawSource = stringOrNull(order?.source_sheet);
+    const shopMatch = rawSource?.match(/^Shop\s+(.+)$/i);
+    if (!shopMatch) return rawSource;
+
+    const link = await db.prepare(`
+      SELECT external_id
+      FROM integration_source_links
+      WHERE provider = 'pancake_pos'
+        AND entity_type = 'orders'
+        AND local_table = 'orders'
+        AND local_id = ?
+      LIMIT 1
+    `).get(String(order.id));
+    const posOrder = link?.external_id
+      ? await db.prepare('SELECT shop_id, page_id, raw_payload FROM pos_orders WHERE external_id = ? LIMIT 1').get(link.external_id)
+      : null;
+    const rawPayload = parseJsonObject(posOrder?.raw_payload, {});
+    const shopId = stringOrNull(posOrder?.shop_id || rawPayload?.shop_id || shopMatch[1]);
+    const pageId = stringOrNull(
+      posOrder?.page_id ||
+      rawPayload?.page_id ||
+      rawPayload?.fanpage_id ||
+      rawPayload?.facebook_page_id ||
+      rawPayload?.fb_page_id
+    );
+    const shop = shopId
+      ? await db.prepare('SELECT name, pages_json, raw_payload FROM pos_shops WHERE external_id = ? LIMIT 1').get(shopId)
+      : null;
+    const pages = parseJsonObject(shop?.pages_json, []);
+    const shopPayload = parseJsonObject(shop?.raw_payload, {});
+    return findPageNameById({ pages }, pageId)
+      || findPageNameById(shopPayload, pageId)
+      || getPageName(rawPayload?.page || rawPayload?.fanpage || rawPayload?.facebook_page || rawPayload?.fb_page)
+      || stringOrNull(shop?.name)
+      || rawSource;
+  }
+
+  async function normalizeOrderPageNames(rows = []) {
+    const normalized = [];
+    for (const row of rows) {
+      const sourceName = await resolvePancakeSourceName(row);
+      normalized.push(sourceName && sourceName !== row.source_sheet ? { ...row, source_sheet: sourceName } : row);
+    }
+    return normalized;
+  }
+
   function cleanOrder(row = {}, index = 0) {
     return {
       order_ref: String(row.order_ref || row.id || `IMP-${Date.now()}-${index + 1}`).trim(),
@@ -83,7 +200,8 @@ function ordersRoutes(db) {
     sql += ' ORDER BY order_date DESC LIMIT ? OFFSET ?';
     params.push(parseInt(per_page), (parseInt(page)-1)*parseInt(per_page));
 
-    res.json({ data: await db.prepare(sql).all(...params), total, page: parseInt(page), per_page: parseInt(per_page) });
+    const rows = await db.prepare(sql).all(...params);
+    res.json({ data: await normalizeOrderPageNames(rows), total, page: parseInt(page), per_page: parseInt(per_page) });
   });
 
   r.get('/stats', async (req, res) => {
