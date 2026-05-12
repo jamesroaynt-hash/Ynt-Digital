@@ -268,7 +268,10 @@ async function refreshOrdersFromBackend() {
 }
 
 async function ensureOrdersLoadedForPage(page) {
-  if (DB.orders.length) return true;
+  if (DB.orders.length) {
+    if (App.currentPage === page) renderPageOrderData(page);
+    return true;
+  }
   if (!ordersLoadPromise) {
     ordersLoadPromise = refreshOrdersFromBackend().finally(() => {
       ordersLoadPromise = null;
@@ -278,6 +281,13 @@ async function ensureOrdersLoadedForPage(page) {
   const refreshed = await ordersLoadPromise;
   if (refreshed && App.currentPage === page) loadPage(page);
   return refreshed;
+}
+
+function renderPageOrderData(page) {
+  if (page === 'sales') renderSalesTable();
+  if (page === 'view-records') renderViewRecordsOrdersTable();
+  if (page === 'home') renderHomeOrderCharts();
+  if (page === 'rts-rate') renderRTSRateDashboard();
 }
 
 async function refreshOrderStatsFromBackend() {
@@ -4959,6 +4969,13 @@ function renderSalesTable() {
 
   renderSalesSummaryCards(data);
 
+  if (!DB.orders.length && ordersLoadPromise) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
+    const pag = document.getElementById('sales-pagination');
+    if (pag) pag.innerHTML = '<span>Loading orders...</span>';
+    return;
+  }
+
   const total = data.length;
   const pages = Math.max(1, Math.ceil(total / perPage));
   const sliced = data.slice((salesPage - 1) * perPage, salesPage * perPage);
@@ -5398,6 +5415,13 @@ function renderPaginationButtons(currentPage, totalPages, onClickName) {
 function renderViewRecordsOrdersTable() {
   const tbody = document.getElementById('rec-orders-tbody');
   if (!tbody) return;
+  const pagination = document.getElementById('records-pagination');
+
+  if (!DB.orders.length && ordersLoadPromise) {
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
+    if (pagination) pagination.innerHTML = '<span>Loading orders...</span>';
+    return;
+  }
 
   const perPage = 10;
   const records = getFilteredViewRecordOrders();
@@ -5426,7 +5450,6 @@ function renderViewRecordsOrdersTable() {
     </td>
   </tr>`).join('') || '<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
 
-  const pagination = document.getElementById('records-pagination');
   if (pagination) {
     const start = records.length ? ((recordsPage - 1) * perPage) + 1 : 0;
     const end = Math.min(recordsPage * perPage, records.length);
