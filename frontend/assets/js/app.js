@@ -312,6 +312,23 @@ async function refreshInventoryFromBackend() {
   return true;
 }
 
+async function refreshPosRawOrdersFromBackend() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+
+  const query = new URLSearchParams({
+    completeness: posRawCompletenessFilter,
+    tag: posRawTagFilter,
+    search: posRawSearch,
+    page: String(posRawPage),
+    per_page: '25',
+    _: String(Date.now()),
+  });
+  const result = await authorizedJsonRequest(`/orders/pos-raw?${query.toString()}`);
+  DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
+  DB.posRawTotal = Number(result?.total || 0);
+  return true;
+}
+
 async function refreshOrderViewsFromBackend() {
   try {
     const refreshed = await refreshOrdersFromBackend();
@@ -435,6 +452,8 @@ function handleLogout() {
 const DB = {
   orders: [],
   orderStats: null,
+  posRawOrders: [],
+  posRawTotal: 0,
   csrRecords: loadCsrRecords(),
   inventory: [],
   expenses: [],
@@ -2984,6 +3003,7 @@ function renderViewRecords() {
 
   <div class="tabs" id="records-tabs">
     <button class="tab-btn active" onclick="switchTab(this,'rec-orders')">Orders (${DB.orders.length})</button>
+    <button class="tab-btn" onclick="switchTab(this,'rec-pos-raw'); renderPosRawOrdersTable();">POS Raw (${DB.posRawTotal})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
@@ -3080,6 +3100,42 @@ function renderViewRecords() {
         </tbody>
       </table>
       <div class="table-pagination" id="records-pagination"><span>Showing ${DB.orders.length} orders</span></div>
+    </div>
+  </div>
+
+  <div id="rec-pos-raw" class="tab-content">
+    <div class="table-container">
+      <div class="records-filter-panel">
+        <div class="records-filter-row records-filter-primary">
+          <div class="records-filter-field">
+            <label class="records-filter-label" for="rec-pos-completeness">Data quality</label>
+            <select class="form-control records-product-filter" id="rec-pos-completeness" onchange="filterPosRawOrders()">
+              ${[
+                ['incomplete', 'Incomplete only'],
+                ['all', 'All POS orders'],
+                ['complete', 'Mapped to dashboard'],
+                ['missing_product', 'Missing product/items'],
+                ['missing_customer', 'Missing customer'],
+              ].map(([value, label]) => `<option value="${value}" ${posRawCompletenessFilter === value ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label" for="rec-pos-tag">Pancake tag contains</label>
+            <input class="form-control" id="rec-pos-tag" value="${escapeHtml(posRawTagFilter)}" placeholder="e.g. waiting, shipped" oninput="filterPosRawOrders()">
+          </div>
+          <div class="records-filter-field records-search-field">
+            <label class="records-filter-label" for="rec-pos-search">Search</label>
+            <input class="form-control" id="rec-pos-search" value="${escapeHtml(posRawSearch)}" placeholder="Customer, phone, POS id..." oninput="filterPosRawOrders()">
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>POS ID</th><th>Shop</th><th>Customer</th><th>Phone</th><th>Status</th><th>Tags</th><th>Items</th><th>COD</th><th>Updated</th><th>Quality</th></tr></thead>
+        <tbody id="rec-pos-raw-tbody">
+          <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading raw POS orders...</td></tr>
+        </tbody>
+      </table>
+      <div class="table-pagination" id="pos-raw-pagination"><span>Loading raw POS orders...</span></div>
     </div>
   </div>
 
@@ -4098,6 +4154,12 @@ function initPage(page) {
     ensureOrdersLoadedForPage('view-records').catch((error) => {
       showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
     });
+    refreshPosRawOrdersFromBackend()
+      .then(renderPosRawOrdersTable)
+      .catch((error) => {
+        const tbody = document.getElementById('rec-pos-raw-tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger)">Raw POS load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+      });
   }
 
   if (page === 'manage-users') {
@@ -4734,6 +4796,10 @@ let recordsDateTo = '';
 let recordsSourceFilter = 'all';
 let recordsYearFilter = 'all';
 let recordsMonthFilter = 'all';
+let posRawCompletenessFilter = 'incomplete';
+let posRawTagFilter = '';
+let posRawSearch = '';
+let posRawPage = 1;
 let homeOrderFilter = 'all';
 let homeSourceFilter = 'all';
 let homeDateFrom = '';
@@ -5468,6 +5534,69 @@ function changeRecordsPage(page) {
   if (page < 1 || page > pages) return;
   recordsPage = page;
   renderViewRecordsOrdersTable();
+}
+
+function renderPosRawOrdersTable() {
+  const tbody = document.getElementById('rec-pos-raw-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = DB.posRawOrders.map((order) => {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const tags = Array.isArray(order.tags) ? order.tags : [];
+    const quality = order.complete
+      ? '<span class="badge badge-success">Mapped</span>'
+      : order.missing_product
+        ? '<span class="badge badge-warning">Missing product</span>'
+        : order.missing_customer
+          ? '<span class="badge badge-warning">Missing customer</span>'
+          : '<span class="badge badge-gray">Raw only</span>';
+    return `<tr>
+      <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}</td>
+      <td>${escapeHtml(order.shop_id || '')}</td>
+      <td style="font-weight:500">${escapeHtml(order.customer_name || '')}</td>
+      <td class="font-mono text-xs">${escapeHtml(order.customer_phone || '')}</td>
+      <td>${escapeHtml(order.status_name || '')}</td>
+      <td>${escapeHtml(tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || '')).filter(Boolean).join(', '))}</td>
+      <td>${escapeHtml(items.map((item) => item?.name || item?.product_name || item?.variation_name || item?.variation_info?.name || '').filter(Boolean).slice(0, 2).join(', '))}</td>
+      <td>PHP ${Number(order.cod || order.cash || 0).toLocaleString()}</td>
+      <td>${escapeHtml((order.updated_at_remote || order.updated_at || '').slice(0, 10))}</td>
+      <td>${quality}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No raw POS orders match the selected filters.</td></tr>';
+
+  const pagination = document.getElementById('pos-raw-pagination');
+  if (pagination) {
+    const perPage = 25;
+    const pages = Math.max(1, Math.ceil(DB.posRawTotal / perPage));
+    const start = DB.posRawTotal ? ((posRawPage - 1) * perPage) + 1 : 0;
+    const end = Math.min(posRawPage * perPage, DB.posRawTotal);
+    pagination.innerHTML = `
+      <span>${start}-${end} of ${DB.posRawTotal} raw POS orders</span>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="changePosRawPage(${posRawPage - 1})" ${posRawPage <= 1 ? 'disabled' : ''}>‹</button>
+        ${renderPaginationButtons(posRawPage, pages, 'changePosRawPage')}
+        <button class="page-btn" onclick="changePosRawPage(${posRawPage + 1})" ${posRawPage >= pages ? 'disabled' : ''}>›</button>
+      </div>`;
+  }
+}
+
+function filterPosRawOrders() {
+  posRawCompletenessFilter = document.getElementById('rec-pos-completeness')?.value || 'incomplete';
+  posRawTagFilter = document.getElementById('rec-pos-tag')?.value || '';
+  posRawSearch = document.getElementById('rec-pos-search')?.value || '';
+  posRawPage = 1;
+  refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable).catch((error) => {
+    showToast('warning', 'Raw POS refresh failed', error.message || 'Could not load raw POS orders.');
+  });
+}
+
+function changePosRawPage(page) {
+  const pages = Math.max(1, Math.ceil(DB.posRawTotal / 25));
+  if (page < 1 || page > pages) return;
+  posRawPage = page;
+  refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable).catch((error) => {
+    showToast('warning', 'Raw POS refresh failed', error.message || 'Could not load raw POS orders.');
+  });
 }
 
 function filterViewRecordsTable() {

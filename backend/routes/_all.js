@@ -222,6 +222,78 @@ function ordersRoutes(db) {
     res.json({ status_counts: counts, total_orders, total_cod });
   });
 
+  r.get('/pos-raw', async (req, res) => {
+    const { completeness = 'all', tag = '', search = '', page = 1, per_page = 25 } = req.query;
+    const params = [];
+    let sql = `
+      SELECT po.*, isl.local_id AS dashboard_order_id
+      FROM pos_orders po
+      LEFT JOIN integration_source_links isl
+        ON isl.provider = 'pancake_pos'
+       AND isl.entity_type = 'orders'
+       AND isl.external_id = po.external_id
+      WHERE 1=1
+    `;
+
+    if (completeness === 'complete') {
+      sql += ` AND isl.local_id IS NOT NULL`;
+    } else if (completeness === 'incomplete') {
+      sql += ` AND isl.local_id IS NULL`;
+    } else if (completeness === 'missing_product') {
+      sql += ` AND (po.items_json IS NULL OR po.items_json = '' OR po.items_json = '[]')`;
+    } else if (completeness === 'missing_customer') {
+      sql += ` AND (po.customer_name IS NULL OR po.customer_name = '')`;
+    }
+
+    if (tag) {
+      sql += ` AND LOWER(COALESCE(po.tags_json, '')) LIKE ?`;
+      params.push(`%${String(tag).toLowerCase()}%`);
+    }
+
+    if (search) {
+      sql += ` AND (
+        LOWER(COALESCE(po.external_id, '')) LIKE ?
+        OR LOWER(COALESCE(po.customer_name, '')) LIKE ?
+        OR LOWER(COALESCE(po.customer_phone, '')) LIKE ?
+        OR LOWER(COALESCE(po.status_name, '')) LIKE ?
+        OR LOWER(COALESCE(po.note, '')) LIKE ?
+        OR LOWER(COALESCE(po.tags_json, '')) LIKE ?
+      )`;
+      const q = `%${String(search).toLowerCase()}%`;
+      params.push(q, q, q, q, q, q);
+    }
+
+    const total = (await db.prepare(`SELECT COUNT(*) AS count FROM (${sql}) filtered`).get(...params)).count || 0;
+    const rows = await db.prepare(`${sql} ORDER BY po.updated_at DESC, po.id DESC LIMIT ? OFFSET ?`)
+      .all(...params, Math.max(1, Math.min(100, Number(per_page) || 25)), (Math.max(1, Number(page) || 1) - 1) * (Math.max(1, Math.min(100, Number(per_page) || 25))));
+
+    res.json({
+      data: rows.map((row) => ({
+        id: row.id,
+        external_id: row.external_id,
+        shop_id: row.shop_id,
+        customer_name: row.customer_name,
+        customer_phone: row.customer_phone,
+        status_name: row.status_name,
+        cod: row.cod,
+        cash: row.cash,
+        tags: parseJsonObject(row.tags_json, []),
+        items: parseJsonObject(row.items_json, []),
+        page_id: row.page_id,
+        inserted_at_remote: row.inserted_at_remote,
+        updated_at_remote: row.updated_at_remote,
+        updated_at: row.updated_at,
+        dashboard_order_id: row.dashboard_order_id,
+        complete: Boolean(row.dashboard_order_id),
+        missing_product: !parseJsonObject(row.items_json, []).length,
+        missing_customer: !stringOrNull(row.customer_name),
+      })),
+      total: Number(total),
+      page: Number(page) || 1,
+      per_page: Math.max(1, Math.min(100, Number(per_page) || 25)),
+    });
+  });
+
   r.post('/', async (req, res) => {
     const { customer, phone, product, tags, qty, cod_amount, status, courier, tracking_no, order_date } = req.body;
     const ref = `ORD-${Date.now()}`;
