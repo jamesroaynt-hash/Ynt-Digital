@@ -51,6 +51,7 @@ let salesDonutChart = null;
 let homeDonutChart = null;
 let homeRtsBarChart = null;
 let integrationsBackendHydrated = false;
+let ordersLoadPromise = null;
 
 // ─── ROUTER / PAGE LOADER ──────────────────────────────────
 function navigateTo(page) {
@@ -264,6 +265,19 @@ async function refreshOrdersFromBackend() {
     }, {})).map(([status, count]) => ({ status, count })),
   };
   return true;
+}
+
+async function ensureOrdersLoadedForPage(page) {
+  if (DB.orders.length) return true;
+  if (!ordersLoadPromise) {
+    ordersLoadPromise = refreshOrdersFromBackend().finally(() => {
+      ordersLoadPromise = null;
+    });
+  }
+
+  const refreshed = await ordersLoadPromise;
+  if (refreshed && App.currentPage === page) loadPage(page);
+  return refreshed;
 }
 
 async function refreshOrderStatsFromBackend() {
@@ -4040,6 +4054,9 @@ function initPage(page) {
     if (salesDateFromInput && !salesDateFromInput.value) salesDateFromInput.value = today;
     if (salesDateToInput && !salesDateToInput.value) salesDateToInput.value = today;
     renderSalesTable();
+    ensureOrdersLoadedForPage('sales').catch((error) => {
+      showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
+    });
   }
 
   if (page === 'rts-rate') {
@@ -4068,7 +4085,9 @@ function initPage(page) {
 
   if (page === 'view-records') {
     renderViewRecordsOrdersTable();
-    if (!DB.orders.length) refreshOrderViewsFromBackend();
+    ensureOrdersLoadedForPage('view-records').catch((error) => {
+      showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
+    });
   }
 
   if (page === 'manage-users') {
@@ -6471,7 +6490,7 @@ async function init() {
     .catch(() => {});
 
   Promise.allSettled([
-    refreshOrdersFromBackend(),
+    ensureOrdersLoadedForPage(App.currentPage),
     refreshInventoryFromBackend(),
   ]).then(() => {
     if (!App.user) return;
