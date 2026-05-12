@@ -244,14 +244,22 @@ async function createApp() {
   }
 
   let pancakePosSyncRunning = false;
+  let pancakePosSyncStartedAt = null;
+  const PANCAKE_POS_SYNC_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes max per sync
 
   async function runPancakePosSync(trigger) {
     if (pancakePosSyncRunning) {
-      console.log(`[pancake_pos] ${trigger} sync skipped: another POS sync is still running.`);
-      return;
+      const elapsed = pancakePosSyncStartedAt ? Date.now() - pancakePosSyncStartedAt : 0;
+      if (elapsed < PANCAKE_POS_SYNC_TIMEOUT_MS) {
+        console.log(`[pancake_pos] ${trigger} sync skipped: another POS sync is still running (${Math.round(elapsed / 1000)}s).`);
+        return;
+      }
+      console.warn(`[pancake_pos] ${trigger} previous sync timed out after ${Math.round(elapsed / 1000)}s, forcing reset.`);
+      pancakePosSyncRunning = false;
     }
 
     pancakePosSyncRunning = true;
+    pancakePosSyncStartedAt = Date.now();
     try {
       const status = await pancakePosSync.getStatus(db);
       if (!status.enabled) {
@@ -266,7 +274,7 @@ async function createApp() {
         && connection.sync_mode === 'automatic'
       ));
       if (trigger !== 'manual' && automaticConnections.length) {
-        const result = await pancakePosSync.collectPosData(db, { connections: automaticConnections });
+        const result = await pancakePosSync.collectPosData(db, { connections: automaticConnections, max_pages: 10 });
         backupScheduler.schedule();
         console.log(`[pancake_pos] ${trigger} multi-sync completed: connections=${automaticConnections.length}`);
         return result;
@@ -284,7 +292,8 @@ async function createApp() {
         return;
       }
 
-      const result = await pancakePosSync.collectPosData(db);
+      const maxPages = trigger === 'manual' ? 200 : 10;
+      const result = await pancakePosSync.collectPosData(db, { max_pages: maxPages });
       backupScheduler.schedule();
       const imported = Object.entries(result?.resources || {})
         .map(([resource, details]) => `${resource}=${details.count || 0}`)
@@ -294,6 +303,7 @@ async function createApp() {
       console.error(`[pancake_pos] ${trigger} sync failed: ${error.message}`);
     } finally {
       pancakePosSyncRunning = false;
+      pancakePosSyncStartedAt = null;
     }
   }
 
