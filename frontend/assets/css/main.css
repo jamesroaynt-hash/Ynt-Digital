@@ -103,14 +103,17 @@ body {
   font-weight: 700;
   letter-spacing: .5px;
   text-transform: uppercase;
+  overflow-wrap: break-word;
 }
 
 .erp-kpi-value {
   color: var(--text-primary);
-  font-size: 26px;
-  line-height: 1.15;
+  font-size: clamp(15px, 2.5vw, 26px);
+  line-height: 1.2;
   font-weight: 800;
   margin: 6px 0 4px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .erp-kpi-target {
@@ -145,6 +148,19 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(280px, .8fr);
   gap: 20px;
+}
+
+.erp-card table td {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mkt-filter-bar {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
 }
 
 .erp-roas {

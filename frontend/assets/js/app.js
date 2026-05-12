@@ -2043,13 +2043,58 @@ function renderRTSRateDashboard() {
     </div>`;
 }
 
+function applyMarketingFilter() {
+  const from = document.getElementById('mkt-filter-from')?.value || '';
+  const to = document.getElementById('mkt-filter-to')?.value || '';
+  if (from) window.mktFilter = { from, to: to || from };
+  navigateTo('marketing-center');
+}
+
+function autoFillMarketingSalesFromOrders() {
+  const pageName = document.getElementById('mkt-page')?.value || '';
+  const date = document.getElementById('mkt-date')?.value || '';
+  if (!pageName || !date) {
+    showToast('warning', 'Select page and date first', 'Both page and date are required to auto-fill.');
+    return;
+  }
+  const delivered = (DB.orders || []).filter((o) => {
+    if (o.status !== 'Delivered') return false;
+    if (o.date !== date) return false;
+    const sheet = String(o.sourceSheet || '').toLowerCase();
+    const page = pageName.toLowerCase();
+    return sheet === page || sheet.includes(page) || page.includes(sheet);
+  });
+  const total = delivered.reduce((s, o) => s + Number(o.cod || 0), 0);
+  const count = delivered.length;
+  const salesInput = document.getElementById('mkt-sales');
+  const ordersInput = document.getElementById('mkt-orders');
+  if (salesInput) salesInput.value = total;
+  if (ordersInput) ordersInput.value = count;
+  showToast('success', 'Auto-filled from delivered orders', `${count} orders — PHP ${total.toLocaleString()}`);
+}
+
 function renderMarketingCenter() {
+  const now = new Date();
+  if (!window.mktFilter) {
+    window.mktFilter = {
+      from: normalizeDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
+      to: normalizeDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    };
+  }
+  const filterFrom = window.mktFilter.from;
+  const filterTo = window.mktFilter.to;
+
   const state = getMarketingState();
-  const entries = getMarketingMonthEntries(state);
+  const entries = state.entries.filter((e) => {
+    const d = e.date || '';
+    return d >= filterFrom && d <= filterTo;
+  });
   const totals = aggregateMarketing(entries);
+  // Gross sales KPI from DB delivered orders in date range
+  const deliveredSales = (DB.orders || []).filter((o) => o.status === 'Delivered' && o.date >= filterFrom && o.date <= filterTo).reduce((s, o) => s + Number(o.cod || 0), 0);
   const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
   const byDay = getMarketingDailyTotals(entries);
-  const targetPct = state.targets.sales ? totals.sales / state.targets.sales : 0;
+  const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
   const monthSpendTarget = Number(state.targets.spend || 0) * 31;
   const creativeMonth = state.creatives.filter((item) => String(item.date || '').startsWith(marketingMonth()));
   const survived = creativeMonth.filter((item) => Number(item.spend || 0) >= 5000).length;
@@ -2074,11 +2119,25 @@ function renderMarketingCenter() {
     </div>
   </div>
 
+  <div class="mkt-filter-bar card" style="margin-bottom:16px;padding:12px 16px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span style="font-weight:700;font-size:13px;color:var(--text-primary);white-space:nowrap;">Date Range</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input type="date" id="mkt-filter-from" class="form-control" style="width:150px;height:34px;font-size:13px;" value="${filterFrom}">
+        <span style="color:var(--text-muted);font-size:13px;">to</span>
+        <input type="date" id="mkt-filter-to" class="form-control" style="width:150px;height:34px;font-size:13px;" value="${filterTo}">
+        <button class="btn btn-primary btn-sm" onclick="applyMarketingFilter()">Apply</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.mktFilter=null;navigateTo('marketing-center')">This Month</button>
+      </div>
+      <span style="margin-left:auto;font-size:12px;color:var(--text-muted);">${filterFrom} — ${filterTo}</span>
+    </div>
+  </div>
+
   <div class="erp-kpi-grid">
-    <div class="erp-kpi"><div class="erp-kpi-label">Gross Sales MTD</div><div class="erp-kpi-value">${marketingMoney(totals.sales)}</div><div class="erp-kpi-target">${Math.round(targetPct * 100)}% of monthly target</div></div>
-    <div class="erp-kpi warn"><div class="erp-kpi-label">Ad Spend MTD</div><div class="erp-kpi-value">${marketingMoney(totals.spend)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
-    <div class="erp-kpi ok"><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value">${marketingRoas(totals.roas)}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
-    <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value">${marketingPct(totals.rtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
+    <div class="erp-kpi"><div class="erp-kpi-label">Gross Sales (Delivered)</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingMoney(deliveredSales)}</div><div class="erp-kpi-target">${Math.round(targetPct * 100)}% of monthly target</div></div>
+    <div class="erp-kpi warn"><div class="erp-kpi-label">Ad Spend (Manual)</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingMoney(totals.spend)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
+    <div class="erp-kpi ok"><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingRoas(totals.spend ? deliveredSales / totals.spend : 0)}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
+    <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingPct(totals.rtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
   </div>
 
   <div class="tabs erp-tabs">
@@ -2116,9 +2175,9 @@ function renderMarketingCenter() {
       </div>
     </div>
     <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Pacing Tracker</div><div class="card-subtitle">Monthly target health.</div></div></div>
+      <div class="card-header"><div><div class="card-title">Pacing Tracker</div><div class="card-subtitle">Monthly target health — sales from delivered orders.</div></div></div>
       <div class="erp-progress-row">
-        <div><strong>${marketingMoney(totals.sales)}</strong><span>${marketingMoney(state.targets.sales)} target</span></div>
+        <div><strong>${marketingMoney(deliveredSales)}</strong><span>${marketingMoney(state.targets.sales)} target</span></div>
         <div class="erp-progress"><div style="width:${Math.min(100, Math.round(targetPct * 100))}%"></div></div>
       </div>
       <div class="erp-mini-list">
@@ -2161,21 +2220,28 @@ function renderMarketingCenter() {
   <div id="mkt-entries" class="tab-content">
     <div style="display:grid; grid-template-columns:minmax(360px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">One row per page per day.</div></div></div>
-        <div class="card-body">
+        <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">${marketingManager ? 'One row per page per day.' : 'View only — TL access required to add entries.'}</div></div></div>
+        ${marketingManager ? `<div class="card-body">
           <div class="form-grid-2">
             <input type="hidden" id="mkt-entry-edit-index" value="">
-            <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}"></div>
+            <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}" onchange="syncMarketingPageMeta()"></div>
             <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
             <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control readonly-field" id="mkt-product" readonly></div>
             <div class="form-group"><label class="form-label">Owner</label><input type="text" class="form-control readonly-field" id="mkt-owner" readonly></div>
+            <div class="form-group" style="grid-column:1/-1">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <label class="form-label" style="margin:0">Gross Sales (Delivered Orders)</label>
+                <button class="btn btn-secondary btn-sm" type="button" onclick="autoFillMarketingSalesFromOrders()" style="font-size:11px;padding:2px 8px;">Auto-fill</button>
+              </div>
+              <input type="number" class="form-control" id="mkt-sales" min="0" placeholder="0">
+              <div class="field-help">Auto-fills from delivered orders for the selected page + date.</div>
+            </div>
             <div class="form-group"><label class="form-label">Orders Confirmed</label><input type="number" class="form-control" id="mkt-orders" min="0" placeholder="0"></div>
-            <div class="form-group"><label class="form-label">Sales</label><input type="number" class="form-control" id="mkt-sales" min="0" placeholder="0"></div>
-            <div class="form-group"><label class="form-label">Ad Spend</label><input type="number" class="form-control" id="mkt-spend" min="0" placeholder="0"></div>
+            <div class="form-group"><label class="form-label">Ad Spend (from Ads Manager)</label><input type="number" class="form-control" id="mkt-spend" min="0" placeholder="0"></div>
             <div class="form-group"><label class="form-label">RTS Count</label><input type="number" class="form-control" id="mkt-rts" min="0" placeholder="0"></div>
           </div>
           <button class="btn btn-primary" onclick="addMarketingEntry()">Add Entry</button>
-        </div>
+        </div>` : `<div class="card-body"><div style="padding:24px;text-align:center;color:var(--text-muted);font-size:14px;">Only <strong>Sales & Marketing TL</strong> can add or edit entries.</div></div>`}
       </div>
 
       <div class="card">
