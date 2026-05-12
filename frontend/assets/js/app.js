@@ -3599,14 +3599,17 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
+  const hasSales = ['sales', 'marketing-center', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['view-records', 'damage-sheets'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
+  const salesLabel = document.getElementById('nav-section-sales');
   const operationsLabel = document.getElementById('nav-section-operations');
   const reportsLabel = document.getElementById('nav-section-reports');
   const systemLabel = document.getElementById('nav-section-system');
 
+  if (salesLabel) salesLabel.style.display = hasSales ? 'block' : 'none';
   if (operationsLabel) operationsLabel.style.display = hasOperations ? 'block' : 'none';
   if (reportsLabel) reportsLabel.style.display = hasReports ? 'block' : 'none';
   if (systemLabel) systemLabel.style.display = hasSystem ? 'block' : 'none';
