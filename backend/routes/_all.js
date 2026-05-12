@@ -217,8 +217,9 @@ function ordersRoutes(db) {
 
   r.get('/stats', async (req, res) => {
     const counts = await db.prepare(`SELECT status, COUNT(*) as count, SUM(cod_amount) as total_cod FROM orders GROUP BY status`).all();
+    const total_orders = (await db.prepare(`SELECT COUNT(*) as count FROM orders`).get()).count || 0;
     const total_cod = (await db.prepare(`SELECT SUM(cod_amount) as total FROM orders`).get()).total || 0;
-    res.json({ status_counts: counts, total_cod });
+    res.json({ status_counts: counts, total_orders, total_cod });
   });
 
   r.post('/', async (req, res) => {

@@ -255,6 +255,26 @@ async function refreshOrdersFromBackend() {
   }
 
   DB.orders = rows.map(mapBackendOrder);
+  DB.orderStats = {
+    total_orders: DB.orders.length,
+    total_cod: DB.orders.reduce((sum, order) => sum + Number(order.cod || 0), 0),
+    status_counts: Object.entries(DB.orders.reduce((counts, order) => {
+      counts[order.status] = (counts[order.status] || 0) + 1;
+      return counts;
+    }, {})).map(([status, count]) => ({ status, count })),
+  };
+  return true;
+}
+
+async function refreshOrderStatsFromBackend() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+
+  const stats = await authorizedJsonRequest(`/orders/stats?_=${Date.now()}`);
+  DB.orderStats = {
+    total_orders: Number(stats?.total_orders || 0),
+    total_cod: Number(stats?.total_cod || 0),
+    status_counts: Array.isArray(stats?.status_counts) ? stats.status_counts : [],
+  };
   return true;
 }
 
@@ -390,6 +410,7 @@ function handleLogout() {
 // ─── DUMMY DATA ────────────────────────────────────────────
 const DB = {
   orders: [],
+  orderStats: null,
   csrRecords: loadCsrRecords(),
   inventory: [],
   expenses: [],
@@ -1170,9 +1191,13 @@ function renderApiConnections() {
 
 // ─── RENDER: HOME ──────────────────────────────────────────
 function renderHome() {
-  const total = DB.orders.length;
-  const delivered = DB.orders.filter(o => o.status === 'Delivered').length;
-  const totalCOD = DB.orders.reduce((s, o) => s + o.cod, 0);
+  const summaryStatusCount = (status) => Number(
+    DB.orderStats?.status_counts?.find((row) => row.status === status)?.count || 0
+  );
+  const hasOrderRows = DB.orders.length > 0;
+  const total = hasOrderRows ? DB.orders.length : Number(DB.orderStats?.total_orders || 0);
+  const delivered = hasOrderRows ? DB.orders.filter(o => o.status === 'Delivered').length : summaryStatusCount('Delivered');
+  const totalCOD = hasOrderRows ? DB.orders.reduce((s, o) => s + o.cod, 0) : Number(DB.orderStats?.total_cod || 0);
   const sourceOptions = getSourceSheetOptions();
 
 
@@ -6438,6 +6463,11 @@ async function init() {
   shell.style.display = 'flex';
   refreshCurrentUserChip();
   navigateTo(getDefaultPageForCurrentUser());
+  refreshOrderStatsFromBackend()
+    .then(() => {
+      if (App.currentPage === 'home') loadPage('home');
+    })
+    .catch(() => {});
 
   Promise.allSettled([
     refreshOrdersFromBackend(),
