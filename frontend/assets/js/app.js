@@ -6426,6 +6426,14 @@ async function init() {
     return;
   }
 
+  if (getApiBase() && !getAuthToken()) {
+    clearExpiredSession();
+    loginScreen.innerHTML = renderLogin();
+    shell.style.display = 'none';
+    showToast('warning', 'Sign in again', 'Your browser session needs a fresh dashboard login.');
+    return;
+  }
+
   loginScreen.innerHTML = '';
   shell.style.display = 'flex';
   refreshCurrentUserChip();

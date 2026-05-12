@@ -243,7 +243,15 @@ async function createApp() {
     }, delay);
   }
 
+  let pancakePosSyncRunning = false;
+
   async function runPancakePosSync(trigger) {
+    if (pancakePosSyncRunning) {
+      console.log(`[pancake_pos] ${trigger} sync skipped: another POS sync is still running.`);
+      return;
+    }
+
+    pancakePosSyncRunning = true;
     try {
       const status = await pancakePosSync.getStatus(db);
       if (!status.enabled) {
@@ -284,6 +292,8 @@ async function createApp() {
       console.log(`[pancake_pos] ${trigger} sync completed${imported ? `: ${imported}` : '.'}`);
     } catch (error) {
       console.error(`[pancake_pos] ${trigger} sync failed: ${error.message}`);
+    } finally {
+      pancakePosSyncRunning = false;
     }
   }
 

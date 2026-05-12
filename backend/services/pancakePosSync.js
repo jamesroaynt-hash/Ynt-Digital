@@ -310,7 +310,15 @@ function buildUrl(baseUrl, path, query = {}) {
   return url;
 }
 
-async function posRequest(baseUrl, path, apiKey, query = {}) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryPosRequest(status) {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+async function posRequest(baseUrl, path, apiKey, query = {}, attempt = 1) {
   if (!apiKey) throw new Error('Missing Pancake POS api_key.');
   const selectedBaseUrl = baseUrl || POS_API_BASE;
   const url = buildUrl(selectedBaseUrl, path, { ...query, api_key: apiKey });
@@ -341,6 +349,11 @@ async function posRequest(baseUrl, path, apiKey, query = {}) {
       : 'https://pos.pancake.ph/api/v1';
     if (response.status === 404 && fallbackBaseUrl !== selectedBaseUrl) {
       return posRequest(fallbackBaseUrl, path, apiKey, query);
+    }
+
+    if (shouldRetryPosRequest(response.status) && attempt < 3) {
+      await sleep(750 * attempt);
+      return posRequest(baseUrl, path, apiKey, query, attempt + 1);
     }
 
     const details = typeof data === 'string' ? data : safeJson(data);
