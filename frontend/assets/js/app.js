@@ -3181,6 +3181,7 @@ function renderViewRecords() {
           </div>
         </div>
       </div>
+      <div id="rec-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
       <table id="records-table">
         <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
@@ -5657,6 +5658,30 @@ function renderViewRecordsOrdersTable() {
   const pages = Math.max(1, Math.ceil(records.length / perPage));
   if (recordsPage > pages) recordsPage = pages;
   const sliced = records.slice((recordsPage - 1) * perPage, recordsPage * perPage);
+
+  // Status summary bar
+  const summaryEl = document.getElementById('rec-orders-status-summary');
+  if (summaryEl) {
+    const statusColors = {
+      'Confirmed': 'badge-info',
+      'Waiting for pickup': 'badge-warning',
+      'Shipped': 'badge-purple',
+      'Delivered': 'badge-success',
+      'Returning': 'badge-warning',
+      'Returned': 'badge-danger',
+      'Canceled': 'badge-gray',
+    };
+    const counts = {};
+    records.forEach((o) => { counts[o.status] = (counts[o.status] || 0) + 1; });
+    const totalCod = records.reduce((s, o) => s + Number(o.cod || 0), 0);
+    const chips = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:12px;padding:4px 10px;">${escapeHtml(status)}: <strong>${count}</strong></span>`)
+      .join('');
+    summaryEl.innerHTML = records.length
+      ? `${chips}<span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;"><strong>${records.length}</strong> total · COD <strong>₱${totalCod.toLocaleString()}</strong></span>`
+      : '';
+  }
 
   tbody.innerHTML = sliced.map((order) => `<tr data-status="${order.status}">
     <td class="font-mono text-xs text-muted">${order.id}</td>
