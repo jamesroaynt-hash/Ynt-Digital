@@ -1153,6 +1153,43 @@ function renderApiConnections() {
         </div>
       </div>
     </section>
+
+    <section class="card integration-card" style="margin-top:20px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Historical POS Sync</div>
+          <div class="card-subtitle">Pull past orders from Pancake POS for a custom date range. Use this to backfill older data.</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">From Date</label>
+            <input type="date" class="form-control" id="pos-hist-from" value="${normalizeDateString(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1))}">
+            <div class="field-help">Start of the date range to sync.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">To Date</label>
+            <input type="date" class="form-control" id="pos-hist-to" value="${normalizeDateString(new Date(new Date().getFullYear(), new Date().getMonth(), 0))}">
+            <div class="field-help">End of the date range to sync.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Pages</label>
+            <input type="number" class="form-control" id="pos-hist-max-pages" value="200" min="1" max="2000">
+            <div class="field-help">Each page = up to 100 orders. 200 pages ≈ 20,000 orders.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Page Size</label>
+            <input type="number" class="form-control" id="pos-hist-page-size" value="100" min="10" max="100">
+            <div class="field-help">Orders per API request (max 100).</div>
+          </div>
+        </div>
+        <div id="pos-hist-status" style="margin-bottom:12px;font-size:13px;color:var(--text-muted);"></div>
+        <div class="integration-actions">
+          <button class="btn btn-primary" type="button" id="pos-hist-btn" onclick="runPosHistoricalSync()">Start Historical Sync</button>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div id="api-tab-sheets" class="tab-content">
@@ -6692,6 +6729,65 @@ async function replayPancakePosOrders(options = {}) {
       replayButton.disabled = false;
       replayButton.textContent = 'Transfer POS SQL';
     }
+  }
+}
+
+async function runPosHistoricalSync() {
+  const fromVal = document.getElementById('pos-hist-from')?.value;
+  const toVal = document.getElementById('pos-hist-to')?.value;
+  const maxPages = Math.max(1, Math.min(2000, Number(document.getElementById('pos-hist-max-pages')?.value || 200)));
+  const pageSize = Math.max(10, Math.min(100, Number(document.getElementById('pos-hist-page-size')?.value || 100)));
+  const statusEl = document.getElementById('pos-hist-status');
+  const btn = document.getElementById('pos-hist-btn');
+
+  if (!fromVal || !toVal) {
+    showToast('warning', 'Date range required', 'Select both From and To dates.');
+    return;
+  }
+  if (fromVal > toVal) {
+    showToast('warning', 'Invalid range', 'From date must be before To date.');
+    return;
+  }
+
+  // Convert YYYY-MM-DD to Unix timestamps
+  const startDateTime = Math.floor(new Date(fromVal + 'T00:00:00').getTime() / 1000);
+  const endDateTime = Math.floor(new Date(toVal + 'T23:59:59').getTime() / 1000);
+  const state = getIntegrationState();
+
+  if (!state.pancakePos.shopId) {
+    showToast('warning', 'POS setup required', 'Save the POS Shop ID in the connection settings first.');
+    return;
+  }
+
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
+    if (statusEl) statusEl.textContent = `Syncing ${fromVal} → ${toVal} (up to ${maxPages} pages × ${pageSize})…`;
+    showToast('info', 'Historical sync started', `Fetching POS orders from ${fromVal} to ${toVal}.`);
+
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
+      method: 'POST',
+      body: JSON.stringify({
+        resources: ['orders'],
+        startDateTime,
+        endDateTime,
+        max_pages: maxPages,
+        page_size: pageSize,
+      }),
+    });
+
+    const fetched = data.resources?.orders?.count ?? 0;
+    if (statusEl) statusEl.textContent = `Done — ${fetched} orders fetched from ${fromVal} to ${toVal}.`;
+    showToast('success', 'Historical sync complete', `${fetched} POS orders synced for ${fromVal} → ${toVal}.`);
+
+    // Auto-replay to map them into dashboard orders
+    showToast('info', 'Transferring to dashboard…', 'Mapping POS records into orders.');
+    await replayPancakePosOrders({ silent: true });
+    showToast('success', 'Transfer complete', 'Historical orders are now visible in View Records.');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    showToast('error', 'Historical sync failed', err.message || 'Check POS settings and try again.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Start Historical Sync'; }
   }
 }
 
