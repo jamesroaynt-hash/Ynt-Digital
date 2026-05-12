@@ -323,13 +323,20 @@ async function posRequest(baseUrl, path, apiKey, query = {}, attempt = 1) {
   const selectedBaseUrl = baseUrl || POS_API_BASE;
   const url = buildUrl(selectedBaseUrl, path, { ...query, api_key: apiKey });
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 60000);
   let response;
   try {
     response = await fetch(url, { signal: controller.signal });
   } catch (error) {
     if (error.name === 'AbortError') {
       throw new Error(`Pancake POS API GET ${url.pathname} timed out after 30 seconds.`);
+    }
+    // Node fetch (undici) reports "terminated" when the server closes the connection mid-stream
+    const msg = String(error.message || error.cause?.message || '').toLowerCase();
+    if ((msg.includes('terminated') || msg.includes('econnreset') || msg.includes('socket hang up')) && attempt < 4) {
+      clearTimeout(timeout);
+      await sleep(1000 * attempt);
+      return posRequest(baseUrl, path, apiKey, query, attempt + 1);
     }
     throw error;
   } finally {
