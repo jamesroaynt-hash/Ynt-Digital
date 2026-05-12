@@ -6437,12 +6437,17 @@ async function init() {
   loginScreen.innerHTML = '';
   shell.style.display = 'flex';
   refreshCurrentUserChip();
+  navigateTo(getDefaultPageForCurrentUser());
 
-  await Promise.allSettled([
+  Promise.allSettled([
     refreshOrdersFromBackend(),
     refreshInventoryFromBackend(),
-  ]);
-  navigateTo(getDefaultPageForCurrentUser());
+  ]).then(() => {
+    if (!App.user) return;
+    if (['home', 'sales', 'inventory', 'view-records', 'rts-rate'].includes(App.currentPage)) {
+      loadPage(App.currentPage);
+    }
+  });
 }
 
 window.addEventListener('DOMContentLoaded', init);
