@@ -298,7 +298,7 @@ async function refreshOrderViewsFromBackend() {
       initCharts('sales');
     }
     if (App.currentPage === 'view-records') {
-      renderViewRecordsOrdersTable();
+      loadPage('view-records');
     }
     if (App.currentPage === 'rts-rate') {
       renderRTSRateDashboard();
@@ -4068,6 +4068,7 @@ function initPage(page) {
 
   if (page === 'view-records') {
     renderViewRecordsOrdersTable();
+    if (!DB.orders.length) refreshOrderViewsFromBackend();
   }
 
   if (page === 'manage-users') {
