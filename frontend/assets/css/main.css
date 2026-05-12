@@ -205,17 +205,19 @@ body {
 }
 
 .erp-mini-list > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
 
 .erp-mini-list > div:last-child { border-bottom: 0; }
-.erp-mini-list span, .erp-mini-list small { color: var(--text-muted); }
-.erp-mini-list small { grid-column: 1 / -1; }
+.erp-mini-list span, .erp-mini-list small { color: var(--text-muted); flex-shrink: 1; min-width: 0; }
+.erp-mini-list strong { text-align: right; word-break: break-word; flex-shrink: 0; max-width: 60%; }
+.erp-mini-list small { flex-basis: 100%; }
 
 .erp-member-card {
   background: linear-gradient(135deg,#fff 0%,#f8fafc 100%);

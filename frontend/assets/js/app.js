@@ -2273,20 +2273,39 @@ function renderMarketingCenter() {
   </div>
 
   <div id="mkt-team" class="tab-content">
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Team Performance</div><div class="card-subtitle">Month-to-date by owner.</div></div></div>
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
-        ${ownerTotals.map((member) => `<div class="erp-member-card">
-          <div class="stat-label">${escapeHtml(member.role)}</div>
-          <div class="stat-value" style="font-size:20px;">${escapeHtml(member.name)}</div>
-          <div class="stat-meta">${escapeHtml(member.primary)}</div>
-          <div style="margin-top:12px; display:grid; gap:6px; font-size:12px;">
-            <div>Sales: <strong>${marketingMoney(member.sales)}</strong></div>
-            <div>Spend: <strong>${marketingMoney(member.spend)}</strong></div>
-            <div>ROAS: <strong>${marketingRoas(member.roas)}</strong></div>
-            <div>Orders: <strong>${member.orders}</strong></div>
+    <div style="display:grid; grid-template-columns:${marketingManager ? 'minmax(280px,.7fr) minmax(400px,1.3fr)' : '1fr'}; gap:20px; align-items:start;">
+      ${marketingManager ? `<div class="card">
+        <div class="card-header"><div><div class="card-title">Add Team Member</div><div class="card-subtitle">TL access required.</div></div></div>
+        <div class="card-body">
+          <input type="hidden" id="mkt-team-edit-index" value="">
+          <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-control" id="mkt-team-name" placeholder="e.g. Mark"></div>
+          <div class="form-group"><label class="form-label">Role</label><input type="text" class="form-control" id="mkt-team-role" placeholder="e.g. Ads + Creatives"></div>
+          <div class="form-group"><label class="form-label">Primary Focus</label><input type="text" class="form-control" id="mkt-team-primary" placeholder="e.g. Dragon pages"></div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveMarketingTeamMember()">Save Member</button>
+            <button class="btn btn-secondary" onclick="cancelMarketingTeamEdit()">Cancel</button>
           </div>
-        </div>`).join('')}
+        </div>
+      </div>` : ''}
+      <div class="card erp-card">
+        <div class="card-header"><div><div class="card-title">Team Performance</div><div class="card-subtitle">Date-range totals by owner.</div></div></div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px;">
+          ${ownerTotals.map((member, index) => `<div class="erp-member-card" style="position:relative;">
+            ${marketingManager ? `<div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;">
+              <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;" onclick="editMarketingTeamMember(${index})">Edit</button>
+              <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--danger);" onclick="deleteMarketingTeamMember(${index})">×</button>
+            </div>` : ''}
+            <div class="stat-label" style="padding-right:${marketingManager ? '64px' : '0'}">${escapeHtml(member.role)}</div>
+            <div class="stat-value" style="font-size:18px;overflow-wrap:break-word;">${escapeHtml(member.name)}</div>
+            <div class="stat-meta" style="overflow-wrap:break-word;">${escapeHtml(member.primary)}</div>
+            <div style="margin-top:12px; display:grid; gap:4px; font-size:12px;">
+              <div style="display:flex;justify-content:space-between;"><span>Sales</span><strong>${marketingMoney(member.sales)}</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>Spend</span><strong>${marketingMoney(member.spend)}</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>ROAS</span><strong>${marketingRoas(member.roas)}</strong></div>
+              <div style="display:flex;justify-content:space-between;"><span>Orders</span><strong>${member.orders}</strong></div>
+            </div>
+          </div>`).join('')}
+        </div>
       </div>
     </div>
   </div>
@@ -5367,6 +5386,58 @@ function deleteMarketingStandup(index) {
   state.standups.splice(index, 1);
   saveMarketingState(state);
   navigateTo('marketing-center');
+}
+
+function saveMarketingTeamMember() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage team members.');
+    return;
+  }
+  const name = document.getElementById('mkt-team-name')?.value.trim() || '';
+  const role = document.getElementById('mkt-team-role')?.value.trim() || '';
+  const primary = document.getElementById('mkt-team-primary')?.value.trim() || '';
+  if (!name) { showToast('error', 'Name required', 'Please enter a team member name.'); return; }
+  const state = getMarketingState();
+  const editVal = document.getElementById('mkt-team-edit-index')?.value;
+  const editIndex = editVal === '' ? -1 : Number(editVal);
+  if (editIndex >= 0) {
+    state.team[editIndex] = { name, role, primary };
+  } else {
+    state.team.push({ name, role, primary });
+  }
+  saveMarketingState(state);
+  showToast('success', editIndex >= 0 ? 'Team member updated' : 'Team member added', name);
+  navigateTo('marketing-center');
+}
+
+function editMarketingTeamMember(index) {
+  if (!canManageMarketing()) return;
+  const state = getMarketingState();
+  const member = state.team[index];
+  if (!member) return;
+  const fields = { 'mkt-team-name': member.name, 'mkt-team-role': member.role, 'mkt-team-primary': member.primary, 'mkt-team-edit-index': index };
+  Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
+  document.getElementById('mkt-team-name')?.focus();
+  showToast('success', 'Editing member', 'Update fields and click Save Member.');
+}
+
+function deleteMarketingTeamMember(index) {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage team members.');
+    return;
+  }
+  const state = getMarketingState();
+  if (index < 0 || index >= state.team.length) return;
+  const name = state.team[index].name;
+  state.team.splice(index, 1);
+  saveMarketingState(state);
+  showToast('success', 'Member removed', name);
+  navigateTo('marketing-center');
+}
+
+function cancelMarketingTeamEdit() {
+  ['mkt-team-name', 'mkt-team-role', 'mkt-team-primary'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const idx = document.getElementById('mkt-team-edit-index'); if (idx) idx.value = '';
 }
 
 function addMarketingAdAccount() {
