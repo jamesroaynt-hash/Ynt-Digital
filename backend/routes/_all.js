@@ -126,12 +126,19 @@ function ordersRoutes(db) {
   }
 
   async function normalizeOrderPageNames(rows = []) {
-    const normalized = [];
-    for (const row of rows) {
-      const sourceName = await resolvePancakeSourceName(row);
-      normalized.push(sourceName && sourceName !== row.source_sheet ? { ...row, source_sheet: sourceName } : row);
-    }
-    return normalized;
+    // Only resolve rows that need it (source_sheet starts with "Shop ")
+    const shopRows = rows.filter((row) => /^Shop\s+/i.test(row.source_sheet || ''));
+    if (!shopRows.length) return rows;
+
+    // Batch: resolve all shop source names in parallel
+    const resolved = new Map();
+    await Promise.all(shopRows.map(async (row) => {
+      const name = await resolvePancakeSourceName(row);
+      if (name && name !== row.source_sheet) resolved.set(row.id, name);
+    }));
+
+    if (!resolved.size) return rows;
+    return rows.map((row) => resolved.has(row.id) ? { ...row, source_sheet: resolved.get(row.id) } : row);
   }
 
   function cleanOrder(row = {}, index = 0) {
@@ -187,12 +194,6 @@ function ordersRoutes(db) {
   }
 
   r.get('/', async (req, res) => {
-    try {
-      await googleSheetsSync.ensureFreshSourceData(db);
-    } catch (error) {
-      console.warn(`[google_sheets] source refresh skipped: ${error.message}`);
-    }
-
     const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
     let sql = 'SELECT * FROM orders WHERE 1=1';
     const params = [];

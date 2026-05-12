@@ -681,9 +681,20 @@ function dashboardStatusFromPos(item) {
   if (value.includes('returning') || value === '4') return 'Returning';
   if (value.includes('cancel') || value.includes('removed') || value.includes('deleted') || value === '6' || value === '7') return 'Canceled';
   if (value.includes('return') || value === '5' || value === '15') return 'Returned';
-  if (value.includes('pickup') || value.includes('packaging') || value === '8' || value === '9') return 'Waiting for pickup';
+  if (value.includes('pickup') || value.includes('packaging') || value.includes('waiting') || value.includes('ready') || value === '8' || value === '9' || value === '12') return 'Waiting for pickup';
   if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value === '2') return 'Shipped';
   if (value.includes('confirm') || value.includes('purchased') || value === '1' || value === '20') return 'Confirmed';
+
+  // Also check tags for pickup-related keywords
+  const tags = getPosOrderTags(item);
+  const tagValue = String(tags || '').toLowerCase();
+  if (tagValue.includes('pickup') || tagValue.includes('waiting') || tagValue.includes('wfp') || tagValue.includes('for pick')) return 'Waiting for pickup';
+  if (tagValue.includes('ship') || tagValue.includes('transit')) return 'Shipped';
+  if (tagValue.includes('deliver')) return 'Delivered';
+  if (tagValue.includes('return') && tagValue.includes('ing')) return 'Returning';
+  if (tagValue.includes('return')) return 'Returned';
+  if (tagValue.includes('cancel')) return 'Canceled';
+
   return 'Confirmed';
 }
 
