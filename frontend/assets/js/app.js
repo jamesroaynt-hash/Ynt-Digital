@@ -2046,7 +2046,8 @@ function renderRTSRateDashboard() {
 function applyMarketingFilter() {
   const from = document.getElementById('mkt-filter-from')?.value || '';
   const to = document.getElementById('mkt-filter-to')?.value || '';
-  if (from) window.mktFilter = { from, to: to || from };
+  const page = document.getElementById('mkt-filter-page')?.value || '';
+  if (from) window.mktFilter = { ...(window.mktFilter || {}), from, to: to || from, page };
   navigateTo('marketing-center');
 }
 
@@ -2083,15 +2084,27 @@ function renderMarketingCenter() {
   }
   const filterFrom = window.mktFilter.from;
   const filterTo = window.mktFilter.to;
+  const filterPage = window.mktFilter.page || '';
 
   const state = getMarketingState();
   const entries = state.entries.filter((e) => {
     const d = e.date || '';
-    return d >= filterFrom && d <= filterTo;
+    if (d < filterFrom || d > filterTo) return false;
+    if (filterPage && e.page !== filterPage) return false;
+    return true;
   });
   const totals = aggregateMarketing(entries);
-  // Gross sales KPI from DB delivered orders in date range
-  const deliveredSales = (DB.orders || []).filter((o) => o.status === 'Delivered' && o.date >= filterFrom && o.date <= filterTo).reduce((s, o) => s + Number(o.cod || 0), 0);
+  // Gross sales KPI from DB delivered orders in date range (filtered by page if set)
+  const deliveredSales = (DB.orders || []).filter((o) => {
+    if (o.status !== 'Delivered') return false;
+    if (o.date < filterFrom || o.date > filterTo) return false;
+    if (filterPage) {
+      const sheet = String(o.sourceSheet || '').toLowerCase();
+      const pg = filterPage.toLowerCase();
+      if (sheet !== pg && !sheet.includes(pg) && !pg.includes(sheet)) return false;
+    }
+    return true;
+  }).reduce((s, o) => s + Number(o.cod || 0), 0);
   const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
   const byDay = getMarketingDailyTotals(entries);
   const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
@@ -2121,15 +2134,19 @@ function renderMarketingCenter() {
 
   <div class="mkt-filter-bar card" style="margin-bottom:16px;padding:12px 16px;">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span style="font-weight:700;font-size:13px;color:var(--text-primary);white-space:nowrap;">Date Range</span>
+      <span style="font-weight:700;font-size:13px;color:var(--text-primary);white-space:nowrap;">Filters</span>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input type="date" id="mkt-filter-from" class="form-control" style="width:150px;height:34px;font-size:13px;" value="${filterFrom}">
+        <input type="date" id="mkt-filter-from" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterFrom}">
         <span style="color:var(--text-muted);font-size:13px;">to</span>
-        <input type="date" id="mkt-filter-to" class="form-control" style="width:150px;height:34px;font-size:13px;" value="${filterTo}">
+        <input type="date" id="mkt-filter-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterTo}">
+        <select id="mkt-filter-page" class="form-control" style="height:34px;font-size:13px;min-width:160px;">
+          <option value="">All Pages</option>
+          ${state.pages.map((p) => `<option value="${escapeHtml(p.name)}"${filterPage === p.name ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+        </select>
         <button class="btn btn-primary btn-sm" onclick="applyMarketingFilter()">Apply</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.mktFilter=null;navigateTo('marketing-center')">This Month</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.mktFilter=null;navigateTo('marketing-center')">Reset</button>
       </div>
-      <span style="margin-left:auto;font-size:12px;color:var(--text-muted);">${filterFrom} — ${filterTo}</span>
+      ${filterPage ? `<span style="margin-left:auto;font-size:12px;color:var(--erp-orange);font-weight:600;">${escapeHtml(filterPage)} · ${filterFrom} — ${filterTo}</span>` : `<span style="margin-left:auto;font-size:12px;color:var(--text-muted);">${filterFrom} — ${filterTo}</span>`}
     </div>
   </div>
 
