@@ -4151,9 +4151,18 @@ function initPage(page) {
 
   if (page === 'view-records') {
     renderViewRecordsOrdersTable();
-    ensureOrdersLoadedForPage('view-records').catch((error) => {
-      showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
-    });
+    ensureOrdersLoadedForPage('view-records')
+      .then(() => {
+        // Update the Orders tab count after orders finish loading
+        const tabBtn = document.querySelector('#records-tabs .tab-btn');
+        if (tabBtn && tabBtn.textContent.startsWith('Orders')) {
+          tabBtn.textContent = `Orders (${DB.orders.length})`;
+        }
+        renderViewRecordsOrdersTable();
+      })
+      .catch((error) => {
+        showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
+      });
     refreshPosRawOrdersFromBackend()
       .then(renderPosRawOrdersTable)
       .catch((error) => {
@@ -5550,12 +5559,21 @@ function renderPosRawOrdersTable() {
         : order.missing_customer
           ? '<span class="badge badge-warning">Missing customer</span>'
           : '<span class="badge badge-gray">Raw only</span>';
+    const statusLabel = order.status_name
+      ? escapeHtml(order.status_name.charAt(0).toUpperCase() + order.status_name.slice(1))
+      : '<span style="color:var(--text-muted)">—</span>';
+    const customerLabel = order.customer_name
+      ? `<span style="font-weight:500">${escapeHtml(order.customer_name)}</span>`
+      : '<span style="color:var(--text-muted)">—</span>';
+    const phoneLabel = order.customer_phone
+      ? `<span class="font-mono text-xs">${escapeHtml(order.customer_phone)}</span>`
+      : '<span style="color:var(--text-muted)">—</span>';
     return `<tr>
       <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}</td>
-      <td>${escapeHtml(order.shop_id || '')}</td>
-      <td style="font-weight:500">${escapeHtml(order.customer_name || '')}</td>
-      <td class="font-mono text-xs">${escapeHtml(order.customer_phone || '')}</td>
-      <td>${escapeHtml(order.status_name || '')}</td>
+      <td>${escapeHtml(order.source_name || order.shop_id || '')}</td>
+      <td>${customerLabel}</td>
+      <td>${phoneLabel}</td>
+      <td>${statusLabel}</td>
       <td>${escapeHtml(tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || '')).filter(Boolean).join(', '))}</td>
       <td>${escapeHtml(items.map((item) => item?.name || item?.product_name || item?.variation_name || item?.variation_info?.name || '').filter(Boolean).slice(0, 2).join(', '))}</td>
       <td>PHP ${Number(order.cod || order.cash || 0).toLocaleString()}</td>

@@ -226,12 +226,13 @@ function ordersRoutes(db) {
     const { completeness = 'all', tag = '', search = '', page = 1, per_page = 25 } = req.query;
     const params = [];
     let sql = `
-      SELECT po.*, isl.local_id AS dashboard_order_id
+      SELECT po.*, isl.local_id AS dashboard_order_id, o.source_sheet AS dashboard_source_sheet
       FROM pos_orders po
       LEFT JOIN integration_source_links isl
         ON isl.provider = 'pancake_pos'
        AND isl.entity_type = 'orders'
        AND isl.external_id = po.external_id
+      LEFT JOIN orders o ON o.id = CAST(isl.local_id AS INTEGER)
       WHERE 1=1
     `;
 
@@ -263,31 +264,68 @@ function ordersRoutes(db) {
       params.push(q, q, q, q, q, q);
     }
 
+    // Build a shop_id -> page name map from pos_shops
+    const shopRows = await db.prepare('SELECT external_id, name, pages_json FROM pos_shops').all();
+    const shopNameMap = {};
+    for (const shop of shopRows) {
+      if (shop.external_id && shop.name) shopNameMap[shop.external_id] = shop.name;
+      try {
+        const pages = typeof shop.pages_json === 'string' ? JSON.parse(shop.pages_json) : (shop.pages_json || []);
+        if (Array.isArray(pages)) {
+          for (const pg of pages) {
+            if (pg?.id && pg?.name) shopNameMap[pg.id] = pg.name;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Also pull connection names from integration_settings
+    const posSetting = await db.prepare("SELECT user_access_token FROM integration_settings WHERE provider = 'pancake_pos'").get();
+    if (posSetting?.user_access_token) {
+      try {
+        const connections = JSON.parse(posSetting.user_access_token);
+        if (Array.isArray(connections)) {
+          for (const conn of connections) {
+            if (conn.shop_id && conn.name) shopNameMap[conn.shop_id] = conn.name;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
     const total = (await db.prepare(`SELECT COUNT(*) AS count FROM (${sql}) filtered`).get(...params)).count || 0;
     const rows = await db.prepare(`${sql} ORDER BY po.updated_at DESC, po.id DESC LIMIT ? OFFSET ?`)
       .all(...params, Math.max(1, Math.min(100, Number(per_page) || 25)), (Math.max(1, Number(page) || 1) - 1) * (Math.max(1, Math.min(100, Number(per_page) || 25))));
 
     res.json({
-      data: rows.map((row) => ({
-        id: row.id,
-        external_id: row.external_id,
-        shop_id: row.shop_id,
-        customer_name: row.customer_name,
-        customer_phone: row.customer_phone,
-        status_name: row.status_name,
-        cod: row.cod,
-        cash: row.cash,
-        tags: parseJsonObject(row.tags_json, []),
-        items: parseJsonObject(row.items_json, []),
-        page_id: row.page_id,
-        inserted_at_remote: row.inserted_at_remote,
-        updated_at_remote: row.updated_at_remote,
-        updated_at: row.updated_at,
-        dashboard_order_id: row.dashboard_order_id,
-        complete: Boolean(row.dashboard_order_id),
-        missing_product: !parseJsonObject(row.items_json, []).length,
-        missing_customer: !stringOrNull(row.customer_name),
-      })),
+      data: rows.map((row) => {
+        const pageId = stringOrNull(row.page_id);
+        const shopId = stringOrNull(row.shop_id);
+        const sourceName = row.dashboard_source_sheet
+          || shopNameMap[pageId]
+          || shopNameMap[shopId]
+          || (shopId ? `Shop ${shopId}` : null);
+        return {
+          id: row.id,
+          external_id: row.external_id,
+          shop_id: row.shop_id,
+          source_name: sourceName,
+          customer_name: row.customer_name,
+          customer_phone: row.customer_phone,
+          status_name: row.status_name,
+          cod: row.cod,
+          cash: row.cash,
+          tags: parseJsonObject(row.tags_json, []),
+          items: parseJsonObject(row.items_json, []),
+          page_id: row.page_id,
+          inserted_at_remote: row.inserted_at_remote,
+          updated_at_remote: row.updated_at_remote,
+          updated_at: row.updated_at,
+          dashboard_order_id: row.dashboard_order_id,
+          complete: Boolean(row.dashboard_order_id),
+          missing_product: !parseJsonObject(row.items_json, []).length,
+          missing_customer: !stringOrNull(row.customer_name),
+        };
+      }),
       total: Number(total),
       page: Number(page) || 1,
       per_page: Math.max(1, Math.min(100, Number(per_page) || 25)),
