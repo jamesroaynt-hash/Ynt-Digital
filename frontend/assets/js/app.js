@@ -3447,8 +3447,18 @@ function statusBadge(status) {
 // ─── RENDER: VIEW RECORDS ──────────────────────────────────
 function renderViewRecords() {
   const productOptions = ['all', ...new Set(DB.orders.map((order) => order.product))];
-  const mktPageNames = getMarketingState().pages.map((p) => p.name).filter(Boolean);
-  const sourceOptions = [...new Set([...mktPageNames, ...getSourceSheetOptions()])].sort();
+  const sourceOptions = (() => {
+    const seen = new Map();
+    DB.orders.forEach((o) => {
+      const name = (o.sourceSheet || 'Manual').trim();
+      const key = name.toLowerCase();
+      if (!seen.has(key)) seen.set(key, name);
+    });
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  })();
+  if (recordsSourceFilter !== 'all' && !sourceOptions.some((s) => s === recordsSourceFilter)) {
+    recordsSourceFilter = 'all';
+  }
   const posTagOptions = [...new Set(DB.orders.flatMap((o) => o.posTags || []))].sort();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
