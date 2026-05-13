@@ -344,6 +344,15 @@ function ordersRoutes(db) {
     });
   });
 
+  r.delete('/pos-raw/no-contact', async (req, res) => {
+    const result = await db.prepare(`
+      DELETE FROM pos_orders
+      WHERE (customer_phone IS NULL OR customer_phone = '')
+        AND (customer_name IS NULL OR customer_name = '')
+    `).run();
+    res.json({ deleted: result.changes || 0 });
+  });
+
   r.post('/', async (req, res) => {
     const { customer, phone, product, tags, qty, cod_amount, status, courier, tracking_no, order_date } = req.body;
     const ref = `ORD-${Date.now()}`;

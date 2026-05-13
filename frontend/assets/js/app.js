@@ -3391,6 +3391,7 @@ function renderViewRecords() {
   const productOptions = ['all', ...new Set(DB.orders.map((order) => order.product))];
   const mktPageNames = getMarketingState().pages.map((p) => p.name).filter(Boolean);
   const sourceOptions = [...new Set([...mktPageNames, ...getSourceSheetOptions()])].sort();
+  const posTagOptions = [...new Set(DB.orders.flatMap((o) => o.posTags || []))].sort();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
   const posStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
@@ -3440,6 +3441,13 @@ function renderViewRecords() {
             <select class="form-control records-product-filter" id="rec-orders-source" onchange="filterRecordsBySource()">
               <option value="all">All Pages</option>
               ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${recordsSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label" for="rec-orders-pos-tag">POS Tag</label>
+            <select class="form-control records-product-filter" id="rec-orders-pos-tag" onchange="filterRecordsByPosTag()">
+              <option value="all">All Tags</option>
+              ${posTagOptions.map((tag) => `<option value="${escapeHtml(tag)}" ${recordsPosTagFilter === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')}
             </select>
           </div>
           <div class="records-filter-field records-period-field">
@@ -3530,14 +3538,23 @@ function renderViewRecords() {
             </select>
           </div>
           <div class="records-filter-field">
-            <label class="records-filter-label" for="rec-pos-tag">Pancake tag contains</label>
-            <input class="form-control" id="rec-pos-tag" value="${escapeHtml(posRawTagFilter)}" placeholder="e.g. waiting, shipped" oninput="filterPosRawOrders()">
+            <label class="records-filter-label" for="rec-pos-tag">POS Tag</label>
+            <select class="form-control records-product-filter" id="rec-pos-tag" onchange="filterPosRawOrders()">
+              <option value="">All Tags</option>
+              ${[...posRawKnownTags].sort().map((tag) => `<option value="${escapeHtml(tag)}" ${posRawTagFilter === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')}
+            </select>
           </div>
           <div class="records-filter-field records-search-field">
             <label class="records-filter-label" for="rec-pos-search">Search</label>
             <input class="form-control" id="rec-pos-search" value="${escapeHtml(posRawSearch)}" placeholder="Customer, phone, POS id..." oninput="filterPosRawOrders()">
           </div>
         </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;padding:4px 0 8px;">
+        <button class="btn btn-danger btn-sm" onclick="deletePosRawNoContact()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>
+          Delete no phone &amp; no name
+        </button>
       </div>
       <table>
         <thead><tr><th>POS ID</th><th>Shop</th><th>Customer</th><th>Phone</th><th>Status</th><th>Tags</th><th>Items</th><th>COD</th><th>Updated</th><th>Quality</th></tr></thead>
@@ -5221,6 +5238,8 @@ let recordsMonthFilter = 'all';
 let posRawCompletenessFilter = 'incomplete';
 let posRawTagFilter = '';
 let posRawSearch = '';
+let recordsPosTagFilter = 'all';
+const posRawKnownTags = new Set();
 let posRawPage = 1;
 let homeOrderFilter = 'all';
 let homeSourceFilter = 'all';
@@ -5892,6 +5911,10 @@ function getFilteredViewRecordOrders() {
     data = data.filter((order) => (order.sourceSheet || 'Manual') === recordsSourceFilter);
   }
 
+  if (recordsPosTagFilter !== 'all') {
+    data = data.filter((order) => (order.posTags || []).includes(recordsPosTagFilter));
+  }
+
   if (recordsYearFilter !== 'all') {
     data = data.filter((order) => (order.date || '').startsWith(recordsYearFilter));
   }
@@ -6038,6 +6061,13 @@ function changeRecordsPage(page) {
   renderViewRecordsOrdersTable();
 }
 
+function updatePosRawTagDropdown() {
+  const sel = document.getElementById('rec-pos-tag');
+  if (!sel) return;
+  const tags = [...posRawKnownTags].sort();
+  sel.innerHTML = `<option value="">All Tags</option>${tags.map((tag) => `<option value="${escapeHtml(tag)}" ${posRawTagFilter === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')}`;
+}
+
 function renderPosRawOrdersTable() {
   const tbody = document.getElementById('rec-pos-raw-tbody');
   if (!tbody) return;
@@ -6045,6 +6075,10 @@ function renderPosRawOrdersTable() {
   tbody.innerHTML = DB.posRawOrders.map((order) => {
     const items = Array.isArray(order.items) ? order.items : [];
     const tags = Array.isArray(order.tags) ? order.tags : [];
+    tags.forEach((tag) => {
+      const label = typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || '');
+      if (label) posRawKnownTags.add(label);
+    });
     const quality = order.complete
       ? '<span class="badge badge-success">Mapped</span>'
       : order.missing_product
@@ -6089,6 +6123,8 @@ function renderPosRawOrdersTable() {
         <button class="page-btn" onclick="changePosRawPage(${posRawPage + 1})" ${posRawPage >= pages ? 'disabled' : ''}>›</button>
       </div>`;
   }
+
+  updatePosRawTagDropdown();
 }
 
 function filterPosRawOrders() {
@@ -6099,6 +6135,18 @@ function filterPosRawOrders() {
   refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable).catch((error) => {
     showToast('warning', 'Raw POS refresh failed', error.message || 'Could not load raw POS orders.');
   });
+}
+
+async function deletePosRawNoContact() {
+  if (!confirm('Delete all POS raw orders that have neither a phone number nor a customer name? This cannot be undone.')) return;
+  try {
+    const result = await apiFetch('/api/orders/pos-raw/no-contact', { method: 'DELETE' });
+    showToast('success', 'Deleted', `Removed ${result.deleted || 0} anonymous POS raw orders.`);
+    posRawPage = 1;
+    refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable);
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete POS raw orders.');
+  }
 }
 
 function changePosRawPage(page) {
@@ -6124,6 +6172,12 @@ function filterRecordsByProduct() {
 
 function filterRecordsBySource() {
   recordsSourceFilter = document.getElementById('rec-orders-source')?.value || 'all';
+  recordsPage = 1;
+  renderViewRecordsOrdersTable();
+}
+
+function filterRecordsByPosTag() {
+  recordsPosTagFilter = document.getElementById('rec-orders-pos-tag')?.value || 'all';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
 }
