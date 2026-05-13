@@ -110,7 +110,8 @@ function normalizeStatus(value) {
   const normalized = text.toLowerCase().replace(/[_-]+/g, ' ').trim();
   if (['confirmed', 'confirm', 'purchased'].includes(normalized)) return 'Confirmed';
   if (['waiting for pickup', 'waiting pickup', 'waiting for pick up', 'waiting pick up', 'packaging'].includes(normalized)) return 'Waiting for pickup';
-  if (['pending', 'new', 'draft', 'created'].includes(normalized)) return 'Confirmed';
+  if (['new', 'draft', 'created'].includes(normalized)) return 'New';
+  if (['pending'].includes(normalized)) return 'Confirmed';
   if (['shipped', 'shipping', 'submitted', 'in transit', 'delivering'].includes(normalized)) return 'Shipped';
   if (['delivered', 'complete', 'completed', 'success'].includes(normalized)) return 'Delivered';
   if (['returned', 'return', 'rts', 'return to sender', 'failed delivery'].includes(normalized)) return 'Returned';

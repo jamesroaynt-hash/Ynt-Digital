@@ -694,6 +694,7 @@ function dashboardStatusFromPos(item) {
   if (value.includes('pickup') || value.includes('packaging') || value.includes('waiting') || value.includes('ready') || value === '8' || value === '9' || value === '12') return 'Waiting for pickup';
   if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value === '2') return 'Shipped';
   if (value.includes('confirm') || value.includes('purchased') || value === '1' || value === '20') return 'Confirmed';
+  if (value === 'new' || value === 'draft' || value === 'created' || value === '0') return 'New';
 
   // Also check tags for pickup-related keywords
   const tags = getPosOrderTags(item);

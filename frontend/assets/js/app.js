@@ -1155,6 +1155,41 @@ function renderApiConnections() {
           <div class="field-help">One POS account per line. The main API Key and Shop ID above are also included as the first connection.</div>
         </div>
 
+        ${(() => {
+          const allConns = posSettings.connections || [];
+          if (!allConns.length && !posSettings.shopId) return '';
+          const rows = [
+            posSettings.shopId ? {
+              id: 'primary',
+              name: posSettings.shopName || `Shop ${posSettings.shopId}`,
+              has_api_key: Boolean(posSettings.apiKey),
+              shop_id: posSettings.shopId,
+              enabled: posSettings.enabled,
+              sync_mode: posSettings.syncMode,
+            } : null,
+            ...allConns.filter((c) => c.id !== 'primary'),
+          ].filter(Boolean);
+          if (!rows.length) return '';
+          return `<div class="form-group">
+            <label class="form-label">Connection Status</label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${rows.map((conn) => {
+                const hasKey = conn.has_api_key ?? Boolean(conn.apiKey || conn.api_key);
+                const hasShop = Boolean(conn.shop_id || conn.shopId);
+                const isReady = hasKey && hasShop;
+                return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface-2);border-radius:8px;border:1px solid var(--border);">
+                  <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${isReady ? 'var(--success)' : 'var(--warning)'};"></div>
+                  <div style="flex:1;">
+                    <div style="font-weight:500;font-size:13px;">${escapeHtml(conn.name || conn.id || 'Connection')}</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Shop ID: ${escapeHtml(String(conn.shop_id || conn.shopId || '—'))} · ${hasKey ? 'API key set' : '<span style="color:var(--danger)">No API key</span>'} · ${escapeHtml(conn.sync_mode || conn.syncMode || 'pull_only')}</div>
+                  </div>
+                  <span class="badge ${isReady ? 'badge-success' : 'badge-warning'}">${isReady ? 'Configured' : 'Incomplete'}</span>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+        })()}
+
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" onclick="savePancakePosConnection()">Save POS Connection</button>
           <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
