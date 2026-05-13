@@ -205,6 +205,13 @@ async function authorizedJsonRequest(path, options = {}) {
 }
 
 function mapBackendOrder(row) {
+  let posTags = [];
+  if (row.pos_tags_json) {
+    try {
+      const parsed = typeof row.pos_tags_json === 'string' ? JSON.parse(row.pos_tags_json) : row.pos_tags_json;
+      if (Array.isArray(parsed)) posTags = parsed.map((t) => (typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || ''))).filter(Boolean);
+    } catch { /* ignore */ }
+  }
   return {
     id: row.order_ref || `ORD-${row.id}`,
     dbId: row.id,
@@ -213,6 +220,7 @@ function mapBackendOrder(row) {
     phone: row.phone || '',
     product: row.product || '',
     tags: row.tags || '',
+    posTags,
     qty: Number(row.qty || 0),
     cod: Number(row.cod_amount || 0),
     status: row.status || 'Confirmed',
@@ -3299,7 +3307,7 @@ function renderViewRecords() {
       </div>
       <div id="rec-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
       <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>POS Tags</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
           ${DB.orders.map(o => `<tr data-status="${o.status}">
             <td class="font-mono text-xs text-muted">${o.id}</td>
@@ -3310,6 +3318,7 @@ function renderViewRecords() {
             <td class="font-mono text-xs">${escapeHtml(o.phone || '')}</td>
             <td>${escapeHtml(o.product || '')}</td>
             <td>${escapeHtml(o.tags || '')}</td>
+            <td>${(o.posTags || []).map(t => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('')}</td>
             <td>${o.qty}</td>
             <td>₱${o.cod.toLocaleString()}</td>
             <td>${escapeHtml(o.courier || '')}</td>
@@ -5729,6 +5738,7 @@ function getFilteredViewRecordOrders() {
       || (order.phone || '').toLowerCase().includes(query)
       || order.product.toLowerCase().includes(query)
       || (order.tags || '').toLowerCase().includes(query)
+      || (order.posTags || []).join(' ').toLowerCase().includes(query)
       || order.courier.toLowerCase().includes(query)
       || order.status.toLowerCase().includes(query)
       || order.tracking.toLowerCase().includes(query)
@@ -5767,7 +5777,7 @@ function renderViewRecordsOrdersTable() {
   const pagination = document.getElementById('records-pagination');
 
   if (!DB.orders.length && ordersLoadPromise) {
-    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
     if (pagination) pagination.innerHTML = '<span>Loading orders...</span>';
     return;
   }
@@ -5811,6 +5821,7 @@ function renderViewRecordsOrdersTable() {
     <td class="font-mono text-xs">${escapeHtml(order.phone || '')}</td>
     <td>${escapeHtml(order.product || '')}</td>
     <td>${escapeHtml(order.tags || '')}</td>
+    <td>${(order.posTags || []).map((t) => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('')}</td>
     <td>${order.qty}</td>
     <td>₱${order.cod.toLocaleString()}</td>
     <td>${escapeHtml(order.courier || '')}</td>
@@ -5821,7 +5832,7 @@ function renderViewRecordsOrdersTable() {
         <button class="btn btn-danger btn-sm" onclick="deleteOrderRecord('${escapeHtml(order.dbId || order.id)}')">Delete</button>
       </div>
     </td>
-  </tr>`).join('') || '<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
 
   if (pagination) {
     const start = records.length ? ((recordsPage - 1) * perPage) + 1 : 0;
@@ -5872,7 +5883,7 @@ function renderPosRawOrdersTable() {
       <td>${customerLabel}</td>
       <td>${phoneLabel}</td>
       <td>${statusLabel}</td>
-      <td>${escapeHtml(tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || '')).filter(Boolean).join(', '))}</td>
+      <td>${tags.map((tag) => { const label = typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || ''); return label ? `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(label)}</span>` : ''; }).filter(Boolean).join('') || '<span style="color:var(--text-muted)">—</span>'}</td>
       <td>${escapeHtml(items.map((item) => item?.name || item?.product_name || item?.variation_name || item?.variation_info?.name || '').filter(Boolean).slice(0, 2).join(', '))}</td>
       <td>PHP ${Number(order.cod || order.cash || 0).toLocaleString()}</td>
       <td>${escapeHtml((order.updated_at_remote || order.updated_at || '').slice(0, 10))}</td>

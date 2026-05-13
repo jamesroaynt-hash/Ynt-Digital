@@ -195,7 +195,18 @@ function ordersRoutes(db) {
 
   r.get('/', async (req, res) => {
     const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
-    let sql = 'SELECT * FROM orders WHERE 1=1';
+    let sql = `SELECT o.*, (
+      SELECT po.tags_json
+      FROM integration_source_links isl
+      JOIN pos_orders po ON po.external_id = isl.external_id
+      WHERE isl.provider = 'pancake_pos'
+        AND isl.entity_type = 'orders'
+        AND isl.local_table = 'orders'
+        AND CAST(isl.local_id AS INTEGER) = o.id
+      LIMIT 1
+    ) AS pos_tags_json
+    FROM orders o
+    WHERE 1=1`;
     const params = [];
 
     if (status && status !== 'All') { sql += ' AND status=?'; params.push(status); }
