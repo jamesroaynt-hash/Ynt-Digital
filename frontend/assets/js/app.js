@@ -1600,7 +1600,7 @@ function renderHR() {
   </div>
 
   <div class="card">
-    <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Edit OT minutes and holiday percentage per day</div></div></div>
+    <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">View daily time records. Edit holiday % to adjust pay. Days under 4 hrs do not count toward salary.</div></div></div>
     <div class="card-body" id="hr-attendance-table-wrap">
       <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
     </div>
@@ -4979,21 +4979,35 @@ function renderHRAttendanceTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Time Out</th><th>Break Out</th><th>Break In</th><th>OT Min</th><th>Holiday %</th><th>Note</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Break Out</th><th>Break In</th><th>Time Out</th><th>Work Hours</th><th>OT</th><th>Holiday %</th><th>Daily Salary</th><th></th></tr></thead>
         <tbody>
-          ${hrState.attendance.map((record) => `
+          ${hrState.attendance.map((record) => {
+            const workedMins = Number(record.worked_minutes || 0);
+            const otMins = Number(record.calculated_ot_minutes || record.ot_minutes || 0);
+            const qualifies = workedMins >= 240;
+            const holidayPct = Number(record.holiday_percentage || 100);
+            const dailyRate = Number(record.daily_rate || 0);
+            const dailySalary = qualifies ? dailyRate * (holidayPct / 100) : 0;
+            const dash = '<span style="color:var(--text-muted)">—</span>';
+            return `
             <tr>
-              <td>${escapeHtml(record.work_date || '')}</td>
-              <td><strong>${escapeHtml(record.full_name || '')}</strong></td>
-              <td><input type="time" class="form-control" style="width:112px;" id="att-time-in-${record.id}" value="${escapeHtml(record.time_in || '')}"></td>
-              <td><input type="time" class="form-control" style="width:112px;" id="att-time-out-${record.id}" value="${escapeHtml(record.time_out || '')}"></td>
-              <td><input type="time" class="form-control" style="width:112px;" id="att-break-out-${record.id}" value="${escapeHtml(record.break_out || '')}"></td>
-              <td><input type="time" class="form-control" style="width:112px;" id="att-break-in-${record.id}" value="${escapeHtml(record.break_in || '')}"></td>
-              <td><input type="number" min="0" step="1" class="form-control" style="width:90px;" id="att-ot-${record.id}" value="${Number(record.ot_minutes || record.calculated_ot_minutes || 0)}"></td>
-              <td><input type="number" min="100" step="1" class="form-control" style="width:90px;" id="att-holiday-${record.id}" value="${Number(record.holiday_percentage || 100)}"></td>
-              <td><input type="text" class="form-control" id="att-note-${record.id}" value="${escapeHtml(record.notes || '')}" placeholder="Optional"></td>
+              <td><strong>${escapeHtml(record.work_date || '')}</strong></td>
+              <td>${escapeHtml(record.full_name || '')}</td>
+              <td class="font-mono text-xs">${record.time_in ? escapeHtml(record.time_in) : dash}</td>
+              <td class="font-mono text-xs">${record.break_out ? escapeHtml(record.break_out) : dash}</td>
+              <td class="font-mono text-xs">${record.break_in ? escapeHtml(record.break_in) : dash}</td>
+              <td class="font-mono text-xs">${record.time_out ? escapeHtml(record.time_out) : dash}</td>
+              <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : dash}</td>
+              <td>${otMins > 0 ? `<span class="badge badge-warning">${formatMinutes(otMins)}</span>` : dash}</td>
+              <td>
+                <input type="number" min="100" step="1" class="form-control" style="width:90px;"
+                  id="att-holiday-${record.id}" value="${holidayPct}"
+                  title="100=regular, 125=special holiday, 150=regular holiday">
+              </td>
+              <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong></td>
               <td><button class="btn btn-ghost btn-sm" onclick="saveAttendanceAdjustments(${record.id})">Save</button></td>
-            </tr>`).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>`;
@@ -5015,24 +5029,13 @@ async function saveDailyRate(userId) {
 }
 
 async function saveAttendanceAdjustments(recordId) {
-  const record = hrState.attendance.find((item) => Number(item.id) === Number(recordId));
-  if (!record) return;
   try {
-    await authorizedJsonRequest(`/hr/attendance/${recordId}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        time_in: document.getElementById(`att-time-in-${recordId}`)?.value || '',
-        break_out: document.getElementById(`att-break-out-${recordId}`)?.value || '',
-        break_in: document.getElementById(`att-break-in-${recordId}`)?.value || '',
-        time_out: document.getElementById(`att-time-out-${recordId}`)?.value || '',
-        break_minutes: record.break_minutes || 15,
-        ot_minutes: Number(document.getElementById(`att-ot-${recordId}`)?.value || 0),
-        holiday_type: Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100) > 100 ? 'Holiday' : 'Regular day',
-        holiday_percentage: Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100),
-        notes: document.getElementById(`att-note-${recordId}`)?.value || '',
-      }),
+    const holidayPercentage = Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100);
+    await authorizedJsonRequest(`/hr/attendance/${recordId}/holiday`, {
+      method: 'PATCH',
+      body: JSON.stringify({ holiday_percentage: holidayPercentage }),
     });
-    showToast('success', 'Attendance saved', 'OT or holiday adjustment was updated.');
+    showToast('success', 'Holiday saved', 'Holiday adjustment was updated.');
     await loadHRDashboard();
   } catch (error) {
     showToast('error', 'Attendance failed', error.message || 'Could not save attendance.');

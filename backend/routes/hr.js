@@ -80,7 +80,7 @@ function calculatePayroll(users, attendance, advances) {
     const workedMinutes = calculateWorkedMinutes(record);
     const otMinutes = calculateOtMinutes(record);
     const holidayPercentage = Number(record.holiday_percentage || 100);
-    const completedDay = record.time_in && record.time_out;
+    const completedDay = workedMinutes >= 4 * 60; // at least 4 hours to count as a work day
 
     if (completedDay) {
       summary.days_worked += 1;
@@ -362,6 +362,22 @@ module.exports = function hrRoutes(db) {
       id,
     );
 
+    const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(id);
+    res.json({ record });
+  });
+
+  router.patch('/attendance/:id/holiday', requireHrManager, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid attendance id' });
+    const existing = await db.prepare('SELECT id FROM attendance_records WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Attendance record not found' });
+    const holidayPercentage = Math.max(100, Number(req.body?.holiday_percentage || 100));
+    const holidayType = holidayPercentage > 100 ? 'Holiday' : 'Regular day';
+    await db.prepare(`
+      UPDATE attendance_records
+      SET holiday_type = ?, holiday_percentage = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(holidayType, holidayPercentage, id);
     const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(id);
     res.json({ record });
   });
