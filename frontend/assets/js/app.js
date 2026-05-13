@@ -474,7 +474,7 @@ const DB = {
 };
 
 function generateOrders(n) {
-  const statuses = ['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
+  const statuses = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const products = ['DRAGON BLOOD SERUM', 'DRAGON BLOOD CREAM', 'GINSENG SERUM', 'HALLY LOTIONS', 'WHITE CREAM', 'NIACINAMIDE'];
   const names = ['Maria Santos', 'Juan dela Cruz', 'Ana Reyes', 'Carlo Mendoza', 'Liza Tan', 'Ben Aquino', 'Rosa Cruz', 'Mark Lim', 'Joy Castro', 'Ryan Ong'];
   return Array.from({ length: n }, (_, i) => {
@@ -1852,6 +1852,7 @@ function renderManageUsers() {
 
 // ─── RENDER: SALES DASHBOARD ───────────────────────────────
 function renderSales() {
+  const newOrders = DB.orders.filter((o) => o.status === 'New').length;
   const confirmed = DB.orders.filter((o) => o.status === 'Confirmed').length;
   const waiting = DB.orders.filter((o) => o.status === 'Waiting for pickup').length;
   const shipped = DB.orders.filter((o) => o.status === 'Shipped').length;
@@ -1879,6 +1880,7 @@ function renderSales() {
   </div>
 
   <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);" id="sales-summary-cards">
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">New</div><div class="stat-value">${newOrders}</div><div class="stat-meta">Newly received</div></div>
     <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Confirmed</div><div class="stat-value">${confirmed}</div><div class="stat-meta">Ready to process</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Waiting Pickup</div><div class="stat-value">${waiting}</div><div class="stat-meta">Packaging or pickup</div></div>
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">${shipped}</div><div class="stat-meta">Awaiting delivery</div></div>
@@ -3380,6 +3382,7 @@ function renderScanPage(pageId, pageTitle, scanType) {
 
 function statusBadge(status) {
   const map = {
+    'New': 'badge-blue',
     'Confirmed': 'badge-gray',
     'Waiting for pickup': 'badge-warning',
     'Delivered': 'badge-success',
@@ -3414,7 +3417,7 @@ function renderViewRecords() {
   const posTagOptions = [...new Set(DB.orders.flatMap((o) => o.posTags || []))].sort();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
-  const posStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
+  const posStatusOptions = ['All','New','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
@@ -5507,6 +5510,7 @@ function renderSalesSummaryCards(data) {
   const summary = document.getElementById('sales-summary-cards');
   if (!summary) return;
 
+  const newOrders = data.filter((order) => order.status === 'New').length;
   const confirmed = data.filter((order) => order.status === 'Confirmed').length;
   const waiting = data.filter((order) => order.status === 'Waiting for pickup').length;
   const shipped = data.filter((order) => order.status === 'Shipped').length;
@@ -5517,6 +5521,7 @@ function renderSalesSummaryCards(data) {
   const totalCOD = data.reduce((sum, order) => sum + Number(order.cod || 0), 0);
 
   summary.innerHTML = `
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">New</div><div class="stat-value">${newOrders}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Confirmed</div><div class="stat-value">${confirmed}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Waiting Pickup</div><div class="stat-value">${waiting}</div><div class="stat-meta">Filtered results</div></div>
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">${shipped}</div><div class="stat-meta">Awaiting delivery</div></div>
@@ -6098,6 +6103,7 @@ function renderViewRecordsOrdersTable() {
   const summaryEl = document.getElementById('rec-orders-status-summary');
   if (summaryEl) {
     const statusColors = {
+      'New': 'badge-blue',
       'Confirmed': 'badge-info',
       'Waiting for pickup': 'badge-warning',
       'Shipped': 'badge-purple',

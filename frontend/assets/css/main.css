@@ -1037,6 +1037,7 @@ tbody td {
 .badge-info    { background: var(--info-soft);    color: var(--info-text); }
 .badge-gray    { background: var(--surface-3);    color: var(--text-secondary); }
 .badge-purple  { background: #f5f3ff; color: #5b21b6; }
+.badge-blue    { background: #dbeafe; color: #1d4ed8; }
 
 /* ─── TABS ────────────────────────────────────────────────── */
 .tabs {

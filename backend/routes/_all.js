@@ -4,7 +4,7 @@ const googleSheetsSync = require('../services/googleSheetsSync');
 
 function ordersRoutes(db) {
   const r = express.Router();
-  const allowedStatuses = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending']);
+  const allowedStatuses = new Set(['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending']);
 
   function parseJsonObject(value, fallback = null) {
     if (!value) return fallback;
