@@ -763,7 +763,9 @@ function normalizePosTagValue(value) {
   );
 }
 
-function extractAttemptNumber(tags) {
+function extractAttemptNumber(item, tags) {
+  const countOfDelivery = Number(item?.partner?.count_of_delivery);
+  if (Number.isFinite(countOfDelivery) && countOfDelivery >= 1) return countOfDelivery;
   if (!tags) return 1;
   const match = String(tags).match(/(\d+)\s*(?:st|nd|rd|th)\s*attempt/i);
   if (match) return Math.max(1, Number(match[1]));
@@ -1090,7 +1092,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
     : await db.prepare('SELECT id FROM orders WHERE order_ref = ? LIMIT 1').get(orderRef);
 
-  const attemptNum = extractAttemptNumber(tags);
+  const attemptNum = extractAttemptNumber(item, tags);
 
   if (existing) {
     await db.prepare(`
