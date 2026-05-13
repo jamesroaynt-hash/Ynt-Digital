@@ -763,6 +763,13 @@ function normalizePosTagValue(value) {
   );
 }
 
+function extractAttemptNumber(tags) {
+  if (!tags) return 1;
+  const match = String(tags).match(/(\d+)\s*(?:st|nd|rd|th)\s*attempt/i);
+  if (match) return Math.max(1, Number(match[1]));
+  return 1;
+}
+
 function getPosOrderTags(item = {}) {
   const latestPartnerUpdate = Array.isArray(item?.partner?.extend_update)
     ? [...item.partner.extend_update].reverse().find(update => stringOrNull(update?.status))
@@ -1083,11 +1090,13 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
     : await db.prepare('SELECT id FROM orders WHERE order_ref = ? LIMIT 1').get(orderRef);
 
+  const attemptNum = extractAttemptNumber(tags);
+
   if (existing) {
     await db.prepare(`
       UPDATE orders
       SET order_ref = ?, tracking_no = ?, customer = ?, phone = ?, product = ?, qty = ?, cod_amount = ?,
-          status = ?, courier = ?, source_sheet = ?, tags = ?, order_date = ?, updated_at = datetime('now')
+          status = ?, courier = ?, source_sheet = ?, tags = ?, attempts = ?, order_date = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
       orderRef,
@@ -1101,6 +1110,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       courier,
       sourceName,
       tags,
+      attemptNum,
       normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
       existing.id
     );
@@ -1123,7 +1133,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     dashboardStatusFromPos(item),
     courier,
     sourceName,
-    1,
+    attemptNum,
     normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
   );
   await upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
