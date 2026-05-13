@@ -1589,6 +1589,7 @@ function renderAttendance() {
     <button class="tab-btn active" onclick="switchTab(this,'attendance-tab-clock')">Time Clock</button>
     <button class="tab-btn" onclick="switchTab(this,'attendance-tab-cash')">Cash Advance</button>
     <button class="tab-btn" onclick="switchTab(this,'attendance-tab-leave')">Request Leave</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-hours'); loadMyWorkHours();">Work Hours</button>
   </div>
 
   <div id="attendance-tab-clock" class="tab-content active">
@@ -1699,6 +1700,25 @@ function renderAttendance() {
       <div class="card">
         <div class="card-header"><div><div class="card-title">Leave Records</div><div class="card-subtitle">Pending and reviewed requests</div></div></div>
         <div class="card-body" id="attendance-leave-list"><div class="empty-state"><h3>Loading leave</h3><p>Checking request list.</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="attendance-tab-hours" class="tab-content">
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">Work Hours</div><div class="card-subtitle">Your attendance history — read only.</div></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="date" id="wh-date-from" class="form-control" style="width:auto;" value="${today.slice(0,8)}01">
+          <span style="color:var(--text-muted);font-size:13px;">to</span>
+          <input type="date" id="wh-date-to" class="form-control" style="width:auto;" value="${today}">
+          <button class="btn btn-secondary btn-sm" onclick="loadMyWorkHours()">Apply</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div id="attendance-hours-wrap">
+          <div class="empty-state"><h3>Loading</h3><p>Fetching your work hour records.</p></div>
+        </div>
       </div>
     </div>
   </div>`;
@@ -4308,6 +4328,85 @@ async function submitTimeClock(action) {
 
 function initAttendancePage() {
   loadAttendanceDashboard();
+}
+
+async function loadMyWorkHours() {
+  const wrap = document.getElementById('attendance-hours-wrap');
+  if (!wrap) return;
+  const today = normalizeDateString(new Date());
+  const from = document.getElementById('wh-date-from')?.value || today.slice(0, 8) + '01';
+  const to = document.getElementById('wh-date-to')?.value || today;
+  wrap.innerHTML = '<div class="empty-state"><h3>Loading</h3><p>Fetching your work hour records.</p></div>';
+  try {
+    const query = new URLSearchParams({ from, to, _: Date.now().toString() });
+    const data = await authorizedJsonRequest(`/hr/payslip?${query.toString()}`);
+    renderMyWorkHours(data?.payslip);
+  } catch (error) {
+    wrap.innerHTML = `<div class="empty-state"><h3>Failed to load</h3><p>${escapeHtml(error.message || 'Could not load work hours.')}</p></div>`;
+  }
+}
+
+function renderMyWorkHours(payslip) {
+  const wrap = document.getElementById('attendance-hours-wrap');
+  if (!wrap) return;
+  const records = Array.isArray(payslip?.attendance) ? payslip.attendance : [];
+  if (!records.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No records</h3><p>No attendance records for the selected period.</p></div>';
+    return;
+  }
+
+  const totals = payslip?.totals || {};
+  const totalWorked = records.reduce((sum, r) => sum + Number(r.worked_minutes || 0), 0);
+  const totalOt = records.reduce((sum, r) => sum + Number(r.calculated_ot_minutes || r.ot_minutes || 0), 0);
+
+  wrap.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;padding:16px 16px 8px;">
+      <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
+        <div class="stat-label">Days Worked</div>
+        <div class="stat-value" style="font-size:1.4rem;">${totals.days_worked || records.filter((r) => r.time_in && r.time_out).length}</div>
+      </div>
+      <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
+        <div class="stat-label">Total Work Hours</div>
+        <div class="stat-value" style="font-size:1.4rem;">${formatMinutes(totalWorked)}</div>
+      </div>
+      <div class="stat-card amber" style="flex:1;min-width:120px;padding:12px 16px;">
+        <div class="stat-label">Total OT</div>
+        <div class="stat-value" style="font-size:1.4rem;">${formatMinutes(totalOt)}</div>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="margin:0;">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Time In</th>
+            <th>Break Out</th>
+            <th>Break In</th>
+            <th>Time Out</th>
+            <th>Work Hours</th>
+            <th>OT</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${records.map((r) => {
+            const worked = Number(r.worked_minutes || 0);
+            const ot = Number(r.calculated_ot_minutes || r.ot_minutes || 0);
+            const complete = r.time_in && r.time_out;
+            return `<tr>
+              <td><strong>${escapeHtml(r.work_date || '')}</strong></td>
+              <td class="font-mono text-xs">${escapeHtml(r.time_in || '—')}</td>
+              <td class="font-mono text-xs">${escapeHtml(r.break_out || '—')}</td>
+              <td class="font-mono text-xs">${escapeHtml(r.break_in || '—')}</td>
+              <td class="font-mono text-xs">${escapeHtml(r.time_out || '—')}</td>
+              <td>${complete ? `<strong>${formatMinutes(worked)}</strong>` : '<span style="color:var(--text-muted)">Incomplete</span>'}</td>
+              <td>${ot > 0 ? `<span class="badge badge-warning">${formatMinutes(ot)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+              <td class="text-xs text-muted">${escapeHtml(r.notes || '')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function renderAttendanceClockStatus(record, date) {
