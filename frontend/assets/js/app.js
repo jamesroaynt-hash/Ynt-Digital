@@ -2302,7 +2302,7 @@ function renderMarketingCenter() {
             <input type="hidden" id="mkt-entry-edit-index" value="">
             <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}" onchange="syncMarketingPageMeta()"></div>
             <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
-            <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control readonly-field" id="mkt-product" readonly></div>
+            <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control${marketingManager ? '' : ' readonly-field'}" id="mkt-product"${marketingManager ? '' : ' readonly'}></div>
             <div class="form-group"><label class="form-label">Owner</label><input type="text" class="form-control readonly-field" id="mkt-owner" readonly></div>
             <div class="form-group" style="grid-column:1/-1">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
@@ -3208,7 +3208,8 @@ function statusBadge(status) {
 // ─── RENDER: VIEW RECORDS ──────────────────────────────────
 function renderViewRecords() {
   const productOptions = ['all', ...new Set(DB.orders.map((order) => order.product))];
-  const sourceOptions = getSourceSheetOptions();
+  const mktPageNames = getMarketingState().pages.map((p) => p.name).filter(Boolean);
+  const sourceOptions = [...new Set([...mktPageNames, ...getSourceSheetOptions()])].sort();
   const yearOptions = getOrderYearOptions();
   const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
   const posStatusOptions = ['All','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
@@ -5407,7 +5408,7 @@ function addMarketingEntry() {
   const entry = {
     date: document.getElementById('mkt-date')?.value || normalizeDateString(new Date()),
     page: pageName,
-    product: page.product || document.getElementById('mkt-product')?.value || '',
+    product: document.getElementById('mkt-product')?.value || page.product || '',
     owner: page.owner || document.getElementById('mkt-owner')?.value || '',
     orders: Number(document.getElementById('mkt-orders')?.value || 0),
     sales: Number(document.getElementById('mkt-sales')?.value || 0),
@@ -5462,6 +5463,8 @@ function editMarketingEntry(index) {
     if (input) input.value = value;
   });
   syncMarketingPageMeta();
+  const productInput = document.getElementById('mkt-product');
+  if (productInput && entry.product) productInput.value = entry.product;
   showToast('success', 'Editing entry', 'Update the fields and click Add Entry to save changes.');
 }
 
