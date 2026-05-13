@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
   HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'view-records'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
@@ -17,8 +17,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
   Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'rts-rate', 'inventory', 'expenses', 'view-records'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'rts-rate', 'inventory', 'expenses', 'view-records'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'view-records'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'view-records'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -97,6 +97,7 @@ function loadPage(page) {
     attendance: renderAttendance,
     sales: renderSales,
     'marketing-center': renderMarketingCenter,
+    'adspend-roas': renderAdspendRoas,
     csr: renderCSR,
     inventory: renderInventory,
     expenses: renderExpenses,
@@ -123,6 +124,7 @@ const pageNames = {
   attendance: 'Time & Attendance',
   sales: 'Sales',
   'marketing-center': 'Marketing',
+  'adspend-roas': 'ROAS Summary',
   csr: 'CSR Records',
   inventory: 'Stock',
   expenses: 'Expenses',
@@ -2132,6 +2134,179 @@ function autoFillMarketingSalesFromOrders() {
   showToast('success', 'Auto-filled from delivered orders', `${count} orders — PHP ${total.toLocaleString()}`);
 }
 
+// ─── AD SPEND ROAS SUMMARY ─────────────────────────────────
+let adspendDateFrom = '';
+let adspendDateTo = '';
+let adspendPageFilter = 'all';
+let adspendStatusFilters = new Set();
+
+function toggleAdspendStatus(status, checked) {
+  if (checked) adspendStatusFilters.add(status);
+  else adspendStatusFilters.delete(status);
+}
+
+function applyAdspendFilter() {
+  adspendDateFrom = document.getElementById('adspend-from')?.value || adspendDateFrom;
+  adspendDateTo = document.getElementById('adspend-to')?.value || adspendDateTo;
+  adspendPageFilter = document.getElementById('adspend-page')?.value || 'all';
+  // Sync checkboxes into Set before re-render
+  const statusMap = { 'Shipped': 'adspend-cb-shipped', 'Waiting for pickup': 'adspend-cb-transit', 'Confirmed': 'adspend-cb-delivery', 'Returned': 'adspend-cb-returned', 'Delivered': 'adspend-cb-delivered' };
+  Object.entries(statusMap).forEach(([status, id]) => {
+    const el = document.getElementById(id);
+    if (el) { if (el.checked) adspendStatusFilters.add(status); else adspendStatusFilters.delete(status); }
+  });
+  navigateTo('adspend-roas');
+}
+
+function renderAdspendRoas() {
+  const today = normalizeDateString(new Date());
+  if (!adspendDateFrom) adspendDateFrom = normalizeDateString(getDateDaysAgo(6));
+  if (!adspendDateTo) adspendDateTo = today;
+
+  const mktState = getMarketingState();
+
+  // Build every date in range
+  const dates = [];
+  const cursor = new Date(adspendDateFrom + 'T00:00:00');
+  const endDate = new Date(adspendDateTo + 'T00:00:00');
+  while (cursor <= endDate) {
+    dates.push(normalizeDateString(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Orders filtered by date + page + status
+  const statusActive = adspendStatusFilters.size > 0;
+  const filteredOrders = DB.orders.filter((o) => {
+    if (o.date < adspendDateFrom || o.date > adspendDateTo) return false;
+    if (adspendPageFilter !== 'all' && (o.sourceSheet || 'Manual') !== adspendPageFilter) return false;
+    if (statusActive && !adspendStatusFilters.has(o.status)) return false;
+    return true;
+  });
+
+  const ordersByDate = {};
+  filteredOrders.forEach((o) => {
+    if (!ordersByDate[o.date]) ordersByDate[o.date] = { orders: 0, amount: 0 };
+    ordersByDate[o.date].orders++;
+    ordersByDate[o.date].amount += Number(o.cod || 0);
+  });
+
+  // Marketing ad spend by date
+  const spendByDate = {};
+  (mktState.entries || []).forEach((entry) => {
+    if (!entry.date || entry.date < adspendDateFrom || entry.date > adspendDateTo) return;
+    if (adspendPageFilter !== 'all' && entry.page !== adspendPageFilter) return;
+    spendByDate[entry.date] = (spendByDate[entry.date] || 0) + Number(entry.spend || 0);
+  });
+
+  function roasCellStyle(roas) {
+    if (roas >= 5) return 'background:#d1fae5;color:#065f46;font-weight:700;';
+    if (roas >= 4) return 'background:#fef9c3;color:#854d0e;font-weight:700;';
+    if (roas >= 3) return 'background:#fffbeb;color:#92400e;font-weight:700;';
+    if (roas > 0) return 'background:#fee2e2;color:#991b1b;font-weight:700;';
+    return 'color:var(--text-muted);';
+  }
+
+  const rows = dates.map((date) => {
+    const o = ordersByDate[date] || { orders: 0, amount: 0 };
+    const spend = spendByDate[date] || 0;
+    const roas = spend > 0 ? o.amount / spend : 0;
+    return { date, orders: o.orders, amount: o.amount, spend, roas };
+  });
+
+  const totalOrders = rows.reduce((s, r) => s + r.orders, 0);
+  const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+  const totalSpend = rows.reduce((s, r) => s + r.spend, 0);
+  const totalRoas = totalSpend > 0 ? totalAmount / totalSpend : 0;
+  const n = rows.length || 1;
+
+  const fmt = (v) => Number(v).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const statusOptions = [
+    ['Shipped', 'adspend-cb-shipped', 'View Shipped Out'],
+    ['Waiting for pickup', 'adspend-cb-transit', 'View In Transit'],
+    ['Confirmed', 'adspend-cb-delivery', 'View On Delivery'],
+    ['Returned', 'adspend-cb-returned', 'View Returned'],
+    ['Delivered', 'adspend-cb-delivered', 'View Delivered'],
+  ];
+
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>Ad Spend ROAS Summary</h1><p>Daily orders and ad spend performance across pages.</p></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;padding:16px 20px;">
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;">
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Date Range</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="date" class="form-control" id="adspend-from" value="${adspendDateFrom}" style="width:148px;">
+          <span style="color:var(--text-muted);">–</span>
+          <input type="date" class="form-control" id="adspend-to" value="${adspendDateTo}" style="width:148px;">
+        </div>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Filter By</label>
+        <select class="form-control" id="adspend-page" style="min-width:160px;">
+          <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Summary</option>
+          ${mktState.pages.map((p) => `<option value="${escapeHtml(p.name)}"${adspendPageFilter === p.name ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="applyAdspendFilter()">Submit</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;">
+      ${statusOptions.map(([status, id, label]) => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+          <input type="checkbox" id="${id}" ${adspendStatusFilters.has(status) ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--primary);">
+          ${label}
+        </label>`).join('')}
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="table-container" style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;min-width:640px;">
+        <thead>
+          <tr style="background:var(--primary,#3b82f6);color:#fff;">
+            <th colspan="5" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">TOTAL</th>
+          </tr>
+          <tr style="background:var(--primary,#3b82f6);color:#fff;">
+            <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">TOTAL ORDERS</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">TOTAL ORDERS AMOUNT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">TOTAL AD SPENT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
+            <td style="padding:10px 14px;font-weight:500;font-size:13px;">${row.date}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.amount)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.spend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:#f59e0b;color:#fff;font-weight:700;">
+            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalOrders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalAmount)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalSpend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalSpend > 0 ? totalRoas.toFixed(2) : '—'}</td>
+          </tr>
+          <tr style="background:#10b981;color:#fff;font-weight:700;">
+            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">AVERAGE</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalOrders / n).toFixed(2)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalAmount / n)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalSpend / n)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>`;
+}
+
 function renderMarketingCenter() {
   const now = new Date();
   if (!window.mktFilter) {
@@ -3646,7 +3821,7 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['sales', 'marketing-center', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasSales = ['sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['view-records', 'damage-sheets'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
