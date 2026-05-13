@@ -431,6 +431,9 @@ async function upsertWarehouse(db, shopId, item) {
 async function upsertOrder(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
+  const customerName = getPosCustomerName(item, item?.shipping_address || {});
+  const customerPhone = getPosCustomerPhone(item, item?.shipping_address || {});
+  if (!customerName && !customerPhone) return null;
   await db.prepare(`
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
@@ -465,8 +468,8 @@ async function upsertOrder(db, shopId, item) {
     stringOrNull(item?.updated_at),
     numberOrNull(item?.status),
     stringOrNull(item?.status_name || item?.status_text),
-    getPosCustomerName(item, item?.shipping_address || {}),
-    getPosCustomerPhone(item, item?.shipping_address || {}),
+    customerName,
+    customerPhone,
     stringOrNull(item?.bill_email || item?.customer?.email || item?.email),
     stringOrNull(item?.page_id),
     numberOrNull(item?.shipping_fee),
