@@ -52,16 +52,41 @@ function loadEnvFile() {
 
 loadEnvFile();
 
+if (!process.env.JWT_SECRET) {
+  const generated = crypto.randomBytes(32).toString('hex');
+  process.env.JWT_SECRET = generated;
+  try {
+    const envPath = path.join(__dirname, '.env');
+    const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+    if (!existing.includes('JWT_SECRET=')) {
+      fs.appendFileSync(envPath, `\nJWT_SECRET=${generated}\n`, 'utf8');
+      console.log('[security] Generated JWT_SECRET saved to .env — sessions will survive restarts.');
+    }
+  } catch {
+    console.warn('[security] JWT_SECRET not set and .env is not writable. All sessions will be invalidated on restart. Set JWT_SECRET in your environment.');
+  }
+}
+
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET;
 const PANCAKE_POS_SYNC_INTERVAL_MS = Math.max(
   60 * 1000,
   Number(process.env.PANCAKE_POS_SYNC_INTERVAL_MS || 5 * 60 * 1000)
 );
-if (!process.env.JWT_SECRET) {
-  console.warn('JWT_SECRET is not set. Using a temporary secret for this server session.');
-}
+
+// Shared security state
+const tokenBlocklist = new Map(); // jti -> expiresAt (ms)
+const loginAttempts = new Map();  // ip -> { count, resetAt }
+setInterval(() => {
+  const now = Date.now();
+  for (const [jti, expiresAt] of tokenBlocklist) {
+    if (now > expiresAt) tokenBlocklist.delete(jti);
+  }
+  for (const [ip, record] of loginAttempts) {
+    if (now > record.resetAt) loginAttempts.delete(ip);
+  }
+}, 15 * 60 * 1000).unref();
 
 const extraOrigins = (process.env.FRONTEND_ORIGINS || '')
   .split(',')
@@ -188,14 +213,18 @@ async function createApp() {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token provided' });
     try {
-      req.user = jwt.verify(token, JWT_SECRET);
+      const payload = jwt.verify(token, JWT_SECRET);
+      if (payload.jti && tokenBlocklist.has(payload.jti)) {
+        return res.status(401).json({ error: 'Token has been revoked' });
+      }
+      req.user = payload;
       next();
     } catch {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
   }
 
-  app.use('/api/auth', require('./routes/auth')(db, jwt, bcrypt, JWT_SECRET));
+  app.use('/api/auth', require('./routes/auth')(db, jwt, bcrypt, JWT_SECRET, { tokenBlocklist, loginAttempts }));
   app.use('/api/orders', authMiddleware, require('./routes/orders')(db));
   app.use('/api/inventory', authMiddleware, require('./routes/inventory')(db));
   app.use('/api/expenses', authMiddleware, require('./routes/expenses')(db));
@@ -213,7 +242,8 @@ async function createApp() {
   app.use((error, req, res, next) => {
     console.error(`[server] ${req.method} ${req.originalUrl}: ${error.stack || error.message}`);
     if (req.originalUrl.startsWith('/api')) {
-      res.status(500).json({ error: error.message || 'Internal server error' });
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT;
+      res.status(500).json({ error: isProduction ? 'Internal server error' : (error.message || 'Internal server error') });
       return;
     }
     next(error);

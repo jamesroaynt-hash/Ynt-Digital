@@ -1,6 +1,6 @@
 const express = require('express');
 
-module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
+module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlocklist = new Map(), loginAttempts = new Map() } = {}) {
   const router = express.Router();
   const allowedRoles = new Set([
     'Administrator',
@@ -89,6 +89,17 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
 
   // POST /api/auth/login
   router.post('/login', async (req, res) => {
+    // Rate limit: max 10 attempts per IP per minute
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const now = Date.now();
+    const attempt = loginAttempts.get(ip) || { count: 0, resetAt: now + 60_000 };
+    if (now > attempt.resetAt) { attempt.count = 0; attempt.resetAt = now + 60_000; }
+    attempt.count += 1;
+    loginAttempts.set(ip, attempt);
+    if (attempt.count > 10) {
+      return res.status(429).json({ error: 'Too many login attempts. Try again in a minute.' });
+    }
+
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
@@ -97,7 +108,14 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+    // Re-hash plain-text passwords on successful login
+    if (user.password && !user.password.startsWith('$2')) {
+      const rehashed = bcrypt.hashSync(password, 10);
+      await db.prepare('UPDATE users SET password = ? WHERE id = ?').run(rehashed, user.id);
+    }
+
+    const jti = require('crypto').randomBytes(16).toString('hex');
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, jti }, JWT_SECRET, { expiresIn: '8h' });
     res.json({
       token,
       user: {
@@ -165,6 +183,16 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
 
   // POST /api/auth/logout
   router.post('/logout', (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload.jti) {
+          const expiresAt = (payload.exp || 0) * 1000;
+          tokenBlocklist.set(payload.jti, expiresAt || Date.now() + 8 * 60 * 60 * 1000);
+        }
+      } catch { /* token already invalid — nothing to revoke */ }
+    }
     res.json({ message: 'Logged out successfully' });
   });
 
@@ -174,7 +202,11 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET) {
     if (!token) return res.status(401).json({ error: 'No token' });
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate FROM users WHERE id=?').get(decoded.id);
+      if (decoded.jti && tokenBlocklist.has(decoded.jti)) {
+        return res.status(401).json({ error: 'Token has been revoked' });
+      }
+      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate FROM users WHERE id=? AND is_active=1').get(decoded.id);
+      if (!user) return res.status(401).json({ error: 'Account not found or deactivated' });
       res.json(user);
     } catch {
       res.status(401).json({ error: 'Invalid token' });

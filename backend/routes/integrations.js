@@ -15,7 +15,7 @@ module.exports = function integrationRoutes(db) {
 
   function cronSecretAllowed(req) {
     const expected = process.env.CRON_SECRET;
-    if (!expected) return true;
+    if (!expected) return false; // deny if CRON_SECRET not configured
     const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
     return bearer === expected || req.query.secret === expected;
   }
@@ -23,7 +23,7 @@ module.exports = function integrationRoutes(db) {
   async function pancakeWebhookAllowed(req) {
     const setting = await posSync.getPublicSetting(db);
     const expected = process.env.PANCAKE_POS_WEBHOOK_SECRET || setting.webhook_secret;
-    if (!expected) return true;
+    if (!expected) return false; // deny if webhook secret not configured
     const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
     return bearer === expected
       || req.headers['x-pancake-signature'] === expected
@@ -97,11 +97,13 @@ module.exports = function integrationRoutes(db) {
   });
 
   publicRouter.get('/pancake-pos/status', async (req, res) => {
-    res.json(await posSync.getStatus(db));
+    const status = await posSync.getStatus(db);
+    res.json({ enabled: Boolean(status.enabled), sync_mode: status.sync_mode || null });
   });
 
   publicRouter.get('/google-sheets/status', async (req, res) => {
-    res.json(await googleSheetsSync.getStatus(db));
+    const status = await googleSheetsSync.getStatus(db);
+    res.json({ enabled: Boolean(status.enabled), sync_mode: status.sync_mode || null });
   });
 
   publicRouter.post([
