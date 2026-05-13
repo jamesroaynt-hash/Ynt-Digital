@@ -2140,20 +2140,21 @@ let adspendDateTo = '';
 let adspendPageFilter = 'all';
 let adspendStatusFilters = new Set();
 
-function toggleAdspendStatus(status, checked) {
-  if (checked) adspendStatusFilters.add(status);
-  else adspendStatusFilters.delete(status);
-}
+const ADSPEND_STATUS_MAP = [
+  ['Shipped',            'adspend-cb-shipped',  'View Shipped Out'],
+  ['Waiting for pickup', 'adspend-cb-transit',  'View In Transit'],
+  ['Confirmed',          'adspend-cb-delivery', 'View On Delivery'],
+  ['Returned',           'adspend-cb-returned', 'View Returned'],
+  ['Delivered',          'adspend-cb-delivered','View Delivered'],
+];
 
 function applyAdspendFilter() {
   adspendDateFrom = document.getElementById('adspend-from')?.value || adspendDateFrom;
-  adspendDateTo = document.getElementById('adspend-to')?.value || adspendDateTo;
+  adspendDateTo   = document.getElementById('adspend-to')?.value   || adspendDateTo;
   adspendPageFilter = document.getElementById('adspend-page')?.value || 'all';
-  // Sync checkboxes into Set before re-render
-  const statusMap = { 'Shipped': 'adspend-cb-shipped', 'Waiting for pickup': 'adspend-cb-transit', 'Confirmed': 'adspend-cb-delivery', 'Returned': 'adspend-cb-returned', 'Delivered': 'adspend-cb-delivered' };
-  Object.entries(statusMap).forEach(([status, id]) => {
-    const el = document.getElementById(id);
-    if (el) { if (el.checked) adspendStatusFilters.add(status); else adspendStatusFilters.delete(status); }
+  adspendStatusFilters.clear();
+  ADSPEND_STATUS_MAP.forEach(([status, id]) => {
+    if (document.getElementById(id)?.checked) adspendStatusFilters.add(status);
   });
   navigateTo('adspend-roas');
 }
@@ -2164,6 +2165,17 @@ function renderAdspendRoas() {
   if (!adspendDateTo) adspendDateTo = today;
 
   const mktState = getMarketingState();
+
+  if (!DB.orders.length && ordersLoadPromise) {
+    ordersLoadPromise.then(() => { if (App.currentPage === 'adspend-roas') navigateTo('adspend-roas'); });
+    return `<div class="page-header"><div class="page-title"><h1>Ad Spend ROAS Summary</h1></div></div>
+      <div class="card" style="text-align:center;padding:48px;color:var(--text-muted);">Loading orders...</div>`;
+  }
+
+  // Pages: merge POS source sheets + configured marketing pages (deduplicated, sorted)
+  const posPages = [...new Set(DB.orders.map((o) => o.sourceSheet).filter(Boolean))].sort();
+  const mktPageNames = mktState.pages.map((p) => p.name).filter(Boolean);
+  const allPages = [...new Set([...posPages, ...mktPageNames])].sort();
 
   // Build every date in range
   const dates = [];
@@ -2221,13 +2233,7 @@ function renderAdspendRoas() {
 
   const fmt = (v) => Number(v).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const statusOptions = [
-    ['Shipped', 'adspend-cb-shipped', 'View Shipped Out'],
-    ['Waiting for pickup', 'adspend-cb-transit', 'View In Transit'],
-    ['Confirmed', 'adspend-cb-delivery', 'View On Delivery'],
-    ['Returned', 'adspend-cb-returned', 'View Returned'],
-    ['Delivered', 'adspend-cb-delivered', 'View Delivered'],
-  ];
+  const statusOptions = ADSPEND_STATUS_MAP;
 
   return `
   <div class="page-header">
@@ -2248,7 +2254,7 @@ function renderAdspendRoas() {
         <label class="form-label">Filter By</label>
         <select class="form-control" id="adspend-page" style="min-width:160px;">
           <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Summary</option>
-          ${mktState.pages.map((p) => `<option value="${escapeHtml(p.name)}"${adspendPageFilter === p.name ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          ${allPages.map((name) => `<option value="${escapeHtml(name)}"${adspendPageFilter === name ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
         </select>
       </div>
       <button class="btn btn-primary" onclick="applyAdspendFilter()">Submit</button>
@@ -2256,7 +2262,7 @@ function renderAdspendRoas() {
     <div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;">
       ${statusOptions.map(([status, id, label]) => `
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
-          <input type="checkbox" id="${id}" ${adspendStatusFilters.has(status) ? 'checked' : ''} style="width:14px;height:14px;accent-color:var(--primary);">
+          <input type="checkbox" id="${id}" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter()" style="width:14px;height:14px;accent-color:var(--primary);">
           ${label}
         </label>`).join('')}
     </div>
