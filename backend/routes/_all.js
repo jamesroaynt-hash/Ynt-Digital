@@ -5,6 +5,8 @@ const googleSheetsSync = require('../services/googleSheetsSync');
 function ordersRoutes(db) {
   const r = express.Router();
   const allowedStatuses = new Set(['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending']);
+  const allowedStatusLower = new Map([...allowedStatuses].map((s) => [s.toLowerCase(), s]));
+  function normalizeStatus(raw) { return allowedStatusLower.get(String(raw || '').toLowerCase().trim()) || 'Confirmed'; }
 
   function parseJsonObject(value, fallback = null) {
     if (!value) return fallback;
@@ -151,7 +153,7 @@ function ordersRoutes(db) {
       tags: String(row.tags || row.tag || row.labels || '').trim() || null,
       qty: Number.parseInt(row.qty || row.quantity || 1, 10) || 1,
       cod_amount: Number.parseFloat(row.cod_amount || row.cod || row.amount || row.price || 0) || 0,
-      status: allowedStatuses.has(row.status) ? row.status : 'Confirmed',
+      status: normalizeStatus(row.status),
       courier: String(row.courier || row.shipper || '').trim() || null,
       source_sheet: String(row.source_sheet || row.source || 'CSV Import').trim() || 'CSV Import',
       order_date: String(row.order_date || row.date || row.created_at || '').slice(0, 10) || new Date().toISOString().split('T')[0],
