@@ -2281,11 +2281,6 @@ function getDataReportMetrics() {
     byPrice: groupDataReportRows(orders, (order) => getPriceRangeLabel(order.cod)),
     byConfirmed: groupDataReportRows(orders, (order) => order.confirmedBy || 'Unassigned'),
     byProvince: groupDataReportRows(orders, (order) => order.province || 'Unknown province'),
-    byCity: groupDataReportRows(orders, (order) => {
-      const city = order.city || 'Unknown city';
-      const province = order.province ? `, ${order.province}` : '';
-      return `${city}${province}`;
-    }),
   };
 }
 
@@ -2349,13 +2344,7 @@ function renderDataReportDashboard() {
       </div>
       ${renderDataReportTable(metrics.byProvince, 'Province', 'No province data yet')}
     </section>
-
-    <section class="data-report-section">
-      <div class="card-header">
-        <div><div class="card-title">By City</div><div class="card-subtitle">RTS rate grouped by city and province when available</div></div>
-      </div>
-      ${renderDataReportTable(metrics.byCity, 'City / Province', 'No city data yet')}
-    </section>`;
+`;
 
   renderDataReportPriceChart(metrics.byPrice);
 }
