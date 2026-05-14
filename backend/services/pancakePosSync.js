@@ -719,32 +719,49 @@ function normalizeDateString(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function getPartnerShipmentStatus(partner = {}) {
+  const ps = String(partner?.partner_status || '').toLowerCase();
+  if (ps === 'delivered') return 'Delivered';
+  if (ps === 'returned') return 'Returned';
+  if (ps === 'returning' || ps === 'undeliverable') return 'Returning';
+  if (ps === 'on_the_way' || ps === 'out_for_delivery') return 'Shipped';
+  return null;
+}
+
 function dashboardStatusFromPos(item) {
-  // Numeric status codes are authoritative — check first
   const code = numberOrNull(item?.status);
+  const partner = item?.partner || {};
+
+  // Canceled/removed is always final — check before partner
+  if (code === 6 || code === 7) return 'Canceled';
+  const statusText = String(item?.status_name || item?.status_text || '').toLowerCase();
+  if (statusText.includes('cancel') || statusText.includes('removed') || statusText.includes('deleted')) return 'Canceled';
+
+  // Partner shipment status takes priority for delivery outcomes
+  const partnerStatus = getPartnerShipmentStatus(partner);
+  if (partnerStatus) return partnerStatus;
+
+  // POS numeric status codes
   if (code !== null) {
     if (code === 3) return 'Delivered';
     if (code === 4) return 'Returning';
     if (code === 5 || code === 15) return 'Returned';
-    if (code === 6 || code === 7) return 'Canceled';
     if (code === 8 || code === 9 || code === 12) return 'Waiting for pickup';
     if (code === 2) return 'Shipped';
     if (code === 1 || code === 20) return 'Confirmed';
     if (code === 0) return 'New';
   }
 
-  // Fall back to status_name text matching
-  const value = String(item?.status_name || item?.status_text || '').toLowerCase();
-  if (value.includes('delivered') || value.includes('received') || value.includes('complete')) return 'Delivered';
-  if (value.includes('returning')) return 'Returning';
-  if (value.includes('cancel') || value.includes('removed') || value.includes('deleted')) return 'Canceled';
-  if (value.includes('return')) return 'Returned';
-  if (value.includes('pickup') || value.includes('packaging') || value.includes('waiting') || value.includes('ready') || value.includes('print') || value.includes('pending')) return 'Waiting for pickup';
-  if (value.includes('ship') || value.includes('transit')) return 'Shipped';
-  if (value.includes('confirm') || value.includes('purchased') || value.includes('submit')) return 'Confirmed';
-  if (value === 'new' || value === 'draft' || value === 'created') return 'New';
+  // Status_name text matching
+  if (statusText.includes('delivered') || statusText.includes('received') || statusText.includes('complete')) return 'Delivered';
+  if (statusText.includes('returning')) return 'Returning';
+  if (statusText.includes('return')) return 'Returned';
+  if (statusText.includes('pickup') || statusText.includes('packaging') || statusText.includes('waiting') || statusText.includes('ready') || statusText.includes('print') || statusText.includes('pending')) return 'Waiting for pickup';
+  if (statusText.includes('ship') || statusText.includes('transit')) return 'Shipped';
+  if (statusText.includes('confirm') || statusText.includes('purchased') || statusText.includes('submit')) return 'Confirmed';
+  if (statusText === 'new' || statusText === 'draft' || statusText === 'created') return 'New';
 
-  // Check tags for status hints
+  // Tag-based hints
   const tags = getPosOrderTags(item);
   const tagValue = String(tags || '').toLowerCase();
   if (tagValue.includes('pickup') || tagValue.includes('waiting') || tagValue.includes('wfp') || tagValue.includes('for pick')) return 'Waiting for pickup';
@@ -1335,14 +1352,22 @@ async function normalizeSourceSheets(db) {
       WHERE id IN (
         SELECT CAST(isl.local_id AS INTEGER)
         FROM integration_source_links isl
-        INNER JOIN pos_orders po ON po.external_id = isl.external_id
+        LEFT JOIN pos_orders po ON po.external_id = isl.external_id
         WHERE isl.provider = 'pancake_pos'
           AND isl.entity_type = 'orders'
           AND isl.local_table = 'orders'
-          AND po.shop_id = ?
+          AND (po.shop_id = ? OR po.external_id IS NULL)
       )
       AND (source_sheet IS NULL OR source_sheet != ?)
     `).run(conn.name, conn.shop_id, conn.name);
+
+    // Also normalize by shop_id suffix in source_sheet (catches "Shop 100956439" etc.)
+    const shopSuffix = conn.shop_id;
+    await db.prepare(`
+      UPDATE orders
+      SET source_sheet = ?, updated_at = datetime('now')
+      WHERE source_sheet LIKE ? AND (source_sheet IS NULL OR source_sheet != ?)
+    `).run(conn.name, `%${shopSuffix}%`, conn.name);
     normalized += result.changes || 0;
   }
   return normalized;
