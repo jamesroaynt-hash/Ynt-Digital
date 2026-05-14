@@ -1876,7 +1876,46 @@ function extractWebhookOrders(payload) {
   return [payload].filter(value => value && typeof value === 'object');
 }
 
+// Debounce: don't trigger a hot sync more than once per 90 seconds
+let _lastHotSync = 0;
+const HOT_SYNC_DEBOUNCE_MS = 90 * 1000;
+
 async function receiveWebhook(db, payload = {}) {
+  const eventType = String(payload.event_type || '').toLowerCase();
+  const pageId = stringOrNull(payload.page_id);
+
+  // Pancake webhook events (messaging, post) — trigger a hot sync in background
+  if (eventType === 'messaging' || eventType === 'post') {
+    const now = Date.now();
+    if (now - _lastHotSync < HOT_SYNC_DEBOUNCE_MS) {
+      return { provider: PROVIDER, mode: 'webhook_hot_sync', triggered: false, reason: 'debounced', page_id: pageId };
+    }
+    _lastHotSync = now;
+
+    // Fire-and-forget — return 200 immediately, sync in background
+    const twoHoursAgo = Math.floor((now - 2 * 60 * 60 * 1000) / 1000);
+    const nowSec = Math.floor(now / 1000);
+    setImmediate(async () => {
+      try {
+        await collectPosData(db, {
+          resources: ['orders'],
+          startDateTime: twoHoursAgo,
+          endDateTime: nowSec,
+          page_size: 100,
+          max_pages: 20,
+          replay_stored_orders: false,
+        });
+      } catch { /* ignore background errors */ }
+    });
+
+    return { provider: PROVIDER, mode: 'webhook_hot_sync', triggered: true, page_id: pageId };
+  }
+
+  if (eventType === 'subscription') {
+    return { provider: PROVIDER, mode: 'webhook_subscription', acknowledged: true };
+  }
+
+  // Legacy: try to extract orders directly from payload (old/custom webhook formats)
   const setting = await getSetting(db);
   const shopId = stringOrNull(payload.shop_id || payload.shopId || payload.shop?.id || setting?.page_id);
   const orders = extractWebhookOrders(payload);

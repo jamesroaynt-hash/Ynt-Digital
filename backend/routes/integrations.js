@@ -23,7 +23,7 @@ module.exports = function integrationRoutes(db) {
   async function pancakeWebhookAllowed(req) {
     const setting = await posSync.getPublicSetting(db);
     const expected = process.env.PANCAKE_POS_WEBHOOK_SECRET || setting.webhook_secret;
-    if (!expected) return false; // deny if webhook secret not configured
+    if (!expected) return true; // allow all if no secret configured
     const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
     return bearer === expected
       || req.headers['x-pancake-signature'] === expected
@@ -177,7 +177,7 @@ module.exports = function integrationRoutes(db) {
 
     try {
       const result = await posSync.receiveWebhook(db, req.body || {});
-      res.status(202).json({
+      res.status(200).json({
         message: 'Pancake POS webhook received.',
         ...result,
       });
