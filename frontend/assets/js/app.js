@@ -7296,8 +7296,9 @@ async function collectPancakePosData() {
         shop_id: state.pancakePos.shopId,
         connections: state.pancakePos.connections,
         resources: ['orders'],
-        page_size: 50,
-        max_pages: 50,
+        page_size: 100,
+        max_pages: 2000,
+        replay_stored_orders: true,
         startDateTime: currentYearStart,
         endDateTime: Math.floor(Date.now() / 1000),
       }),
@@ -7341,8 +7342,8 @@ async function replayPancakePosOrders(options = {}) {
   saveIntegrationState(state);
   const replayButton = document.getElementById('pancake-pos-replay-button');
 
-  if (!state.pancakePos.shopId) {
-    showToast('warning', 'POS setup required', 'Enter the Pancake POS shop ID first.');
+  if (!state.pancakePos.shopId && !state.pancakePos.connections.length) {
+    showToast('warning', 'POS setup required', 'Enter at least one Pancake POS API key and shop ID first.');
     return null;
   }
 
@@ -7358,8 +7359,9 @@ async function replayPancakePosOrders(options = {}) {
     const data = await authorizedJsonRequest('/integrations/pancake-pos/replay', {
       method: 'POST',
       body: JSON.stringify({
-        shop_id: state.pancakePos.shopId,
+        shop_id: state.pancakePos.connections.length > 1 ? undefined : state.pancakePos.shopId,
         all: true,
+        missing_only: true,
       }),
     });
     await refreshOrderViewsFromBackend();
@@ -7402,9 +7404,11 @@ async function runPosHistoricalSync() {
   const startDateTime = Math.floor(new Date(fromVal + 'T00:00:00').getTime() / 1000);
   const endDateTime = Math.floor(new Date(toVal + 'T23:59:59').getTime() / 1000);
   const state = getIntegrationState();
+  state.pancakePos = collectPancakePosFormState();
+  saveIntegrationState(state);
 
-  if (!state.pancakePos.shopId) {
-    showToast('warning', 'POS setup required', 'Save the POS Shop ID in the connection settings first.');
+  if (!state.pancakePos.connections.length) {
+    showToast('warning', 'POS setup required', 'Save at least one POS connection first.');
     return;
   }
 
@@ -7412,15 +7416,18 @@ async function runPosHistoricalSync() {
     if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
     if (statusEl) statusEl.textContent = `Syncing ${fromVal} → ${toVal} (up to ${maxPages} pages × ${pageSize})…`;
     showToast('info', 'Historical sync started', `Fetching POS orders from ${fromVal} to ${toVal}.`);
+    await syncPancakePosConfigToBackend(state.pancakePos);
 
     const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
       method: 'POST',
       body: JSON.stringify({
+        connections: state.pancakePos.connections,
         resources: ['orders'],
         startDateTime,
         endDateTime,
         max_pages: maxPages,
         page_size: pageSize,
+        replay_stored_orders: true,
       }),
     });
 
@@ -7428,10 +7435,9 @@ async function runPosHistoricalSync() {
     if (statusEl) statusEl.textContent = `Done — ${fetched} orders fetched from ${fromVal} to ${toVal}.`;
     showToast('success', 'Historical sync complete', `${fetched} POS orders synced for ${fromVal} → ${toVal}.`);
 
-    // Auto-replay to map them into dashboard orders
-    showToast('info', 'Transferring to dashboard…', 'Mapping POS records into orders.');
-    await replayPancakePosOrders({ silent: true });
-    showToast('success', 'Transfer complete', 'Historical orders are now visible in View Records.');
+    await refreshOrderViewsFromBackend();
+    const replayed = data.dashboard_replay?.transferred ?? 0;
+    showToast('success', 'Transfer complete', `${replayed} POS records verified into dashboard orders.`);
   } catch (err) {
     if (statusEl) statusEl.textContent = `Error: ${err.message}`;
     showToast('error', 'Historical sync failed', err.message || 'Check POS settings and try again.');

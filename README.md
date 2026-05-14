@@ -458,6 +458,9 @@ GOOGLE_SHEETS_SYNC_ENABLED=false
 GOOGLE_SHEETS_SYNC_MODE=manual
 PANCAKE_POS_SYNC_ENABLED=false
 PANCAKE_POS_SYNC_INTERVAL_MS=300000
+PANCAKE_POS_SYNC_FROM_DATE=2026-01-01
+PANCAKE_POS_SYNC_PAGE_SIZE=100
+PANCAKE_POS_SYNC_MAX_PAGES=2000
 ```
 
 Optional integration variables:
@@ -475,9 +478,12 @@ To pull Pancake POS data automatically after you save the POS API key and Shop I
 ```text
 PANCAKE_POS_SYNC_ENABLED=true
 PANCAKE_POS_SYNC_INTERVAL_MS=300000
+PANCAKE_POS_SYNC_FROM_DATE=2026-01-01
+PANCAKE_POS_SYNC_PAGE_SIZE=100
+PANCAKE_POS_SYNC_MAX_PAGES=2000
 ```
 
-`300000` means every 5 minutes. The server skips automatic POS sync until the Pancake POS integration is enabled and has both API key and Shop ID saved.
+`300000` means every 5 minutes. The server skips automatic POS sync until the Pancake POS integration is enabled and has both API key and Shop ID saved. The POS sync window starts at `PANCAKE_POS_SYNC_FROM_DATE`, pulls up to `PANCAKE_POS_SYNC_MAX_PAGES` pages per connected POS page, and replays stored POS SQL rows into dashboard orders after each run.
 
 #### 3. Add Cloudflare R2 for cheap large storage
 
