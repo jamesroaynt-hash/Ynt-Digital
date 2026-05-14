@@ -318,6 +318,65 @@ function ordersRoutes(db) {
     res.json({ status_counts: counts, total_orders, total_cod });
   });
 
+  r.get('/summary', async (req, res) => {
+    const { search, source_sheet, product, pos_tag, month, year, date_filter, date_from, date_to } = req.query;
+    const params = [];
+    let sql = `SELECT o.*, (
+      SELECT po.tags_json
+      FROM integration_source_links isl
+      JOIN pos_orders po ON po.external_id = isl.external_id
+      WHERE isl.provider = 'pancake_pos'
+        AND isl.entity_type = 'orders'
+        AND isl.local_table = 'orders'
+        AND CAST(isl.local_id AS INTEGER) = o.id
+      LIMIT 1
+    ) AS pos_tags_json
+    FROM orders o
+    WHERE 1=1`;
+
+    if (source_sheet && source_sheet !== 'all') { sql += ' AND COALESCE(o.source_sheet, "")=?'; params.push(source_sheet); }
+    if (product && product !== 'all') { sql += ' AND o.product=?'; params.push(product); }
+    if (month && month !== 'all') { sql += ` AND strftime('%m',order_date)=?`; params.push(String(month).padStart(2, '0')); }
+    if (year && year !== 'all') { sql += ` AND strftime('%Y',order_date)=?`; params.push(String(year)); }
+    if (date_filter === 'today') { sql += ` AND order_date = date('now')`; }
+    if (date_filter === 'yesterday') { sql += ` AND order_date = date('now','-1 day')`; }
+    if (date_filter === 'month') { sql += ` AND strftime('%Y-%m',order_date)=strftime('%Y-%m','now')`; }
+    if (date_filter === 'year') { sql += ` AND strftime('%Y',order_date)=strftime('%Y','now')`; }
+    if (date_filter === 'custom') {
+      if (date_from) { sql += ' AND order_date >= ?'; params.push(String(date_from).slice(0, 10)); }
+      if (date_to) { sql += ' AND order_date <= ?'; params.push(String(date_to).slice(0, 10)); }
+    }
+    if (search) {
+      sql += ` AND (
+        LOWER(COALESCE(o.customer, '')) LIKE ?
+        OR LOWER(COALESCE(o.order_ref, '')) LIKE ?
+        OR LOWER(COALESCE(o.tracking_no, '')) LIKE ?
+        OR LOWER(COALESCE(o.phone, '')) LIKE ?
+        OR LOWER(COALESCE(o.product, '')) LIKE ?
+        OR LOWER(COALESCE(o.courier, '')) LIKE ?
+        OR LOWER(COALESCE(o.source_sheet, '')) LIKE ?
+        OR LOWER(COALESCE(o.tags, '')) LIKE ?
+        OR LOWER(COALESCE(o.confirmed_by, '')) LIKE ?
+      )`;
+      const q = `%${String(search).toLowerCase()}%`;
+      params.push(q, q, q, q, q, q, q, q, q);
+    }
+    if (pos_tag && pos_tag !== 'all') {
+      sql += ` AND LOWER(COALESCE(pos_tags_json, '')) LIKE ?`;
+      params.push(`%${String(pos_tag).toLowerCase()}%`);
+    }
+
+    const rows = await db.prepare(`
+      SELECT status, COUNT(*) AS count, SUM(cod_amount) AS total_cod
+      FROM (${sql}) filtered
+      GROUP BY status
+      ORDER BY count DESC
+    `).all(...params);
+    const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const total_cod = rows.reduce((sum, row) => sum + Number(row.total_cod || 0), 0);
+    res.json({ total, total_cod, status_counts: rows });
+  });
+
   r.get('/pos-raw', async (req, res) => {
     const { completeness = 'all', tag = '', search = '', page = 1, per_page = 25 } = req.query;
     const params = [];

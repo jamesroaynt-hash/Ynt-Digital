@@ -5012,6 +5012,7 @@ function initPage(page) {
           tabBtn.textContent = `Orders (${DB.orders.length})`;
         }
         renderViewRecordsOrdersTable();
+        refreshRecordsSummaryFromBackend().catch(() => {});
       })
       .catch((error) => {
         showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
@@ -5674,6 +5675,7 @@ let posRawCompletenessFilter = 'incomplete';
 let posRawTagFilter = '';
 let posRawSearch = '';
 let recordsPosTagFilter = 'all';
+let recordsSummaryState = { total: 0, totalCod: 0, statusCounts: [], loading: false };
 const posRawKnownTags = new Set();
 let posRawPage = 1;
 let homeOrderFilter = 'all';
@@ -6394,6 +6396,73 @@ function getFilteredViewRecordOrders() {
   return data.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 }
 
+function getRecordsSummaryQuery() {
+  return new URLSearchParams({
+    search: recordsSearch || '',
+    source_sheet: recordsSourceFilter || 'all',
+    product: recordsProductFilter || 'all',
+    pos_tag: recordsPosTagFilter || 'all',
+    year: recordsYearFilter || 'all',
+    month: recordsMonthFilter || 'all',
+    date_filter: recordsDateFilter || 'all',
+    date_from: recordsDateFrom || '',
+    date_to: recordsDateTo || '',
+    _: String(Date.now()),
+  });
+}
+
+async function refreshRecordsSummaryFromBackend() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  recordsSummaryState = { ...recordsSummaryState, loading: true };
+  const summary = await authorizedJsonRequest(`/orders/summary?${getRecordsSummaryQuery().toString()}`);
+  recordsSummaryState = {
+    total: Number(summary?.total || 0),
+    totalCod: Number(summary?.total_cod || 0),
+    statusCounts: Array.isArray(summary?.status_counts) ? summary.status_counts : [],
+    loading: false,
+  };
+  if (App.currentPage === 'view-records') renderViewRecordsStatusSummary();
+  return true;
+}
+
+function renderViewRecordsStatusSummary(records = null) {
+  const summaryEl = document.getElementById('rec-orders-status-summary');
+  if (!summaryEl) return;
+
+  const statusColors = {
+    'New': 'badge-blue',
+    'Confirmed': 'badge-info',
+    'Waiting for pickup': 'badge-warning',
+    'Shipped': 'badge-purple',
+    'Delivered': 'badge-success',
+    'Returning': 'badge-warning',
+    'Returned': 'badge-danger',
+    'Canceled': 'badge-gray',
+  };
+
+  let statusEntries = recordsSummaryState.statusCounts.map((row) => [row.status, Number(row.count || 0)]);
+  let total = Number(recordsSummaryState.total || 0);
+  let totalCod = Number(recordsSummaryState.totalCod || 0);
+
+  if (!statusEntries.length && Array.isArray(records)) {
+    const counts = {};
+    records.forEach((order) => { counts[order.status] = (counts[order.status] || 0) + 1; });
+    statusEntries = Object.entries(counts);
+    total = records.length;
+    totalCod = records.reduce((s, o) => s + Number(o.cod || 0), 0);
+  }
+
+  const chips = statusEntries
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:12px;padding:4px 10px;">${escapeHtml(status)}: <strong>${Number(count).toLocaleString()}</strong></span>`)
+    .join('');
+
+  summaryEl.innerHTML = total
+    ? `${chips}<span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;"><strong>${total.toLocaleString()}</strong> total · COD <strong>₱${totalCod.toLocaleString()}</strong></span>`
+    : (recordsSummaryState.loading ? '<span style="font-size:12px;color:var(--text-muted)">Loading summary...</span>' : '');
+}
+
 function renderPaginationButtons(currentPage, totalPages, onClickName) {
   const windowStart = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
   const windowEnd = Math.min(totalPages, windowStart + 4);
@@ -6433,9 +6502,8 @@ function renderViewRecordsOrdersTable() {
   if (recordsPage > pages) recordsPage = pages;
   const sliced = records.slice((recordsPage - 1) * perPage, recordsPage * perPage);
 
-  // Status summary bar
-  const summaryEl = document.getElementById('rec-orders-status-summary');
-  if (summaryEl) {
+  renderViewRecordsStatusSummary(records);
+  if (false) {
     const statusColors = {
       'New': 'badge-blue',
       'Confirmed': 'badge-info',
@@ -6603,24 +6671,28 @@ function filterViewRecordsTable() {
   recordsSearch = document.getElementById('rec-orders-search')?.value || '';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function filterRecordsByProduct() {
   recordsProductFilter = document.getElementById('rec-orders-product')?.value || 'all';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function filterRecordsBySource() {
   recordsSourceFilter = document.getElementById('rec-orders-source')?.value || 'all';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function filterRecordsByPosTag() {
   recordsPosTagFilter = document.getElementById('rec-orders-pos-tag')?.value || 'all';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function filterRecordsByYear() {
@@ -6633,12 +6705,14 @@ function filterRecordsByYear() {
   }
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function filterRecordsByMonth() {
   recordsMonthFilter = document.getElementById('rec-orders-month')?.value || 'all';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function addCourierOption() {
@@ -6762,6 +6836,7 @@ function setRecordsDateFilter(filter, btn) {
   if (toInput && filter !== 'custom') toInput.value = '';
 
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 function applyRecordsCustomDateRange() {
@@ -6769,6 +6844,7 @@ function applyRecordsCustomDateRange() {
   recordsDateTo = document.getElementById('rec-orders-date-to')?.value || '';
   recordsPage = 1;
   renderViewRecordsOrdersTable();
+  refreshRecordsSummaryFromBackend().catch(() => {});
 }
 
 // ─── SCAN ──────────────────────────────────────────────────
