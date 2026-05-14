@@ -74,6 +74,15 @@ const PANCAKE_POS_SYNC_INTERVAL_MS = Math.max(
   60 * 1000,
   Number(process.env.PANCAKE_POS_SYNC_INTERVAL_MS || 5 * 60 * 1000)
 );
+const PANCAKE_POS_SYNC_PAGE_SIZE = Math.max(
+  10,
+  Math.min(100, Number(process.env.PANCAKE_POS_SYNC_PAGE_SIZE || 100))
+);
+const PANCAKE_POS_SYNC_MAX_PAGES = Math.max(
+  1,
+  Math.min(5000, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 2000))
+);
+const PANCAKE_POS_SYNC_FROM_DATE = process.env.PANCAKE_POS_SYNC_FROM_DATE || `${new Date().getFullYear()}-01-01`;
 
 // Shared security state
 const tokenBlocklist = new Map(); // jti -> expiresAt (ms)
@@ -136,7 +145,8 @@ function getDatabasePath() {
 
 function shouldBackupRequest(req, res) {
   const mayMutate = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
-    || req.originalUrl.includes('/google-sheets/cron');
+    || req.originalUrl.includes('/google-sheets/cron')
+    || req.originalUrl.includes('/pancake-pos/cron');
 
   return mayMutate
     && res.statusCode >= 200
@@ -277,6 +287,16 @@ async function createApp() {
   let pancakePosSyncStartedAt = null;
   const PANCAKE_POS_SYNC_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes max per sync
 
+  function getPancakePosSyncWindow() {
+    return {
+      startDateTime: pancakePosSync.unixSecondsFromDate(PANCAKE_POS_SYNC_FROM_DATE),
+      endDateTime: Math.floor(Date.now() / 1000),
+      page_size: PANCAKE_POS_SYNC_PAGE_SIZE,
+      max_pages: PANCAKE_POS_SYNC_MAX_PAGES,
+      replay_stored_orders: true,
+    };
+  }
+
   async function runPancakePosSync(trigger) {
     if (pancakePosSyncRunning) {
       const elapsed = pancakePosSyncStartedAt ? Date.now() - pancakePosSyncStartedAt : 0;
@@ -304,16 +324,23 @@ async function createApp() {
         && connection.sync_mode === 'automatic'
       ));
       if (trigger !== 'manual' && automaticConnections.length) {
-        const result = await pancakePosSync.collectPosData(db, { connections: automaticConnections, max_pages: 10 });
+        const result = await pancakePosSync.collectPosData(db, {
+          connections: automaticConnections,
+          resources: ['orders'],
+          ...getPancakePosSyncWindow(),
+        });
         backupScheduler.schedule();
-        console.log(`[pancake_pos] ${trigger} multi-sync completed: connections=${automaticConnections.length}`);
+        const replay = result?.dashboard_replay
+          ? `, replayed=${result.dashboard_replay.transferred || 0}/${result.dashboard_replay.scanned || 0}`
+          : '';
+        console.log(`[pancake_pos] ${trigger} multi-sync completed: connections=${automaticConnections.length}${replay}`);
         return result;
       }
       if (status.sync_mode === 'manual_backup') {
         console.log(`[pancake_pos] ${trigger} sync skipped: sync mode is manual backup only.`);
         return;
       }
-      if (trigger !== 'manual' && status.sync_mode !== 'automatic' && process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') {
+      if (trigger !== 'manual' && trigger !== 'cron' && status.sync_mode !== 'automatic' && process.env.PANCAKE_POS_SYNC_ENABLED !== 'true') {
         console.log(`[pancake_pos] ${trigger} sync skipped: automatic sync mode is not enabled.`);
         return;
       }
@@ -322,13 +349,17 @@ async function createApp() {
         return;
       }
 
-      const maxPages = trigger === 'manual' ? 200 : 10;
-      const result = await pancakePosSync.collectPosData(db, { max_pages: maxPages });
+      const result = await pancakePosSync.collectPosData(db, trigger === 'manual'
+        ? { max_pages: 200, replay_stored_orders: true }
+        : getPancakePosSyncWindow());
       backupScheduler.schedule();
       const imported = Object.entries(result?.resources || {})
         .map(([resource, details]) => `${resource}=${details.count || 0}`)
         .join(', ');
-      console.log(`[pancake_pos] ${trigger} sync completed${imported ? `: ${imported}` : '.'}`);
+      const replay = result?.dashboard_replay
+        ? `${imported ? ', ' : ''}replayed=${result.dashboard_replay.transferred || 0}/${result.dashboard_replay.scanned || 0}`
+        : '';
+      console.log(`[pancake_pos] ${trigger} sync completed${imported || replay ? `: ${imported}${replay}` : '.'}`);
     } catch (error) {
       console.error(`[pancake_pos] ${trigger} sync failed: ${error.message}`);
     } finally {

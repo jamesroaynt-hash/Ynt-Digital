@@ -133,6 +133,26 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  publicRouter.get('/pancake-pos/cron', async (req, res) => {
+    if (!cronSecretAllowed(req)) {
+      return res.status(401).json({ error: 'Invalid cron secret' });
+    }
+
+    try {
+      const app = req.app;
+      if (typeof app?.locals?.runPancakePosSync === 'function') {
+        const result = await app.locals.runPancakePosSync('cron');
+        return res.status(202).json({
+          message: result ? 'Pancake POS cron sync completed.' : 'Pancake POS cron sync skipped.',
+          ...(result || {}),
+        });
+      }
+      res.status(503).json({ error: 'Sync handler not available.' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   publicRouter.post('/pancake-pos/webhook', async (req, res) => {
     if (!(await pancakeWebhookAllowed(req))) {
       return res.status(401).json({ error: 'Invalid Pancake POS webhook secret' });
