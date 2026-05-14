@@ -1446,6 +1446,8 @@ tbody td {
   .integration-inline { flex-direction: column; }
   .custom-range .form-control { width: 100%; }
   .topbar { padding: 0 16px; }
+  .page-breadcrumb { max-width: 160px; overflow: hidden; }
+  .page-breadcrumb .current { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .page-header { flex-direction: column; align-items: stretch; }
   .page-title h1 { font-size: 20px; }
   .page-actions,
@@ -1524,7 +1526,7 @@ tbody td {
   }
   #sales-table,
   #records-table {
-    min-width: 980px;
+    min-width: 1100px;
   }
   .table-pagination {
     align-items: stretch;
@@ -1552,6 +1554,7 @@ tbody td {
 
 @media (max-width: 480px) {
   .topbar-right { gap: 6px; }
+  .topbar-right .status-online-text { display: none; }
   .page-content { padding: 12px; }
   .stats-grid,
   #sales-summary-cards,
@@ -1559,7 +1562,9 @@ tbody td {
   .stat-card { padding: 14px 16px; }
   .stat-value { font-size: 22px; }
   .tabs { margin-left: -12px; margin-right: -12px; padding-left: 12px; }
-  .btn { width: 100%; }
+  .page-actions .btn,
+  .modal-footer .btn,
+  .page-header .btn { width: 100%; }
   .btn-sm { padding: 8px 10px; }
   .modal-overlay { padding: 10px; }
   .modal-header,
