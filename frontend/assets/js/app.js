@@ -5195,7 +5195,7 @@ function renderHRPayrollTable() {
             return `
               <tr>
                 <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
-                <td><input type="number" min="0" step="0.01" class="form-control" style="width:120px;" id="daily-rate-${user.id}" value="${Number(user.daily_rate || 0)}"></td>
+                <td><input type="number" min="0" step="0.01" class="form-control" style="width:120px;" id="daily-rate-${user.id}" value="${Number(user.daily_rate || 0)}" onkeydown="if(event.key==='Enter'){event.preventDefault();saveDailyRate(${user.id});}" onblur="saveDailyRateOnBlur(${user.id}, ${Number(user.daily_rate || 0)})"></td>
                 <td>${Number(item.days_worked || 0)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
@@ -5203,7 +5203,7 @@ function renderHRPayrollTable() {
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
                 <td>
                   <div class="flex gap-2">
-                    <button class="btn btn-ghost btn-sm" onclick="saveDailyRate(${user.id})">Rate</button>
+                    <button class="btn btn-primary btn-sm" onclick="saveDailyRate(${user.id})">Save Rate</button>
                     <button class="btn btn-secondary btn-sm" onclick="printPayslip(${user.id})">Payslip</button>
                   </div>
                 </td>
@@ -5272,6 +5272,14 @@ async function saveDailyRate(userId) {
   } catch (error) {
     showToast('error', 'Rate failed', error.message || 'Could not update rate.');
   }
+}
+
+async function saveDailyRateOnBlur(userId, originalRate) {
+  const input = document.getElementById(`daily-rate-${userId}`);
+  if (!input) return;
+  const newRate = Number(input.value || 0);
+  if (newRate === originalRate) return;
+  await saveDailyRate(userId);
 }
 
 async function saveAttendanceAdjustments(recordId) {
