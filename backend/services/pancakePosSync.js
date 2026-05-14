@@ -463,6 +463,8 @@ async function upsertWarehouse(db, shopId, item) {
 async function upsertOrder(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
+  const statusName = stringOrNull(item?.status_name || item?.status_text);
+  if (!statusName) return null;
   const customerName = getPosCustomerName(item, item?.shipping_address || {});
   const customerPhone = getPosCustomerPhone(item, item?.shipping_address || {});
   if (!customerName && !customerPhone) return null;

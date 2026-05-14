@@ -496,6 +496,21 @@ function ordersRoutes(db) {
     res.json({ deleted: result.changes || 0 });
   });
 
+  r.delete('/pos-raw/incomplete', async (req, res) => {
+    const del = await db.prepare(`
+      DELETE FROM pos_orders
+      WHERE status_name IS NULL OR TRIM(status_name) = ''
+    `).run();
+    const linkDel = await db.prepare(`
+      DELETE FROM integration_source_links
+      WHERE provider = 'pancake_pos'
+        AND entity_type = 'orders'
+        AND local_table = 'orders'
+        AND CAST(local_id AS INTEGER) NOT IN (SELECT id FROM orders)
+    `).run();
+    res.json({ deleted_pos_orders: del.changes || 0, deleted_links: linkDel.changes || 0 });
+  });
+
   r.post('/', async (req, res) => {
     const { customer, phone, product, tags, qty, cod_amount, status, courier, tracking_no, order_date } = req.body;
     const ref = `ORD-${Date.now()}`;
