@@ -1886,7 +1886,8 @@ async function syncPancakePageUsers(db) {
       for (const user of users) {
         const userId = stringOrNull(user.id);
         if (!userId) continue;
-        const externalKey = stableKey(PROVIDER, pageId, userId);
+        // Key by provider+userId only — one row per person regardless of how many pages they're on
+        const externalKey = stableKey(PROVIDER, userId);
         await db.prepare(`
           INSERT INTO pos_users (external_key, shop_id, external_id, name, username, email, role_name, is_active, raw_payload, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
