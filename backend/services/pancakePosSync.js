@@ -1154,7 +1154,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       trackingNo,
       customer,
       phone,
-      productName,
+      summary.product,
       summary.qty,
       cod,
       dashboardStatusFromPos(item),
