@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
-  HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'view-records'],
-  Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records'],
-  CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
-  'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'view-records', 'manage-users'],
-  RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
-  'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'view-records'],
-  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'view-records'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'view-records'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
+  HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'data-report', 'view-records'],
+  Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records'],
+  CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users'],
+  RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
+  'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
+  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -50,6 +50,7 @@ let salesBarChart = null;
 let salesDonutChart = null;
 let homeDonutChart = null;
 let homeRtsBarChart = null;
+let dataReportPriceChart = null;
 let integrationsBackendHydrated = false;
 let ordersLoadPromise = null;
 
@@ -105,6 +106,7 @@ function loadPage(page) {
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
     'rts-rate': renderRTSRate,
+    'data-report': renderDataReport,
     scanning: renderScanning,
     'view-records': renderViewRecords,
     'damage-sheets': renderDamageSheets,
@@ -132,6 +134,7 @@ const pageNames = {
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
   'rts-rate': 'RTS Rate',
+  'data-report': 'Data Report',
   scanning: 'Scan Orders',
   'view-records': 'Records',
   'damage-sheets': 'Damage Reports',
@@ -230,6 +233,9 @@ function mapBackendOrder(row) {
     date: normalizeDateString(row.order_date || row.created_at || new Date()),
     sourceSheet: row.source_sheet || '',
     attempts: Number(row.attempts || 1),
+    confirmedBy: row.confirmed_by || row.confirmedBy || '',
+    city: row.city || '',
+    province: row.province || '',
   };
 }
 
@@ -299,6 +305,7 @@ function renderPageOrderData(page) {
   if (page === 'view-records') renderViewRecordsOrdersTable();
   if (page === 'home') renderHomeOrderCharts();
   if (page === 'rts-rate') renderRTSRateDashboard();
+  if (page === 'data-report') renderDataReportDashboard();
 }
 
 async function refreshOrderStatsFromBackend() {
@@ -354,6 +361,9 @@ async function refreshOrderViewsFromBackend() {
     }
     if (App.currentPage === 'rts-rate') {
       renderRTSRateDashboard();
+    }
+    if (App.currentPage === 'data-report') {
+      renderDataReportDashboard();
     }
     if (App.currentPage === 'home') {
       loadPage('home');
@@ -2148,6 +2158,187 @@ function renderRTSRateDashboard() {
     </div>`;
 }
 
+function getDataReportOrders() {
+  return [...(DB.orders || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+}
+
+function groupDataReportRows(orders, keyFn) {
+  const map = new Map();
+  orders.forEach((order) => {
+    const key = keyFn(order) || 'Unassigned';
+    if (!map.has(key)) map.set(key, { label: key, total: 0, delivered: 0, returned: 0, returning: 0, cod: 0 });
+    const row = map.get(key);
+    const statusKey = getOrderStatusKey(order.status);
+    row.total += 1;
+    row.cod += Number(order.cod || 0);
+    if (statusKey === 'delivered') row.delivered += 1;
+    if (statusKey === 'returned') row.returned += 1;
+    if (statusKey === 'returning') row.returning += 1;
+  });
+
+  return [...map.values()].map((row) => {
+    const base = row.delivered + row.returned + row.returning;
+    return { ...row, rtsRate: base ? ((row.returned + row.returning) / base) * 100 : 0 };
+  }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
+}
+
+function getPriceRangeLabel(amount) {
+  const value = Number(amount || 0);
+  if (value <= 500) return 'PHP 251 - PHP 500';
+  if (value <= 750) return 'PHP 501 - PHP 750';
+  if (value <= 1000) return 'PHP 751 - PHP 1,000';
+  if (value <= 1500) return 'PHP 1,001 - PHP 1,500';
+  if (value <= 2000) return 'PHP 1,501 - PHP 2,000';
+  if (value <= 3000) return 'PHP 2,001 - PHP 3,000';
+  if (value <= 5000) return 'PHP 3,001 - PHP 5,000';
+  return 'PHP 5,000+';
+}
+
+function renderDataReportTable(rows, firstColumn, emptyText) {
+  if (!rows.length) {
+    return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Pancake POS or Google Sheets orders to populate this report.</p></div>`;
+  }
+
+  return `
+    <table class="data-report-table">
+      <thead><tr>
+        <th>${firstColumn}</th><th>Total Orders</th><th>Delivered</th><th>Returned</th><th>RTS Rate</th>
+      </tr></thead>
+      <tbody>
+        ${rows.slice(0, 12).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.label)}</td>
+            <td>${row.total.toLocaleString()}</td>
+            <td class="text-success">${row.delivered.toLocaleString()}</td>
+            <td class="text-danger">${(row.returned + row.returning).toLocaleString()}</td>
+            <td><span class="data-report-rate ${row.rtsRate >= 30 ? 'bad' : row.rtsRate >= 15 ? 'warn' : 'ok'}">${formatPercent(row.rtsRate)}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+function getDataReportMetrics() {
+  const orders = getDataReportOrders();
+  const counts = { delivered: 0, returned: 0, returning: 0, shipped: 0 };
+  let cod = 0;
+  orders.forEach((order) => {
+    const key = getOrderStatusKey(order.status);
+    if (counts[key] !== undefined) counts[key] += 1;
+    cod += Number(order.cod || 0);
+  });
+  const base = counts.delivered + counts.returned + counts.returning;
+  return {
+    orders,
+    counts,
+    cod,
+    rtsRate: base ? ((counts.returned + counts.returning) / base) * 100 : 0,
+    byPrice: groupDataReportRows(orders, (order) => getPriceRangeLabel(order.cod)),
+    byConfirmed: groupDataReportRows(orders, (order) => order.confirmedBy || order.sourceSheet || 'Unassigned'),
+    byCity: groupDataReportRows(orders, (order) => {
+      const city = order.city || 'Unknown city';
+      const province = order.province ? `, ${order.province}` : '';
+      return `${city}${province}`;
+    }),
+  };
+}
+
+function renderDataReport() {
+  const quickLinks = [
+    ['api-connections', 'Connect Pancake'],
+    ['sales', 'Sales Dashboard'],
+    ['rts-rate', 'RTS Rate'],
+    ['view-records', 'Order Records'],
+  ].filter(([page]) => canAccessPage(page));
+
+  return `
+  <div class="data-report-page">
+    <div class="page-header data-report-header">
+      <div class="page-title"><h1>Data Report</h1><p>RTS analytics from synced Pancake POS and Google Sheets order data.</p></div>
+      <button class="btn btn-secondary btn-sm" onclick="refreshOrderViewsFromBackend()">Refresh Data</button>
+    </div>
+
+    <div class="data-report-connect">
+      ${quickLinks.map(([page, label]) => `<button class="data-report-link" onclick="navigateTo('${page}')">${label}</button>`).join('')}
+    </div>
+
+    <div id="data-report-dashboard"></div>
+  </div>`;
+}
+
+function renderDataReportDashboard() {
+  const wrapper = document.getElementById('data-report-dashboard');
+  if (!wrapper) return;
+
+  const metrics = getDataReportMetrics();
+  wrapper.innerHTML = `
+    <div class="data-report-kpis">
+      ${renderRTSMetricCard('Total Orders', metrics.orders.length, 'blue', metrics.orders.length)}
+      ${renderRTSMetricCard('Delivered', metrics.counts.delivered, 'green', metrics.orders.length)}
+      ${renderRTSMetricCard('Returned', metrics.counts.returned + metrics.counts.returning, 'red', metrics.orders.length)}
+      <div class="rts-metric-card yellow">
+        <div class="stat-label">RTS Rate</div>
+        <div class="rts-metric-value">${formatPercent(metrics.rtsRate)}</div>
+        <div class="stat-meta">Delivered vs returned order base</div>
+      </div>
+    </div>
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By Price (Final Amount)</div><div class="card-subtitle">RTS rate by order price range</div></div>
+      </div>
+      <div class="data-report-chart-wrap"><canvas id="data-report-price-chart"></canvas></div>
+    </section>
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By Confirmed By</div><div class="card-subtitle">RTS rate broken down by confirming agent or source page</div></div>
+      </div>
+      ${renderDataReportTable(metrics.byConfirmed, 'Confirmed By', 'No confirming data yet')}
+    </section>
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By City</div><div class="card-subtitle">RTS rate grouped by city and province when available</div></div>
+      </div>
+      ${renderDataReportTable(metrics.byCity, 'City / Province', 'No city data yet')}
+    </section>`;
+
+  renderDataReportPriceChart(metrics.byPrice);
+}
+
+function renderDataReportPriceChart(rows) {
+  const canvas = document.getElementById('data-report-price-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (dataReportPriceChart) dataReportPriceChart.destroy();
+
+  dataReportPriceChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: rows.map((row) => row.label),
+      datasets: [{
+        label: 'RTS Rate',
+        data: rows.map((row) => Number(row.rtsRate.toFixed(2))),
+        backgroundColor: '#e66a63',
+        borderRadius: 4,
+        maxBarThickness: 22,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, max: 100, ticks: { callback: (value) => `${value}%` }, grid: { color: '#eef2f7' } },
+        x: { grid: { display: false }, ticks: { maxRotation: 38, minRotation: 38 } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (context) => `${context.parsed.y}% RTS` } },
+      },
+    },
+  });
+}
+
 function applyCsrSalesFilter() {
   const from = document.getElementById('csr-sales-from')?.value || '';
   const to = document.getElementById('csr-sales-to')?.value || '';
@@ -3900,7 +4091,7 @@ function getDefaultPageForCurrentUser() {
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
   const role = normalizeRoleName(App.user.role);
-  return NAV_ACCESS[role] || ['home', 'rts-rate', 'sales'];
+  return NAV_ACCESS[role] || ['home', 'rts-rate', 'sales', 'data-report'];
 }
 
 function canAccessPage(page) {
@@ -3916,7 +4107,7 @@ function refreshSidebarAccess() {
 
   const hasSales = ['sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
-  const hasReports = ['view-records', 'damage-sheets'].some((page) => accessiblePages.has(page));
+  const hasReports = ['data-report', 'view-records', 'damage-sheets'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
   const salesLabel = document.getElementById('nav-section-sales');
@@ -4711,6 +4902,13 @@ function initPage(page) {
     if (dateFromInput && !dateFromInput.value) dateFromInput.value = today;
     if (dateToInput && !dateToInput.value) dateToInput.value = today;
     renderRTSRateDashboard();
+  }
+
+  if (page === 'data-report') {
+    renderDataReportDashboard();
+    ensureOrdersLoadedForPage('data-report').catch((error) => {
+      showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
+    });
   }
 
   if (page === 'marketing-center') {

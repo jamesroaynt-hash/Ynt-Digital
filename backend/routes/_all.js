@@ -24,6 +24,70 @@ function ordersRoutes(db) {
     return text ? text : null;
   }
 
+  function readNamedValue(source, keys = []) {
+    if (!source || typeof source !== 'object') return null;
+    const wanted = new Set(keys.map((key) => key.toLowerCase()));
+    const seen = new Set();
+
+    function visit(node) {
+      if (!node || typeof node !== 'object' || seen.has(node)) return null;
+      seen.add(node);
+
+      if (Array.isArray(node)) {
+        for (const entry of node) {
+          const match = visit(entry);
+          if (match) return match;
+        }
+        return null;
+      }
+
+      for (const [key, value] of Object.entries(node)) {
+        if (!wanted.has(key.toLowerCase())) continue;
+        if (typeof value === 'string' || typeof value === 'number') return stringOrNull(value);
+        const name = stringOrNull(value?.name || value?.full_name || value?.username || value?.label || value?.title);
+        if (name) return name;
+      }
+
+      for (const value of Object.values(node)) {
+        const match = visit(value);
+        if (match) return match;
+      }
+      return null;
+    }
+
+    return visit(source);
+  }
+
+  function enrichOrderReportMeta(rows = []) {
+    return rows.map((row) => {
+      const shipping = parseJsonObject(row.pos_shipping_address_json, {});
+      const raw = parseJsonObject(row.pos_raw_payload, {});
+      const city = readNamedValue(shipping, ['city', 'city_name', 'municipality', 'town'])
+        || readNamedValue(raw?.shipping_address, ['city', 'city_name', 'municipality', 'town']);
+      const province = readNamedValue(shipping, ['province', 'province_name', 'state', 'region'])
+        || readNamedValue(raw?.shipping_address, ['province', 'province_name', 'state', 'region']);
+      const confirmedBy = readNamedValue(raw, [
+        'confirmed_by',
+        'confirmed_by_name',
+        'confirmer',
+        'confirmer_name',
+        'confirmed_user',
+        'seller',
+        'seller_name',
+        'employee',
+        'employee_name',
+        'staff',
+        'staff_name',
+        'created_by',
+        'creator',
+        'marketer',
+        'assignee',
+      ]);
+      const { pos_shipping_address_json, pos_raw_payload, ...cleanRow } = row;
+      return { ...cleanRow, city, province, confirmed_by: confirmedBy };
+    });
+  }
+
   function getPageName(page) {
     return stringOrNull(
       page?.name ||
@@ -206,7 +270,25 @@ function ordersRoutes(db) {
         AND isl.local_table = 'orders'
         AND CAST(isl.local_id AS INTEGER) = o.id
       LIMIT 1
-    ) AS pos_tags_json
+    ) AS pos_tags_json, (
+      SELECT po.shipping_address_json
+      FROM integration_source_links isl
+      JOIN pos_orders po ON po.external_id = isl.external_id
+      WHERE isl.provider = 'pancake_pos'
+        AND isl.entity_type = 'orders'
+        AND isl.local_table = 'orders'
+        AND CAST(isl.local_id AS INTEGER) = o.id
+      LIMIT 1
+    ) AS pos_shipping_address_json, (
+      SELECT po.raw_payload
+      FROM integration_source_links isl
+      JOIN pos_orders po ON po.external_id = isl.external_id
+      WHERE isl.provider = 'pancake_pos'
+        AND isl.entity_type = 'orders'
+        AND isl.local_table = 'orders'
+        AND CAST(isl.local_id AS INTEGER) = o.id
+      LIMIT 1
+    ) AS pos_raw_payload
     FROM orders o
     WHERE 1=1`;
     const params = [];
@@ -226,7 +308,7 @@ function ordersRoutes(db) {
     params.push(parseInt(per_page), (parseInt(page)-1)*parseInt(per_page));
 
     const rows = await db.prepare(sql).all(...params);
-    res.json({ data: await normalizeOrderPageNames(rows), total, page: parseInt(page), per_page: parseInt(per_page) });
+    res.json({ data: enrichOrderReportMeta(await normalizeOrderPageNames(rows)), total, page: parseInt(page), per_page: parseInt(per_page) });
   });
 
   r.get('/stats', async (req, res) => {
