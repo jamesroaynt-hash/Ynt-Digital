@@ -406,6 +406,7 @@ function refreshCurrentUserChip() {
       .toUpperCase();
   }
   refreshSidebarAccess();
+  initNavSectionStates();
 }
 
 async function handleAuthSubmit(e) {
@@ -4115,10 +4116,44 @@ function refreshSidebarAccess() {
   const reportsLabel = document.getElementById('nav-section-reports');
   const systemLabel = document.getElementById('nav-section-system');
 
-  if (salesLabel) salesLabel.style.display = hasSales ? 'block' : 'none';
-  if (operationsLabel) operationsLabel.style.display = hasOperations ? 'block' : 'none';
-  if (reportsLabel) reportsLabel.style.display = hasReports ? 'block' : 'none';
-  if (systemLabel) systemLabel.style.display = hasSystem ? 'block' : 'none';
+  if (salesLabel) salesLabel.style.display = hasSales ? 'flex' : 'none';
+  if (operationsLabel) operationsLabel.style.display = hasOperations ? 'flex' : 'none';
+  if (reportsLabel) reportsLabel.style.display = hasReports ? 'flex' : 'none';
+  if (systemLabel) systemLabel.style.display = hasSystem ? 'flex' : 'none';
+
+  const salesBody = document.getElementById('nav-section-body-sales');
+  const operationsBody = document.getElementById('nav-section-body-operations');
+  const reportsBody = document.getElementById('nav-section-body-reports');
+  const systemBody = document.getElementById('nav-section-body-system');
+  if (salesBody && !hasSales) salesBody.style.display = 'none';
+  else if (salesBody) salesBody.style.display = '';
+  if (operationsBody && !hasOperations) operationsBody.style.display = 'none';
+  else if (operationsBody) operationsBody.style.display = '';
+  if (reportsBody && !hasReports) reportsBody.style.display = 'none';
+  else if (reportsBody) reportsBody.style.display = '';
+  if (systemBody && !hasSystem) systemBody.style.display = 'none';
+  else if (systemBody) systemBody.style.display = '';
+}
+
+function toggleNavSection(sectionId) {
+  const body = document.getElementById('nav-section-body-' + sectionId);
+  const label = document.getElementById('nav-section-' + sectionId);
+  if (!body) return;
+  const isCollapsed = body.classList.toggle('collapsed');
+  if (label) label.classList.toggle('collapsed', isCollapsed);
+  if (isCollapsed) localStorage.setItem('nav_collapsed_' + sectionId, '1');
+  else localStorage.removeItem('nav_collapsed_' + sectionId);
+}
+
+function initNavSectionStates() {
+  ['main', 'sales', 'operations', 'reports', 'people', 'system'].forEach((sectionId) => {
+    if (localStorage.getItem('nav_collapsed_' + sectionId)) {
+      const body = document.getElementById('nav-section-body-' + sectionId);
+      const label = document.getElementById('nav-section-' + sectionId);
+      if (body) body.classList.add('collapsed');
+      if (label) label.classList.add('collapsed');
+    }
+  });
 }
 
 function getRoleOptionsMarkup(selectedRole = 'Trainee') {

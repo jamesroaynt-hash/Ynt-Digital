@@ -31,7 +31,7 @@ async function ensureColumnAsync(db, tableName, columnName, definition) {
 
 function ensureOrderStatusConstraint(db) {
   if (db.type === 'postgres') return;
-  const allowed = "'Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled','Pending'";
+  const allowed = "'New','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled','Pending'";
   db.exec('PRAGMA foreign_keys = OFF');
   db.exec('ALTER TABLE orders RENAME TO orders_old_status_migration');
   db.exec(`
@@ -82,7 +82,7 @@ async function ensureOrderStatusConstraintAsync(db) {
   await db.exec(`
     ALTER TABLE orders
     ADD CONSTRAINT orders_status_check
-    CHECK(status IN ('Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending'))
+    CHECK(status IN ('New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending'))
   `);
 }
 

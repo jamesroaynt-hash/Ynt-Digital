@@ -307,6 +307,32 @@ body {
   color: rgba(255,255,255,0.25);
   padding: 12px 20px 6px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.nav-section-label:hover { color: rgba(255,255,255,0.4); }
+.nav-section-chevron {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  transition: transform var(--transition);
+  opacity: 0.5;
+  margin-right: 2px;
+}
+.nav-section-label.collapsed .nav-section-chevron { transform: rotate(-90deg); }
+.nav-section-body {
+  overflow: hidden;
+  transition: max-height 0.22s ease, opacity 0.18s ease;
+  max-height: 600px;
+  opacity: 1;
+}
+.nav-section-body.collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .nav-item {
