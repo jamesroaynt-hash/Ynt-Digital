@@ -6440,16 +6440,24 @@ function renderViewRecordsStatusSummary(records = null) {
     'Canceled': 'badge-gray',
   };
 
-  let statusEntries = recordsSummaryState.statusCounts.map((row) => [row.status, Number(row.count || 0)]);
-  let total = Number(recordsSummaryState.total || 0);
-  let totalCod = Number(recordsSummaryState.totalCod || 0);
+  let statusEntries, total, totalCod;
 
-  if (!statusEntries.length && Array.isArray(records)) {
+  if (Array.isArray(records)) {
+    // Always use the already-filtered records array — guaranteed to match current filters
     const counts = {};
     records.forEach((order) => { counts[order.status] = (counts[order.status] || 0) + 1; });
     statusEntries = Object.entries(counts);
     total = records.length;
     totalCod = records.reduce((s, o) => s + Number(o.cod || 0), 0);
+  } else {
+    statusEntries = recordsSummaryState.statusCounts.map((row) => [row.status, Number(row.count || 0)]);
+    total = Number(recordsSummaryState.total || 0);
+    totalCod = Number(recordsSummaryState.totalCod || 0);
+  }
+
+  if (!total) {
+    summaryEl.innerHTML = '';
+    return;
   }
 
   const chips = statusEntries
@@ -6458,9 +6466,7 @@ function renderViewRecordsStatusSummary(records = null) {
     .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:12px;padding:4px 10px;">${escapeHtml(status)}: <strong>${Number(count).toLocaleString()}</strong></span>`)
     .join('');
 
-  summaryEl.innerHTML = total
-    ? `${chips}<span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;"><strong>${total.toLocaleString()}</strong> total · COD <strong>₱${totalCod.toLocaleString()}</strong></span>`
-    : (recordsSummaryState.loading ? '<span style="font-size:12px;color:var(--text-muted)">Loading summary...</span>' : '');
+  summaryEl.innerHTML = `<span class="badge badge-dark" style="font-size:12px;padding:4px 10px;">Total: <strong>${total.toLocaleString()}</strong></span>${chips}<span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;">COD <strong>₱${Number(totalCod).toLocaleString()}</strong></span>`;
 }
 
 function renderPaginationButtons(currentPage, totalPages, onClickName) {
