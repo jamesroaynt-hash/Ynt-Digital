@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS orders (
     CHECK(status IN ('New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending')),
   courier TEXT,
   source_sheet TEXT,
+  confirmed_by TEXT,
   attempts INTEGER DEFAULT 1,
   order_date TEXT NOT NULL DEFAULT (CURRENT_DATE::text),
   created_by INTEGER REFERENCES users(id),

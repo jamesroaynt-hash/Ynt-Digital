@@ -113,6 +113,7 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'daily_rate', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   ensureColumn(db, 'orders', 'tags', 'TEXT');
+  ensureColumn(db, 'orders', 'confirmed_by', 'TEXT');
   ensureColumn(db, 'pos_orders', 'tags_json', 'TEXT');
   ensureOrderStatusConstraint(db);
   db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
@@ -214,6 +215,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'users', 'daily_rate', 'REAL NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'orders', 'source_sheet', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
+  await ensureColumnAsync(db, 'orders', 'confirmed_by', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'tags_json', 'TEXT');
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");

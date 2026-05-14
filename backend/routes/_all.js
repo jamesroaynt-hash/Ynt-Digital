@@ -66,7 +66,7 @@ function ordersRoutes(db) {
         || readNamedValue(raw?.shipping_address, ['city', 'city_name', 'municipality', 'town']);
       const province = readNamedValue(shipping, ['province', 'province_name', 'state', 'region'])
         || readNamedValue(raw?.shipping_address, ['province', 'province_name', 'state', 'region']);
-      const confirmedBy = readNamedValue(raw, [
+      const confirmedBy = stringOrNull(row.confirmed_by) || readNamedValue(raw, [
         'confirmed_by',
         'confirmed_by_name',
         'confirmer',

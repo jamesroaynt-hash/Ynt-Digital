@@ -2236,7 +2236,7 @@ function getDataReportMetrics() {
     cod,
     rtsRate: base ? ((counts.returned + counts.returning) / base) * 100 : 0,
     byPrice: groupDataReportRows(orders, (order) => getPriceRangeLabel(order.cod)),
-    byConfirmed: groupDataReportRows(orders, (order) => order.confirmedBy || order.sourceSheet || 'Unassigned'),
+    byConfirmed: groupDataReportRows(orders, (order) => order.confirmedBy || 'Unassigned'),
     byCity: groupDataReportRows(orders, (order) => {
       const city = order.city || 'Unknown city';
       const province = order.province ? `, ${order.province}` : '';
@@ -2294,7 +2294,7 @@ function renderDataReportDashboard() {
 
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">By Confirmed By</div><div class="card-subtitle">RTS rate broken down by confirming agent or source page</div></div>
+        <div><div class="card-title">By Confirmed By</div><div class="card-subtitle">RTS rate broken down by the Pancake POS user who confirmed the order</div></div>
       </div>
       ${renderDataReportTable(metrics.byConfirmed, 'Confirmed By', 'No confirming data yet')}
     </section>

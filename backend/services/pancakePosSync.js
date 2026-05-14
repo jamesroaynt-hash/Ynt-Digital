@@ -809,6 +809,46 @@ function getPosOrderTags(item = {}) {
   return [...new Set(values)].join(', ') || null;
 }
 
+function getPosConfirmedBy(item = {}) {
+  const CONFIRMER_KEYS = new Set([
+    'confirmed_by', 'confirmed_by_name', 'confirmer', 'confirmer_name', 'confirmed_user',
+    'seller', 'seller_name', 'employee', 'employee_name', 'staff', 'staff_name',
+    'created_by', 'creator', 'marketer', 'assignee',
+  ]);
+  const seen = new Set();
+
+  function visit(node) {
+    if (!node || typeof node !== 'object' || seen.has(node)) return null;
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      for (const entry of node) {
+        const match = visit(entry);
+        if (match) return match;
+      }
+      return null;
+    }
+
+    for (const [key, value] of Object.entries(node)) {
+      if (!CONFIRMER_KEYS.has(key.toLowerCase())) continue;
+      if (typeof value === 'string' || typeof value === 'number') {
+        const text = stringOrNull(value);
+        if (text) return text;
+      }
+      const name = stringOrNull(value?.name || value?.full_name || value?.username || value?.label || value?.title);
+      if (name) return name;
+    }
+
+    for (const value of Object.values(node)) {
+      const match = visit(value);
+      if (match) return match;
+    }
+    return null;
+  }
+
+  return visit(item);
+}
+
 function getPosCustomerName(item = {}, shippingAddress = {}) {
   const customer = item?.customer || {};
   return stringOrNull(
@@ -1087,6 +1127,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const tags = getPosOrderTags(item);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
   const sourceName = await getResolvedPosOrderSourceName(db, shopId, item);
+  const confirmedBy = getPosConfirmedBy(item);
   const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
@@ -1098,7 +1139,8 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     await db.prepare(`
       UPDATE orders
       SET order_ref = ?, tracking_no = ?, customer = ?, phone = ?, product = ?, qty = ?, cod_amount = ?,
-          status = ?, courier = ?, source_sheet = ?, tags = ?, attempts = ?, order_date = ?, updated_at = datetime('now')
+          status = ?, courier = ?, source_sheet = ?, confirmed_by = COALESCE(?, confirmed_by), tags = ?, attempts = ?,
+          order_date = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
       orderRef,
@@ -1111,6 +1153,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       dashboardStatusFromPos(item),
       courier,
       sourceName,
+      confirmedBy,
       tags,
       attemptNum,
       normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
@@ -1121,8 +1164,8 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   }
 
   const result = await db.prepare(`
-    INSERT INTO orders (order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, attempts, order_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, confirmed_by, attempts, order_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     orderRef,
     trackingNo,
@@ -1135,6 +1178,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     dashboardStatusFromPos(item),
     courier,
     sourceName,
+    confirmedBy,
     attemptNum,
     normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
   );
