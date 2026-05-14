@@ -314,6 +314,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function timeoutError(path, timeoutMs) {
+  return new Error(`Pancake POS API GET ${path} timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+}
+
+function withRequestTimeout(promise, timeoutMs, onTimeout) {
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(onTimeout());
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function shouldRetryPosRequest(status) {
   return status === 429 || status === 502 || status === 503 || status === 504;
 }
@@ -321,19 +337,28 @@ function shouldRetryPosRequest(status) {
 async function posRequest(baseUrl, path, apiKey, query = {}, attempt = 1) {
   if (!apiKey) throw new Error('Missing Pancake POS api_key.');
   const selectedBaseUrl = baseUrl || POS_API_BASE;
-  const url = buildUrl(selectedBaseUrl, path, { ...query, api_key: apiKey });
+  const { __timeout_ms: timeoutOverride, __no_retry: noRetry, ...apiQuery } = query || {};
+  const timeoutMs = Math.max(3000, Number(timeoutOverride || 60000));
+  const url = buildUrl(selectedBaseUrl, path, { ...apiQuery, api_key: apiKey });
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetch(url, { signal: controller.signal });
+    response = await withRequestTimeout(
+      fetch(url, { signal: controller.signal }),
+      timeoutMs,
+      () => {
+        controller.abort();
+        return timeoutError(url.pathname, timeoutMs);
+      }
+    );
   } catch (error) {
     if (error.name === 'AbortError') {
-      throw new Error(`Pancake POS API GET ${url.pathname} timed out after 30 seconds.`);
+      throw timeoutError(url.pathname, timeoutMs);
     }
     // Node fetch (undici) reports "terminated" when the server closes the connection mid-stream
     const msg = String(error.message || error.cause?.message || '').toLowerCase();
-    if ((msg.includes('terminated') || msg.includes('econnreset') || msg.includes('socket hang up')) && attempt < 4) {
+    if (!noRetry && (msg.includes('terminated') || msg.includes('econnreset') || msg.includes('socket hang up')) && attempt < 4) {
       clearTimeout(timeout);
       await sleep(1000 * attempt);
       return posRequest(baseUrl, path, apiKey, query, attempt + 1);
@@ -342,7 +367,14 @@ async function posRequest(baseUrl, path, apiKey, query = {}, attempt = 1) {
   } finally {
     clearTimeout(timeout);
   }
-  const text = await response.text();
+  const text = await withRequestTimeout(
+    response.text(),
+    timeoutMs,
+    () => {
+      controller.abort();
+      return timeoutError(url.pathname, timeoutMs);
+    }
+  );
   let data = null;
   try {
     data = text ? JSON.parse(text) : null;
@@ -358,7 +390,7 @@ async function posRequest(baseUrl, path, apiKey, query = {}, attempt = 1) {
       return posRequest(fallbackBaseUrl, path, apiKey, query);
     }
 
-    if (shouldRetryPosRequest(response.status) && attempt < 3) {
+    if (!noRetry && shouldRetryPosRequest(response.status) && attempt < 3) {
       await sleep(750 * attempt);
       return posRequest(baseUrl, path, apiKey, query, attempt + 1);
     }
@@ -477,7 +509,7 @@ async function upsertOrder(db, shopId, item) {
     numberOrNull(item?.cash),
     numberOrNull(item?.total_discount),
     stringOrNull(item?.note),
-    safeJson(item?.items || []),
+    safeJson(item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(item?.partner || null),
     safeJson(item?.shipping_address || null),
@@ -1178,7 +1210,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     trackingNo,
     customer,
     phone,
-    productName,
+    summary.product,
     tags,
     summary.qty,
     cod,
@@ -1378,11 +1410,16 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
         skip_reasons[skipReason] = (skip_reasons[skipReason] || 0) + 1;
         continue;
       }
-      const localId = await transferPosOrderToDashboard(db, item.shop_id || shopId, item);
-      if (localId) transferred += 1;
-      else {
+      try {
+        const localId = await transferPosOrderToDashboard(db, item.shop_id || shopId, item);
+        if (localId) transferred += 1;
+        else {
+          skipped += 1;
+          skip_reasons.unknown = (skip_reasons.unknown || 0) + 1;
+        }
+      } catch {
         skipped += 1;
-        skip_reasons.unknown = (skip_reasons.unknown || 0) + 1;
+        skip_reasons.transfer_error = (skip_reasons.transfer_error || 0) + 1;
       }
     }
   }
@@ -1585,27 +1622,40 @@ async function collectPosData(db, payload = {}) {
       }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
     },
     users: async () => {
+      const userMaxPages = Math.max(1, Math.min(10, Number(payload.user_max_pages || payload.userMaxPages || 5)));
       return firstSuccessfulCollection([
         async () => {
-          const response = await posRequest(baseUrl, `/shops/${shopId}/users`, apiKey, {
-            page_number: options.page_number,
-            page_size: options.page_size,
-          });
-          return Array.isArray(response?.data) ? response.data : Array.isArray(response?.users) ? response.users : [];
+          return collectPagedItems(async (pageNumber) => {
+            const response = await posRequest(baseUrl, `/shops/${shopId}/users`, apiKey, {
+              page_number: pageNumber,
+              page_size: options.page_size,
+              __timeout_ms: 5000,
+              __no_retry: true,
+            });
+            return Array.isArray(response?.data) ? response.data : Array.isArray(response?.users) ? response.users : [];
+          }, { startPage: options.page_number, pageSize: options.page_size, maxPages: userMaxPages });
         },
         async () => {
-          const response = await posRequest(baseUrl, `/shops/${shopId}/staffs`, apiKey, {
-            page_number: options.page_number,
-            page_size: options.page_size,
-          });
-          return Array.isArray(response?.data) ? response.data : Array.isArray(response?.staffs) ? response.staffs : [];
+          return collectPagedItems(async (pageNumber) => {
+            const response = await posRequest(baseUrl, `/shops/${shopId}/staffs`, apiKey, {
+              page_number: pageNumber,
+              page_size: options.page_size,
+              __timeout_ms: 5000,
+              __no_retry: true,
+            });
+            return Array.isArray(response?.data) ? response.data : Array.isArray(response?.staffs) ? response.staffs : [];
+          }, { startPage: options.page_number, pageSize: options.page_size, maxPages: userMaxPages });
         },
         async () => {
-          const response = await posRequest(baseUrl, `/shops/${shopId}/employees`, apiKey, {
-            page_number: options.page_number,
-            page_size: options.page_size,
-          });
-          return Array.isArray(response?.data) ? response.data : Array.isArray(response?.employees) ? response.employees : [];
+          return collectPagedItems(async (pageNumber) => {
+            const response = await posRequest(baseUrl, `/shops/${shopId}/employees`, apiKey, {
+              page_number: pageNumber,
+              page_size: options.page_size,
+              __timeout_ms: 5000,
+              __no_retry: true,
+            });
+            return Array.isArray(response?.data) ? response.data : Array.isArray(response?.employees) ? response.employees : [];
+          }, { startPage: options.page_number, pageSize: options.page_size, maxPages: userMaxPages });
         },
       ]);
     },
@@ -1782,6 +1832,49 @@ async function getStatus(db) {
   };
 }
 
+async function listPosUsers(db, payload = {}) {
+  const search = stringOrNull(payload.search);
+  const shopId = stringOrNull(payload.shop_id || payload.shopId);
+  const page = Math.max(1, Number(payload.page || 1));
+  const perPage = Math.max(1, Math.min(200, Number(payload.per_page || payload.perPage || 50)));
+  const params = [];
+  let where = 'WHERE 1=1';
+
+  if (shopId && shopId !== 'all') {
+    where += " AND COALESCE(shop_id, '') = ?";
+    params.push(shopId);
+  }
+
+  if (search) {
+    where += ` AND (
+      LOWER(COALESCE(name, '')) LIKE ?
+      OR LOWER(COALESCE(username, '')) LIKE ?
+      OR LOWER(COALESCE(email, '')) LIKE ?
+      OR LOWER(COALESCE(phone_number, '')) LIKE ?
+      OR LOWER(COALESCE(role_name, '')) LIKE ?
+      OR LOWER(COALESCE(shop_id, '')) LIKE ?
+    )`;
+    const q = `%${search.toLowerCase()}%`;
+    params.push(q, q, q, q, q, q);
+  }
+
+  const total = await db.prepare(`SELECT COUNT(*) AS count FROM pos_users ${where}`).get(...params);
+  const rows = await db.prepare(`
+    SELECT id, external_key, shop_id, external_id, name, username, email, phone_number, role_name, is_active, updated_at
+    FROM pos_users
+    ${where}
+    ORDER BY COALESCE(name, username, email, external_id, external_key) COLLATE NOCASE ASC
+    LIMIT ? OFFSET ?
+  `).all(...params, perPage, (page - 1) * perPage);
+
+  return {
+    data: rows.map((row) => ({ ...row, is_active: Boolean(row.is_active) })),
+    total: Number(total.count || 0),
+    page,
+    per_page: perPage,
+  };
+}
+
 module.exports = {
   PROVIDER,
   POS_API_BASE,
@@ -1790,6 +1883,7 @@ module.exports = {
   getPublicSetting,
   getSavedConnections,
   saveSetting,
+  listPosUsers,
   listShopsFromApi,
   collectPosData,
   replayStoredOrdersToDashboard,
