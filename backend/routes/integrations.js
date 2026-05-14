@@ -92,6 +92,15 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.post('/pancake-pos/normalize-sources', async (req, res) => {
+    try {
+      const normalized = await posSync.normalizeSourceSheets(db);
+      res.json({ normalized });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/google-sheets/collect', async (req, res) => {
     try {
       const result = await googleSheetsSync.collectSheetData(db, req.body || {});

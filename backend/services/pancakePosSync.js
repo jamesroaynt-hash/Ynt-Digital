@@ -720,17 +720,31 @@ function normalizeDateString(value) {
 }
 
 function dashboardStatusFromPos(item) {
-  const value = String(item?.status_name || item?.status_text || item?.status || '').toLowerCase();
-  if (value.includes('delivered') || value.includes('received') || value.includes('complete') || value === '3') return 'Delivered';
-  if (value.includes('returning') || value === '4') return 'Returning';
-  if (value.includes('cancel') || value.includes('removed') || value.includes('deleted') || value === '6' || value === '7') return 'Canceled';
-  if (value.includes('return') || value === '5' || value === '15') return 'Returned';
-  if (value.includes('pickup') || value.includes('packaging') || value.includes('waiting') || value.includes('ready') || value === '8' || value === '9' || value === '12') return 'Waiting for pickup';
-  if (value.includes('ship') || value.includes('transit') || value.includes('deliver') || value === '2') return 'Shipped';
-  if (value.includes('confirm') || value.includes('purchased') || value === '1' || value === '20') return 'Confirmed';
-  if (value === 'new' || value === 'draft' || value === 'created' || value === '0') return 'New';
+  // Numeric status codes are authoritative — check first
+  const code = numberOrNull(item?.status);
+  if (code !== null) {
+    if (code === 3) return 'Delivered';
+    if (code === 4) return 'Returning';
+    if (code === 5 || code === 15) return 'Returned';
+    if (code === 6 || code === 7) return 'Canceled';
+    if (code === 8 || code === 9 || code === 12) return 'Waiting for pickup';
+    if (code === 2) return 'Shipped';
+    if (code === 1 || code === 20) return 'Confirmed';
+    if (code === 0) return 'New';
+  }
 
-  // Also check tags for pickup-related keywords
+  // Fall back to status_name text matching
+  const value = String(item?.status_name || item?.status_text || '').toLowerCase();
+  if (value.includes('delivered') || value.includes('received') || value.includes('complete')) return 'Delivered';
+  if (value.includes('returning')) return 'Returning';
+  if (value.includes('cancel') || value.includes('removed') || value.includes('deleted')) return 'Canceled';
+  if (value.includes('return')) return 'Returned';
+  if (value.includes('pickup') || value.includes('packaging') || value.includes('waiting') || value.includes('ready') || value.includes('print') || value.includes('pending')) return 'Waiting for pickup';
+  if (value.includes('ship') || value.includes('transit')) return 'Shipped';
+  if (value.includes('confirm') || value.includes('purchased') || value.includes('submit')) return 'Confirmed';
+  if (value === 'new' || value === 'draft' || value === 'created') return 'New';
+
+  // Check tags for status hints
   const tags = getPosOrderTags(item);
   const tagValue = String(tags || '').toLowerCase();
   if (tagValue.includes('pickup') || tagValue.includes('waiting') || tagValue.includes('wfp') || tagValue.includes('for pick')) return 'Waiting for pickup';
@@ -1307,6 +1321,33 @@ async function cleanupMalformedDashboardOrders(db) {
   return cleaned;
 }
 
+async function normalizeSourceSheets(db) {
+  // Unify source_sheet for all POS-linked dashboard orders that share the same shop_id + page_id,
+  // using the current connection name as the canonical name.
+  const setting = await getSetting(db);
+  const connections = getSavedConnectionsFromSetting(setting);
+  let normalized = 0;
+  for (const conn of connections) {
+    if (!conn.shop_id || !conn.name) continue;
+    const result = await db.prepare(`
+      UPDATE orders
+      SET source_sheet = ?, updated_at = datetime('now')
+      WHERE id IN (
+        SELECT CAST(isl.local_id AS INTEGER)
+        FROM integration_source_links isl
+        INNER JOIN pos_orders po ON po.external_id = isl.external_id
+        WHERE isl.provider = 'pancake_pos'
+          AND isl.entity_type = 'orders'
+          AND isl.local_table = 'orders'
+          AND po.shop_id = ?
+      )
+      AND (source_sheet IS NULL OR source_sheet != ?)
+    `).run(conn.name, conn.shop_id, conn.name);
+    normalized += result.changes || 0;
+  }
+  return normalized;
+}
+
 async function storeItems(db, resource, shopId, items) {
   const localIds = [];
   for (const item of items) {
@@ -1547,6 +1588,7 @@ async function collectPosData(db, payload = {}) {
         connection: connection.name,
       })));
     }
+    result.normalized_sources = await normalizeSourceSheets(db);
     return result;
   }
 
@@ -1593,7 +1635,8 @@ async function collectPosData(db, payload = {}) {
       return Array.isArray(response?.data) ? response.data : [];
     },
     orders: async () => {
-      return collectPagedItems(async (pageNumber) => {
+      // Fetch by creation date range (primary)
+      const createdItems = await collectPagedItems(async (pageNumber) => {
         const response = await posRequest(baseUrl, `/shops/${shopId}/orders`, apiKey, {
           page_number: pageNumber,
           page_size: options.page_size,
@@ -1602,6 +1645,34 @@ async function collectPosData(db, payload = {}) {
         });
         return Array.isArray(response?.data) ? response.data : [];
       }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
+
+      // Also fetch by updated_at range to catch status changes on older orders
+      // Use last 90 days as the update window to catch recent status changes
+      const updatedSince = options.updatedSince || unixSecondsFromDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
+      let updatedItems = [];
+      try {
+        updatedItems = await collectPagedItems(async (pageNumber) => {
+          const response = await posRequest(baseUrl, `/shops/${shopId}/orders`, apiKey, {
+            page_number: pageNumber,
+            page_size: options.page_size,
+            start_time_updated_at: updatedSince,
+            end_time_updated_at: options.endDateTime,
+          });
+          return Array.isArray(response?.data) ? response.data : [];
+        }, { startPage: 1, pageSize: options.page_size, maxPages: Math.min(50, Number(payload.max_pages || 200)) });
+      } catch { /* API may not support updated_at filter — ignore */ }
+
+      // Merge: deduplicate by external_id, prefer fresher record
+      const seen = new Map();
+      for (const item of [...createdItems, ...updatedItems]) {
+        const id = stringOrNull(item?.id);
+        if (!id) continue;
+        const existing = seen.get(id);
+        if (!existing || String(item?.updated_at || '') >= String(existing?.updated_at || '')) {
+          seen.set(id, item);
+        }
+      }
+      return [...seen.values()];
     },
     products: async () => {
       return collectPagedItems(async (pageNumber) => {
@@ -1891,4 +1962,5 @@ module.exports = {
   replayStoredOrdersToDashboard,
   receiveWebhook,
   cleanupMalformedDashboardOrders,
+  normalizeSourceSheets,
 };
