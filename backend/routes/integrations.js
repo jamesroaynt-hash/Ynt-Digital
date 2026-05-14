@@ -37,6 +37,14 @@ module.exports = function integrationRoutes(db) {
     res.json(await posSync.getStatus(db));
   });
 
+  router.get('/pancake-pos/users', async (req, res) => {
+    try {
+      res.json(await posSync.listPosUsers(db, req.query || {}));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.get('/google-sheets/status', async (req, res) => {
     res.json(await googleSheetsSync.getStatus(db));
   });

@@ -293,6 +293,7 @@ async function createApp() {
       endDateTime: Math.floor(Date.now() / 1000),
       page_size: PANCAKE_POS_SYNC_PAGE_SIZE,
       max_pages: PANCAKE_POS_SYNC_MAX_PAGES,
+      resources: ['orders'],
       replay_stored_orders: true,
     };
   }
@@ -350,7 +351,7 @@ async function createApp() {
       }
 
       const result = await pancakePosSync.collectPosData(db, trigger === 'manual'
-        ? { max_pages: 200, replay_stored_orders: true }
+        ? { resources: ['orders'], max_pages: 200, replay_stored_orders: true }
         : getPancakePosSyncWindow());
       backupScheduler.schedule();
       const imported = Object.entries(result?.resources || {})

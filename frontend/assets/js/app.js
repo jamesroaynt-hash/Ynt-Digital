@@ -23,6 +23,7 @@ const NAV_ACCESS = {
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
 let attendanceState = { today: null, date: '', advances: [], leaves: [], activeTab: 'clock' };
+let posUsersState = { users: [], total: 0, page: 1, perPage: 50, search: '', loading: false };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
@@ -881,6 +882,8 @@ function mapBackendPosStatusToState(status = {}, previous = {}) {
     connections: connections.length ? connections : previousConnections,
     notes: status.notes ?? previous.notes ?? '',
     updatedAt: status.updated_at || previous.updatedAt || null,
+    orderCount: Number(status.local_counts?.orders || previous.orderCount || 0),
+    userCount: Number(status.local_counts?.users || previous.userCount || 0),
   };
 }
 
@@ -1081,13 +1084,19 @@ function renderApiConnections() {
       <div class="stat-card-accent"></div>
       <div class="stat-label">Provider</div>
       <div class="stat-value" style="font-size:22px;">Pancake POS</div>
-      <div class="stat-meta">Orders only</div>
+      <div class="stat-meta">Orders and POS users</div>
     </div>
     <div class="stat-card ${posStatusTone === 'success' ? 'green' : 'amber'}">
       <div class="stat-card-accent"></div>
       <div class="stat-label">POS Orders SQL Sync</div>
       <div class="stat-value" style="font-size:18px;">${posCollectedAt}</div>
       <div class="stat-meta">${escapeHtml(posSettings.lastCollectionSummary || `${posStatusText}. POS orders transfer into SQL.`)}</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-card-accent"></div>
+      <div class="stat-label">POS Users</div>
+      <div class="stat-value" style="font-size:22px;">${Number(posSettings.userCount || posUsersState.total || 0).toLocaleString()}</div>
+      <div class="stat-meta">Collected from POS users, staffs, or employees API</div>
     </div>
     <div class="stat-card ${googleStatusTone === 'success' ? 'green' : 'amber'}">
       <div class="stat-card-accent"></div>
@@ -1098,7 +1107,8 @@ function renderApiConnections() {
   </div>
 
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS Orders</button>
+    <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
   </div>
 
@@ -1246,6 +1256,39 @@ function renderApiConnections() {
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" id="pos-hist-btn" onclick="runPosHistoricalSync()">Start Historical Sync</button>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="api-tab-pos-users" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">POS Users</div>
+          <div class="card-subtitle">Users collected from Pancake POS user, staff, or employee endpoints.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="collectPancakePosUsers()">Sync Users</button>
+      </div>
+      <div class="card-body">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <input type="text" id="pos-users-search" placeholder="Search POS users..." value="${escapeHtml(posUsersState.search)}" onkeydown="if(event.key==='Enter') searchPosUsers()">
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="searchPosUsers()">Search</button>
+          <button class="btn btn-secondary btn-sm" onclick="loadPosUsers()">Refresh</button>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>Username</th><th>Role</th><th>Shop ID</th><th>Email</th><th>Phone</th><th>Status</th>
+            </tr></thead>
+            <tbody id="pos-users-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS users...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-pagination" id="pos-users-pagination"></div>
       </div>
     </section>
   </div>
@@ -4990,6 +5033,7 @@ function initPage(page) {
 
   if (page === 'api-connections') {
     hydrateIntegrationStateFromBackend();
+    loadPosUsers(1);
   }
 
   if (page === 'hr') {
@@ -7269,6 +7313,110 @@ async function fetchPancakePosShops() {
   }
 }
 
+async function loadPosUsers(page = posUsersState.page || 1) {
+  if (!canManageAccounts()) return;
+  posUsersState = { ...posUsersState, page, loading: true };
+  renderPosUsersTable();
+
+  try {
+    const query = new URLSearchParams({
+      page: String(page),
+      per_page: String(posUsersState.perPage),
+      search: posUsersState.search || '',
+      _: String(Date.now()),
+    });
+    const data = await authorizedJsonRequest(`/integrations/pancake-pos/users?${query.toString()}`);
+    posUsersState = {
+      ...posUsersState,
+      users: Array.isArray(data?.data) ? data.data : [],
+      total: Number(data?.total || 0),
+      page: Number(data?.page || page),
+      perPage: Number(data?.per_page || posUsersState.perPage),
+      loading: false,
+    };
+    renderPosUsersTable();
+  } catch (error) {
+    posUsersState = { ...posUsersState, loading: false };
+    const tbody = document.getElementById('pos-users-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--danger)">POS users load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+  }
+}
+
+function renderPosUsersTable() {
+  const tbody = document.getElementById('pos-users-tbody');
+  const pagination = document.getElementById('pos-users-pagination');
+  if (!tbody) return;
+
+  if (posUsersState.loading) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS users...</td></tr>';
+    if (pagination) pagination.innerHTML = '<span>Loading users...</span>';
+    return;
+  }
+
+  tbody.innerHTML = posUsersState.users.map((user) => `
+    <tr>
+      <td>${escapeHtml(user.name || user.external_id || 'Unnamed user')}</td>
+      <td>${escapeHtml(user.username || '—')}</td>
+      <td>${escapeHtml(user.role_name || '—')}</td>
+      <td>${escapeHtml(user.shop_id || '—')}</td>
+      <td>${escapeHtml(user.email || '—')}</td>
+      <td>${escapeHtml(user.phone_number || '—')}</td>
+      <td><span class="badge ${user.is_active ? 'badge-success' : 'badge-warning'}">${user.is_active ? 'Active' : 'Disabled'}</span></td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No POS users synced yet. Click Sync Users.</td></tr>';
+
+  if (pagination) {
+    const start = posUsersState.total ? ((posUsersState.page - 1) * posUsersState.perPage) + 1 : 0;
+    const end = Math.min(posUsersState.total, posUsersState.page * posUsersState.perPage);
+    const totalPages = Math.max(1, Math.ceil(posUsersState.total / posUsersState.perPage));
+    pagination.innerHTML = `
+      <span>${start}-${end} of ${posUsersState.total.toLocaleString()} users</span>
+      <div>
+        <button class="btn btn-secondary btn-sm" ${posUsersState.page <= 1 ? 'disabled' : ''} onclick="loadPosUsers(${posUsersState.page - 1})">Prev</button>
+        <span style="padding:0 10px;color:var(--text-muted);font-size:12px;">${posUsersState.page} / ${totalPages}</span>
+        <button class="btn btn-secondary btn-sm" ${posUsersState.page >= totalPages ? 'disabled' : ''} onclick="loadPosUsers(${posUsersState.page + 1})">Next</button>
+      </div>`;
+  }
+}
+
+function searchPosUsers() {
+  posUsersState.search = document.getElementById('pos-users-search')?.value || '';
+  loadPosUsers(1);
+}
+
+async function collectPancakePosUsers() {
+  const state = getIntegrationState();
+  state.pancakePos = collectPancakePosFormState();
+  saveIntegrationState(state);
+
+  if (!state.pancakePos.connections.length) {
+    showToast('warning', 'POS setup required', 'Enter at least one Pancake POS API key and shop ID first.');
+    return;
+  }
+
+  try {
+    showToast('info', 'POS user sync started', 'Pulling POS users, staffs, or employees from connected shops.');
+    await syncPancakePosConfigToBackend(state.pancakePos);
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
+      method: 'POST',
+      body: JSON.stringify({
+        api_key: state.pancakePos.apiKey,
+        base_url: state.pancakePos.baseUrl,
+        shop_id: state.pancakePos.shopId,
+        connections: state.pancakePos.connections,
+        resources: ['users'],
+        page_size: 100,
+        max_pages: 200,
+      }),
+    });
+    const count = data.resources?.users?.count || 0;
+    await loadPosUsers(1);
+    showToast('success', 'POS users synced', `${Number(count).toLocaleString()} user record(s) collected.`);
+  } catch (error) {
+    showToast('error', 'POS user sync failed', error.message || 'Could not collect users from Pancake POS.');
+  }
+}
+
 async function collectPancakePosData() {
   const state = getIntegrationState();
   state.pancakePos = collectPancakePosFormState();
@@ -7324,7 +7472,7 @@ async function collectPancakePosData() {
     saveIntegrationState(refreshed);
 
     await refreshOrderViewsFromBackend();
-    showToast('success', 'POS SQL sync complete', refreshed.pancakePos.lastCollectionSummary);
+    showToast('success', 'POS sync complete', refreshed.pancakePos.lastCollectionSummary);
     navigateTo('api-connections');
   } catch (error) {
     showToast('error', 'POS sync failed', error.message || 'Could not transfer Pancake POS API data to SQL.');
