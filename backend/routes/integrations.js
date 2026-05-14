@@ -101,6 +101,48 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.post('/pancake-pos/sync-users', async (req, res) => {
+    try {
+      const result = await posSync.syncPancakePageUsers(db);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/pancake-pos/staff-stats', async (req, res) => {
+    try {
+      const { from, to, source } = req.query;
+      const params = [];
+      let where = "WHERE confirmed_by IS NOT NULL AND TRIM(confirmed_by) != ''";
+      if (from) { where += ' AND order_date >= ?'; params.push(from); }
+      if (to) { where += ' AND order_date <= ?'; params.push(to); }
+      if (source && source !== 'all') { where += ' AND source_sheet = ?'; params.push(source); }
+
+      const stats = await db.prepare(`
+        SELECT
+          confirmed_by AS staff_name,
+          COUNT(*) AS total,
+          SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END) AS returned,
+          SUM(CASE WHEN status = 'Canceled' THEN 1 ELSE 0 END) AS canceled,
+          SUM(CASE WHEN status NOT IN ('Delivered','Returned','Returning','Canceled') THEN 1 ELSE 0 END) AS active,
+          ROUND(100.0 * SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END)
+            / NULLIF(SUM(CASE WHEN status IN ('Delivered','Returned','Returning') THEN 1 ELSE 0 END),0), 1) AS rts_rate
+        FROM orders ${where}
+        GROUP BY confirmed_by ORDER BY total DESC
+      `).all(...params);
+
+      const sources = await db.prepare(
+        "SELECT DISTINCT source_sheet FROM orders WHERE source_sheet IS NOT NULL AND TRIM(source_sheet) != '' ORDER BY source_sheet"
+      ).all();
+
+      res.json({ stats, sources: sources.map((s) => s.source_sheet) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/google-sheets/collect', async (req, res) => {
     try {
       const result = await googleSheetsSync.collectSheetData(db, req.body || {});

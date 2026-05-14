@@ -1174,8 +1174,8 @@ function renderApiConnections() {
 
         <div class="form-group">
           <label class="form-label">Additional POS Accounts</label>
-          <textarea class="form-control mono-input" id="pancake-pos-connections" rows="5" placeholder="Name | API Key | Shop ID | Base URL&#10;Korean Expert | api_xxx | 123456 | https://pos.pages.fm/api/v1">${escapeHtml(formatPancakePosConnections(posSettings.connections || []))}</textarea>
-          <div class="field-help">One POS account per line. The main API Key and Shop ID above are also included as the first connection.</div>
+          <textarea class="form-control mono-input" id="pancake-pos-connections" rows="6" placeholder="Name | API Key | Shop ID | Base URL | Page ID | Page Token&#10;Korean Expert | api_xxx | 123456 | https://pos.pages.fm/api/v1 | 102816772637000 | page_token_xxx">${escapeHtml(formatPancakePosConnections(posSettings.connections || []))}</textarea>
+          <div class="field-help">One POS account per line. Page ID and Page Token (columns 5–6) are optional — required for staff user sync from Pancake messaging API.</div>
         </div>
 
         ${(() => {
@@ -1204,7 +1204,7 @@ function renderApiConnections() {
                   <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${isReady ? 'var(--success)' : 'var(--warning)'};"></div>
                   <div style="flex:1;">
                     <div style="font-weight:500;font-size:13px;">${escapeHtml(conn.name || conn.id || 'Connection')}</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Shop ID: ${escapeHtml(String(conn.shop_id || conn.shopId || '—'))} · ${hasKey ? 'API key set' : '<span style="color:var(--danger)">No API key</span>'} · ${escapeHtml(conn.sync_mode || conn.syncMode || 'pull_only')}</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Shop ID: ${escapeHtml(String(conn.shop_id || conn.shopId || '—'))} · ${hasKey ? 'API key set' : '<span style="color:var(--danger)">No API key</span>'} · ${(conn.has_page_token || conn.messagingPageId || conn.messaging_page_id) ? '<span style="color:var(--success)">Users API ready</span>' : 'No page token'} · ${escapeHtml(conn.sync_mode || conn.syncMode || 'pull_only')}</div>
                   </div>
                   <span class="badge ${isReady ? 'badge-success' : 'badge-warning'}">${isReady ? 'Configured' : 'Incomplete'}</span>
                 </div>`;
@@ -1218,6 +1218,7 @@ function renderApiConnections() {
           <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
           <button class="btn btn-secondary" type="button" id="pancake-pos-sync-button" onclick="collectPancakePosData()">Sync POS Orders</button>
           <button class="btn btn-secondary" type="button" id="pancake-pos-replay-button" onclick="replayPancakePosOrders()">Transfer POS SQL</button>
+          <button class="btn btn-secondary" type="button" id="pancake-pos-sync-users-button" onclick="syncPancakePageUsers()">Sync Staff Users</button>
         </div>
       </div>
     </section>
@@ -2344,9 +2345,25 @@ function renderDataReportDashboard() {
       </div>
       ${renderDataReportTable(metrics.byProvince, 'Province', 'No province data yet')}
     </section>
+
+    <section class="data-report-section">
+      <div class="card-header" style="justify-content:space-between;align-items:center;">
+        <div><div class="card-title">Staff Performance</div><div class="card-subtitle">Orders confirmed per staff member, with delivery and RTS breakdown</div></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="date" id="staff-stats-from" class="form-control" style="width:140px;font-size:12px;" placeholder="From">
+          <input type="date" id="staff-stats-to" class="form-control" style="width:140px;font-size:12px;" placeholder="To">
+          <select id="staff-stats-source" class="form-control" style="width:160px;font-size:12px;">
+            <option value="all">All Pages</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="loadStaffStats()">Load</button>
+        </div>
+      </div>
+      <div id="staff-stats-table"><div class="empty-state"><p>Set a date range and click Load to view staff performance.</p></div></div>
+    </section>
 `;
 
   renderDataReportPriceChart(metrics.byPrice);
+  loadStaffSourceFilter();
 }
 
 function renderDataReportPriceChart(rows) {
@@ -2379,6 +2396,61 @@ function renderDataReportPriceChart(rows) {
       },
     },
   });
+}
+
+async function loadStaffSourceFilter() {
+  const sel = document.getElementById('staff-stats-source');
+  if (!sel) return;
+  try {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/staff-stats');
+    (data.sources || []).forEach((src) => {
+      const opt = document.createElement('option');
+      opt.value = src; opt.textContent = src;
+      sel.appendChild(opt);
+    });
+  } catch { /* ignore */ }
+}
+
+async function loadStaffStats() {
+  const container = document.getElementById('staff-stats-table');
+  if (!container) return;
+  const from = document.getElementById('staff-stats-from')?.value;
+  const to = document.getElementById('staff-stats-to')?.value;
+  const source = document.getElementById('staff-stats-source')?.value || 'all';
+  container.innerHTML = '<div class="empty-state"><p>Loading...</p></div>';
+  try {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (source && source !== 'all') params.set('source', source);
+    const data = await authorizedJsonRequest(`/integrations/pancake-pos/staff-stats?${params}`);
+    const rows = data.stats || [];
+    if (!rows.length) {
+      container.innerHTML = '<div class="empty-state"><p>No staff data found for this filter. Sync Staff Users to improve coverage.</p></div>';
+      return;
+    }
+    container.innerHTML = `
+      <table class="data-report-table">
+        <thead><tr>
+          <th>Staff</th><th style="text-align:right">Total</th><th style="text-align:right">Delivered</th>
+          <th style="text-align:right">Returned</th><th style="text-align:right">Canceled</th><th style="text-align:right">Active</th>
+          <th style="text-align:right">RTS Rate</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map((r) => `<tr>
+            <td>${escapeHtml(r.staff_name)}</td>
+            <td style="text-align:right">${Number(r.total).toLocaleString()}</td>
+            <td style="text-align:right">${Number(r.delivered).toLocaleString()}</td>
+            <td style="text-align:right">${Number(r.returned).toLocaleString()}</td>
+            <td style="text-align:right">${Number(r.canceled).toLocaleString()}</td>
+            <td style="text-align:right">${Number(r.active).toLocaleString()}</td>
+            <td style="text-align:right"><span class="data-report-rate ${Number(r.rts_rate) >= 30 ? 'bad' : Number(r.rts_rate) >= 15 ? 'warn' : 'ok'}">${r.rts_rate != null ? r.rts_rate + '%' : '—'}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (error) {
+    container.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(error.message)}</p></div>`;
+  }
 }
 
 function applyCsrSalesFilter() {
@@ -7210,12 +7282,19 @@ function formatPancakePosConnections(connections = []) {
   return connections
     .filter((connection) => connection && (connection.apiKey || connection.api_key || connection.shopId || connection.shop_id))
     .filter((connection) => connection.id !== 'primary')
-    .map((connection) => [
-      connection.name || '',
-      connection.apiKey || connection.api_key || '',
-      connection.shopId || connection.shop_id || '',
-      connection.baseUrl || connection.base_url || '',
-    ].join(' | '))
+    .map((connection) => {
+      const cols = [
+        connection.name || '',
+        connection.apiKey || connection.api_key || '',
+        connection.shopId || connection.shop_id || '',
+        connection.baseUrl || connection.base_url || '',
+        connection.messagingPageId || connection.messaging_page_id || '',
+        connection.pageAccessToken || connection.page_access_token || '',
+      ];
+      // Trim trailing empty columns
+      while (cols.length > 3 && !cols[cols.length - 1]) cols.pop();
+      return cols.join(' | ');
+    })
     .join('\n');
 }
 
@@ -7225,7 +7304,7 @@ function parsePancakePosConnections(text = '', fallbackBaseUrl = 'https://pos.pa
     .map((line, index) => {
       const parts = line.split('|').map((part) => part.trim());
       if (parts.length < 3) return null;
-      const [name, apiKey, shopId, baseUrl] = parts;
+      const [name, apiKey, shopId, baseUrl, messagingPageId, pageAccessToken] = parts;
       if (!apiKey || !shopId) return null;
       return {
         id: `${normalizeText(name || shopId) || 'pos'}-${index + 1}`,
@@ -7235,6 +7314,8 @@ function parsePancakePosConnections(text = '', fallbackBaseUrl = 'https://pos.pa
         baseUrl: baseUrl || fallbackBaseUrl,
         apiKey,
         shopId,
+        messagingPageId: messagingPageId || '',
+        pageAccessToken: pageAccessToken || '',
       };
     })
     .filter(Boolean);
@@ -7287,6 +7368,8 @@ async function syncPancakePosConfigToBackend(settings) {
       base_url: connection.baseUrl || connection.base_url || settings.baseUrl,
       api_key: connection.apiKey || connection.api_key,
       shop_id: connection.shopId || connection.shop_id,
+      messaging_page_id: connection.messagingPageId || connection.messaging_page_id || undefined,
+      page_access_token: connection.pageAccessToken || connection.page_access_token || undefined,
       notes: connection.notes || '',
     }));
   const payload = {
@@ -7607,6 +7690,26 @@ async function replayPancakePosOrders(options = {}) {
       replayButton.disabled = false;
       replayButton.textContent = 'Transfer POS SQL';
     }
+  }
+}
+
+async function syncPancakePageUsers() {
+  const btn = document.getElementById('pancake-pos-sync-users-button');
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing users...'; }
+    showToast('info', 'Syncing staff users', 'Fetching Pancake page users and updating cache...');
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/sync-users', { method: 'POST' });
+    if (data.errors?.length) {
+      showToast('warning', 'Users synced with errors', `${data.synced || 0} users synced. Errors: ${data.errors.map((e) => e.connection || e.error).join(', ')}`);
+    } else if (!data.synced) {
+      showToast('warning', 'No users synced', 'Add Page ID and Page Token (columns 5–6) in Additional POS Accounts and save first.');
+    } else {
+      showToast('success', 'Staff users synced', `${data.synced} users cached from Pancake messaging API.`);
+    }
+  } catch (error) {
+    showToast('error', 'Sync failed', error.message || 'Could not sync Pancake page users.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Staff Users'; }
   }
 }
 

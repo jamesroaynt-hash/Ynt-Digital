@@ -47,6 +47,9 @@ function normalizeConnection(value = {}, fallback = {}) {
     base_url: stringOrNull(value.base_url || value.baseUrl || fallback.base_url) || POS_API_BASE,
     api_key: apiKey,
     shop_id: shopId,
+    // Pancake messaging API — for users list and staff statistics
+    messaging_page_id: stringOrNull(value.messaging_page_id || value.messagingPageId || fallback.messaging_page_id) || null,
+    page_access_token: stringOrNull(value.page_access_token || value.pageAccessToken || fallback.page_access_token) || null,
     notes: stringOrNull(value.notes || fallback.notes) || '',
   };
 }
@@ -80,6 +83,8 @@ function publicConnection(connection) {
     base_url: connection.base_url,
     shop_id: connection.shop_id,
     has_api_key: Boolean(connection.api_key),
+    has_page_token: Boolean(connection.page_access_token),
+    messaging_page_id: connection.messaging_page_id || null,
     notes: connection.notes || '',
   };
 }
@@ -1199,7 +1204,12 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const tags = getPosOrderTags(item);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
   const sourceName = await getResolvedPosOrderSourceName(db, shopId, item);
-  const confirmedBy = getPosConfirmedBy(item);
+  let confirmedBy = getPosConfirmedBy(item);
+  // Resolve UUID to name if the confirmer was stored as a user ID
+  if (confirmedBy && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(confirmedBy)) {
+    const posUser = await db.prepare('SELECT name FROM pos_users WHERE external_id = ? AND name IS NOT NULL LIMIT 1').get(confirmedBy);
+    if (posUser?.name) confirmedBy = posUser.name;
+  }
   const linkedId = await findLinkedLocalId(db, 'orders', externalId);
   const existing = linkedId
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
@@ -1856,6 +1866,53 @@ function isWebhookOrderLike(value) {
   );
 }
 
+async function syncPancakePageUsers(db) {
+  const connections = await getSavedConnections(db);
+  let synced = 0;
+  const errors = [];
+
+  for (const conn of connections) {
+    const pageId = stringOrNull(conn.messaging_page_id);
+    const pageToken = stringOrNull(conn.page_access_token);
+    if (!pageId || !pageToken) continue;
+
+    try {
+      const url = `https://pages.fm/api/public_api/v1/pages/${encodeURIComponent(pageId)}/users?page_access_token=${encodeURIComponent(pageToken)}`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) { errors.push({ connection: conn.name, status: response.status }); continue; }
+      const data = await response.json();
+      const users = [...(data.users || []), ...(data.disabled_users || [])];
+
+      for (const user of users) {
+        const userId = stringOrNull(user.id);
+        if (!userId) continue;
+        const externalKey = stableKey(PROVIDER, pageId, userId);
+        await db.prepare(`
+          INSERT INTO pos_users (external_key, shop_id, external_id, name, username, email, role_name, is_active, raw_payload, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(external_key) DO UPDATE SET
+            name = excluded.name, username = excluded.username, email = excluded.email,
+            role_name = excluded.role_name, is_active = excluded.is_active,
+            raw_payload = excluded.raw_payload, updated_at = excluded.updated_at
+        `).run(
+          externalKey, conn.shop_id, userId,
+          stringOrNull(user.name),
+          stringOrNull(user.fb_id || user.username),
+          stringOrNull(user.email),
+          stringOrNull(user.status || user.role),
+          user.status_in_page === 'active' ? 1 : 0,
+          safeJson(user)
+        );
+        synced++;
+      }
+    } catch (err) {
+      errors.push({ connection: conn.name, error: err.message });
+    }
+  }
+
+  return { synced, errors };
+}
+
 function extractWebhookOrders(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.orders)) return payload.orders;
@@ -2027,4 +2084,5 @@ module.exports = {
   receiveWebhook,
   cleanupMalformedDashboardOrders,
   normalizeSourceSheets,
+  syncPancakePageUsers,
 };
