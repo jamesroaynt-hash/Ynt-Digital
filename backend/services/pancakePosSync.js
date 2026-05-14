@@ -1097,7 +1097,10 @@ async function getResolvedPosOrderSourceName(db, shopId, item) {
 function getDashboardTransferSkipReason(item = {}) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return 'missing_external_id';
-
+  const shippingAddress = item?.shipping_address || {};
+  const customer = getPosCustomerName(item, shippingAddress);
+  const phone = getPosCustomerPhone(item, shippingAddress);
+  if (!customer && !phone) return 'missing_customer_and_phone';
   const summary = getOrderItemsSummary(item);
   if (!summary.product) return 'missing_product';
   return null;
@@ -1112,6 +1115,10 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const shippingAddress = item?.shipping_address || {};
   const orderRef = getPosOrderRef(item, externalId);
   const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
+
+  const rawCustomer = getPosCustomerName(item, shippingAddress);
+  const rawPhone = getPosCustomerPhone(item, shippingAddress);
+  if (!rawCustomer && !rawPhone) return null;
   if (!summary.product) return null;
 
   const courier = stringOrNull(
@@ -1122,8 +1129,8 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     partner?.partner_name ||
     partner?.shipping_partner_name
   );
-  const customer = getPosCustomerName(item, shippingAddress) || 'Pancake POS Customer';
-  const phone = getPosCustomerPhone(item, shippingAddress);
+  const phone = rawPhone;
+  const customer = rawCustomer || `Customer (${phone})`;
   const tags = getPosOrderTags(item);
   const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
   const sourceName = await getResolvedPosOrderSourceName(db, shopId, item);
@@ -1147,7 +1154,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       trackingNo,
       customer,
       phone,
-      summary.product,
+      productName,
       summary.qty,
       cod,
       dashboardStatusFromPos(item),
@@ -1171,7 +1178,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     trackingNo,
     customer,
     phone,
-    summary.product,
+    productName,
     tags,
     summary.qty,
     cod,
@@ -1233,22 +1240,37 @@ async function transferPosProductToInventory(db, shopId, item) {
 }
 
 async function cleanupMalformedDashboardOrders(db) {
+  // Remove POS-linked orders that have placeholder or missing customer/product
   const result = await db.prepare(`
     DELETE FROM orders
-    WHERE (
-      customer = 'Pancake POS Customer'
-      OR product = 'Pancake POS Order'
-      OR tracking_no LIKE 'Pancake POS%'
-      OR tracking_no LIKE 'Shop %'
-    )
-    AND (
-      product = 'Pancake POS Order'
-      OR source_sheet LIKE 'Pancake POS%'
-      OR tracking_no LIKE 'Pancake POS%'
-      OR tracking_no LIKE 'Shop %'
+    WHERE id IN (
+      SELECT o.id
+      FROM orders o
+      INNER JOIN integration_source_links isl
+        ON isl.provider = 'pancake_pos'
+       AND isl.entity_type = 'orders'
+       AND isl.local_table = 'orders'
+       AND CAST(isl.local_id AS INTEGER) = o.id
+      WHERE o.customer = 'Pancake POS Customer'
+         OR o.customer IS NULL
+         OR TRIM(o.customer) = ''
+         OR o.product = 'Pancake POS Order'
+         OR o.product IS NULL
+         OR TRIM(o.product) = ''
     )
   `).run();
-  return result.changes || 0;
+  const cleaned = result.changes || 0;
+
+  // Clean up source links pointing to deleted orders
+  await db.prepare(`
+    DELETE FROM integration_source_links
+    WHERE provider = 'pancake_pos'
+      AND entity_type = 'orders'
+      AND local_table = 'orders'
+      AND CAST(local_id AS INTEGER) NOT IN (SELECT id FROM orders)
+  `).run();
+
+  return cleaned;
 }
 
 async function storeItems(db, resource, shopId, items) {
@@ -1266,6 +1288,9 @@ async function storeItems(db, resource, shopId, items) {
     if (resource === 'orders') await transferPosOrderToDashboard(db, shopId, item);
     if (resource === 'products') await transferPosProductToInventory(db, shopId, item);
     if (localId) localIds.push(localId);
+  }
+  if (resource === 'orders' && items.length > 0) {
+    await cleanupMalformedDashboardOrders(db);
   }
   return localIds;
 }
@@ -1311,55 +1336,87 @@ function storedPosOrderToPayload(row = {}) {
 
 async function replayStoredOrdersToDashboard(db, payload = {}) {
   const setting = await getSetting(db);
-  const shopId = stringOrNull(payload.shop_id || setting?.page_id);
+  const requestedShopId = stringOrNull(payload.shop_id || payload.shopId);
   const allRows = payload.all === true || payload.all === 'true' || payload.limit === 0 || payload.limit === '0';
+  const shopId = requestedShopId || (allRows ? null : stringOrNull(setting?.page_id));
   const limit = allRows ? null : Math.max(1, Math.min(5000, Number(payload.limit || 1000)));
+  const batchSize = Math.max(50, Math.min(2000, Number(payload.batch_size || payload.batchSize || 500)));
+  const missingOnly = payload.missing_only === true || payload.missing_only === 'true' || payload.only_missing === true || payload.only_missing === 'true';
   const tagFilter = stringOrNull(payload.tag_filter || payload.tag || payload.only_tag);
-  const rows = allRows
-    ? (shopId
-      ? await db.prepare('SELECT * FROM pos_orders WHERE shop_id = ? ORDER BY updated_at_remote DESC, id DESC').all(shopId)
-      : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC').all())
-    : (shopId
-      ? await db.prepare('SELECT * FROM pos_orders WHERE shop_id = ? ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(shopId, limit)
-      : await db.prepare('SELECT * FROM pos_orders ORDER BY updated_at_remote DESC, id DESC LIMIT ?').all(limit));
+  const missingJoin = `
+    LEFT JOIN integration_source_links isl
+      ON isl.provider = 'pancake_pos'
+     AND isl.entity_type = 'orders'
+     AND isl.external_id = po.external_id
+     AND isl.local_table = 'orders'
+    LEFT JOIN orders o ON o.id = CAST(isl.local_id AS INTEGER)
+  `;
+  const missingWhere = missingOnly ? ' AND (isl.local_id IS NULL OR o.id IS NULL)' : '';
+  const rows = allRows ? null : (shopId
+    ? await db.prepare(`SELECT po.* FROM pos_orders po ${missingJoin} WHERE po.shop_id = ?${missingWhere} ORDER BY po.updated_at_remote DESC, po.id DESC LIMIT ?`).all(shopId, limit)
+    : await db.prepare(`SELECT po.* FROM pos_orders po ${missingJoin} WHERE 1=1${missingWhere} ORDER BY po.updated_at_remote DESC, po.id DESC LIMIT ?`).all(limit));
+  let scanned = 0;
   let transferred = 0;
   let skipped = 0;
   const skip_reasons = {};
 
-  for (const row of rows) {
-    const item = storedPosOrderToPayload(row);
-    if (tagFilter) {
-      const tags = getPosOrderTags(item).toLowerCase();
-      if (!tags.includes(tagFilter.toLowerCase())) {
+  async function processRows(batch) {
+    for (const row of batch) {
+      scanned += 1;
+      const item = storedPosOrderToPayload(row);
+      if (tagFilter) {
+        const tags = getPosOrderTags(item).toLowerCase();
+        if (!tags.includes(tagFilter.toLowerCase())) {
+          skipped += 1;
+          skip_reasons.tag_filter_mismatch = (skip_reasons.tag_filter_mismatch || 0) + 1;
+          continue;
+        }
+      }
+      const skipReason = getDashboardTransferSkipReason(item);
+      if (skipReason) {
         skipped += 1;
-        skip_reasons.tag_filter_mismatch = (skip_reasons.tag_filter_mismatch || 0) + 1;
+        skip_reasons[skipReason] = (skip_reasons[skipReason] || 0) + 1;
         continue;
       }
-    }
-    const skipReason = getDashboardTransferSkipReason(item);
-    if (skipReason) {
-      skipped += 1;
-      skip_reasons[skipReason] = (skip_reasons[skipReason] || 0) + 1;
-      continue;
-    }
-    const localId = await transferPosOrderToDashboard(db, item.shop_id || shopId, item);
-    if (localId) transferred += 1;
-    else {
-      skipped += 1;
-      skip_reasons.unknown = (skip_reasons.unknown || 0) + 1;
+      const localId = await transferPosOrderToDashboard(db, item.shop_id || shopId, item);
+      if (localId) transferred += 1;
+      else {
+        skipped += 1;
+        skip_reasons.unknown = (skip_reasons.unknown || 0) + 1;
+      }
     }
   }
+
+  if (allRows) {
+    let lastId = 0;
+    while (true) {
+      const batch = shopId
+        ? await db.prepare(`SELECT po.* FROM pos_orders po ${missingJoin} WHERE po.shop_id = ? AND po.id > ?${missingWhere} ORDER BY po.id ASC LIMIT ?`).all(shopId, lastId, batchSize)
+        : await db.prepare(`SELECT po.* FROM pos_orders po ${missingJoin} WHERE po.id > ?${missingWhere} ORDER BY po.id ASC LIMIT ?`).all(lastId, batchSize);
+      if (!batch.length) break;
+      await processRows(batch);
+      lastId = Number(batch[batch.length - 1].id);
+      if (batch.length < batchSize) break;
+    }
+  } else {
+    await processRows(rows);
+  }
+
+  const cleaned = await cleanupMalformedDashboardOrders(db);
 
   return {
     provider: PROVIDER,
     mode: 'pos_replay',
     shop_id: shopId,
-    scanned: rows.length,
+    scanned,
     transferred,
     skipped,
+    cleaned,
     skip_reasons,
     tag_filter: tagFilter,
     limit: allRows ? 'all' : limit,
+    batch_size: allRows ? batchSize : null,
+    missing_only: missingOnly,
   };
 }
 
@@ -1416,6 +1473,7 @@ async function collectPosData(db, payload = {}) {
       mode: 'pos_collect_multi',
       connections: [],
       resources: {},
+      dashboard_replay: { scanned: 0, transferred: 0, skipped: 0, skip_reasons: {} },
       failed_resources: [],
     };
     for (const connection of connections) {
@@ -1437,6 +1495,14 @@ async function collectPosData(db, payload = {}) {
       Object.entries(connectionResult.resources || {}).forEach(([resource, details]) => {
         result.resources[resource] = { count: (result.resources[resource]?.count || 0) + Number(details.count || 0) };
       });
+      if (connectionResult.dashboard_replay) {
+        result.dashboard_replay.scanned += Number(connectionResult.dashboard_replay.scanned || 0);
+        result.dashboard_replay.transferred += Number(connectionResult.dashboard_replay.transferred || 0);
+        result.dashboard_replay.skipped += Number(connectionResult.dashboard_replay.skipped || 0);
+        Object.entries(connectionResult.dashboard_replay.skip_reasons || {}).forEach(([reason, count]) => {
+          result.dashboard_replay.skip_reasons[reason] = (result.dashboard_replay.skip_reasons[reason] || 0) + Number(count || 0);
+        });
+      }
       result.failed_resources.push(...(connectionResult.failed_resources || []).map((failure) => ({
         ...failure,
         connection: connection.name,
@@ -1456,7 +1522,7 @@ async function collectPosData(db, payload = {}) {
   const options = {
     shop_id: shopId,
     page_number: Math.max(1, Number(payload.page_number || 1)),
-    page_size: Math.max(1, Math.min(100, Number(payload.page_size || 30))),
+    page_size: Math.max(1, Math.min(100, Number(payload.page_size || 100))),
     page: Math.max(1, Number(payload.page || 1)),
     startDateTime: Number(payload.startDateTime ?? unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))),
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
@@ -1593,11 +1659,28 @@ async function collectPosData(db, payload = {}) {
       }
     }
 
+    if (resources.includes('orders') && (payload.replay_stored_orders === true || payload.replay_stored_orders === 'true')) {
+      result.dashboard_replay = await replayStoredOrdersToDashboard(db, {
+        shop_id: shopId,
+        all: true,
+        missing_only: true,
+        skip_save: true,
+      });
+    }
+
     const status = result.failed_resources.length ? 'partial' : 'success';
     await finishRun(db, runId, status, {
       shop_id: shopId,
       resources: Object.fromEntries(Object.entries(result.resources).map(([key, value]) => [key, { count: value.count }])),
       sql_tables: result.sql_tables,
+      dashboard_replay: result.dashboard_replay
+        ? {
+          scanned: result.dashboard_replay.scanned,
+          transferred: result.dashboard_replay.transferred,
+          skipped: result.dashboard_replay.skipped,
+          skip_reasons: result.dashboard_replay.skip_reasons,
+        }
+        : null,
       failed_resources: result.failed_resources,
     }, null);
     return result;
@@ -1657,6 +1740,10 @@ async function receiveWebhook(db, payload = {}) {
     await transferPosOrderToDashboard(db, shopId, item);
   }
 
+  if (orders.length > 0) {
+    await cleanupMalformedDashboardOrders(db);
+  }
+
   return {
     provider: PROVIDER,
     mode: 'webhook',
@@ -1698,6 +1785,7 @@ async function getStatus(db) {
 module.exports = {
   PROVIDER,
   POS_API_BASE,
+  unixSecondsFromDate,
   getStatus,
   getPublicSetting,
   getSavedConnections,
