@@ -2091,6 +2091,7 @@ function getOrderStatusKey(status) {
   if (['returned', 'return to sender', 'rts'].includes(value)) return 'returned';
   if (['returning', 'for return', 'return in transit'].includes(value)) return 'returning';
   if (['shipped', 'in transit', 'out for delivery'].includes(value)) return 'shipped';
+  if (['canceled', 'cancelled', 'void'].includes(value)) return 'canceled';
   return value;
 }
 
@@ -2212,19 +2213,21 @@ function groupDataReportRows(orders, keyFn) {
   const map = new Map();
   orders.forEach((order) => {
     const key = keyFn(order) || 'Unassigned';
-    if (!map.has(key)) map.set(key, { label: key, total: 0, delivered: 0, returned: 0, returning: 0, cod: 0 });
+    if (!map.has(key)) map.set(key, { label: key, total: 0, delivered: 0, returned: 0, returning: 0, canceled: 0, cod: 0 });
     const row = map.get(key);
     const statusKey = getOrderStatusKey(order.status);
     row.total += 1;
     row.cod += Number(order.cod || 0);
     if (statusKey === 'delivered') row.delivered += 1;
-    if (statusKey === 'returned') row.returned += 1;
-    if (statusKey === 'returning') row.returning += 1;
+    else if (statusKey === 'returned') row.returned += 1;
+    else if (statusKey === 'returning') row.returning += 1;
+    else if (statusKey === 'canceled') row.canceled += 1;
   });
 
   return [...map.values()].map((row) => {
     const base = row.delivered + row.returned + row.returning;
-    return { ...row, rtsRate: base ? ((row.returned + row.returning) / base) * 100 : 0 };
+    const active = row.total - row.delivered - row.returned - row.returning - row.canceled;
+    return { ...row, active, rtsRate: base ? ((row.returned + row.returning) / base) * 100 : 0 };
   }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
 }
 
@@ -2334,9 +2337,9 @@ function renderDataReportDashboard() {
 
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">By Confirmed By</div><div class="card-subtitle">RTS rate broken down by the Pancake POS user who confirmed the order</div></div>
+        <div><div class="card-title">By Confirmed By</div><div class="card-subtitle">Orders and RTS rate per staff member who confirmed the order</div></div>
       </div>
-      ${renderDataReportTable(metrics.byConfirmed, 'Confirmed By', 'No confirming data yet')}
+      ${renderConfirmedByTable(metrics.byConfirmed)}
     </section>
 
     <section class="data-report-section">
@@ -2345,25 +2348,9 @@ function renderDataReportDashboard() {
       </div>
       ${renderDataReportTable(metrics.byProvince, 'Province', 'No province data yet')}
     </section>
-
-    <section class="data-report-section">
-      <div class="card-header" style="justify-content:space-between;align-items:center;">
-        <div><div class="card-title">Staff Performance</div><div class="card-subtitle">Orders confirmed per staff member, with delivery and RTS breakdown</div></div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="date" id="staff-stats-from" class="form-control" style="width:140px;font-size:12px;" placeholder="From">
-          <input type="date" id="staff-stats-to" class="form-control" style="width:140px;font-size:12px;" placeholder="To">
-          <select id="staff-stats-source" class="form-control" style="width:160px;font-size:12px;">
-            <option value="all">All Pages</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" onclick="loadStaffStats()">Load</button>
-        </div>
-      </div>
-      <div id="staff-stats-table"><div class="empty-state"><p>Set a date range and click Load to view staff performance.</p></div></div>
-    </section>
 `;
 
   renderDataReportPriceChart(metrics.byPrice);
-  loadStaffSourceFilter();
 }
 
 function renderDataReportPriceChart(rows) {
@@ -2398,59 +2385,33 @@ function renderDataReportPriceChart(rows) {
   });
 }
 
-async function loadStaffSourceFilter() {
-  const sel = document.getElementById('staff-stats-source');
-  if (!sel) return;
-  try {
-    const data = await authorizedJsonRequest('/integrations/pancake-pos/staff-stats');
-    (data.sources || []).forEach((src) => {
-      const opt = document.createElement('option');
-      opt.value = src; opt.textContent = src;
-      sel.appendChild(opt);
-    });
-  } catch { /* ignore */ }
-}
-
-async function loadStaffStats() {
-  const container = document.getElementById('staff-stats-table');
-  if (!container) return;
-  const from = document.getElementById('staff-stats-from')?.value;
-  const to = document.getElementById('staff-stats-to')?.value;
-  const source = document.getElementById('staff-stats-source')?.value || 'all';
-  container.innerHTML = '<div class="empty-state"><p>Loading...</p></div>';
-  try {
-    const params = new URLSearchParams();
-    if (from) params.set('from', from);
-    if (to) params.set('to', to);
-    if (source && source !== 'all') params.set('source', source);
-    const data = await authorizedJsonRequest(`/integrations/pancake-pos/staff-stats?${params}`);
-    const rows = data.stats || [];
-    if (!rows.length) {
-      container.innerHTML = '<div class="empty-state"><p>No staff data found for this filter. Sync Staff Users to improve coverage.</p></div>';
-      return;
-    }
-    container.innerHTML = `
-      <table class="data-report-table">
-        <thead><tr>
-          <th>Staff</th><th style="text-align:right">Total</th><th style="text-align:right">Delivered</th>
-          <th style="text-align:right">Returned</th><th style="text-align:right">Canceled</th><th style="text-align:right">Active</th>
-          <th style="text-align:right">RTS Rate</th>
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `<tr>
-            <td>${escapeHtml(r.staff_name)}</td>
-            <td style="text-align:right">${Number(r.total).toLocaleString()}</td>
-            <td style="text-align:right">${Number(r.delivered).toLocaleString()}</td>
-            <td style="text-align:right">${Number(r.returned).toLocaleString()}</td>
-            <td style="text-align:right">${Number(r.canceled).toLocaleString()}</td>
-            <td style="text-align:right">${Number(r.active).toLocaleString()}</td>
-            <td style="text-align:right"><span class="data-report-rate ${Number(r.rts_rate) >= 30 ? 'bad' : Number(r.rts_rate) >= 15 ? 'warn' : 'ok'}">${r.rts_rate != null ? r.rts_rate + '%' : '—'}</span></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>`;
-  } catch (error) {
-    container.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(error.message)}</p></div>`;
+function renderConfirmedByTable(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state data-report-empty"><h3>No confirming data yet</h3><p>Sync Pancake POS orders to populate this report.</p></div>`;
   }
+  return `
+    <table class="data-report-table">
+      <thead><tr>
+        <th>Staff</th>
+        <th style="text-align:right">Total</th>
+        <th style="text-align:right">Delivered</th>
+        <th style="text-align:right">Returned</th>
+        <th style="text-align:right">Canceled</th>
+        <th style="text-align:right">Active</th>
+        <th style="text-align:right">RTS Rate</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((row) => `<tr>
+          <td>${escapeHtml(row.label)}</td>
+          <td style="text-align:right">${row.total.toLocaleString()}</td>
+          <td style="text-align:right" class="text-success">${row.delivered.toLocaleString()}</td>
+          <td style="text-align:right" class="text-danger">${(row.returned + row.returning).toLocaleString()}</td>
+          <td style="text-align:right">${row.canceled.toLocaleString()}</td>
+          <td style="text-align:right">${row.active.toLocaleString()}</td>
+          <td style="text-align:right"><span class="data-report-rate ${row.rtsRate >= 30 ? 'bad' : row.rtsRate >= 15 ? 'warn' : 'ok'}">${formatPercent(row.rtsRate)}</span></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
 function applyCsrSalesFilter() {
