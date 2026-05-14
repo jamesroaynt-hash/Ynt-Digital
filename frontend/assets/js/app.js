@@ -232,6 +232,7 @@ function mapBackendOrder(row) {
     courier: row.courier || '',
     date: normalizeDateString(row.order_date || row.created_at || new Date()),
     sourceSheet: row.source_sheet || '',
+    confirmedBy: row.confirmed_by || '',
     attempts: Number(row.attempts || 1),
     confirmedBy: row.confirmed_by || row.confirmedBy || '',
     city: row.city || '',
@@ -3758,7 +3759,7 @@ function renderViewRecords() {
       </div>
       <div id="rec-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
       <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>POS Tags</th><th>Attempts</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Confirmed By</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>POS Tags</th><th>Attempts</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
           ${DB.orders.map(o => `<tr data-status="${o.status}">
             <td class="font-mono text-xs text-muted">${o.id}</td>
@@ -6337,6 +6338,7 @@ function getFilteredViewRecordOrders() {
       || order.status.toLowerCase().includes(query)
       || order.tracking.toLowerCase().includes(query)
       || (order.sourceSheet || '').toLowerCase().includes(query)
+      || (order.confirmedBy || '').toLowerCase().includes(query)
     );
   }
 
@@ -6371,7 +6373,7 @@ function renderViewRecordsOrdersTable() {
   const pagination = document.getElementById('records-pagination');
 
   if (!DB.orders.length && ordersLoadPromise) {
-    tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
     if (pagination) pagination.innerHTML = '<span>Loading orders...</span>';
     return;
   }
@@ -6411,6 +6413,7 @@ function renderViewRecordsOrdersTable() {
     <td class="font-mono text-xs text-muted">${order.id}</td>
     <td class="font-mono text-xs">${escapeHtml(order.tracking || '')}</td>
     <td>${escapeHtml(order.sourceSheet || 'Manual')}</td>
+    <td class="text-xs">${order.confirmedBy ? `<span style="color:var(--text-muted)">${escapeHtml(order.confirmedBy)}</span>` : '<span style="color:var(--text-muted);opacity:0.4">—</span>'}</td>
     <td>${order.date}</td>
     <td style="font-weight:500">${escapeHtml(order.customer || '')}</td>
     <td class="font-mono text-xs">${escapeHtml(order.phone || '')}</td>
@@ -6428,7 +6431,7 @@ function renderViewRecordsOrdersTable() {
         <button class="btn btn-danger btn-sm" onclick="deleteOrderRecord('${escapeHtml(order.dbId || order.id)}')">Delete</button>
       </div>
     </td>
-  </tr>`).join('') || '<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="16" style="text-align:center;padding:32px;color:var(--text-muted)">No records found for the selected filters.</td></tr>';
 
   if (pagination) {
     const start = records.length ? ((recordsPage - 1) * perPage) + 1 : 0;
