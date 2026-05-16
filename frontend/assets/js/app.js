@@ -7614,11 +7614,9 @@ function saveGoogleSheetsConnection() {
   syncGoogleSheetsConfigToBackend(state.googleSheets)
     .then(() => {
       showToast('success', 'Google Sheets saved', 'The spreadsheet connection was saved to the dashboard backend.');
-      navigateTo('api-connections');
     })
     .catch(() => {
       showToast('warning', 'Saved locally only', 'The browser settings were saved, but the backend Google Sheets config endpoint was not reachable.');
-      navigateTo('api-connections');
     });
 }
 
@@ -7630,11 +7628,9 @@ function savePancakePosConnection() {
   syncPancakePosConfigToBackend(state.pancakePos)
     .then(() => {
       showToast('success', 'POS connection saved', 'Pancake POS API settings were saved to the dashboard backend.');
-      navigateTo('api-connections');
     })
     .catch(() => {
       showToast('warning', 'Saved locally only', 'The browser POS settings were saved, but the backend config endpoint was not reachable.');
-      navigateTo('api-connections');
     });
 }
 
@@ -7835,7 +7831,6 @@ async function collectPancakePosData() {
 
     await refreshOrderViewsFromBackend();
     showToast('success', 'POS sync complete', refreshed.pancakePos.lastCollectionSummary);
-    navigateTo('api-connections');
   } catch (error) {
     showToast('error', 'POS sync failed', error.message || 'Could not transfer Pancake POS API data to SQL.');
   } finally {
@@ -8015,7 +8010,6 @@ async function collectGoogleSheetsData() {
 
     await refreshOrderViewsFromBackend();
     showToast('success', 'Google Sheets synced', refreshed.googleSheets.lastCollectionSummary);
-    navigateTo('api-connections');
   } catch (error) {
     showToast('error', 'Google Sheets sync failed', error.message || 'Could not collect data from Google Sheets.');
   }
