@@ -170,22 +170,18 @@ module.exports = function integrationRoutes(db) {
 
   router.get('/google-sheets/records', async (req, res) => {
     try {
-      const setting = await googleSheetsSync.getPublicSetting(db);
-      const configuredSheets = setting.sheet_name
-        ? setting.sheet_name.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)
-        : [];
-
       const { sheet, status, search, page = 1, per_page = 50 } = req.query;
       const params = [];
+
+      // Base: only orders synced via Google Sheets (tracked in integration_source_links)
+      const baseJoin = `FROM orders o
+        INNER JOIN integration_source_links isl
+          ON isl.provider = 'google_sheets'
+         AND isl.local_table = 'orders'
+         AND CAST(o.id AS TEXT) = isl.local_id`;
+
       let where = 'WHERE 1=1';
-
-      if (sheet && sheet !== 'all') {
-        where += ' AND o.source_sheet = ?'; params.push(sheet);
-      } else if (configuredSheets.length) {
-        where += ` AND o.source_sheet IN (${configuredSheets.map(() => '?').join(',')})`;
-        params.push(...configuredSheets);
-      }
-
+      if (sheet && sheet !== 'all') { where += ' AND o.source_sheet = ?'; params.push(sheet); }
       if (status && status !== 'all') { where += ' AND o.status = ?'; params.push(status); }
       if (search) {
         where += ' AND (o.order_ref LIKE ? OR o.customer LIKE ? OR o.tracking_no LIKE ? OR o.source_sheet LIKE ?)';
@@ -197,7 +193,7 @@ module.exports = function integrationRoutes(db) {
       const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
-      const countRow = await db.prepare(`SELECT COUNT(*) AS total FROM orders o ${where}`).get(...params);
+      const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseJoin} ${where}`).get(...params);
       const total = countRow?.total || 0;
 
       const records = await db.prepare(`
@@ -205,19 +201,19 @@ module.exports = function integrationRoutes(db) {
                o.product, o.qty, o.cod_amount, o.status, o.courier,
                o.source_sheet, o.confirmed_by, o.attempts, o.tags,
                o.order_date, o.updated_at
-        FROM orders o ${where}
+        ${baseJoin} ${where}
         ORDER BY o.order_date DESC, o.id DESC
         LIMIT ? OFFSET ?
       `).all(...params, perPage, offset);
 
-      res.json({
-        records,
-        total,
-        page: pageNum,
-        per_page: perPage,
-        pages: Math.ceil(total / perPage),
-        sheet_names: configuredSheets,
-      });
+      // Distinct source_sheet values from Google Sheets records (for dropdown)
+      const sheetNames = (await db.prepare(
+        `SELECT DISTINCT o.source_sheet ${baseJoin}
+         WHERE o.source_sheet IS NOT NULL AND TRIM(o.source_sheet) != ''
+         ORDER BY o.source_sheet`
+      ).all()).map((r) => r.source_sheet);
+
+      res.json({ records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), sheet_names: sheetNames });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
