@@ -124,7 +124,7 @@ module.exports = function integrationRoutes(db) {
              ON isl.provider = 'pancake_pos'
             AND isl.entity_type = 'orders'
             AND isl.local_table = 'orders'
-            AND CAST(o.id AS TEXT) = isl.local_id`
+            AND o.id = CAST(isl.local_id AS INTEGER)`
         : 'FROM orders o';
 
       let where = "WHERE o.confirmed_by IS NOT NULL AND TRIM(o.confirmed_by) != ''";
@@ -153,7 +153,7 @@ module.exports = function integrationRoutes(db) {
              ON isl.provider = 'pancake_pos'
             AND isl.entity_type = 'orders'
             AND isl.local_table = 'orders'
-            AND CAST(o.id AS TEXT) = isl.local_id`
+            AND o.id = CAST(isl.local_id AS INTEGER)`
         : 'FROM orders o';
 
       const sources = await db.prepare(
@@ -178,7 +178,7 @@ module.exports = function integrationRoutes(db) {
         INNER JOIN integration_source_links isl
           ON isl.provider = 'google_sheets'
          AND isl.local_table = 'orders'
-         AND CAST(o.id AS TEXT) = isl.local_id`;
+         AND o.id = CAST(isl.local_id AS INTEGER)`;
 
       let where = 'WHERE 1=1';
       if (sheet && sheet !== 'all') { where += ' AND o.source_sheet = ?'; params.push(sheet); }

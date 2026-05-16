@@ -903,7 +903,7 @@ function mapBackendGoogleStatusToState(status = {}, previous = {}) {
 }
 
 async function hydrateIntegrationStateFromBackend() {
-  if (integrationsBackendHydrated || !canManageAccounts()) return;
+  if (!canManageAccounts()) return;
   integrationsBackendHydrated = true;
 
   try {
@@ -919,7 +919,17 @@ async function hydrateIntegrationStateFromBackend() {
     };
     saveIntegrationState(next);
     if (App.currentPage === 'api-connections') {
-      loadPage('api-connections');
+      // Update stat cards in-place instead of re-rendering the whole page
+      const posCollectedEl = document.querySelector('#api-tab-pos')?.closest?.('.page-content')?.querySelector?.('.stat-card.green .stat-value, .stat-card.amber .stat-value');
+      const googleCollectedAt = next.googleSheets.lastCollectedAt ? new Date(next.googleSheets.lastCollectedAt).toLocaleString() : 'No sheet sync yet';
+      const posCollectedAt = next.pancakePos.lastCollectedAt ? new Date(next.pancakePos.lastCollectedAt).toLocaleString() : 'No POS sync yet';
+      document.querySelectorAll('.stat-card').forEach((card) => {
+        const label = card.querySelector('.stat-label')?.textContent?.trim();
+        const val = card.querySelector('.stat-value');
+        const meta = card.querySelector('.stat-meta');
+        if (label === 'POS Orders SQL Sync' && val) { val.textContent = posCollectedAt; if (meta) meta.textContent = next.pancakePos.lastCollectionSummary || ''; }
+        if (label === 'Google Sheets Sync' && val) { val.textContent = googleCollectedAt; if (meta) meta.textContent = next.googleSheets.lastCollectionSummary || ''; }
+      });
     }
   } catch (error) {
     console.warn('[integrations] Could not load saved backend settings:', error.message || error);
@@ -5303,7 +5313,6 @@ function initPage(page) {
 
   if (page === 'api-connections') {
     hydrateIntegrationStateFromBackend();
-    loadPosUsers(1);
   }
 
   if (page === 'hr') {
