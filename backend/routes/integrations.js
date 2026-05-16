@@ -112,29 +112,54 @@ module.exports = function integrationRoutes(db) {
 
   router.get('/pancake-pos/staff-stats', async (req, res) => {
     try {
-      const { from, to, source } = req.query;
+      const { from, to, source, pancake_only } = req.query;
       const params = [];
-      let where = "WHERE confirmed_by IS NOT NULL AND TRIM(confirmed_by) != ''";
-      if (from) { where += ' AND order_date >= ?'; params.push(from); }
-      if (to) { where += ' AND order_date <= ?'; params.push(to); }
-      if (source && source !== 'all') { where += ' AND source_sheet = ?'; params.push(source); }
+
+      const usePancakeOnly = pancake_only === 'true' || pancake_only === '1';
+
+      // Base table: join with source_links when pancake_only is requested
+      const fromClause = usePancakeOnly
+        ? `FROM orders o
+           INNER JOIN integration_source_links isl
+             ON isl.provider = 'pancake_pos'
+            AND isl.entity_type = 'orders'
+            AND isl.local_table = 'orders'
+            AND CAST(o.id AS TEXT) = isl.local_id`
+        : 'FROM orders o';
+
+      let where = "WHERE o.confirmed_by IS NOT NULL AND TRIM(o.confirmed_by) != ''";
+      if (from) { where += ' AND o.order_date >= ?'; params.push(from); }
+      if (to)   { where += ' AND o.order_date <= ?'; params.push(to); }
+      if (source && source !== 'all') { where += ' AND o.source_sheet = ?'; params.push(source); }
 
       const stats = await db.prepare(`
         SELECT
-          confirmed_by AS staff_name,
+          o.confirmed_by AS staff_name,
           COUNT(*) AS total,
-          SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
-          SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END) AS returned,
-          SUM(CASE WHEN status = 'Canceled' THEN 1 ELSE 0 END) AS canceled,
-          SUM(CASE WHEN status NOT IN ('Delivered','Returned','Returning','Canceled') THEN 1 ELSE 0 END) AS active,
-          ROUND(100.0 * SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END)
-            / NULLIF(SUM(CASE WHEN status IN ('Delivered','Returned','Returning') THEN 1 ELSE 0 END),0), 1) AS rts_rate
-        FROM orders ${where}
-        GROUP BY confirmed_by ORDER BY total DESC
+          SUM(CASE WHEN o.status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN o.status IN ('Returned','Returning') THEN 1 ELSE 0 END) AS returned,
+          SUM(CASE WHEN o.status = 'Canceled' THEN 1 ELSE 0 END) AS canceled,
+          SUM(CASE WHEN o.status NOT IN ('Delivered','Returned','Returning','Canceled') THEN 1 ELSE 0 END) AS active,
+          ROUND(100.0 * SUM(CASE WHEN o.status IN ('Returned','Returning') THEN 1 ELSE 0 END)
+            / NULLIF(SUM(CASE WHEN o.status IN ('Delivered','Returned','Returning') THEN 1 ELSE 0 END),0), 1) AS rts_rate
+        ${fromClause} ${where}
+        GROUP BY o.confirmed_by ORDER BY total DESC
       `).all(...params);
 
+      // Source sheet list: scoped to Pancake-linked orders if pancake_only
+      const sourcesFromClause = usePancakeOnly
+        ? `FROM orders o
+           INNER JOIN integration_source_links isl
+             ON isl.provider = 'pancake_pos'
+            AND isl.entity_type = 'orders'
+            AND isl.local_table = 'orders'
+            AND CAST(o.id AS TEXT) = isl.local_id`
+        : 'FROM orders o';
+
       const sources = await db.prepare(
-        "SELECT DISTINCT source_sheet FROM orders WHERE source_sheet IS NOT NULL AND TRIM(source_sheet) != '' ORDER BY source_sheet"
+        `SELECT DISTINCT o.source_sheet ${sourcesFromClause}
+         WHERE o.source_sheet IS NOT NULL AND TRIM(o.source_sheet) != ''
+         ORDER BY o.source_sheet`
       ).all();
 
       res.json({ stats, sources: sources.map((s) => s.source_sheet) });

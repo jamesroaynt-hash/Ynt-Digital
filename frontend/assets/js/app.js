@@ -2448,11 +2448,27 @@ function renderDataReportDashboard() {
       <div class="data-report-chart-wrap"><canvas id="data-report-price-chart"></canvas></div>
     </section>
 
-    <section class="data-report-section">
-      <div class="card-header">
-        <div><div class="card-title">By Confirmed By</div><div class="card-subtitle">Orders and RTS rate per staff member who confirmed the order</div></div>
+    <section class="data-report-section" id="confirmed-by-section">
+      <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+        <div>
+          <div class="card-title">By Confirmed By</div>
+          <div class="card-subtitle">Orders and RTS rate per staff who confirmed in Pancake POS</div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="cb-pancake-only" checked onchange="loadConfirmedByStats()" />
+            Pancake POS only
+          </label>
+          <select class="form-control" id="cb-source-filter" style="width:160px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()">
+            <option value="all">All Pages</option>
+          </select>
+          <input type="date" class="form-control" id="cb-from" style="width:130px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()" />
+          <span style="font-size:13px; color:var(--text-secondary);">to</span>
+          <input type="date" class="form-control" id="cb-to" style="width:130px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()" />
+          <button class="btn btn-secondary btn-sm" onclick="loadConfirmedByStats()">Refresh</button>
+        </div>
       </div>
-      ${renderConfirmedByTable(metrics.byConfirmed)}
+      <div id="confirmed-by-table-wrap"><div class="loading-spinner" style="margin:24px auto;"></div></div>
     </section>
 
     <section class="data-report-section">
@@ -2464,6 +2480,73 @@ function renderDataReportDashboard() {
 `;
 
   renderDataReportPriceChart(metrics.byPrice);
+  loadConfirmedByStats();
+}
+
+async function loadConfirmedByStats() {
+  const wrap = document.getElementById('confirmed-by-table-wrap');
+  if (!wrap) return;
+
+  const pancakeOnly = document.getElementById('cb-pancake-only')?.checked !== false;
+  const source = document.getElementById('cb-source-filter')?.value || 'all';
+  const from = document.getElementById('cb-from')?.value || '';
+  const to = document.getElementById('cb-to')?.value || '';
+
+  wrap.innerHTML = '<div class="loading-spinner" style="margin:24px auto;"></div>';
+
+  try {
+    const params = new URLSearchParams();
+    if (pancakeOnly) params.set('pancake_only', 'true');
+    if (source && source !== 'all') params.set('source', source);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+
+    const data = await authorizedJsonRequest(`/integrations/pancake-pos/staff-stats?${params}`);
+
+    // Populate source dropdown
+    const sel = document.getElementById('cb-source-filter');
+    if (sel && Array.isArray(data.sources)) {
+      const current = sel.value;
+      sel.innerHTML = '<option value="all">All Pages</option>'
+        + data.sources.map((s) => `<option value="${escapeHtml(s)}" ${s === current ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('');
+    }
+
+    wrap.innerHTML = renderConfirmedByStatsTable(data.stats || []);
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>Failed to load: ${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+function renderConfirmedByStatsTable(stats) {
+  if (!stats.length) {
+    return `<div class="empty-state" style="padding:24px 0;"><h3>No data</h3><p>No orders with confirmer data found. Sync Pancake POS orders first.</p></div>`;
+  }
+  return `
+    <table class="data-report-table">
+      <thead><tr>
+        <th>Staff (Confirmed By)</th>
+        <th style="text-align:right">Total</th>
+        <th style="text-align:right">Delivered</th>
+        <th style="text-align:right">Returned</th>
+        <th style="text-align:right">Canceled</th>
+        <th style="text-align:right">Active</th>
+        <th style="text-align:right">RTS Rate</th>
+      </tr></thead>
+      <tbody>
+        ${stats.map((row) => {
+          const rts = Number(row.rts_rate || 0);
+          return `<tr>
+            <td>${escapeHtml(row.staff_name || '—')}</td>
+            <td style="text-align:right">${Number(row.total || 0).toLocaleString()}</td>
+            <td style="text-align:right" class="text-success">${Number(row.delivered || 0).toLocaleString()}</td>
+            <td style="text-align:right" class="text-danger">${Number(row.returned || 0).toLocaleString()}</td>
+            <td style="text-align:right">${Number(row.canceled || 0).toLocaleString()}</td>
+            <td style="text-align:right">${Number(row.active || 0).toLocaleString()}</td>
+            <td style="text-align:right"><span class="data-report-rate ${rts >= 30 ? 'bad' : rts >= 15 ? 'warn' : 'ok'}">${rts.toFixed(1)}%</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 function renderDataReportPriceChart(rows) {
