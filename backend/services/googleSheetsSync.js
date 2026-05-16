@@ -368,7 +368,7 @@ function rowsToObjects(rows) {
 }
 
 function normalizeOrderRecord(row, sheetName) {
-  const pageName = stringOrNull(getFirstValue(row, ['page', 'page_name', 'page name', 'account', 'account_name', 'shop', 'shop_name']));
+  const pageName = stringOrNull(getFirstValue(row, ['page', 'page_name', 'page name', 'chat_page', 'chat page', 'account', 'account_name', 'shop', 'shop_name', 'fb_page', 'fb page', 'facebook_page', 'facebook page']));
   const externalId = stringOrNull(getFirstValue(row, [
     'order_ref',
     'external_id',
@@ -460,6 +460,10 @@ function normalizeOrderRecord(row, sheetName) {
     'tag',
     'labels',
     'label',
+    'pancake_tags',
+    'pancake tags',
+    'pos_tags',
+    'pos tags',
   ]);
   const confirmedBy = getFirstValue(row, [
     'confirmed_by',
@@ -488,6 +492,10 @@ function normalizeOrderRecord(row, sheetName) {
     'attempt number',
     'delivery_attempt',
     'delivery attempt',
+    'delivery_attempt_counts',
+    'delivery attempt counts',
+    'delivery_attempts',
+    'delivery attempts',
     'attempt_count',
     'attempt count',
   ]);
