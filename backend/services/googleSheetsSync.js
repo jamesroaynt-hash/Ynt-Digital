@@ -47,14 +47,24 @@ function normalizePrivateKey(value) {
   const text = stringOrNull(value);
   if (!text) return null;
 
+  let key = text;
+
+  // Extract from full service account JSON if pasted
   try {
-    const parsed = JSON.parse(text);
-    if (parsed?.private_key) {
-      return String(parsed.private_key).replace(/\\n/g, '\n');
-    }
+    const parsed = JSON.parse(key);
+    if (parsed?.private_key) key = String(parsed.private_key);
   } catch {}
 
-  return text.replace(/\\n/g, '\n');
+  // Convert literal \n sequences to real newlines, strip carriage returns
+  key = key.replace(/\\n/g, '\n').replace(/\r/g, '');
+
+  // Ensure PEM header and footer are on their own lines
+  key = key
+    .replace(/(-----BEGIN[^-]+-----)\s*/g, '$1\n')
+    .replace(/\s*(-----END[^-]+-----)/g, '\n$1')
+    .trim();
+
+  return key;
 }
 
 function parseServiceAccountJson(value) {
@@ -320,7 +330,16 @@ function buildAccessTokenRequestBody(clientEmail, privateKey) {
     iat: now,
   };
   const unsigned = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}`;
-  const signature = crypto.sign('RSA-SHA256', Buffer.from(unsigned), privateKey)
+
+  // createPrivateKey() avoids OpenSSL 3 "DECODER routines:unsupported" on raw PEM strings
+  let keyObject;
+  try {
+    keyObject = crypto.createPrivateKey({ key: privateKey, format: 'pem' });
+  } catch (err) {
+    throw new Error(`Invalid private key — check PEM format: ${err.message}`);
+  }
+
+  const signature = crypto.sign('RSA-SHA256', Buffer.from(unsigned), keyObject)
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
