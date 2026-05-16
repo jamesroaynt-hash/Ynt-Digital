@@ -1110,6 +1110,7 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-sheet-records'); loadSheetRecords()">Sheet Records</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -1418,6 +1419,45 @@ function renderApiConnections() {
           <div style="margin-top:10px;"><strong>API discovery:</strong></div>
           <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:6px 0;">curl https://your-domain.com/api</code>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="api-tab-sheet-records" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Google Sheets Synced Records</div>
+          <div class="card-subtitle">All orders imported from the connected Google Sheets tab(s). Records update each time you run a sync.</div>
+        </div>
+        <button class="btn btn-secondary" onclick="loadSheetRecords()">Refresh</button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; align-items:flex-end;">
+          <div class="form-group" style="margin:0; min-width:160px;">
+            <label class="form-label" style="font-size:12px;">Sheet Tab</label>
+            <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
+              <option value="all">All sheets</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0; min-width:140px;">
+            <label class="form-label" style="font-size:12px;">Status</label>
+            <select class="form-control" id="sheet-records-status-filter" onchange="loadSheetRecords(1)" style="height:34px;">
+              <option value="all">All statuses</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Returned">Returned</option>
+              <option value="Returning">Returning</option>
+              <option value="Canceled">Canceled</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0; flex:1; min-width:200px;">
+            <label class="form-label" style="font-size:12px;">Search</label>
+            <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, tracking..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
+          </div>
+        </div>
+        <div id="sheet-records-table"><div class="loading-spinner"></div></div>
+        <div id="sheet-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
       </div>
     </section>
   </div>
@@ -7984,6 +8024,106 @@ function showCreateApiKeyForm() {
   document.getElementById('api-key-result').style.display = 'none';
   document.getElementById('new-api-key-name').value = '';
   document.querySelectorAll('.api-key-scope').forEach((cb) => { cb.checked = cb.value === 'orders:read'; });
+}
+
+// ─── SHEET RECORDS ─────────────────────────────────────────
+let sheetRecordsPage = 1;
+
+async function loadSheetRecords(page) {
+  if (page) sheetRecordsPage = page;
+  const tableEl = document.getElementById('sheet-records-table');
+  const pagEl = document.getElementById('sheet-records-pagination');
+  if (!tableEl) return;
+  tableEl.innerHTML = '<div class="loading-spinner"></div>';
+
+  const sheet = document.getElementById('sheet-records-sheet-filter')?.value || 'all';
+  const status = document.getElementById('sheet-records-status-filter')?.value || 'all';
+  const search = (document.getElementById('sheet-records-search')?.value || '').trim();
+
+  const params = new URLSearchParams({ page: sheetRecordsPage, per_page: 50 });
+  if (sheet !== 'all') params.set('sheet', sheet);
+  if (status !== 'all') params.set('status', status);
+  if (search) params.set('search', search);
+
+  try {
+    const data = await authorizedJsonRequest(`/integrations/google-sheets/records?${params}`);
+
+    // Populate sheet dropdown on first load
+    const sheetSel = document.getElementById('sheet-records-sheet-filter');
+    if (sheetSel && data.sheet_names?.length) {
+      const current = sheetSel.value;
+      const existingOptions = [...sheetSel.options].map((o) => o.value);
+      data.sheet_names.forEach((name) => {
+        if (!existingOptions.includes(name)) {
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          sheetSel.appendChild(opt);
+        }
+      });
+      sheetSel.value = current;
+    }
+
+    if (!data.records?.length) {
+      tableEl.innerHTML = '<div class="empty-state" style="padding:40px 0;"><p>No records found. Run a Google Sheets sync first.</p></div>';
+      if (pagEl) pagEl.innerHTML = '';
+      return;
+    }
+
+    const statusBadge = (s) => {
+      const map = { Delivered: 'badge-success', Returned: 'badge-danger', Returning: 'badge-warning', Canceled: 'badge-danger', Confirmed: 'badge-info' };
+      return `<span class="badge ${map[s] || 'badge-secondary'}">${escapeHtml(s || '-')}</span>`;
+    };
+
+    tableEl.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table" style="font-size:13px;">
+          <thead><tr>
+            <th>Order ID</th><th>Customer</th><th>Product</th>
+            <th>COD</th><th>Status</th><th>Courier</th>
+            <th>Confirmed By</th><th>Sheet Tab</th><th>Date</th><th>Attempts</th>
+          </tr></thead>
+          <tbody>
+            ${data.records.map((r) => `<tr>
+              <td><span class="mono-text" style="font-size:12px;">${escapeHtml(r.order_ref || String(r.id))}</span></td>
+              <td>${escapeHtml(r.customer || '-')}</td>
+              <td>${escapeHtml(r.product || '-')}</td>
+              <td>${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
+              <td>${statusBadge(r.status)}</td>
+              <td>${escapeHtml(r.courier || '-')}</td>
+              <td>${escapeHtml(r.confirmed_by || '-')}</td>
+              <td><span class="badge badge-secondary" style="font-size:11px;">${escapeHtml(r.source_sheet || '-')}</span></td>
+              <td style="white-space:nowrap;">${escapeHtml((r.order_date || '').slice(0, 10))}</td>
+              <td style="text-align:center;">${r.attempts || 1}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+        Showing ${data.records.length} of ${data.total.toLocaleString()} record${data.total !== 1 ? 's' : ''}
+      </div>`;
+
+    if (pagEl) {
+      pagEl.innerHTML = '';
+      if (data.pages > 1) {
+        const mkBtn = (label, p, disabled = false, active = false) => {
+          const btn = document.createElement('button');
+          btn.className = `btn btn-secondary${active ? ' btn-primary' : ''}`;
+          btn.style.minWidth = '36px';
+          btn.textContent = label;
+          btn.disabled = disabled;
+          if (!disabled) btn.onclick = () => loadSheetRecords(p);
+          return btn;
+        };
+        pagEl.appendChild(mkBtn('‹', sheetRecordsPage - 1, sheetRecordsPage <= 1));
+        for (let p = Math.max(1, sheetRecordsPage - 2); p <= Math.min(data.pages, sheetRecordsPage + 2); p++) {
+          pagEl.appendChild(mkBtn(p, p, false, p === sheetRecordsPage));
+        }
+        pagEl.appendChild(mkBtn('›', sheetRecordsPage + 1, sheetRecordsPage >= data.pages));
+      }
+    }
+  } catch (err) {
+    tableEl.innerHTML = `<div class="alert alert-danger">Failed to load sheet records: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 async function loadApiKeys() {

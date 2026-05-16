@@ -168,6 +168,61 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.get('/google-sheets/records', async (req, res) => {
+    try {
+      const setting = await googleSheetsSync.getPublicSetting(db);
+      const configuredSheets = setting.sheet_name
+        ? setting.sheet_name.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      const { sheet, status, search, page = 1, per_page = 50 } = req.query;
+      const params = [];
+      let where = 'WHERE 1=1';
+
+      if (sheet && sheet !== 'all') {
+        where += ' AND o.source_sheet = ?'; params.push(sheet);
+      } else if (configuredSheets.length) {
+        where += ` AND o.source_sheet IN (${configuredSheets.map(() => '?').join(',')})`;
+        params.push(...configuredSheets);
+      }
+
+      if (status && status !== 'all') { where += ' AND o.status = ?'; params.push(status); }
+      if (search) {
+        where += ' AND (o.order_ref LIKE ? OR o.customer LIKE ? OR o.tracking_no LIKE ? OR o.source_sheet LIKE ?)';
+        const q = `%${search}%`;
+        params.push(q, q, q, q);
+      }
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
+      const offset = (pageNum - 1) * perPage;
+
+      const countRow = await db.prepare(`SELECT COUNT(*) AS total FROM orders o ${where}`).get(...params);
+      const total = countRow?.total || 0;
+
+      const records = await db.prepare(`
+        SELECT o.id, o.order_ref, o.tracking_no, o.customer, o.phone,
+               o.product, o.qty, o.cod_amount, o.status, o.courier,
+               o.source_sheet, o.confirmed_by, o.attempts, o.tags,
+               o.order_date, o.updated_at
+        FROM orders o ${where}
+        ORDER BY o.order_date DESC, o.id DESC
+        LIMIT ? OFFSET ?
+      `).all(...params, perPage, offset);
+
+      res.json({
+        records,
+        total,
+        page: pageNum,
+        per_page: perPage,
+        pages: Math.ceil(total / perPage),
+        sheet_names: configuredSheets,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/google-sheets/collect', async (req, res) => {
     try {
       const result = await googleSheetsSync.collectSheetData(db, req.body || {});
