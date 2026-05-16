@@ -461,6 +461,24 @@ function normalizeOrderRecord(row, sheetName) {
     'labels',
     'label',
   ]);
+  const confirmedBy = getFirstValue(row, [
+    'confirmed_by',
+    'confirmed by',
+    'confirmer',
+    'confirmed_by_name',
+    'confirmed by name',
+    'agent',
+    'agent_name',
+    'agent name',
+    'staff',
+    'staff_name',
+    'staff name',
+    'seller',
+    'seller_name',
+    'seller name',
+    'handled_by',
+    'handled by',
+  ]);
   const stableFallback = crypto
     .createHash('sha1')
     .update(safeJson({
@@ -483,6 +501,7 @@ function normalizeOrderRecord(row, sheetName) {
     phone: stringOrNull(phone),
     product: stringOrNull(product) || 'Unknown Product',
     tags: stringOrNull(tags),
+    confirmed_by: stringOrNull(confirmedBy),
     qty: Math.max(1, Math.round(numberOrDefault(getFirstValue(row, ['qty', 'quantity', 'total_quantity', 'total quantity']), 1))),
     cod_amount: numberOrDefault(getFirstValue(row, ['cod_amount', 'cod', 'amount', 'price', 'total', 'total_price', 'total price', 'money_to_collect']), 0),
     status: normalizeStatus(getFirstValue(row, ['status', 'status_name', 'status name', 'order_status', 'order status'])),
@@ -523,6 +542,7 @@ async function upsertOrder(db, record) {
           status = ?,
           courier = ?,
           source_sheet = ?,
+          confirmed_by = COALESCE(?, confirmed_by),
           order_date = ?,
           updated_at = datetime('now')
       WHERE id = ?
@@ -537,6 +557,7 @@ async function upsertOrder(db, record) {
       record.status,
       record.courier,
       record.source_sheet,
+      record.confirmed_by,
       record.order_date,
       existingByOrderRef.id
     );
@@ -560,6 +581,7 @@ async function upsertOrder(db, record) {
           status = ?,
           courier = ?,
           source_sheet = ?,
+          confirmed_by = COALESCE(?, confirmed_by),
           order_date = ?,
           updated_at = datetime('now')
       WHERE id = ?
@@ -574,6 +596,7 @@ async function upsertOrder(db, record) {
       record.status,
       record.courier,
       record.source_sheet,
+      record.confirmed_by,
       record.order_date,
       existingByTracking.id
     );
@@ -582,9 +605,9 @@ async function upsertOrder(db, record) {
 
   const result = await db.prepare(`
     INSERT INTO orders (
-      order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, order_date, updated_at
+      order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, confirmed_by, order_date, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(order_ref) DO UPDATE SET
       tracking_no = excluded.tracking_no,
       customer = excluded.customer,
@@ -596,6 +619,7 @@ async function upsertOrder(db, record) {
       status = excluded.status,
       courier = excluded.courier,
       source_sheet = excluded.source_sheet,
+      confirmed_by = COALESCE(excluded.confirmed_by, orders.confirmed_by),
       order_date = excluded.order_date,
       updated_at = datetime('now')
   `).run(
@@ -610,6 +634,7 @@ async function upsertOrder(db, record) {
     record.status,
     record.courier,
     record.source_sheet,
+    record.confirmed_by,
     record.order_date
   );
 
