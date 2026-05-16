@@ -10,6 +10,8 @@ const { createDatabaseClient } = require('./db/client');
 const { initializeDatabaseAsync } = require('./db/init');
 const googleSheetsSync = require('./services/googleSheetsSync');
 const pancakePosSync = require('./services/pancakePosSync');
+const { dispatch: dispatchWebhook } = require('./services/webhookDispatcher');
+const { hashKey: hashApiKey } = require('./routes/apiKeys');
 
 let blobPersistence = {
   restoreDatabaseFromBlob: async () => false,
@@ -219,8 +221,36 @@ async function createApp() {
   app.use('/Images', express.static(path.join(__dirname, '../Images'), staticCacheHeaders));
   app.use(express.static(path.join(__dirname, '../frontend'), staticCacheHeaders));
 
-  function authMiddleware(req, res, next) {
-    const token = req.headers.authorization?.split(' ')[1];
+  async function authMiddleware(req, res, next) {
+    const authHeader = req.headers.authorization || '';
+    const apiKeyHeader = req.headers['x-api-key'] || '';
+
+    // API key auth: Authorization: ApiKey <key>  or  X-API-Key: <key>
+    const apiKeyRaw = apiKeyHeader
+      || (authHeader.toLowerCase().startsWith('apikey ') ? authHeader.slice(7).trim() : '');
+    if (apiKeyRaw) {
+      try {
+        const hash = hashApiKey(apiKeyRaw);
+        const row = await db.prepare(
+          "SELECT id, name, scopes FROM api_keys WHERE key_hash = ? AND is_active = 1 LIMIT 1"
+        ).get(hash);
+        if (!row) return res.status(401).json({ error: 'Invalid or revoked API key' });
+        Promise.resolve(db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id)).catch(() => {});
+        req.user = {
+          id: null,
+          role: 'api_key',
+          username: `apikey:${row.name}`,
+          scopes: JSON.parse(row.scopes || '[]'),
+          key_id: row.id,
+        };
+        return next();
+      } catch (err) {
+        return res.status(500).json({ error: 'Auth error' });
+      }
+    }
+
+    // JWT auth: Authorization: Bearer <token>
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token provided' });
     try {
       const payload = jwt.verify(token, JWT_SECRET);
@@ -234,9 +264,11 @@ async function createApp() {
     }
   }
 
+  const webhookDispatch = (event, data) => dispatchWebhook(db, event, data);
+
   app.use('/api/auth', require('./routes/auth')(db, jwt, bcrypt, JWT_SECRET, { tokenBlocklist, loginAttempts }));
-  app.use('/api/orders', authMiddleware, require('./routes/orders')(db));
-  app.use('/api/inventory', authMiddleware, require('./routes/inventory')(db));
+  app.use('/api/orders', authMiddleware, require('./routes/orders')(db, { dispatch: webhookDispatch }));
+  app.use('/api/inventory', authMiddleware, require('./routes/inventory')(db, { dispatch: webhookDispatch }));
   app.use('/api/expenses', authMiddleware, require('./routes/expenses')(db));
   app.use('/api/hr', authMiddleware, require('./routes/hr')(db));
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));
@@ -244,6 +276,34 @@ async function createApp() {
   const integrationsRouter = require('./routes/integrations')(db);
   app.use('/api/integrations', authMiddleware, integrationsRouter);
   app.use('/api/public/integrations', integrationsRouter.publicRouter);
+  app.use('/api/api-keys', authMiddleware, require('./routes/apiKeys')(db));
+  app.use('/api/webhooks', authMiddleware, require('./routes/webhooks')(db));
+
+  // API discovery endpoint
+  app.get('/api', (req, res) => {
+    res.json({
+      name: 'YNT Dashboard API',
+      version: '1.0',
+      auth: {
+        jwt: 'POST /api/auth/login → returns token → Authorization: Bearer <token>',
+        api_key: 'Create key at /api/api-keys → Authorization: ApiKey <key>  or  X-API-Key: <key>',
+      },
+      endpoints: {
+        auth: ['POST /api/auth/login', 'POST /api/auth/logout', 'GET /api/auth/me'],
+        orders: ['GET /api/orders', 'POST /api/orders', 'PUT /api/orders/:id', 'DELETE /api/orders/:id', 'POST /api/orders/import'],
+        inventory: ['GET /api/inventory', 'PATCH /api/inventory/:item_id/stock', 'GET /api/inventory/low-stock'],
+        expenses: ['GET /api/expenses', 'POST /api/expenses', 'DELETE /api/expenses/:id'],
+        hr: ['GET /api/hr/attendance', 'POST /api/hr/clock', 'GET /api/hr/summary'],
+        scans: ['GET /api/scans', 'POST /api/scans', 'GET /api/scans/lookup/:tracking'],
+        pickups: ['GET /api/pickups', 'POST /api/pickups'],
+        api_keys: ['GET /api/api-keys', 'POST /api/api-keys', 'DELETE /api/api-keys/:id'],
+        webhooks: ['GET /api/webhooks', 'POST /api/webhooks', 'PATCH /api/webhooks/:id', 'DELETE /api/webhooks/:id', 'GET /api/webhooks/:id/deliveries'],
+        integrations: ['GET /api/integrations/pancake-pos/status', 'GET /api/integrations/google-sheets/status'],
+      },
+      webhook_events: ['order.created', 'order.updated', 'order.deleted', 'inventory.updated', '*'],
+      api_key_scopes: ['orders:read', 'orders:write', 'inventory:read', 'inventory:write', 'expenses:read', 'expenses:write', 'hr:read'],
+    });
+  });
 
   app.use('/api', (req, res) => {
     res.status(404).json({ error: `API route not found: ${req.originalUrl}` });

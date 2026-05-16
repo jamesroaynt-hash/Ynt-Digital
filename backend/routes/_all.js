@@ -2,7 +2,7 @@
 const express = require('express');
 const googleSheetsSync = require('../services/googleSheetsSync');
 
-function ordersRoutes(db) {
+function ordersRoutes(db, { dispatch } = {}) {
   const r = express.Router();
   const allowedStatuses = new Set(['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled', 'Pending']);
   const allowedStatusLower = new Map([...allowedStatuses].map((s) => [s.toLowerCase(), s]));
@@ -516,6 +516,7 @@ function ordersRoutes(db) {
     const ref = `ORD-${Date.now()}`;
     const stmt = db.prepare(`INSERT INTO orders (order_ref,tracking_no,customer,phone,product,tags,qty,cod_amount,status,courier,order_date,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
     const result = await stmt.run(ref, tracking_no||null, customer, phone||null, product, tags||null, qty||1, cod_amount||0, status||'Confirmed', courier||null, order_date||new Date().toISOString().split('T')[0], req.user?.id||1);
+    if (dispatch) dispatch('order.created', { id: result.lastInsertRowid, order_ref: ref, customer, product, status: status || 'Confirmed' });
     res.status(201).json({ id: result.lastInsertRowid, order_ref: ref });
   });
 
@@ -563,11 +564,13 @@ function ordersRoutes(db) {
           updated_at=datetime('now')
       WHERE id=?
     `).run(next(status), next(tracking_no), next(courier), next(source_sheet), next(tags), next(order_date), req.params.id);
+    if (dispatch) dispatch('order.updated', { id: req.params.id, status, tracking_no, courier });
     res.json({ success: true });
   });
 
   r.delete('/:id', async (req, res) => {
     await db.prepare('DELETE FROM orders WHERE id=?').run(req.params.id);
+    if (dispatch) dispatch('order.deleted', { id: req.params.id });
     res.json({ success: true });
   });
 
@@ -575,7 +578,7 @@ function ordersRoutes(db) {
 }
 
 /* ─── INVENTORY ───────────────────────────────────────────── */
-function inventoryRoutes(db) {
+function inventoryRoutes(db, { dispatch } = {}) {
   const r = express.Router();
   const allowedTypes = new Set(['Product', 'Supply']);
 
@@ -680,6 +683,7 @@ function inventoryRoutes(db) {
 
     await db.prepare(`UPDATE inventory SET stock=?, updated_at=datetime('now') WHERE item_id=?`).run(newStock, req.params.item_id);
     await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`).run(req.params.item_id, action, item.stock, qty, newStock, notes||null, req.user?.id||1);
+    if (dispatch) dispatch('inventory.updated', { item_id: req.params.item_id, name: item.name, action, qty_before: item.stock, qty_after: newStock });
     res.json({ success: true, new_stock: newStock });
   });
 

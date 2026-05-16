@@ -1110,6 +1110,8 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
 
   <div id="api-tab-pos" class="tab-content active">
@@ -1363,6 +1365,117 @@ function renderApiConnections() {
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" onclick="saveGoogleSheetsConnection()">Save Google Sheets</button>
           <button class="btn btn-secondary" type="button" onclick="collectGoogleSheetsData()">Sync Now</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="api-tab-apikeys" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">API Keys</div>
+          <div class="card-subtitle">Create persistent API keys so external apps can connect without user credentials. Use <code>Authorization: ApiKey &lt;key&gt;</code> or <code>X-API-Key: &lt;key&gt;</code> header.</div>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateApiKeyForm()">+ New API Key</button>
+      </div>
+      <div class="card-body">
+        <div id="api-key-form" style="display:none; margin-bottom:20px; padding:16px; background:var(--bg-secondary); border-radius:8px;">
+          <div style="margin-bottom:12px; font-weight:600;">Create New API Key</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label class="form-label">Key Name</label>
+              <input class="form-control" id="new-api-key-name" placeholder="e.g. Zapier Integration" />
+            </div>
+            <div class="form-group" style="flex:3">
+              <label class="form-label">Scopes (select all that apply)</label>
+              <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
+                ${['orders:read','orders:write','inventory:read','inventory:write','expenses:read','expenses:write','hr:read'].map(s => `<label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="api-key-scope" value="${s}" ${s === 'orders:read' ? 'checked' : ''}/>${s}</label>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="btn btn-primary" onclick="createApiKey()">Generate Key</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('api-key-form').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <div id="api-key-result" style="display:none; margin-bottom:20px; padding:16px; background:#1a3a1a; border:1px solid #2d6a2d; border-radius:8px;">
+          <div style="font-weight:600; color:#4caf50; margin-bottom:8px;">API Key Created — copy it now, it won't be shown again</div>
+          <code id="api-key-result-value" style="word-break:break-all; font-size:13px; color:#e8f5e9;"></code>
+          <button class="btn btn-secondary" style="margin-top:10px;" onclick="copyApiKeyResult()">Copy Key</button>
+        </div>
+        <div id="api-keys-list"><div class="loading-spinner"></div></div>
+      </div>
+    </section>
+    <section class="card" style="margin-top:16px;">
+      <div class="card-header"><div><div class="card-title">Quick Reference</div></div></div>
+      <div class="card-body">
+        <div style="font-size:13px; line-height:1.8;">
+          <div><strong>Authenticate with API key:</strong></div>
+          <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:6px 0;">curl https://your-domain.com/api/orders -H "Authorization: ApiKey yntk_..."</code>
+          <div style="margin-top:10px;"><strong>Or with X-API-Key header:</strong></div>
+          <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:6px 0;">curl https://your-domain.com/api/orders -H "X-API-Key: yntk_..."</code>
+          <div style="margin-top:10px;"><strong>API discovery:</strong></div>
+          <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:6px 0;">curl https://your-domain.com/api</code>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="api-tab-webhooks" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Outbound Webhooks</div>
+          <div class="card-subtitle">Push real-time events to your external apps when orders or inventory change. Payloads are signed with HMAC-SHA256 via the <code>X-YNT-Signature</code> header.</div>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateWebhookForm()">+ New Webhook</button>
+      </div>
+      <div class="card-body">
+        <div id="webhook-form" style="display:none; margin-bottom:20px; padding:16px; background:var(--bg-secondary); border-radius:8px;">
+          <div style="margin-bottom:12px; font-weight:600;">Create New Webhook</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label class="form-label">Name</label>
+              <input class="form-control" id="new-webhook-name" placeholder="e.g. Zapier Order Hook" />
+            </div>
+            <div class="form-group" style="flex:3">
+              <label class="form-label">URL</label>
+              <input class="form-control" id="new-webhook-url" placeholder="https://hooks.zapier.com/..." />
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <label class="form-label">Events (select all that apply)</label>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
+              ${['order.created','order.updated','order.deleted','inventory.updated','*'].map(e => `<label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="webhook-event" value="${e}" ${e === 'order.created' ? 'checked' : ''}/>${e === '*' ? '* (all events)' : e}</label>`).join('')}
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="btn btn-primary" onclick="createWebhook()">Create Webhook</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('webhook-form').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <div id="webhook-secret-result" style="display:none; margin-bottom:20px; padding:16px; background:#1a2a3a; border:1px solid #2d5a8a; border-radius:8px;">
+          <div style="font-weight:600; color:#64b5f6; margin-bottom:8px;">Webhook Created — save the signing secret now</div>
+          <div style="font-size:13px; color:#bbdefb; margin-bottom:6px;">Use this secret to verify <code>X-YNT-Signature</code> on incoming payloads:</div>
+          <code id="webhook-secret-value" style="word-break:break-all; font-size:13px; color:#e3f2fd;"></code>
+          <button class="btn btn-secondary" style="margin-top:10px;" onclick="copyWebhookSecret()">Copy Secret</button>
+        </div>
+        <div id="webhooks-list"><div class="loading-spinner"></div></div>
+      </div>
+    </section>
+    <section class="card" style="margin-top:16px;">
+      <div class="card-header"><div><div class="card-title">Verifying Signatures</div></div></div>
+      <div class="card-body">
+        <div style="font-size:13px; line-height:1.8;">
+          <div>Every request includes an <code>X-YNT-Signature</code> header. Verify it by computing <code>HMAC-SHA256(secret, raw_body)</code> and comparing with <code>sha256=&lt;hex&gt;</code>.</div>
+          <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:10px 0; white-space:pre-wrap;">// Node.js example
+const crypto = require('crypto');
+const sig = 'sha256=' + crypto
+  .createHmac('sha256', YOUR_SECRET)
+  .update(rawBody)
+  .digest('hex');
+if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
         </div>
       </div>
     </section>
@@ -7780,6 +7893,203 @@ async function collectGoogleSheetsData() {
   } catch (error) {
     showToast('error', 'Google Sheets sync failed', error.message || 'Could not collect data from Google Sheets.');
   }
+}
+
+// ─── API KEYS ──────────────────────────────────────────────
+function showCreateApiKeyForm() {
+  document.getElementById('api-key-form').style.display = '';
+  document.getElementById('api-key-result').style.display = 'none';
+  document.getElementById('new-api-key-name').value = '';
+  document.querySelectorAll('.api-key-scope').forEach((cb) => { cb.checked = cb.value === 'orders:read'; });
+}
+
+async function loadApiKeys() {
+  const el = document.getElementById('api-keys-list');
+  if (!el) return;
+  try {
+    const keys = await authorizedJsonRequest('/api-keys');
+    if (!keys.length) {
+      el.innerHTML = '<div class="empty-state" style="padding:24px 0;"><p>No API keys yet. Create one to let external apps connect.</p></div>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="data-table" style="margin-top:0;">
+        <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Last Used</th><th>Created</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${keys.map((k) => `
+            <tr>
+              <td>${escapeHtml(k.name)}</td>
+              <td><code>${escapeHtml(k.key_prefix)}...</code></td>
+              <td style="font-size:12px;">${(Array.isArray(k.scopes) ? k.scopes : []).map((s) => `<span class="badge badge-blue" style="font-size:11px;">${escapeHtml(s)}</span>`).join(' ')}</td>
+              <td>${k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'Never'}</td>
+              <td>${k.created_at ? new Date(k.created_at).toLocaleDateString() : ''}</td>
+              <td>${k.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Revoked</span>'}</td>
+              <td>${k.is_active ? `<button class="btn btn-sm btn-danger" onclick="revokeApiKey(${k.id})">Revoke</button>` : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    el.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function createApiKey() {
+  const name = document.getElementById('new-api-key-name').value.trim();
+  if (!name) { showToast('warning', 'Name required', 'Enter a name for the API key.'); return; }
+  const scopes = [...document.querySelectorAll('.api-key-scope:checked')].map((cb) => cb.value);
+  if (!scopes.length) { showToast('warning', 'Scope required', 'Select at least one scope.'); return; }
+  try {
+    const result = await authorizedJsonRequest('/api-keys', { method: 'POST', body: JSON.stringify({ name, scopes }) });
+    document.getElementById('api-key-form').style.display = 'none';
+    document.getElementById('api-key-result').style.display = '';
+    document.getElementById('api-key-result-value').textContent = result.key;
+    loadApiKeys();
+  } catch (err) {
+    showToast('error', 'Failed to create key', err.message);
+  }
+}
+
+async function revokeApiKey(id) {
+  if (!confirm('Revoke this API key? Any apps using it will lose access immediately.')) return;
+  try {
+    await authorizedJsonRequest(`/api-keys/${id}`, { method: 'DELETE' });
+    showToast('success', 'API key revoked', 'The key has been deactivated.');
+    loadApiKeys();
+  } catch (err) {
+    showToast('error', 'Failed to revoke', err.message);
+  }
+}
+
+function copyApiKeyResult() {
+  const val = document.getElementById('api-key-result-value').textContent;
+  navigator.clipboard.writeText(val).then(() => showToast('success', 'Copied', 'API key copied to clipboard.'));
+}
+
+// ─── WEBHOOKS ──────────────────────────────────────────────
+function showCreateWebhookForm() {
+  document.getElementById('webhook-form').style.display = '';
+  document.getElementById('webhook-secret-result').style.display = 'none';
+  document.getElementById('new-webhook-name').value = '';
+  document.getElementById('new-webhook-url').value = '';
+  document.querySelectorAll('.webhook-event').forEach((cb) => { cb.checked = cb.value === 'order.created'; });
+}
+
+async function loadWebhooks() {
+  const el = document.getElementById('webhooks-list');
+  if (!el) return;
+  try {
+    const hooks = await authorizedJsonRequest('/webhooks');
+    if (!hooks.length) {
+      el.innerHTML = '<div class="empty-state" style="padding:24px 0;"><p>No webhooks yet. Create one to push events to your external apps.</p></div>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="data-table" style="margin-top:0;">
+        <thead><tr><th>Name</th><th>URL</th><th>Events</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${hooks.map((h) => `
+            <tr>
+              <td>${escapeHtml(h.name)}</td>
+              <td style="font-size:12px; max-width:200px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(h.url)}</td>
+              <td style="font-size:12px;">${(Array.isArray(h.events) ? h.events : []).map((e) => `<span class="badge badge-purple" style="font-size:11px;">${escapeHtml(e)}</span>`).join(' ')}</td>
+              <td>${h.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-warning">Paused</span>'}</td>
+              <td style="display:flex; gap:6px;">
+                <button class="btn btn-sm btn-secondary" onclick="viewWebhookDeliveries(${h.id}, '${escapeHtml(h.name)}')">History</button>
+                <button class="btn btn-sm btn-${h.is_active ? 'secondary' : 'primary'}" onclick="toggleWebhook(${h.id}, ${h.is_active ? 0 : 1})">${h.is_active ? 'Pause' : 'Resume'}</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteWebhook(${h.id})">Delete</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    el.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function createWebhook() {
+  const name = document.getElementById('new-webhook-name').value.trim();
+  const url = document.getElementById('new-webhook-url').value.trim();
+  if (!name) { showToast('warning', 'Name required', 'Enter a name for the webhook.'); return; }
+  if (!url) { showToast('warning', 'URL required', 'Enter the destination URL.'); return; }
+  const events = [...document.querySelectorAll('.webhook-event:checked')].map((cb) => cb.value);
+  if (!events.length) { showToast('warning', 'Events required', 'Select at least one event.'); return; }
+  try {
+    const result = await authorizedJsonRequest('/webhooks', { method: 'POST', body: JSON.stringify({ name, url, events }) });
+    document.getElementById('webhook-form').style.display = 'none';
+    document.getElementById('webhook-secret-result').style.display = '';
+    document.getElementById('webhook-secret-value').textContent = result.secret;
+    loadWebhooks();
+  } catch (err) {
+    showToast('error', 'Failed to create webhook', err.message);
+  }
+}
+
+async function toggleWebhook(id, active) {
+  try {
+    await authorizedJsonRequest(`/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify({ is_active: active }) });
+    loadWebhooks();
+  } catch (err) {
+    showToast('error', 'Failed to update webhook', err.message);
+  }
+}
+
+async function deleteWebhook(id) {
+  if (!confirm('Delete this webhook? Delivery history will also be removed.')) return;
+  try {
+    await authorizedJsonRequest(`/webhooks/${id}`, { method: 'DELETE' });
+    showToast('success', 'Webhook deleted', '');
+    loadWebhooks();
+  } catch (err) {
+    showToast('error', 'Failed to delete', err.message);
+  }
+}
+
+async function viewWebhookDeliveries(id, name) {
+  try {
+    const deliveries = await authorizedJsonRequest(`/webhooks/${id}/deliveries`);
+    const rows = deliveries.length
+      ? deliveries.map((d) => `
+          <tr>
+            <td>${escapeHtml(d.event)}</td>
+            <td><span class="badge badge-${d.status === 'delivered' ? 'success' : d.status === 'failed' ? 'danger' : 'gray'}">${d.status}</span></td>
+            <td>${d.response_status || '-'}</td>
+            <td>${d.created_at ? new Date(d.created_at).toLocaleString() : ''}</td>
+            <td style="font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(d.response_body || '')}</td>
+          </tr>`).join('')
+      : '<tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">No deliveries yet</td></tr>';
+
+    let overlay = document.getElementById('ynt-dynamic-modal');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'ynt-dynamic-modal';
+      overlay.className = 'modal-overlay';
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove('open'); };
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:720px;">
+        <div class="modal-header">
+          <div class="modal-title">Webhook History: ${escapeHtml(name)}</div>
+          <button class="modal-close" onclick="document.getElementById('ynt-dynamic-modal').classList.remove('open')">×</button>
+        </div>
+        <div class="modal-body" style="overflow-x:auto;">
+          <table class="data-table">
+            <thead><tr><th>Event</th><th>Status</th><th>HTTP</th><th>Time</th><th>Response</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    overlay.classList.add('open');
+  } catch (err) {
+    showToast('error', 'Failed to load history', err.message);
+  }
+}
+
+function copyWebhookSecret() {
+  const val = document.getElementById('webhook-secret-value').textContent;
+  navigator.clipboard.writeText(val).then(() => showToast('success', 'Copied', 'Signing secret copied to clipboard.'));
 }
 
 function exportTableCSV(tableId, filename) {

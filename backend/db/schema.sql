@@ -367,6 +367,47 @@ CREATE TABLE IF NOT EXISTS pos_transactions (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS api_keys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  key_prefix TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL DEFAULT '["orders:read"]',
+  created_by INTEGER REFERENCES users(id),
+  last_used_at TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash) WHERE is_active = 1;
+
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  events TEXT NOT NULL DEFAULT '[]',
+  secret TEXT NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subscription_id INTEGER NOT NULL REFERENCES webhook_subscriptions(id),
+  event TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  response_status INTEGER,
+  response_body TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  delivered_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id, created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_pos_transactions_shop ON pos_transactions(shop_id, inserted_at_remote DESC);
 
 CREATE TABLE IF NOT EXISTS pos_inventory_histories (
