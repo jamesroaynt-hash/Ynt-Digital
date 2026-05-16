@@ -56,13 +56,7 @@ function normalizePrivateKey(value) {
   } catch {}
 
   // Convert literal \n sequences to real newlines, strip carriage returns
-  key = key.replace(/\\n/g, '\n').replace(/\r/g, '');
-
-  // Ensure PEM header and footer are on their own lines
-  key = key
-    .replace(/(-----BEGIN[^-]+-----)\s*/g, '$1\n')
-    .replace(/\s*(-----END[^-]+-----)/g, '\n$1')
-    .trim();
+  key = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
 
   return key;
 }
