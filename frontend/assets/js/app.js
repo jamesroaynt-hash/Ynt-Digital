@@ -256,25 +256,20 @@ function mapBackendInventoryItem(row) {
   };
 }
 
-async function refreshOrdersFromBackend() {
+let _ordersLoadedAt = 0;
+const ORDERS_CACHE_TTL_MS = 60_000; // reuse in-memory data for 60s
+
+async function refreshOrdersFromBackend(force = false) {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
-  const perPage = 1000;
-  let page = 1;
-  let total = null;
-  const rows = [];
+  // Return immediately if cache is still fresh and data is loaded
+  if (!force && DB.orders.length && (Date.now() - _ordersLoadedAt) < ORDERS_CACHE_TTL_MS) return true;
 
-  while (total === null || rows.length < total) {
-    const result = await authorizedJsonRequest(`/orders?per_page=${perPage}&page=${page}&_=${Date.now()}`);
-    if (!Array.isArray(result?.data)) return false;
+  // Fetch all rows in a single request (per_page=5000 covers typical datasets)
+  const result = await authorizedJsonRequest(`/orders?per_page=5000&page=1&_=${Date.now()}`);
+  if (!Array.isArray(result?.data)) return false;
 
-    rows.push(...result.data);
-    total = Number(result.total || rows.length);
-    if (!result.data.length || result.data.length < perPage) break;
-    page += 1;
-  }
-
-  DB.orders = rows.map(mapBackendOrder);
+  DB.orders = result.data.map(mapBackendOrder);
   DB.orderStats = {
     total_orders: DB.orders.length,
     total_cod: DB.orders.reduce((sum, order) => sum + Number(order.cod || 0), 0),
@@ -283,6 +278,7 @@ async function refreshOrdersFromBackend() {
       return counts;
     }, {})).map(([status, count]) => ({ status, count })),
   };
+  _ordersLoadedAt = Date.now();
   return true;
 }
 
@@ -351,7 +347,7 @@ async function refreshPosRawOrdersFromBackend() {
 
 async function refreshOrderViewsFromBackend() {
   try {
-    const refreshed = await refreshOrdersFromBackend();
+    const refreshed = await refreshOrdersFromBackend(true); // force refresh after sync
     if (!refreshed) return;
 
     if (App.currentPage === 'sales') {
