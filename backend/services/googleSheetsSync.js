@@ -210,6 +210,7 @@ async function getPublicSetting(db) {
     sync_interval_ms: numberOrDefault(setting.page_access_token, DEFAULT_SYNC_INTERVAL_MS),
     has_service_account_email: Boolean(setting.api_key),
     has_private_key: Boolean(setting.user_access_token),
+    private_key_id: setting.webhook_secret || null,
     notes: setting.notes || null,
     updated_at: setting.updated_at,
   };
@@ -225,6 +226,7 @@ async function saveSetting(db, payload = {}) {
     sheet_name: payload.sheet_name ?? current?.page_id ?? process.env.GOOGLE_SHEETS_SHEET_NAME ?? 'Orders',
     service_account_email: serviceAccountJson?.client_email ?? payload.service_account_email ?? current?.api_key ?? process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? null,
     private_key: serviceAccountJson?.private_key ?? payload.private_key ?? current?.user_access_token ?? process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? null,
+    private_key_id: serviceAccountJson?.private_key_id ?? payload.private_key_id ?? current?.webhook_secret ?? process.env.GOOGLE_SHEETS_PRIVATE_KEY_ID ?? null,
     sync_mode: payload.sync_mode ?? current?.sync_mode ?? process.env.GOOGLE_SHEETS_SYNC_MODE ?? 'manual',
     sync_interval_ms: String(payload.sync_interval_ms ?? current?.page_access_token ?? process.env.GOOGLE_SHEETS_SYNC_INTERVAL_MS ?? DEFAULT_SYNC_INTERVAL_MS),
     notes: payload.notes ?? current?.notes ?? null,
@@ -234,7 +236,7 @@ async function saveSetting(db, payload = {}) {
     await db.prepare(`
       UPDATE integration_settings
       SET enabled = ?, base_url = ?, api_key = ?, user_access_token = ?, page_id = ?, page_access_token = ?,
-          sync_mode = ?, notes = ?, updated_at = datetime('now')
+          webhook_secret = ?, sync_mode = ?, notes = ?, updated_at = datetime('now')
       WHERE provider = ?
     `).run(
       boolToInt(next.enabled),
@@ -243,6 +245,7 @@ async function saveSetting(db, payload = {}) {
       next.private_key,
       next.sheet_name,
       next.sync_interval_ms,
+      next.private_key_id,
       next.sync_mode,
       next.notes,
       PROVIDER
@@ -250,9 +253,9 @@ async function saveSetting(db, payload = {}) {
   } else {
     await db.prepare(`
       INSERT INTO integration_settings (
-        provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, sync_mode, notes
+        provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, webhook_secret, sync_mode, notes
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       PROVIDER,
       boolToInt(next.enabled),
@@ -261,6 +264,7 @@ async function saveSetting(db, payload = {}) {
       next.private_key,
       next.sheet_name,
       next.sync_interval_ms,
+      next.private_key_id,
       next.sync_mode,
       next.notes
     );
@@ -313,9 +317,11 @@ async function upsertSourceLink(db, entityType, externalId, localTable, localId)
   `).run(PROVIDER, entityType, String(externalId), localTable, String(localId));
 }
 
-function buildAccessTokenRequestBody(clientEmail, privateKey) {
+function buildAccessTokenRequestBody(clientEmail, privateKey, privateKeyId) {
   const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'RS256', typ: 'JWT' };
+  const header = privateKeyId
+    ? { alg: 'RS256', typ: 'JWT', kid: privateKeyId }
+    : { alg: 'RS256', typ: 'JWT' };
   const payload = {
     iss: clientEmail,
     scope: SHEETS_SCOPE,
@@ -346,8 +352,8 @@ function buildAccessTokenRequestBody(clientEmail, privateKey) {
   });
 }
 
-async function requestGoogleAccessToken(clientEmail, privateKey) {
-  const body = buildAccessTokenRequestBody(clientEmail, privateKey);
+async function requestGoogleAccessToken(clientEmail, privateKey, privateKeyId) {
+  const body = buildAccessTokenRequestBody(clientEmail, privateKey, privateKeyId);
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -723,6 +729,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
   const sheetNames = parseSheetNames(payload.sheet_name || setting?.page_id || process.env.GOOGLE_SHEETS_SHEET_NAME);
   const clientEmail = stringOrNull(payload.service_account_email || setting?.api_key || process.env.GOOGLE_SHEETS_CLIENT_EMAIL);
   const privateKey = normalizePrivateKey(payload.private_key || setting?.user_access_token || process.env.GOOGLE_SHEETS_PRIVATE_KEY);
+  const privateKeyId = stringOrNull(payload.private_key_id || setting?.webhook_secret || process.env.GOOGLE_SHEETS_PRIVATE_KEY_ID);
   const entityType = 'orders';
 
   if (!spreadsheetId || !clientEmail || !privateKey) {
@@ -750,7 +757,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
   };
 
   try {
-    const accessToken = await requestGoogleAccessToken(clientEmail, privateKey);
+    const accessToken = await requestGoogleAccessToken(clientEmail, privateKey, privateKeyId);
     for (const sheetName of sheetNames) {
       const range = stringOrNull(payload.range) || buildSheetRange(sheetName);
       const rows = await fetchSheetRows(spreadsheetId, range, accessToken);
