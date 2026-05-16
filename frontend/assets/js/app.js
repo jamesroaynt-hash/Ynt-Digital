@@ -1436,9 +1436,12 @@ function renderApiConnections() {
         <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; align-items:flex-end;">
           <div class="form-group" style="margin:0; min-width:160px;">
             <label class="form-label" style="font-size:12px;">Sheet Tab</label>
-            <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-              <option value="all">All sheets</option>
-            </select>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
+                <option value="all">All sheets</option>
+              </select>
+              <button class="btn btn-secondary" title="Rename selected source" onclick="showRenameSourceModal()" style="height:34px; padding:0 10px; flex-shrink:0;">✎</button>
+            </div>
           </div>
           <div class="form-group" style="margin:0; min-width:140px;">
             <label class="form-label" style="font-size:12px;">Status</label>
@@ -8028,6 +8031,62 @@ function showCreateApiKeyForm() {
 
 // ─── SHEET RECORDS ─────────────────────────────────────────
 let sheetRecordsPage = 1;
+
+function showRenameSourceModal() {
+  const sel = document.getElementById('sheet-records-sheet-filter');
+  const current = sel?.value;
+  if (!current || current === 'all') {
+    showToast('warning', 'Select a source first', 'Choose a specific Sheet Tab from the dropdown before renaming.');
+    return;
+  }
+
+  let modal = document.getElementById('ynt-rename-source-modal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'ynt-rename-source-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:var(--bg-card);border-radius:12px;padding:28px 32px;min-width:360px;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+      <div style="font-size:16px;font-weight:600;margin-bottom:18px;">Rename Source Sheet</div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label">Current name</label>
+        <input class="form-control" id="rename-src-old" value="${escapeHtml(current)}" readonly style="opacity:0.6;">
+      </div>
+      <div class="form-group" style="margin-bottom:20px;">
+        <label class="form-label">New name</label>
+        <input class="form-control" id="rename-src-new" value="${escapeHtml(current)}" autofocus>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="document.getElementById('ynt-rename-source-modal').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmRenameSource()">Rename</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+  document.getElementById('rename-src-new').focus();
+}
+
+async function confirmRenameSource() {
+  const oldName = document.getElementById('rename-src-old')?.value;
+  const newName = document.getElementById('rename-src-new')?.value?.trim();
+  if (!newName) { showToast('warning', 'Name required', 'Enter a new name.'); return; }
+  if (newName === oldName) { document.getElementById('ynt-rename-source-modal')?.remove(); return; }
+
+  try {
+    const result = await authorizedJsonRequest('/integrations/google-sheets/rename-source', {
+      method: 'PATCH',
+      body: JSON.stringify({ old_name: oldName, new_name: newName }),
+    });
+    document.getElementById('ynt-rename-source-modal')?.remove();
+    showToast('success', 'Source renamed', `${result.updated} record${result.updated !== 1 ? 's' : ''} updated from "${oldName}" to "${newName}".`);
+    // Reset dropdown and reload
+    const sel = document.getElementById('sheet-records-sheet-filter');
+    if (sel) { [...sel.options].forEach(o => { if (o.value === oldName) o.remove(); }); sel.value = 'all'; }
+    loadSheetRecords(1);
+  } catch (err) {
+    showToast('error', 'Rename failed', err.message);
+  }
+}
 
 async function loadSheetRecords(page) {
   if (page) sheetRecordsPage = page;

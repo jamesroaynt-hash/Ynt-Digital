@@ -219,6 +219,27 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.patch('/google-sheets/rename-source', async (req, res) => {
+    try {
+      const { old_name, new_name } = req.body || {};
+      if (!old_name || !new_name || old_name === new_name) {
+        return res.status(400).json({ error: 'old_name and new_name are required and must differ.' });
+      }
+      const result = await db.prepare(
+        `UPDATE orders SET source_sheet = ?, updated_at = datetime('now')
+         WHERE source_sheet = ?
+           AND id IN (
+             SELECT CAST(isl.local_id AS INTEGER)
+             FROM integration_source_links isl
+             WHERE isl.provider = 'google_sheets' AND isl.local_table = 'orders'
+           )`
+      ).run(new_name.trim(), old_name.trim());
+      res.json({ updated: result.changes, old_name, new_name: new_name.trim() });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/google-sheets/collect', async (req, res) => {
     try {
       const result = await googleSheetsSync.collectSheetData(db, req.body || {});
