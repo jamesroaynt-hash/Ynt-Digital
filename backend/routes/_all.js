@@ -381,7 +381,8 @@ function ordersRoutes(db, { dispatch } = {}) {
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
-             cod, assigning_seller_name, status_name, attempts
+             cod, assigning_seller_name, status_name, attempts,
+             shipping_address_json
       FROM pos_orders
       WHERE customer_phone IS NOT NULL AND customer_phone != ''
       ORDER BY inserted_at_remote DESC
@@ -395,25 +396,30 @@ function ordersRoutes(db, { dispatch } = {}) {
     };
 
     res.json({
-      data: rows.map((row) => ({
-        id: row.external_id,
-        tracking: row.tracking_no,
-        sourceSheet: row.page_name || 'POS',
-        date: (row.inserted_at_remote || '').slice(0, 10),
-        customer: row.customer_name,
-        phone: row.customer_phone,
-        product: row.note_product,
-        tags: parseJsonObject(row.tags_json, []).map((t) =>
-          typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')
-        ).filter(Boolean),
-        cod: Number(row.cod || 0),
-        assigning_seller_name: row.assigning_seller_name,
-        attempts: row.attempts,
-        status: statusMap[row.status_name] || (row.status_name
-          ? row.status_name.charAt(0).toUpperCase() + row.status_name.slice(1)
-          : 'New'),
-        status_name: row.status_name,
-      })),
+      data: rows.map((row) => {
+        const shipping = parseJsonObject(row.shipping_address_json, {});
+        const province = readNamedValue(shipping, ['province', 'province_name', 'state', 'region', 'city', 'city_name']);
+        return {
+          id: row.external_id,
+          tracking: row.tracking_no,
+          sourceSheet: row.page_name || 'POS',
+          date: (row.inserted_at_remote || '').slice(0, 10),
+          customer: row.customer_name,
+          phone: row.customer_phone,
+          product: row.note_product,
+          tags: parseJsonObject(row.tags_json, []).map((t) =>
+            typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')
+          ).filter(Boolean),
+          cod: Number(row.cod || 0),
+          assigning_seller_name: row.assigning_seller_name,
+          attempts: row.attempts,
+          status: statusMap[row.status_name] || (row.status_name
+            ? row.status_name.charAt(0).toUpperCase() + row.status_name.slice(1)
+            : 'New'),
+          status_name: row.status_name,
+          province: province || null,
+        };
+      }),
     });
   });
 

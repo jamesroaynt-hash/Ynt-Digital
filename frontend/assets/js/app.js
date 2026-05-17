@@ -347,8 +347,7 @@ async function refreshPosRawOrdersFromBackend() {
 
 async function refreshOrderViewsFromBackend() {
   try {
-    const refreshed = await refreshOrdersFromBackend(true); // force refresh after sync
-    if (!refreshed) return;
+    await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard()]);
 
     if (App.currentPage === 'sales') {
       renderSalesTable();
@@ -2367,7 +2366,7 @@ function renderRTSRateDashboard() {
 }
 
 function getDataReportOrders() {
-  return [...(DB.orders || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  return [...(DB.posOrders || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }
 
 function groupDataReportRows(orders, keyFn) {
@@ -2444,7 +2443,7 @@ function getDataReportMetrics() {
     cod,
     rtsRate: base ? ((counts.returned + counts.returning) / base) * 100 : 0,
     byPrice: groupDataReportRows(orders, (order) => getPriceRangeLabel(order.cod)),
-    byConfirmed: groupDataReportRows(orders, (order) => order.confirmedBy || 'Unassigned'),
+    byConfirmed: groupDataReportRows(orders, (order) => order.assigning_seller_name || 'Unassigned'),
     byProvince: groupDataReportRows(orders, (order) => order.province || 'Unknown province'),
   };
 }
@@ -2499,14 +2498,10 @@ function renderDataReportDashboard() {
     <section class="data-report-section" id="confirmed-by-section">
       <div class="card-header" style="flex-wrap:wrap; gap:10px;">
         <div>
-          <div class="card-title">By Confirmed By</div>
-          <div class="card-subtitle">Orders and RTS rate per staff who confirmed in Pancake POS</div>
+          <div class="card-title">By Assigned Staff</div>
+          <div class="card-subtitle">Orders and RTS rate per assigned seller in Pancake POS</div>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-          <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
-            <input type="checkbox" id="cb-pancake-only" checked onchange="loadConfirmedByStats()" />
-            Pancake POS only
-          </label>
           <select class="form-control" id="cb-source-filter" style="width:160px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()">
             <option value="all">All Pages</option>
           </select>
@@ -2535,7 +2530,6 @@ async function loadConfirmedByStats() {
   const wrap = document.getElementById('confirmed-by-table-wrap');
   if (!wrap) return;
 
-  const pancakeOnly = document.getElementById('cb-pancake-only')?.checked !== false;
   const source = document.getElementById('cb-source-filter')?.value || 'all';
   const from = document.getElementById('cb-from')?.value || '';
   const to = document.getElementById('cb-to')?.value || '';
@@ -2544,7 +2538,6 @@ async function loadConfirmedByStats() {
 
   try {
     const params = new URLSearchParams();
-    if (pancakeOnly) params.set('pancake_only', 'true');
     if (source && source !== 'all') params.set('source', source);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
@@ -2567,12 +2560,12 @@ async function loadConfirmedByStats() {
 
 function renderConfirmedByStatsTable(stats) {
   if (!stats.length) {
-    return `<div class="empty-state" style="padding:24px 0;"><h3>No data</h3><p>No orders with confirmer data found. Sync Pancake POS orders first.</p></div>`;
+    return `<div class="empty-state" style="padding:24px 0;"><h3>No data</h3><p>No orders with assigned seller data found. Sync Pancake POS orders first.</p></div>`;
   }
   return `
     <table class="data-report-table">
       <thead><tr>
-        <th>Staff (Confirmed By)</th>
+        <th>Staff (Assigned)</th>
         <th style="text-align:right">Total</th>
         <th style="text-align:right">Delivered</th>
         <th style="text-align:right">Returned</th>
@@ -5226,9 +5219,11 @@ function initPage(page) {
 
   if (page === 'data-report') {
     renderDataReportDashboard();
-    ensureOrdersLoadedForPage('data-report').catch((error) => {
-      showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
-    });
+    if (!DB.posOrders.length) {
+      loadPosOrdersDashboard().then(() => renderDataReportDashboard()).catch((error) => {
+        showToast('warning', 'Orders refresh failed', error.message || 'Could not load POS orders.');
+      });
+    }
   }
 
   if (page === 'marketing-center') {
