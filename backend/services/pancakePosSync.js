@@ -447,7 +447,10 @@ async function upsertOrder(db, shopId, item) {
   const attempts = extractAttemptNumber(item, getPosOrderTags(item));
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
-  const rawSeller = item?.assigning_seller;
+  const rawItems = item?.order_details || item?.items || [];
+  const rawSeller = item?.assigning_seller
+    || rawItems[0]?.assigning_seller
+    || null;
   const assigningSeller = (rawSeller?.id || rawSeller?.name) ? rawSeller : null;
   let assignedUserId = stringOrNull(assigningSeller?.id);
   let localPosUserId = null;
@@ -523,7 +526,7 @@ async function upsertOrder(db, shopId, item) {
     localPosUserId,
     sprinterName,
     sprinterTel,
-    safeJson(item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
+    safeJson(item?.order_details || item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(partner || null),
     safeJson(shippingAddress || null),
