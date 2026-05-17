@@ -454,15 +454,8 @@ async function upsertOrder(db, shopId, item) {
 
   const partner = item?.partner || {};
   const shippingAddress = item?.shipping_address || {};
-  const delivery = item?.delivery || {};
   const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
   const attempts = extractAttemptNumber(item, getPosOrderTags(item));
-  const deliveryName = stringOrNull(
-    item?.delivery_name || partner?.delivery_name || delivery?.name || delivery?.delivery_name
-  );
-  const deliveryTel = stringOrNull(
-    item?.delivery_tel || partner?.delivery_tel || delivery?.tel || delivery?.phone || delivery?.delivery_tel
-  );
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
   let assignedUserId = null;
@@ -498,11 +491,11 @@ async function upsertOrder(db, shopId, item) {
   await db.prepare(`
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
-      customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no, delivery_name, delivery_tel,
+      customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       assigned_user_id, assigned_user_name, local_pos_user_id, sprinter_name, sprinter_tel,
       items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -520,8 +513,6 @@ async function upsertOrder(db, shopId, item) {
       note = excluded.note,
       attempts = excluded.attempts,
       tracking_no = COALESCE(excluded.tracking_no, pos_orders.tracking_no),
-      delivery_name = COALESCE(excluded.delivery_name, pos_orders.delivery_name),
-      delivery_tel = COALESCE(excluded.delivery_tel, pos_orders.delivery_tel),
       assigned_user_id = COALESCE(excluded.assigned_user_id, pos_orders.assigned_user_id),
       assigned_user_name = COALESCE(excluded.assigned_user_name, pos_orders.assigned_user_name),
       local_pos_user_id = COALESCE(excluded.local_pos_user_id, pos_orders.local_pos_user_id),
@@ -551,8 +542,6 @@ async function upsertOrder(db, shopId, item) {
     stringOrNull(item?.note),
     attempts,
     trackingNo || null,
-    deliveryName,
-    deliveryTel,
     assignedUserId,
     assignedUserName,
     localPosUserId,

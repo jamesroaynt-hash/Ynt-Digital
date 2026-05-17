@@ -266,8 +266,6 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   note TEXT,
   attempts INTEGER,
   tracking_no TEXT,
-  delivery_name TEXT,
-  delivery_tel TEXT,
   sprinter_name TEXT,
   sprinter_tel TEXT,
   assigned_user_id TEXT,
