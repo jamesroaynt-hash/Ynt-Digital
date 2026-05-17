@@ -300,7 +300,7 @@ async function ensureOrdersLoadedForPage(page) {
 
 function renderPageOrderData(page) {
   if (page === 'sales') renderSalesTable();
-  if (page === 'view-records') renderViewRecordsOrdersTable();
+  if (page === 'view-records') renderPosOrdersTable();
   if (page === 'home') renderHomeOrderCharts();
   if (page === 'rts-rate') renderRTSRateDashboard();
   if (page === 'data-report') renderDataReportDashboard();
@@ -339,6 +339,15 @@ async function refreshPosRawOrdersFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
   const query = new URLSearchParams({ page: String(posRawPage), per_page: '50', _: String(Date.now()) });
+  if (posOrdersSearch) query.set('search', posOrdersSearch);
+  if (posOrdersProductFilter !== 'all') query.set('product', posOrdersProductFilter);
+  if (posOrdersPageFilter !== 'all') query.set('page', posOrdersPageFilter);
+  if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
+  if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
+  if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
+  if (posOrdersPeriod === 'custom' && posOrdersDateFrom) query.set('date_from', posOrdersDateFrom);
+  if (posOrdersPeriod === 'custom' && posOrdersDateTo) query.set('date_to', posOrdersDateTo);
+
   const result = await authorizedJsonRequest(`/orders/pos-orders?${query.toString()}`);
   DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
   DB.posRawTotal = Number(result?.total || 0);
@@ -3950,149 +3959,79 @@ function statusBadge(status) {
 
 // ─── RENDER: VIEW RECORDS ──────────────────────────────────
 function renderViewRecords() {
-  const productOptions = ['all', ...new Set(DB.orders.map((order) => order.product))];
-  const sourceOptions = (() => {
-    const seen = new Map();
-    DB.orders.forEach((o) => {
-      const name = (o.sourceSheet || 'Manual').trim();
-      const key = name.toLowerCase();
-      if (!seen.has(key)) seen.set(key, name);
-    });
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  })();
-  if (recordsSourceFilter !== 'all' && !sourceOptions.some((s) => s === recordsSourceFilter)) {
-    recordsSourceFilter = 'all';
-  }
-  const posTagOptions = [...new Set(DB.orders.flatMap((o) => o.posTags || []))].sort();
-  const yearOptions = getOrderYearOptions();
-  const monthOptions = getOrderMonthOptions(recordsYearFilter === 'all' ? '' : recordsYearFilter);
-  const posStatusOptions = ['All','New','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled'];
+  const posProductOptions = [...new Set(DB.posOrders.map((o) => o.product).filter(Boolean))].sort();
+  const posPageOptions = [...new Set(DB.posOrders.map((o) => o.sourceSheet).filter(Boolean))].sort();
+  const posTagOptions = [...new Set(DB.posOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []).filter(Boolean))].sort();
+  const posStatusDisplayOptions = ['New', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
-    <div class="page-actions">
-      <button class="btn btn-secondary btn-sm" onclick="startCsvImport('orders')">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
-        Import Orders
-      </button>
-      <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('records-table','ynt-records')">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
-        Export CSV
-      </button>
-    </div>
   </div>
 
   <div class="tabs" id="records-tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'rec-orders')">Orders (${DB.orders.length})</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-pos-orders'); renderPosOrdersTable();">POS Orders (${DB.posRawTotal})</button>
+    <button class="tab-btn active" onclick="switchTab(this,'rec-pos-orders')">POS Orders (${DB.posRawTotal})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-scans')">Scan Records (${DB.scanRecords.length})</button>
   </div>
 
-  <div id="rec-orders" class="tab-content active">
+  <div id="rec-pos-orders" class="tab-content active">
     <div class="table-container">
       <div class="records-filter-panel">
         <div class="records-filter-row records-filter-primary">
           <div class="records-filter-field records-search-field">
-            <label class="records-filter-label" for="rec-orders-search">Search</label>
+            <label class="records-filter-label">Search</label>
             <div class="table-search">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-              <input type="text" placeholder="Order, tracking, customer..." id="rec-orders-search" value="${escapeHtml(recordsSearch)}" oninput="filterViewRecordsTable()">
+              <input type="text" placeholder="Order ID, tracking, phone..." id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
             </div>
           </div>
           <div class="records-filter-field">
-            <label class="records-filter-label" for="rec-orders-product">Product</label>
-            <select class="form-control records-product-filter" id="rec-orders-product" onchange="filterRecordsByProduct()">
-              ${productOptions.map((product) => `<option value="${escapeHtml(product)}" ${recordsProductFilter === product ? 'selected' : ''}>${product === 'all' ? 'All Products' : escapeHtml(product)}</option>`).join('')}
+            <label class="records-filter-label">Product</label>
+            <select class="form-control records-product-filter" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
+              <option value="all">All Products</option>
+              ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
             </select>
           </div>
           <div class="records-filter-field">
-            <label class="records-filter-label" for="rec-orders-source">Page</label>
-            <select class="form-control records-product-filter" id="rec-orders-source" onchange="filterRecordsBySource()">
+            <label class="records-filter-label">Page</label>
+            <select class="form-control records-product-filter" id="pos-orders-page" onchange="applyPosOrdersDropdown()">
               <option value="all">All Pages</option>
-              ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${recordsSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+              ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
             </select>
           </div>
           <div class="records-filter-field">
-            <label class="records-filter-label" for="rec-orders-pos-tag">POS Tag</label>
-            <select class="form-control records-product-filter" id="rec-orders-pos-tag" onchange="filterRecordsByPosTag()">
-              <option value="all">All Tags</option>
-              ${posTagOptions.map((tag) => `<option value="${escapeHtml(tag)}" ${recordsPosTagFilter === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')}
+            <label class="records-filter-label">Status</label>
+            <select class="form-control records-product-filter" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
+              <option value="all">All Statuses</option>
+              ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
             </select>
           </div>
-          <div class="records-filter-field records-period-field">
-            <label class="records-filter-label">Period</label>
-            <div class="records-period-selects">
-              <select class="form-control records-product-filter" id="rec-orders-year" onchange="filterRecordsByYear()">
-                <option value="all">All Years</option>
-                ${yearOptions.map((year) => `<option value="${year}" ${recordsYearFilter === year ? 'selected' : ''}>${year}</option>`).join('')}
-              </select>
-              <select class="form-control records-product-filter" id="rec-orders-month" onchange="filterRecordsByMonth()">
-                <option value="all">All Months</option>
-                ${monthOptions.map((month) => `<option value="${month.value}" ${recordsMonthFilter === month.value ? 'selected' : ''}>${month.label}</option>`).join('')}
-              </select>
-            </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Tags</label>
+            <select class="form-control records-product-filter" id="pos-orders-tags" onchange="applyPosOrdersDropdown()">
+              <option value="all">All Tags</option>
+              ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+            </select>
           </div>
         </div>
         <div class="records-filter-row records-chip-row">
           <div class="records-chip-group">
-            <div class="records-filter-label">POS Status</div>
-            <div class="table-filters" id="rec-orders-pos-status-filters">
-              ${posStatusOptions.map((s,i) =>
-                `<button class="filter-pill ${recordsPosStatusFilter === s || (!recordsPosStatusFilter && i===0) ? 'active' : ''}" onclick="setRecordsPosStatusFilter('${s}',this)">${s}</button>`
+            <div class="records-filter-label">Period</div>
+            <div class="table-filters">
+              ${[['all','All'],['today','Today'],['yesterday','Yesterday'],['month','Month'],['year','Year'],['custom','Custom']].map(([v, l]) =>
+                `<button class="filter-pill ${posOrdersPeriod === v ? 'active' : ''}" onclick="setPosOrdersPeriod('${v}',this)">${l}</button>`
               ).join('')}
             </div>
           </div>
-          <div class="records-chip-group">
-            <div class="records-filter-label">Date</div>
-            <div class="table-filters" id="rec-orders-date-filters">
-              ${[
-                ['all', 'All'],
-                ['today', 'Today'],
-                ['yesterday', 'Yesterday'],
-                ['month', 'Month'],
-                ['year', 'Year'],
-                ['custom', 'Custom'],
-              ].map(([value, label]) =>
-                `<button class="filter-pill ${recordsDateFilter === value ? 'active' : ''}" onclick="setRecordsDateFilter('${value}',this)">${label}</button>`
-              ).join('')}
-            </div>
-          </div>
-          <div class="custom-range records-custom-range ${recordsDateFilter === 'custom' ? '' : 'hidden'}" id="rec-orders-custom-range">
-            <input type="date" class="form-control" id="rec-orders-date-from" value="${recordsDateFrom}">
-            <input type="date" class="form-control" id="rec-orders-date-to" value="${recordsDateTo}">
-            <button class="btn btn-secondary btn-sm" onclick="applyRecordsCustomDateRange()">Apply</button>
+          <div class="custom-range records-custom-range ${posOrdersPeriod === 'custom' ? '' : 'hidden'}" id="pos-orders-custom-range">
+            <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
+            <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
+            <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
           </div>
         </div>
       </div>
-      <div id="rec-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
-      <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>Attempts</th><th>COD</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody id="rec-orders-tbody">
-          ${DB.orders.map(o => `<tr data-status="${o.status}">
-            <td class="font-mono text-xs text-muted">${o.id}</td>
-            <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
-            <td>${escapeHtml(o.sourceSheet || 'Manual')}</td>
-            <td>${o.date}</td>
-            <td style="font-weight:500">${escapeHtml(o.customer || '')}</td>
-            <td class="font-mono text-xs">${escapeHtml(o.phone || '')}</td>
-            <td>${escapeHtml(o.product || '')}</td>
-            <td>${escapeHtml(o.tags || '')}</td>
-            <td>${o.attempts > 1 ? `<span class="badge badge-warning">${o.attempts}</span>` : o.attempts}</td>
-            <td>₱${o.cod.toLocaleString()}</td>
-            <td>${statusBadge(o.status)}</td>
-            <td></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-      <div class="table-pagination" id="records-pagination"><span>Showing ${DB.orders.length} orders</span></div>
-    </div>
-  </div>
-
-  <div id="rec-pos-orders" class="tab-content">
-    <div class="table-container">
       <table>
         <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tag</th><th>Attempts</th><th>COD</th><th>Assigned</th><th>Status</th><th>Rider</th><th>Rider Phone</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
@@ -5242,20 +5181,6 @@ function initPage(page) {
   }
 
   if (page === 'view-records') {
-    renderViewRecordsOrdersTable();
-    ensureOrdersLoadedForPage('view-records')
-      .then(() => {
-        // Update the Orders tab count after orders finish loading
-        const tabBtn = document.querySelector('#records-tabs .tab-btn');
-        if (tabBtn && tabBtn.textContent.startsWith('Orders')) {
-          tabBtn.textContent = `Orders (${DB.orders.length})`;
-        }
-        renderViewRecordsOrdersTable();
-        refreshRecordsSummaryFromBackend().catch(() => {});
-      })
-      .catch((error) => {
-        showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
-      });
     refreshPosRawOrdersFromBackend()
       .then(renderPosOrdersTable)
       .catch((error) => {
@@ -5910,6 +5835,14 @@ let recordsSourceFilter = 'all';
 let recordsYearFilter = 'all';
 let recordsMonthFilter = 'all';
 let posRawSearch = '';
+let posOrdersSearch = '';
+let posOrdersProductFilter = 'all';
+let posOrdersPageFilter = 'all';
+let posOrdersStatusFilter = 'all';
+let posOrdersTagFilter = 'all';
+let posOrdersPeriod = 'all';
+let posOrdersDateFrom = '';
+let posOrdersDateTo = '';
 let recordsPosTagFilter = 'all';
 let recordsSummaryState = { total: 0, totalCod: 0, statusCounts: [], loading: false };
 let posRawPage = 1;
@@ -6894,6 +6827,48 @@ function filterPosOrders() {
 
 function filterPosRawOrders() { filterPosOrders(); }
 
+function applyPosOrdersSearch() {
+  posOrdersSearch = document.getElementById('pos-orders-search')?.value || '';
+  posRawPage = 1;
+  refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
+    showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
+  });
+}
+
+function applyPosOrdersDropdown() {
+  posOrdersProductFilter = document.getElementById('pos-orders-product')?.value || 'all';
+  posOrdersPageFilter = document.getElementById('pos-orders-page')?.value || 'all';
+  posOrdersStatusFilter = document.getElementById('pos-orders-status')?.value || 'all';
+  posOrdersTagFilter = document.getElementById('pos-orders-tags')?.value || 'all';
+  posRawPage = 1;
+  refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
+    showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
+  });
+}
+
+function setPosOrdersPeriod(period, btn) {
+  posOrdersPeriod = period;
+  document.querySelectorAll('#rec-pos-orders .filter-pill').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const customRange = document.getElementById('pos-orders-custom-range');
+  if (customRange) customRange.classList.toggle('hidden', period !== 'custom');
+  if (period !== 'custom') {
+    posRawPage = 1;
+    refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
+      showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
+    });
+  }
+}
+
+function applyPosOrdersCustomRange() {
+  posOrdersDateFrom = document.getElementById('pos-orders-date-from')?.value || '';
+  posOrdersDateTo = document.getElementById('pos-orders-date-to')?.value || '';
+  posRawPage = 1;
+  refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
+    showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
+  });
+}
+
 async function deletePosRawNoContact() {
   if (!confirm('Delete all POS raw orders that have neither a phone number nor a customer name? This cannot be undone.')) return;
   try {
@@ -6907,7 +6882,7 @@ async function deletePosRawNoContact() {
 }
 
 function changePosRawPage(page) {
-  const pages = Math.max(1, Math.ceil(DB.posRawTotal / 25));
+  const pages = Math.max(1, Math.ceil(DB.posRawTotal / 50));
   if (page < 1 || page > pages) return;
   posRawPage = page;
   refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((error) => {

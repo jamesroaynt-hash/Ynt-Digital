@@ -424,22 +424,76 @@ function ordersRoutes(db, { dispatch } = {}) {
   });
 
   r.get('/pos-orders', async (req, res) => {
-    const { page = 1, per_page = 50 } = req.query;
+    const {
+      page = 1, per_page = 50,
+      search, product, page: pageFilter, status, tags,
+      period, date_from, date_to,
+    } = req.query;
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));
-    const offset = (Math.max(1, Number(page) || 1) - 1) * perPage;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const offset = (pageNum - 1) * perPage;
+    const params = [];
 
-    const total = (await db.prepare(`
-      SELECT COUNT(*) AS count FROM pos_orders
-      WHERE customer_phone IS NOT NULL AND customer_phone != ''
-    `).get()).count || 0;
+    let where = "WHERE customer_phone IS NOT NULL AND customer_phone != ''";
+
+    if (search) {
+      where += ` AND (LOWER(COALESCE(external_id,'')) LIKE ? OR LOWER(COALESCE(tracking_no,'')) LIKE ? OR LOWER(COALESCE(customer_phone,'')) LIKE ?)`;
+      const q = `%${String(search).toLowerCase()}%`;
+      params.push(q, q, q);
+    }
+
+    if (product && product !== 'all') {
+      where += ` AND LOWER(COALESCE(note_product,'')) LIKE ?`;
+      params.push(`%${String(product).toLowerCase()}%`);
+    }
+
+    if (pageFilter && pageFilter !== 'all') {
+      where += ` AND page_name = ?`;
+      params.push(String(pageFilter));
+    }
+
+    if (status && status !== 'all') {
+      const statusToRaw = {
+        New: ['submitted', 'new', 'pending', 'wait_print'],
+        Shipped: ['shipped'],
+        Delivered: ['delivered'],
+        Returning: ['returning'],
+        Returned: ['returned'],
+        Canceled: ['canceled', 'removed'],
+      };
+      const rawStatuses = statusToRaw[status];
+      if (rawStatuses) {
+        where += ` AND status_name IN (${rawStatuses.map(() => '?').join(',')})`;
+        params.push(...rawStatuses);
+      }
+    }
+
+    if (tags && tags !== 'all') {
+      where += ` AND LOWER(COALESCE(tags_json,'')) LIKE ?`;
+      params.push(`%${String(tags).toLowerCase()}%`);
+    }
+
+    if (period === 'today') {
+      where += ` AND DATE(inserted_at_remote) = DATE('now')`;
+    } else if (period === 'yesterday') {
+      where += ` AND DATE(inserted_at_remote) = DATE('now','-1 day')`;
+    } else if (period === 'month') {
+      where += ` AND strftime('%Y-%m', inserted_at_remote) = strftime('%Y-%m', 'now')`;
+    } else if (period === 'year') {
+      where += ` AND strftime('%Y', inserted_at_remote) = strftime('%Y', 'now')`;
+    } else if (period === 'custom') {
+      if (date_from) { where += ` AND DATE(inserted_at_remote) >= ?`; params.push(String(date_from).slice(0, 10)); }
+      if (date_to)   { where += ` AND DATE(inserted_at_remote) <= ?`; params.push(String(date_to).slice(0, 10)); }
+    }
+
+    const total = (await db.prepare(`SELECT COUNT(*) AS count FROM pos_orders ${where}`).get(...params)).count || 0;
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel
-      FROM pos_orders
-      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+      FROM pos_orders ${where}
       ORDER BY inserted_at_remote DESC, id DESC
       LIMIT ? OFFSET ?
-    `).all(perPage, offset);
+    `).all(...params, perPage, offset);
 
     res.json({
       data: rows.map((row) => ({
@@ -459,7 +513,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         sprinter_tel: row.sprinter_tel,
       })),
       total: Number(total),
-      page: Number(page) || 1,
+      page: pageNum,
       per_page: perPage,
     });
   });
