@@ -328,6 +328,13 @@ async function refreshInventoryFromBackend() {
   return true;
 }
 
+async function loadPosOrdersDashboard() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  const result = await authorizedJsonRequest(`/orders/pos-orders/dashboard?_=${Date.now()}`);
+  DB.posOrders = Array.isArray(result?.data) ? result.data : [];
+  return true;
+}
+
 async function refreshPosRawOrdersFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
@@ -465,6 +472,7 @@ function handleLogout() {
 const DB = {
   orders: [],
   orderStats: null,
+  posOrders: [],
   posRawOrders: [],
   posRawTotal: 0,
   csrRecords: loadCsrRecords(),
@@ -1531,11 +1539,10 @@ function renderHome() {
   const summaryStatusCount = (status) => Number(
     DB.orderStats?.status_counts?.find((row) => row.status === status)?.count || 0
   );
-  const hasOrderRows = DB.orders.length > 0;
-  const total = hasOrderRows ? DB.orders.length : Number(DB.orderStats?.total_orders || 0);
-  const delivered = hasOrderRows ? DB.orders.filter(o => o.status === 'Delivered').length : summaryStatusCount('Delivered');
-  const totalCOD = hasOrderRows ? DB.orders.reduce((s, o) => s + o.cod, 0) : Number(DB.orderStats?.total_cod || 0);
-  const sourceOptions = getSourceSheetOptions();
+  const total = DB.posOrders.length;
+  const delivered = DB.posOrders.filter(o => o.status === 'Delivered').length;
+  const totalCOD = DB.posOrders.reduce((s, o) => s + Number(o.cod || 0), 0);
+  const sourceOptions = getPosSourceOptions();
 
 
   const productGalleryItems = [
@@ -2099,18 +2106,18 @@ function renderManageUsers() {
 
 // ─── RENDER: SALES DASHBOARD ───────────────────────────────
 function renderSales() {
-  const newOrders = DB.orders.filter((o) => o.status === 'New').length;
-  const confirmed = DB.orders.filter((o) => o.status === 'Confirmed').length;
-  const waiting = DB.orders.filter((o) => o.status === 'Waiting for pickup').length;
-  const shipped = DB.orders.filter((o) => o.status === 'Shipped').length;
-  const delivered = DB.orders.filter((o) => o.status === 'Delivered').length;
-  const returned = DB.orders.filter((o) => o.status === 'Returned').length;
-  const returning = DB.orders.filter((o) => o.status === 'Returning').length;
-  const canceled = DB.orders.filter((o) => o.status === 'Canceled').length;
-  const totalCOD = DB.orders.reduce((sum, o) => sum + Number(o.cod || 0), 0);
-  const sourceOptions = getSourceSheetOptions();
-  const yearOptions = getOrderYearOptions();
-  const monthOptions = getOrderMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
+  const newOrders = DB.posOrders.filter((o) => o.status === 'New').length;
+  const confirmed = DB.posOrders.filter((o) => o.status === 'Confirmed').length;
+  const waiting = DB.posOrders.filter((o) => o.status === 'Waiting for pickup').length;
+  const shipped = DB.posOrders.filter((o) => o.status === 'Shipped').length;
+  const delivered = DB.posOrders.filter((o) => o.status === 'Delivered').length;
+  const returned = DB.posOrders.filter((o) => o.status === 'Returned').length;
+  const returning = DB.posOrders.filter((o) => o.status === 'Returning').length;
+  const canceled = DB.posOrders.filter((o) => o.status === 'Canceled').length;
+  const totalCOD = DB.posOrders.reduce((sum, o) => sum + Number(o.cod || 0), 0);
+  const sourceOptions = getPosSourceOptions();
+  const yearOptions = getPosYearOptions();
+  const monthOptions = getPosMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
   return `
   <div class="page-header">
     <div class="page-title"><h1>Sales Dashboard</h1><p>Track orders, deliveries, and revenue metrics.</p></div>
@@ -2194,8 +2201,7 @@ function renderSales() {
     <div id="sales-table-wrapper">
       <table id="sales-table">
         <thead><tr>
-          <th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th><th>Tags</th>
-          <th>Qty</th><th>COD</th><th>Courier</th><th>Status</th>
+          <th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Product</th><th>Attempts</th><th>COD</th><th>Assigned</th><th>Status</th>
         </tr></thead>
         <tbody id="sales-tbody"></tbody>
       </table>
@@ -5188,6 +5194,9 @@ function initPage(page) {
     if (homeDateFromInput && !homeDateFromInput.value) homeDateFromInput.value = today;
     if (homeDateToInput && !homeDateToInput.value) homeDateToInput.value = today;
     loadTimeClockStatus();
+    if (!DB.posOrders.length) {
+      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'home') loadPage('home'); }).catch(() => {});
+    }
   }
 
   if (page === 'attendance') {
@@ -5201,9 +5210,9 @@ function initPage(page) {
     if (salesDateFromInput && !salesDateFromInput.value) salesDateFromInput.value = today;
     if (salesDateToInput && !salesDateToInput.value) salesDateToInput.value = today;
     renderSalesTable();
-    ensureOrdersLoadedForPage('sales').catch((error) => {
-      showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
-    });
+    if (!DB.posOrders.length) {
+      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'sales') { renderSalesTable(); initCharts('sales'); } }).catch(() => {});
+    }
   }
 
   if (page === 'rts-rate') {
@@ -5920,8 +5929,24 @@ const HOME_STATUS_CHART_ITEMS = [
   { status: 'Returned', key: 'returned', color: '#ef4444' },
 ];
 
+function getPosSourceOptions() {
+  return [...new Set(DB.posOrders.map((o) => o.sourceSheet || 'POS').filter(Boolean))].sort();
+}
+
+function getPosYearOptions() {
+  return [...new Set(DB.posOrders.map((o) => (o.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+}
+
+function getPosMonthOptions(year = '') {
+  const formatter = new Intl.DateTimeFormat('en-US', { month: 'long' });
+  return [...new Set(DB.posOrders
+    .filter((o) => !year || (o.date || '').startsWith(year))
+    .map((o) => (o.date || '').slice(5, 7)).filter(Boolean)
+  )].sort().map((m) => ({ value: m, label: formatter.format(new Date(2000, parseInt(m) - 1, 1)) }));
+}
+
 function getFilteredHomeOrders() {
-  let data = [...DB.orders];
+  let data = [...DB.posOrders];
   const today = normalizeDateString(new Date());
 
   if (homeOrderFilter === 'weekly') {
@@ -6076,33 +6101,29 @@ function renderSalesSummaryCards(data) {
   const summary = document.getElementById('sales-summary-cards');
   if (!summary) return;
 
-  const newOrders = data.filter((order) => order.status === 'New').length;
-  const confirmed = data.filter((order) => order.status === 'Confirmed').length;
-  const waiting = data.filter((order) => order.status === 'Waiting for pickup').length;
-  const shipped = data.filter((order) => order.status === 'Shipped').length;
-  const delivered = data.filter((order) => order.status === 'Delivered').length;
-  const returned = data.filter((order) => order.status === 'Returned').length;
-  const returning = data.filter((order) => order.status === 'Returning').length;
-  const canceled = data.filter((order) => order.status === 'Canceled').length;
-  const totalCOD = data.reduce((sum, order) => sum + Number(order.cod || 0), 0);
+  const newOrders = data.filter((o) => o.status === 'New').length;
+  const shipped = data.filter((o) => o.status === 'Shipped').length;
+  const delivered = data.filter((o) => o.status === 'Delivered').length;
+  const returned = data.filter((o) => o.status === 'Returned').length;
+  const returning = data.filter((o) => o.status === 'Returning').length;
+  const canceled = data.filter((o) => o.status === 'Canceled').length;
+  const totalCOD = data.reduce((sum, o) => sum + Number(o.cod || 0), 0);
 
   summary.innerHTML = `
-    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">New</div><div class="stat-value">${newOrders}</div><div class="stat-meta">Filtered results</div></div>
-    <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Confirmed</div><div class="stat-value">${confirmed}</div><div class="stat-meta">Filtered results</div></div>
-    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Waiting Pickup</div><div class="stat-value">${waiting}</div><div class="stat-meta">Filtered results</div></div>
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">New</div><div class="stat-value">${newOrders}</div><div class="stat-meta">Pending / Submitted</div></div>
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Shipped</div><div class="stat-value">${shipped}</div><div class="stat-meta">Awaiting delivery</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta">Filtered results</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta">Completed</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Filtered results</div></div>
-    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">PHP ${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
+    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Canceled orders</div></div>
+    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">₱${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
 }
 
 function getFilteredSalesOrders() {
-  let data = [...DB.orders];
+  let data = [...DB.posOrders];
   const today = normalizeDateString(new Date());
   if (salesFilter === 'all') {
-    data = [...DB.orders];
+    data = [...DB.posOrders];
   } else if (salesFilter === 'daily') {
     data = data.filter((order) => order.date === today);
   } else if (salesFilter === 'weekly') {
@@ -6127,14 +6148,13 @@ function getFilteredSalesOrders() {
       String(o.id || '').toLowerCase().includes(q) ||
       String(o.customer || '').toLowerCase().includes(q) ||
       String(o.product || '').toLowerCase().includes(q) ||
-      String(o.tags || '').toLowerCase().includes(q) ||
       String(o.tracking || '').toLowerCase().includes(q) ||
       (o.sourceSheet || '').toLowerCase().includes(q) ||
-      (o.courier || '').toLowerCase().includes(q)
+      (o.assigning_seller_name || '').toLowerCase().includes(q)
     );
   }
 
-  return data.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  return data.sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.id || '').localeCompare(String(a.id || '')));
 }
 
 function renderSalesTable() {
@@ -6146,10 +6166,10 @@ function renderSalesTable() {
 
   renderSalesSummaryCards(data);
 
-  if (!DB.orders.length && ordersLoadPromise) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">Loading saved orders from the database...</td></tr>';
+  if (!DB.posOrders.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>';
     const pag = document.getElementById('sales-pagination');
-    if (pag) pag.innerHTML = '<span>Loading orders...</span>';
+    if (pag) pag.innerHTML = '<span>Loading...</span>';
     return;
   }
 
@@ -6160,16 +6180,15 @@ function renderSalesTable() {
   tbody.innerHTML = sliced.map(o => `<tr>
     <td class="font-mono text-xs text-muted">${escapeHtml(o.id || '')}</td>
     <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
-    <td>${escapeHtml(o.sourceSheet || 'Manual')}</td>
-    <td>${o.date}</td>
+    <td>${escapeHtml(o.sourceSheet || 'POS')}</td>
+    <td>${escapeHtml(o.date || '')}</td>
     <td style="font-weight:500">${escapeHtml(o.customer || '')}</td>
     <td>${escapeHtml(o.product || '')}</td>
-    <td>${escapeHtml(o.tags || '')}</td>
-    <td>${Number(o.qty || 0)}</td>
+    <td>${o.attempts > 1 ? `<span class="badge badge-warning">${o.attempts}</span>` : (o.attempts || '')}</td>
     <td>₱${Number(o.cod || 0).toLocaleString()}</td>
-    <td>${escapeHtml(o.courier || '')}</td>
+    <td>${escapeHtml(o.assigning_seller_name || '')}</td>
     <td>${statusBadge(o.status)}</td>
-  </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
 
   // Pagination
   const pag = document.getElementById('sales-pagination');

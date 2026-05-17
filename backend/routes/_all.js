@@ -377,6 +377,46 @@ function ordersRoutes(db, { dispatch } = {}) {
     res.json({ total, total_cod, status_counts: rows });
   });
 
+  r.get('/pos-orders/dashboard', async (req, res) => {
+    const rows = await db.prepare(`
+      SELECT external_id, tracking_no, page_name, inserted_at_remote,
+             customer_name, customer_phone, note_product, tags_json,
+             cod, assigning_seller_name, status_name, attempts
+      FROM pos_orders
+      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+      ORDER BY inserted_at_remote DESC
+    `).all();
+
+    const statusMap = {
+      submitted: 'New', new: 'New', pending: 'New', wait_print: 'New',
+      shipped: 'Shipped', delivered: 'Delivered',
+      returning: 'Returning', returned: 'Returned',
+      canceled: 'Canceled', removed: 'Canceled',
+    };
+
+    res.json({
+      data: rows.map((row) => ({
+        id: row.external_id,
+        tracking: row.tracking_no,
+        sourceSheet: row.page_name || 'POS',
+        date: (row.inserted_at_remote || '').slice(0, 10),
+        customer: row.customer_name,
+        phone: row.customer_phone,
+        product: row.note_product,
+        tags: parseJsonObject(row.tags_json, []).map((t) =>
+          typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')
+        ).filter(Boolean),
+        cod: Number(row.cod || 0),
+        assigning_seller_name: row.assigning_seller_name,
+        attempts: row.attempts,
+        status: statusMap[row.status_name] || (row.status_name
+          ? row.status_name.charAt(0).toUpperCase() + row.status_name.slice(1)
+          : 'New'),
+        status_name: row.status_name,
+      })),
+    });
+  });
+
   r.get('/pos-orders', async (req, res) => {
     const { page = 1, per_page = 50 } = req.query;
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));
