@@ -216,21 +216,6 @@ CREATE TABLE IF NOT EXISTS integration_source_links (
 
 CREATE INDEX IF NOT EXISTS idx_integration_source_links_local ON integration_source_links(local_table, local_id);
 
-CREATE TABLE IF NOT EXISTS integration_raw_records (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  external_id TEXT,
-  mapped_table TEXT,
-  local_id TEXT,
-  sync_status TEXT NOT NULL DEFAULT 'stored'
-    CHECK(sync_status IN ('stored', 'synced', 'error')),
-  error_message TEXT,
-  payload TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_integration_raw_records_provider ON integration_raw_records(provider, entity_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS pos_shops (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,6 +264,12 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   cash REAL,
   total_discount REAL,
   note TEXT,
+  attempts INTEGER,
+  tracking_no TEXT,
+  delivery_name TEXT,
+  delivery_tel TEXT,
+  assigned_user_id TEXT,
+  assigned_user_name TEXT,
   items_json TEXT,
   tags_json TEXT,
   partner_json TEXT,

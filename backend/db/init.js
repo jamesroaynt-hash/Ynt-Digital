@@ -101,7 +101,6 @@ function runMigrations(db) {
   db.exec("DELETE FROM integration_settings WHERE provider = 'pancake'");
   db.exec("DELETE FROM integration_sync_runs WHERE provider = 'pancake'");
   db.exec("DELETE FROM integration_source_links WHERE provider = 'pancake'");
-  db.exec("DELETE FROM integration_raw_records WHERE provider = 'pancake'");
   ensureColumn(db, 'integration_settings', 'user_access_token', 'TEXT');
   ensureColumn(db, 'integration_settings', 'page_id', 'TEXT');
   ensureColumn(db, 'integration_settings', 'page_access_token', 'TEXT');
@@ -115,6 +114,12 @@ function runMigrations(db) {
   ensureColumn(db, 'orders', 'tags', 'TEXT');
   ensureColumn(db, 'orders', 'confirmed_by', 'TEXT');
   ensureColumn(db, 'pos_orders', 'tags_json', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'attempts', 'INTEGER');
+  ensureColumn(db, 'pos_orders', 'tracking_no', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'delivery_name', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'delivery_tel', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'assigned_user_id', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'assigned_user_name', 'TEXT');
   ensureOrderStatusConstraint(db);
   db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
@@ -244,7 +249,6 @@ async function runPostgresMigrations(db) {
   await db.exec("DELETE FROM integration_settings WHERE provider = 'pancake'");
   await db.exec("DELETE FROM integration_sync_runs WHERE provider = 'pancake'");
   await db.exec("DELETE FROM integration_source_links WHERE provider = 'pancake'");
-  await db.exec("DELETE FROM integration_raw_records WHERE provider = 'pancake'");
   await ensureColumnAsync(db, 'integration_settings', 'user_access_token', 'TEXT');
   await ensureColumnAsync(db, 'integration_settings', 'page_id', 'TEXT');
   await ensureColumnAsync(db, 'integration_settings', 'page_access_token', 'TEXT');
@@ -258,6 +262,12 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'confirmed_by', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'tags_json', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'attempts', 'INTEGER');
+  await ensureColumnAsync(db, 'pos_orders', 'tracking_no', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'delivery_name', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'delivery_tel', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'assigned_user_id', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'assigned_user_name', 'TEXT');
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');

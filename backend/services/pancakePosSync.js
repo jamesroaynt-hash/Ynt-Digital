@@ -93,10 +93,6 @@ function shouldStoreRawPayloads() {
   return process.env.POS_STORE_RAW_PAYLOADS === 'true';
 }
 
-function shouldStoreRawRecords() {
-  return process.env.POS_STORE_RAW_RECORDS === 'true';
-}
-
 function rawPayloadForStorage(value) {
   return shouldStoreRawPayloads() ? safeJson(value) : '{}';
 }
@@ -260,24 +256,6 @@ async function finishRun(db, runId, status, resultSummary, errorMessage) {
     SET status = ?, result_summary = ?, error_message = ?, finished_at = datetime('now')
     WHERE id = ?
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
-}
-
-async function recordRaw(db, entityType, externalId, payload, outcome = {}) {
-  if (!shouldStoreRawRecords()) return;
-
-  await db.prepare(`
-    INSERT INTO integration_raw_records (provider, entity_type, external_id, mapped_table, local_id, sync_status, error_message, payload)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    PROVIDER,
-    entityType,
-    stringOrNull(externalId),
-    outcome.mappedTable || null,
-    outcome.localId ? String(outcome.localId) : null,
-    outcome.status || 'stored',
-    outcome.errorMessage || null,
-    safeJson(payload)
-  );
 }
 
 async function upsertSourceLink(db, entityType, externalId, localTable, localId) {
@@ -473,12 +451,40 @@ async function upsertOrder(db, shopId, item) {
   const customerName = getPosCustomerName(item, item?.shipping_address || {});
   const customerPhone = getPosCustomerPhone(item, item?.shipping_address || {});
   if (!customerName && !customerPhone) return null;
+
+  const partner = item?.partner || {};
+  const shippingAddress = item?.shipping_address || {};
+  const delivery = item?.delivery || {};
+  const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
+  const attempts = extractAttemptNumber(item, getPosOrderTags(item));
+  const deliveryName = stringOrNull(
+    item?.delivery_name || partner?.delivery_name || delivery?.name || delivery?.delivery_name
+  );
+  const deliveryTel = stringOrNull(
+    item?.delivery_tel || partner?.delivery_tel || delivery?.tel || delivery?.phone || delivery?.delivery_tel
+  );
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const rawUser = getPosConfirmedBy(item);
+  let assignedUserId = null;
+  let assignedUserName = null;
+  if (rawUser) {
+    if (UUID_RE.test(rawUser)) {
+      assignedUserId = rawUser;
+      const posUser = await db.prepare('SELECT name FROM pos_users WHERE external_id = ? AND name IS NOT NULL LIMIT 1').get(rawUser);
+      assignedUserName = posUser?.name || null;
+    } else {
+      assignedUserName = rawUser;
+    }
+  }
+
   await db.prepare(`
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
-      customer_email, page_id, shipping_fee, cod, cash, total_discount, note, items_json, tags_json, partner_json, shipping_address_json, raw_payload
+      customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no, delivery_name, delivery_tel,
+      assigned_user_id, assigned_user_name, items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -494,6 +500,12 @@ async function upsertOrder(db, shopId, item) {
       cash = excluded.cash,
       total_discount = excluded.total_discount,
       note = excluded.note,
+      attempts = excluded.attempts,
+      tracking_no = COALESCE(excluded.tracking_no, pos_orders.tracking_no),
+      delivery_name = COALESCE(excluded.delivery_name, pos_orders.delivery_name),
+      delivery_tel = COALESCE(excluded.delivery_tel, pos_orders.delivery_tel),
+      assigned_user_id = COALESCE(excluded.assigned_user_id, pos_orders.assigned_user_id),
+      assigned_user_name = COALESCE(excluded.assigned_user_name, pos_orders.assigned_user_name),
       items_json = excluded.items_json,
       tags_json = excluded.tags_json,
       partner_json = excluded.partner_json,
@@ -516,10 +528,16 @@ async function upsertOrder(db, shopId, item) {
     numberOrNull(item?.cash),
     numberOrNull(item?.total_discount),
     stringOrNull(item?.note),
+    attempts,
+    trackingNo || null,
+    deliveryName,
+    deliveryTel,
+    assignedUserId,
+    assignedUserName,
     safeJson(item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
     safeJson(item?.tags || item?.customer_tags || []),
-    safeJson(item?.partner || null),
-    safeJson(item?.shipping_address || null),
+    safeJson(partner || null),
+    safeJson(shippingAddress || null),
     rawPayloadForStorage(item)
   );
   return externalId;
@@ -1804,14 +1822,6 @@ async function collectPosData(db, payload = {}) {
         const localIds = await storeItems(db, resource, shopId, items);
         result.resources[resource] = { count: items.length, items };
         result.sql_tables[resource] = { stored: localIds.length };
-        for (const item of items) {
-          const externalId = item?.id || item?.user_id || item?.account_id || item?.product_id || item?.variation_id || item?.code;
-          await recordRaw(db, resource, externalId, item, {
-            status: 'synced',
-            mappedTable: `pos_${resource}`,
-            localId: externalId || localIds[0] || null,
-          });
-        }
       } catch (error) {
         result.failed_resources.push({ resource, error: truncate(error.message, 240) });
       }
@@ -2008,13 +2018,6 @@ async function getStatus(db) {
     LIMIT 10
   `).all(PROVIDER);
 
-  const totals = await db.prepare(`
-    SELECT entity_type, COUNT(*) AS count
-    FROM integration_raw_records
-    WHERE provider = ?
-    GROUP BY entity_type
-  `).all(PROVIDER);
-
   return {
     ...setting,
     latest_runs: latestRuns.map(run => ({
@@ -2022,7 +2025,6 @@ async function getStatus(db) {
       payload_summary: run.payload_summary ? JSON.parse(run.payload_summary) : null,
       result_summary: run.result_summary ? JSON.parse(run.result_summary) : null,
     })),
-    raw_record_totals: totals,
     local_counts: await getCounts(db),
   };
 }

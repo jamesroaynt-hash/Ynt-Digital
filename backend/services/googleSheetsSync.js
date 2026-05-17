@@ -290,22 +290,6 @@ async function finishRun(db, runId, status, resultSummary, errorMessage) {
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
 }
 
-async function recordRaw(db, entityType, externalId, payload, outcome = {}) {
-  await db.prepare(`
-    INSERT INTO integration_raw_records (provider, entity_type, external_id, mapped_table, local_id, sync_status, error_message, payload)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    PROVIDER,
-    entityType,
-    stringOrNull(externalId),
-    outcome.mappedTable || null,
-    outcome.localId ? String(outcome.localId) : null,
-    outcome.status || 'stored',
-    outcome.errorMessage || null,
-    safeJson(payload)
-  );
-}
-
 async function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   if (!externalId) return;
 
@@ -551,13 +535,6 @@ function normalizeOrderRecord(row, sheetName) {
   };
 }
 
-async function safeRecordRaw(db, entityType, externalId, row, outcome) {
-  try {
-    await recordRaw(db, entityType, externalId, row, outcome);
-  } catch (error) {
-    console.warn(`[google_sheets] raw record skipped: ${error.message}`);
-  }
-}
 
 async function safeUpsertSourceLink(db, entityType, externalId, localTable, localId) {
   try {
@@ -792,11 +769,6 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
             result.imported += 1;
             sheetSummary.imported += 1;
           }
-          await safeRecordRaw(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, row, {
-            status: 'synced',
-            mappedTable: 'orders',
-            localId,
-          });
           await safeUpsertSourceLink(db, entityType, `${sheetName}:${normalized.externalId || normalized.order_ref}`, 'orders', localId);
         } catch (error) {
           const errorMessage = truncate(error.message, 240);
@@ -814,11 +786,6 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
             error: errorMessage,
           });
           sheetSummary.failed += 1;
-          await safeRecordRaw(db, entityType, `${sheetName}:${row.order_ref || row.id || `row-${index + 2}`}`, row, {
-            status: 'error',
-            mappedTable: 'orders',
-            errorMessage,
-          });
         }
       }
 

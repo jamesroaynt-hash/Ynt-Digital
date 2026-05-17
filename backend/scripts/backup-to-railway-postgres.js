@@ -61,7 +61,6 @@ const preferredTableOrder = [
   'integration_settings',
   'integration_sync_runs',
   'integration_source_links',
-  'integration_raw_records',
   'inventory_logs',
   'pos_shops',
   'pos_warehouses',
