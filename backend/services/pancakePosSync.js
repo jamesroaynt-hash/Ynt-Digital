@@ -1260,6 +1260,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
       existing.id
     );
     await upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
+    await db.prepare(`UPDATE pos_orders SET local_order_id = ? WHERE external_id = ?`).run(existing.id, externalId);
     return existing.id;
   }
 
@@ -1283,6 +1284,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
   );
   await upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
+  await db.prepare(`UPDATE pos_orders SET local_order_id = ? WHERE external_id = ?`).run(result.lastInsertRowid, externalId);
   return result.lastInsertRowid;
 }
 

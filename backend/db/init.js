@@ -120,6 +120,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'delivery_tel', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_user_name', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'local_order_id', 'INTEGER');
   ensureOrderStatusConstraint(db);
   db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
@@ -268,6 +269,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'delivery_tel', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_name', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'local_order_id', 'INTEGER');
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');

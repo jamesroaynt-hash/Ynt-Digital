@@ -270,6 +270,7 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   delivery_tel TEXT,
   assigned_user_id TEXT,
   assigned_user_name TEXT,
+  local_order_id INTEGER,
   items_json TEXT,
   tags_json TEXT,
   partner_json TEXT,
