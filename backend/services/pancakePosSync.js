@@ -465,21 +465,33 @@ async function upsertOrder(db, shopId, item) {
   );
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const rawUser = getPosConfirmedBy(item);
   let assignedUserId = null;
   let assignedUserName = null;
   let localPosUserId = null;
-  if (rawUser) {
-    if (UUID_RE.test(rawUser)) {
-      assignedUserId = rawUser;
-      const posUser = await db.prepare('SELECT id, name FROM pos_users WHERE external_id = ? LIMIT 1').get(rawUser);
-      assignedUserName = posUser?.name || null;
-      localPosUserId = posUser?.id || null;
-    } else {
-      assignedUserName = rawUser;
-      const posUser = await db.prepare('SELECT id FROM pos_users WHERE username = ? OR name = ? LIMIT 1').get(rawUser, rawUser);
-      localPosUserId = posUser?.id || null;
+  const assigningSeller = item?.assigning_seller;
+  if (assigningSeller?.name || assigningSeller?.id) {
+    assignedUserName = stringOrNull(assigningSeller.name);
+    assignedUserId = stringOrNull(assigningSeller.id);
+    const posUser = assignedUserId
+      ? await db.prepare('SELECT id FROM pos_users WHERE external_id = ? LIMIT 1').get(assignedUserId)
+      : assignedUserName
+        ? await db.prepare('SELECT id FROM pos_users WHERE username = ? OR name = ? LIMIT 1').get(assignedUserName, assignedUserName)
+        : null;
+    localPosUserId = posUser?.id || null;
+  } else {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const rawUser = getPosConfirmedBy(item);
+    if (rawUser) {
+      if (UUID_RE.test(rawUser)) {
+        assignedUserId = rawUser;
+        const posUser = await db.prepare('SELECT id, name FROM pos_users WHERE external_id = ? LIMIT 1').get(rawUser);
+        assignedUserName = posUser?.name || null;
+        localPosUserId = posUser?.id || null;
+      } else {
+        assignedUserName = rawUser;
+        const posUser = await db.prepare('SELECT id FROM pos_users WHERE username = ? OR name = ? LIMIT 1').get(rawUser, rawUser);
+        localPosUserId = posUser?.id || null;
+      }
     }
   }
 
