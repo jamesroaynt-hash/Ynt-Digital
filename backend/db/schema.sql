@@ -268,6 +268,8 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   tracking_no TEXT,
   delivery_name TEXT,
   delivery_tel TEXT,
+  sprinter_name TEXT,
+  sprinter_tel TEXT,
   assigned_user_id TEXT,
   assigned_user_name TEXT,
   local_pos_user_id INTEGER,

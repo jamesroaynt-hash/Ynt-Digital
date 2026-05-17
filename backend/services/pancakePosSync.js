@@ -463,6 +463,7 @@ async function upsertOrder(db, shopId, item) {
   const deliveryTel = stringOrNull(
     item?.delivery_tel || partner?.delivery_tel || delivery?.tel || delivery?.phone || delivery?.delivery_tel
   );
+  const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const rawUser = getPosConfirmedBy(item);
@@ -486,9 +487,10 @@ async function upsertOrder(db, shopId, item) {
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no, delivery_name, delivery_tel,
-      assigned_user_id, assigned_user_name, local_pos_user_id, items_json, tags_json, partner_json, shipping_address_json, raw_payload
+      assigned_user_id, assigned_user_name, local_pos_user_id, sprinter_name, sprinter_tel,
+      items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -511,6 +513,8 @@ async function upsertOrder(db, shopId, item) {
       assigned_user_id = COALESCE(excluded.assigned_user_id, pos_orders.assigned_user_id),
       assigned_user_name = COALESCE(excluded.assigned_user_name, pos_orders.assigned_user_name),
       local_pos_user_id = COALESCE(excluded.local_pos_user_id, pos_orders.local_pos_user_id),
+      sprinter_name = COALESCE(excluded.sprinter_name, pos_orders.sprinter_name),
+      sprinter_tel = COALESCE(excluded.sprinter_tel, pos_orders.sprinter_tel),
       items_json = excluded.items_json,
       tags_json = excluded.tags_json,
       partner_json = excluded.partner_json,
@@ -540,6 +544,8 @@ async function upsertOrder(db, shopId, item) {
     assignedUserId,
     assignedUserName,
     localPosUserId,
+    sprinterName,
+    sprinterTel,
     safeJson(item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(partner || null),
@@ -987,6 +993,18 @@ function getPosOrderRef(item = {}, externalId) {
     item?.invoice_number ||
     item?.shipping_code
   ) || `POS-${externalId}`;
+}
+
+function getPosSprintorInfo(item = {}) {
+  const SPRINTER_RE = /】sprinter【([^:】]+?)\s*:\s*(\d{9,13})】/i;
+  const extendUpdate = item?.partner?.extend_update;
+  if (Array.isArray(extendUpdate)) {
+    for (const entry of [...extendUpdate].reverse()) {
+      const match = SPRINTER_RE.exec(entry?.status || '');
+      if (match) return { name: match[1].trim(), tel: match[2].trim() };
+    }
+  }
+  return { name: null, tel: null };
 }
 
 function getPosTrackingNumber(item = {}, partner = {}, shippingAddress = {}) {
