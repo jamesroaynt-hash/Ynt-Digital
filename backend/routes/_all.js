@@ -486,7 +486,24 @@ function ordersRoutes(db, { dispatch } = {}) {
       if (date_to)   { where += ` AND DATE(inserted_at_remote) <= ?`; params.push(String(date_to).slice(0, 10)); }
     }
 
-    const total = (await db.prepare(`SELECT COUNT(*) AS count FROM pos_orders ${where}`).get(...params)).count || 0;
+    const statusCountRows = await db.prepare(`
+      SELECT
+        CASE
+          WHEN status_name IN ('submitted','new','pending','wait_print') THEN 'New'
+          WHEN status_name = 'shipped'   THEN 'Shipped'
+          WHEN status_name = 'delivered' THEN 'Delivered'
+          WHEN status_name = 'returning' THEN 'Returning'
+          WHEN status_name = 'returned'  THEN 'Returned'
+          WHEN status_name IN ('canceled','removed') THEN 'Canceled'
+          ELSE 'Other'
+        END AS display_status,
+        COUNT(*) AS count
+      FROM pos_orders ${where}
+      GROUP BY display_status
+    `).all(...params);
+
+    const total = statusCountRows.reduce((s, r) => s + Number(r.count || 0), 0);
+
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel
@@ -512,7 +529,8 @@ function ordersRoutes(db, { dispatch } = {}) {
         sprinter_name: row.sprinter_name,
         sprinter_tel: row.sprinter_tel,
       })),
-      total: Number(total),
+      status_counts: statusCountRows,
+      total,
       page: pageNum,
       per_page: perPage,
     });

@@ -351,6 +351,7 @@ async function refreshPosRawOrdersFromBackend() {
   const result = await authorizedJsonRequest(`/orders/pos-orders?${query.toString()}`);
   DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
   DB.posRawTotal = Number(result?.total || 0);
+  DB.posRawStatusCounts = Array.isArray(result?.status_counts) ? result.status_counts : [];
   return true;
 }
 
@@ -483,6 +484,7 @@ const DB = {
   posOrders: [],
   posRawOrders: [],
   posRawTotal: 0,
+  posRawStatusCounts: [],
   csrRecords: loadCsrRecords(),
   inventory: [],
   expenses: [],
@@ -4032,6 +4034,7 @@ function renderViewRecords() {
           </div>
         </div>
       </div>
+      <div id="pos-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
       <table>
         <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tag</th><th>Attempts</th><th>COD</th><th>Assigned</th><th>Status</th><th>Rider</th><th>Rider Phone</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
@@ -6757,6 +6760,30 @@ function changeRecordsPage(page) {
 function renderPosOrdersTable() {
   const tbody = document.getElementById('rec-pos-orders-tbody');
   if (!tbody) return;
+
+  const summaryEl = document.getElementById('pos-orders-status-summary');
+  if (summaryEl) {
+    const statusStyleMap = {
+      New: 'background:var(--info,#3b82f6);color:#fff',
+      Shipped: 'background:var(--primary,#6366f1);color:#fff',
+      Delivered: 'background:var(--success,#22c55e);color:#fff',
+      Returning: 'background:var(--danger,#ef4444);color:#fff',
+      Returned: 'background:#b91c1c;color:#fff',
+      Canceled: 'background:var(--warning,#f59e0b);color:#fff',
+      Other: 'background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)',
+    };
+    const ORDER = ['New','Shipped','Delivered','Returning','Returned','Canceled','Other'];
+    const sorted = [...DB.posRawStatusCounts].sort((a, b) =>
+      ORDER.indexOf(a.display_status) - ORDER.indexOf(b.display_status)
+    );
+    summaryEl.innerHTML = sorted.map(({ display_status: s, count: c }) =>
+      `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;${statusStyleMap[s] || statusStyleMap.Other}">
+        ${escapeHtml(s)} <span style="opacity:0.85">${Number(c).toLocaleString()}</span>
+      </span>`
+    ).join('') + (DB.posRawTotal
+      ? `<span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)">Total ${DB.posRawTotal.toLocaleString()}</span>`
+      : '');
+  }
 
   const dash = '<span style="color:var(--text-muted)">—</span>';
   const posStatusMap = {
