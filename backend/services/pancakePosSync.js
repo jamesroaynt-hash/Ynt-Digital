@@ -447,7 +447,8 @@ async function upsertOrder(db, shopId, item) {
   const attempts = extractAttemptNumber(item, getPosOrderTags(item));
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
-  const assigningSeller = item?.assigning_seller || null;
+  const rawSeller = item?.assigning_seller;
+  const assigningSeller = (rawSeller?.id || rawSeller?.name) ? rawSeller : null;
   let assignedUserId = stringOrNull(assigningSeller?.id);
   let localPosUserId = null;
   if (assignedUserId) {
