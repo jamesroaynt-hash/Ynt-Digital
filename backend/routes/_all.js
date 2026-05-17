@@ -426,7 +426,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   r.get('/pos-orders', async (req, res) => {
     const {
       page = 1, per_page = 50,
-      search, product, page: pageFilter, status, tags,
+      search, product, source: pageFilter, status, tags,
       period, date_from, date_to,
     } = req.query;
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));

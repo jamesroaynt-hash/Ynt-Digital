@@ -341,7 +341,7 @@ async function refreshPosRawOrdersFromBackend() {
   const query = new URLSearchParams({ page: String(posRawPage), per_page: '50', _: String(Date.now()) });
   if (posOrdersSearch) query.set('search', posOrdersSearch);
   if (posOrdersProductFilter !== 'all') query.set('product', posOrdersProductFilter);
-  if (posOrdersPageFilter !== 'all') query.set('page', posOrdersPageFilter);
+  if (posOrdersPageFilter !== 'all') query.set('source', posOrdersPageFilter);
   if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
   if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
