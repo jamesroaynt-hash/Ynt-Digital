@@ -272,6 +272,7 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   tracking_no TEXT,
   sprinter_name TEXT,
   sprinter_tel TEXT,
+  page_name TEXT,
   assigned_user_id TEXT,
   assigning_seller_name TEXT,
   assigning_seller_json TEXT,

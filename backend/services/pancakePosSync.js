@@ -432,7 +432,7 @@ async function upsertWarehouse(db, shopId, item) {
   return externalId;
 }
 
-async function upsertOrder(db, shopId, item) {
+async function upsertOrder(db, shopId, item, connectionName = null) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
   const statusName = stringOrNull(item?.status_name || item?.status_text);
@@ -446,6 +446,9 @@ async function upsertOrder(db, shopId, item) {
   const trackingNo = getPosTrackingNumber(item, partner, shippingAddress);
   const attempts = extractAttemptNumber(item, getPosOrderTags(item));
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
+
+  const resolvedShopId = stringOrNull(shopId || item?.shop_id);
+  const pageName = connectionName || await findSavedConnectionName(db, resolvedShopId);
 
   const rawItems = item?.order_details || item?.items || [];
   const rawSeller = item?.assigning_seller
@@ -471,10 +474,10 @@ async function upsertOrder(db, shopId, item) {
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
-      assigned_user_id, assigning_seller_name, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
+      page_name, assigned_user_id, assigning_seller_name, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
       items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -492,6 +495,7 @@ async function upsertOrder(db, shopId, item) {
       note = excluded.note,
       attempts = excluded.attempts,
       tracking_no = COALESCE(excluded.tracking_no, pos_orders.tracking_no),
+      page_name = COALESCE(excluded.page_name, pos_orders.page_name),
       assigned_user_id = excluded.assigned_user_id,
       assigning_seller_name = excluded.assigning_seller_name,
       assigning_seller_json = excluded.assigning_seller_json,
@@ -522,6 +526,7 @@ async function upsertOrder(db, shopId, item) {
     stringOrNull(item?.note),
     attempts,
     trackingNo || null,
+    pageName || null,
     assignedUserId,
     stringOrNull(assigningSeller?.name),
     assigningSeller ? JSON.stringify(assigningSeller) : null,
@@ -1408,13 +1413,13 @@ async function normalizeSourceSheets(db) {
   return normalized;
 }
 
-async function storeItems(db, resource, shopId, items) {
+async function storeItems(db, resource, shopId, items, connectionName = null) {
   const localIds = [];
   for (const item of items) {
     let localId = null;
     if (resource === 'shops') localId = await upsertShop(db, item);
     if (resource === 'warehouses') localId = await upsertWarehouse(db, shopId, item);
-    if (resource === 'orders') localId = await upsertOrder(db, shopId, item);
+    if (resource === 'orders') localId = await upsertOrder(db, shopId, item, connectionName);
     if (resource === 'products') localId = await upsertProduct(db, shopId, item);
     if (resource === 'customers') localId = await upsertCustomer(db, shopId, item);
     if (resource === 'users') localId = await upsertUser(db, shopId, item);
@@ -1833,7 +1838,7 @@ async function collectPosData(db, payload = {}) {
 
       try {
         const items = await fetcher();
-        const localIds = await storeItems(db, resource, shopId, items);
+        const localIds = await storeItems(db, resource, shopId, items, result.connection_name);
         result.resources[resource] = { count: items.length, items };
         result.sql_tables[resource] = { stored: localIds.length };
       } catch (error) {
