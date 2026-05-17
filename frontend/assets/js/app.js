@@ -6820,8 +6820,8 @@ function renderPosOrdersTable() {
     shipped:    ['Shipped',    'badge-primary'],
     delivered:  ['Delivered',  'badge-success'],
     returning:  ['Returning',  'badge-danger'],
-    returned:   ['Returned',   'badge-gray'],
-    canceled:   ['Canceled',   'badge-gray'],
+    returned:   ['Returned',   'badge-danger'],
+    canceled:   ['Canceled',   'badge-warning'],
     removed:    ['Removed',    'badge-gray'],
   };
   tbody.innerHTML = DB.posRawOrders.map((order) => {
