@@ -272,7 +272,7 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   sprinter_name TEXT,
   sprinter_tel TEXT,
   assigned_user_id TEXT,
-  assigned_user_name TEXT,
+  assigning_seller_json TEXT,
   local_pos_user_id INTEGER,
   local_order_id INTEGER,
   items_json TEXT,

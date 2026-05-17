@@ -447,33 +447,19 @@ async function upsertOrder(db, shopId, item) {
   const attempts = extractAttemptNumber(item, getPosOrderTags(item));
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
-  let assignedUserId = null;
-  let assignedUserName = null;
+  const assigningSeller = item?.assigning_seller || null;
+  let assignedUserId = stringOrNull(assigningSeller?.id);
   let localPosUserId = null;
-  const assigningSeller = item?.assigning_seller;
-  if (assigningSeller?.name || assigningSeller?.id) {
-    assignedUserName = stringOrNull(assigningSeller.name);
-    assignedUserId = stringOrNull(assigningSeller.id);
-    const posUser = assignedUserId
-      ? await db.prepare('SELECT id FROM pos_users WHERE external_id = ? LIMIT 1').get(assignedUserId)
-      : assignedUserName
-        ? await db.prepare('SELECT id FROM pos_users WHERE username = ? OR name = ? LIMIT 1').get(assignedUserName, assignedUserName)
-        : null;
+  if (assignedUserId) {
+    const posUser = await db.prepare('SELECT id FROM pos_users WHERE external_id = ? LIMIT 1').get(assignedUserId);
     localPosUserId = posUser?.id || null;
   } else {
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const rawUser = getPosConfirmedBy(item);
-    if (rawUser) {
-      if (UUID_RE.test(rawUser)) {
-        assignedUserId = rawUser;
-        const posUser = await db.prepare('SELECT id, name FROM pos_users WHERE external_id = ? LIMIT 1').get(rawUser);
-        assignedUserName = posUser?.name || null;
-        localPosUserId = posUser?.id || null;
-      } else {
-        assignedUserName = rawUser;
-        const posUser = await db.prepare('SELECT id FROM pos_users WHERE username = ? OR name = ? LIMIT 1').get(rawUser, rawUser);
-        localPosUserId = posUser?.id || null;
-      }
+    if (rawUser && UUID_RE.test(rawUser)) {
+      assignedUserId = rawUser;
+      const posUser = await db.prepare('SELECT id FROM pos_users WHERE external_id = ? LIMIT 1').get(rawUser);
+      localPosUserId = posUser?.id || null;
     }
   }
 
@@ -481,7 +467,7 @@ async function upsertOrder(db, shopId, item) {
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
-      assigned_user_id, assigned_user_name, local_pos_user_id, sprinter_name, sprinter_tel,
+      assigned_user_id, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
       items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -503,7 +489,7 @@ async function upsertOrder(db, shopId, item) {
       attempts = excluded.attempts,
       tracking_no = COALESCE(excluded.tracking_no, pos_orders.tracking_no),
       assigned_user_id = excluded.assigned_user_id,
-      assigned_user_name = excluded.assigned_user_name,
+      assigning_seller_json = excluded.assigning_seller_json,
       local_pos_user_id = excluded.local_pos_user_id,
       sprinter_name = COALESCE(excluded.sprinter_name, pos_orders.sprinter_name),
       sprinter_tel = COALESCE(excluded.sprinter_tel, pos_orders.sprinter_tel),
@@ -532,7 +518,7 @@ async function upsertOrder(db, shopId, item) {
     attempts,
     trackingNo || null,
     assignedUserId,
-    assignedUserName,
+    assigningSeller ? JSON.stringify(assigningSeller) : null,
     localPosUserId,
     sprinterName,
     sprinterTel,
