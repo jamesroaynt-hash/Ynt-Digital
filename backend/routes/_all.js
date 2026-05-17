@@ -382,11 +382,15 @@ function ordersRoutes(db, { dispatch } = {}) {
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));
     const offset = (Math.max(1, Number(page) || 1) - 1) * perPage;
 
-    const total = (await db.prepare('SELECT COUNT(*) AS count FROM pos_orders').get()).count || 0;
+    const total = (await db.prepare(`
+      SELECT COUNT(*) AS count FROM pos_orders
+      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+    `).get()).count || 0;
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel
       FROM pos_orders
+      WHERE customer_phone IS NOT NULL AND customer_phone != ''
       ORDER BY inserted_at_remote DESC, id DESC
       LIMIT ? OFFSET ?
     `).all(perPage, offset);

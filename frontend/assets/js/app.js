@@ -6812,11 +6812,27 @@ function renderPosOrdersTable() {
   if (!tbody) return;
 
   const dash = '<span style="color:var(--text-muted)">—</span>';
+  const posStatusMap = {
+    submitted:  ['New',        'badge-info'],
+    new:        ['New',        'badge-info'],
+    pending:    ['Pending',    'badge-warning'],
+    wait_print: ['Wait Print', 'badge-warning'],
+    shipped:    ['Shipped',    'badge-primary'],
+    delivered:  ['Delivered',  'badge-success'],
+    returning:  ['Returning',  'badge-danger'],
+    returned:   ['Returned',   'badge-gray'],
+    canceled:   ['Canceled',   'badge-gray'],
+    removed:    ['Removed',    'badge-gray'],
+  };
   tbody.innerHTML = DB.posRawOrders.map((order) => {
     const tags = Array.isArray(order.tags) ? order.tags : [];
     const tagLabels = tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean);
-    const statusLabel = order.status_name
-      ? escapeHtml(order.status_name.charAt(0).toUpperCase() + order.status_name.slice(1))
+    const [statusText, statusClass] = posStatusMap[order.status_name] || [
+      order.status_name ? order.status_name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : null,
+      'badge-gray',
+    ];
+    const statusLabel = statusText
+      ? `<span class="badge ${statusClass}">${escapeHtml(statusText)}</span>`
       : dash;
     return `<tr>
       <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}</td>
@@ -6838,7 +6854,7 @@ function renderPosOrdersTable() {
 
   const pagination = document.getElementById('pos-orders-pagination');
   if (pagination) {
-    const perPage = 25;
+    const perPage = 50;
     const pages = Math.max(1, Math.ceil(DB.posRawTotal / perPage));
     const start = DB.posRawTotal ? ((posRawPage - 1) * perPage) + 1 : 0;
     const end = Math.min(posRawPage * perPage, DB.posRawTotal);
