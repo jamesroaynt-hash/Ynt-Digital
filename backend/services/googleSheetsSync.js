@@ -180,7 +180,7 @@ function normalizeSheetDate(value) {
 }
 
 async function getSetting(db) {
-  return await db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
+  return await db.prepare("SELECT * FROM integration_settings WHERE provider = ? AND connection_id = ''").get(PROVIDER) || null;
 }
 
 async function getPublicSetting(db) {
@@ -237,7 +237,7 @@ async function saveSetting(db, payload = {}) {
       UPDATE integration_settings
       SET enabled = ?, base_url = ?, api_key = ?, user_access_token = ?, page_id = ?, page_access_token = ?,
           webhook_secret = ?, sync_mode = ?, notes = ?, updated_at = datetime('now')
-      WHERE provider = ?
+      WHERE provider = ? AND connection_id = ''
     `).run(
       boolToInt(next.enabled),
       next.spreadsheet_id,
@@ -253,9 +253,9 @@ async function saveSetting(db, payload = {}) {
   } else {
     await db.prepare(`
       INSERT INTO integration_settings (
-        provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, webhook_secret, sync_mode, notes
+        provider, connection_id, enabled, base_url, api_key, user_access_token, page_id, page_access_token, webhook_secret, sync_mode, notes
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       PROVIDER,
       boolToInt(next.enabled),

@@ -29,6 +29,77 @@ async function ensureColumnAsync(db, tableName, columnName, definition) {
   await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
+function migrateIntegrationSettingsMultiRow(db) {
+  const columns = db.prepare('PRAGMA table_info(integration_settings)').all();
+  if (columns.some((c) => c.name === 'connection_id')) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('ALTER TABLE integration_settings RENAME TO _integration_settings_mrow_tmp');
+  db.exec(`
+    CREATE TABLE integration_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      connection_id TEXT NOT NULL DEFAULT '',
+      name TEXT,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      base_url TEXT,
+      api_key TEXT,
+      user_access_token TEXT,
+      page_id TEXT,
+      page_access_token TEXT,
+      webhook_secret TEXT,
+      sync_mode TEXT NOT NULL DEFAULT 'push_only',
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(provider, connection_id)
+    )
+  `);
+  db.exec(`
+    INSERT INTO integration_settings (
+      id, provider, connection_id, name, enabled, base_url, api_key, user_access_token,
+      page_id, page_access_token, webhook_secret, sync_mode, notes, created_at, updated_at
+    )
+    SELECT id, provider, '', NULL, enabled, base_url, api_key, user_access_token,
+      page_id, page_access_token, webhook_secret, sync_mode, notes, created_at, updated_at
+    FROM _integration_settings_mrow_tmp
+  `);
+  db.exec('DROP TABLE _integration_settings_mrow_tmp');
+  db.exec('PRAGMA foreign_keys = ON');
+
+  // Unpack pancake_pos connections from JSON into individual rows
+  const posSetting = db.prepare(
+    "SELECT user_access_token FROM integration_settings WHERE provider = 'pancake_pos' AND connection_id = ''"
+  ).get();
+  if (posSetting?.user_access_token) {
+    let conns;
+    try { conns = JSON.parse(posSetting.user_access_token); } catch { conns = null; }
+    if (Array.isArray(conns)) {
+      const insertConn = db.prepare(`
+        INSERT OR IGNORE INTO integration_settings
+          (provider, connection_id, name, enabled, base_url, api_key, page_id, page_access_token, user_access_token, sync_mode, notes)
+        VALUES ('pancake_pos', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const conn of conns) {
+        const connId = String(conn.id || '').trim();
+        if (!connId || !conn.api_key || !conn.shop_id) continue;
+        insertConn.run(
+          connId,
+          String(conn.name || `POS ${conn.shop_id}`),
+          conn.enabled === false ? 0 : 1,
+          String(conn.base_url || 'https://pos.pages.fm/api/v1'),
+          String(conn.api_key),
+          String(conn.shop_id),
+          conn.page_access_token || null,
+          conn.messaging_page_id || null,
+          String(conn.sync_mode || 'pull_only'),
+          conn.notes || null
+        );
+      }
+    }
+  }
+}
+
 function ensureOrderStatusConstraint(db) {
   if (db.type === 'postgres') return;
   const allowed = "'New','Confirmed','Waiting for pickup','Shipped','Delivered','Returning','Returned','Canceled','Pending'";
@@ -69,6 +140,25 @@ function ensureOrderStatusConstraint(db) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
   db.exec('PRAGMA foreign_keys = ON');
+}
+
+async function migrateIntegrationSettingsMultiRowAsync(db) {
+  await ensureColumnAsync(db, 'integration_settings', 'connection_id', "TEXT NOT NULL DEFAULT ''");
+  await ensureColumnAsync(db, 'integration_settings', 'name', 'TEXT');
+
+  // Update unique constraint from (provider) to (provider, connection_id)
+  try {
+    const existing = await db.prepare(`
+      SELECT 1 FROM information_schema.table_constraints
+      WHERE table_name = 'integration_settings'
+        AND constraint_type = 'UNIQUE'
+        AND constraint_name = 'integration_settings_provider_connection_id_key'
+    `).get();
+    if (!existing) {
+      await db.exec('ALTER TABLE integration_settings DROP CONSTRAINT IF EXISTS integration_settings_provider_key');
+      await db.exec('ALTER TABLE integration_settings ADD CONSTRAINT integration_settings_provider_connection_id_key UNIQUE (provider, connection_id)');
+    }
+  } catch { /* Supabase migration handles this */ }
 }
 
 async function ensureOrderStatusConstraintAsync(db) {
@@ -122,6 +212,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'assigned_user_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'local_pos_user_id', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'local_order_id', 'INTEGER');
+  migrateIntegrationSettingsMultiRow(db);
   ensureOrderStatusConstraint(db);
   db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');
@@ -272,6 +363,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_name', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'local_pos_user_id', 'INTEGER');
   await ensureColumnAsync(db, 'pos_orders', 'local_order_id', 'INTEGER');
+  await migrateIntegrationSettingsMultiRowAsync(db);
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
   await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_source_sheet ON orders(source_sheet)');

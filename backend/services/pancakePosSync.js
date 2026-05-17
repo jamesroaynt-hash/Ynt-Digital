@@ -31,11 +31,6 @@ function parseJsonObject(value, fallback = null) {
   }
 }
 
-function parseSavedConnections(value) {
-  const parsed = parseJsonObject(value, []);
-  return Array.isArray(parsed) ? parsed : [];
-}
-
 function normalizeConnection(value = {}, fallback = {}) {
   const apiKey = stringOrNull(value.api_key || value.apiKey || fallback.api_key);
   const shopId = stringOrNull(value.shop_id || value.shopId || value.page_id || fallback.shop_id);
@@ -54,24 +49,20 @@ function normalizeConnection(value = {}, fallback = {}) {
   };
 }
 
-function getSavedConnectionsFromSetting(setting) {
-  if (!setting) return [];
-  const saved = parseSavedConnections(setting.user_access_token)
-    .map((connection) => normalizeConnection(connection))
-    .filter((connection) => connection.api_key && connection.shop_id);
-  if (saved.length) return saved;
-
-  const legacy = normalizeConnection({
-    id: 'default',
-    name: 'Default POS',
-    enabled: Boolean(setting.enabled),
-    sync_mode: setting.sync_mode,
-    base_url: setting.base_url,
-    api_key: setting.api_key,
-    shop_id: setting.page_id,
-    notes: setting.notes,
-  });
-  return legacy.api_key && legacy.shop_id ? [legacy] : [];
+function rowToConnection(row) {
+  return {
+    id: stringOrNull(row.connection_id) || 'default',
+    name: stringOrNull(row.name) || `POS ${row.page_id || row.id}`,
+    enabled: Boolean(row.enabled),
+    sync_mode: stringOrNull(row.sync_mode) || 'pull_only',
+    base_url: stringOrNull(row.base_url) || POS_API_BASE,
+    api_key: stringOrNull(row.api_key),
+    shop_id: stringOrNull(row.page_id),
+    messaging_page_id: stringOrNull(row.user_access_token),
+    page_access_token: stringOrNull(row.page_access_token),
+    notes: stringOrNull(row.notes) || '',
+    webhook_secret: stringOrNull(row.webhook_secret),
+  };
 }
 
 function publicConnection(connection) {
@@ -131,74 +122,70 @@ function unixSecondsFromDate(value, endOfDay = false) {
 }
 
 async function getSetting(db) {
-  return await db.prepare('SELECT * FROM integration_settings WHERE provider = ?').get(PROVIDER) || null;
+  return await db.prepare("SELECT * FROM integration_settings WHERE provider = ? AND connection_id = ''").get(PROVIDER) || null;
 }
 
 async function saveSetting(db, payload) {
   const current = await getSetting(db);
-  const currentConnections = getSavedConnectionsFromSetting(current);
-  const connections = Array.isArray(payload.connections)
-    ? payload.connections.map((connection, index) => {
-      const shopId = stringOrNull(connection.shop_id || connection.shopId || connection.page_id);
-      const id = stringOrNull(connection.id || connection.connection_id);
-      const existing = currentConnections.find((saved) => (
-        (id && saved.id === id)
-        || (shopId && saved.shop_id === shopId)
-      ));
-      return normalizeConnection(connection, existing || { name: `POS ${index + 1}` });
-    })
-      .filter((connection) => connection.api_key && connection.shop_id)
-    : null;
-  const primaryConnection = connections?.[0] || null;
-  const next = {
-    enabled: payload.enabled ?? primaryConnection?.enabled ?? current?.enabled ?? 0,
-    base_url: payload.base_url ?? primaryConnection?.base_url ?? current?.base_url ?? POS_API_BASE,
-    api_key: payload.api_key ?? primaryConnection?.api_key ?? current?.api_key ?? null,
-    user_access_token: payload.user_access_token ?? current?.user_access_token ?? null,
-    page_id: payload.page_id ?? primaryConnection?.shop_id ?? current?.page_id ?? null,
-    page_access_token: payload.page_access_token ?? current?.page_access_token ?? null,
+
+  // Upsert global provider row (connection_id = '')
+  const globalData = {
+    enabled: payload.enabled ?? current?.enabled ?? 0,
+    base_url: payload.base_url ?? current?.base_url ?? POS_API_BASE,
     webhook_secret: payload.webhook_secret ?? current?.webhook_secret ?? null,
-    sync_mode: payload.sync_mode ?? primaryConnection?.sync_mode ?? current?.sync_mode ?? 'pull_only',
+    sync_mode: payload.sync_mode ?? current?.sync_mode ?? 'pull_only',
     notes: payload.notes ?? current?.notes ?? null,
   };
-  if (connections) next.user_access_token = safeJson(connections);
 
   if (current) {
     await db.prepare(`
       UPDATE integration_settings
-      SET enabled = ?, base_url = ?, api_key = ?, user_access_token = ?, page_id = ?, page_access_token = ?,
-          webhook_secret = ?, sync_mode = ?, notes = ?, updated_at = datetime('now')
-      WHERE provider = ?
+      SET enabled = ?, base_url = ?, webhook_secret = ?, sync_mode = ?, notes = ?, updated_at = datetime('now')
+      WHERE provider = ? AND connection_id = ''
     `).run(
-      boolToInt(next.enabled),
-      next.base_url,
-      next.api_key,
-      next.user_access_token,
-      next.page_id,
-      next.page_access_token,
-      next.webhook_secret,
-      next.sync_mode,
-      next.notes,
-      PROVIDER
+      boolToInt(globalData.enabled), globalData.base_url, globalData.webhook_secret,
+      globalData.sync_mode, globalData.notes, PROVIDER
     );
   } else {
     await db.prepare(`
-      INSERT INTO integration_settings (
-        provider, enabled, base_url, api_key, user_access_token, page_id, page_access_token, webhook_secret, sync_mode, notes
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO integration_settings (provider, connection_id, enabled, base_url, webhook_secret, sync_mode, notes)
+      VALUES (?, '', ?, ?, ?, ?, ?)
     `).run(
-      PROVIDER,
-      boolToInt(next.enabled),
-      next.base_url,
-      next.api_key,
-      next.user_access_token,
-      next.page_id,
-      next.page_access_token,
-      next.webhook_secret,
-      next.sync_mode,
-      next.notes
+      PROVIDER, boolToInt(globalData.enabled), globalData.base_url,
+      globalData.webhook_secret, globalData.sync_mode, globalData.notes
     );
+  }
+
+  // Upsert individual connection rows
+  if (Array.isArray(payload.connections)) {
+    const currentConnections = await getSavedConnections(db);
+    for (const [index, connPayload] of payload.connections.entries()) {
+      const shopId = stringOrNull(connPayload.shop_id || connPayload.shopId || connPayload.page_id);
+      const connId = stringOrNull(connPayload.id || connPayload.connection_id);
+      if (!connId || !shopId) continue;
+      const existing = currentConnections.find((c) => c.id === connId || (shopId && c.shop_id === shopId));
+      const conn = normalizeConnection(connPayload, existing || { name: `POS ${index + 1}` });
+      await db.prepare(`
+        INSERT INTO integration_settings
+          (provider, connection_id, name, enabled, base_url, api_key, page_id, page_access_token, user_access_token, sync_mode, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(provider, connection_id) DO UPDATE SET
+          name = excluded.name,
+          enabled = excluded.enabled,
+          base_url = excluded.base_url,
+          api_key = COALESCE(excluded.api_key, integration_settings.api_key),
+          page_id = excluded.page_id,
+          page_access_token = COALESCE(excluded.page_access_token, integration_settings.page_access_token),
+          user_access_token = excluded.user_access_token,
+          sync_mode = excluded.sync_mode,
+          notes = excluded.notes,
+          updated_at = datetime('now')
+      `).run(
+        PROVIDER, conn.id, conn.name, boolToInt(conn.enabled), conn.base_url,
+        conn.api_key, conn.shop_id, conn.page_access_token, conn.messaging_page_id,
+        conn.sync_mode, conn.notes
+      );
+    }
   }
 
   return await getPublicSetting(db);
@@ -206,7 +193,9 @@ async function saveSetting(db, payload) {
 
 async function getPublicSetting(db) {
   const setting = await getSetting(db);
-  if (!setting) {
+  const connections = await getSavedConnections(db);
+
+  if (!setting && connections.length === 0) {
     return {
       provider: PROVIDER,
       configured: false,
@@ -214,31 +203,31 @@ async function getPublicSetting(db) {
       base_url: POS_API_BASE,
       sync_mode: 'pull_only',
       notes: null,
-      shop_id: null,
-      has_api_key: false,
+      webhook_secret: null,
       connections: [],
       connection_count: 0,
     };
   }
-  const connections = getSavedConnectionsFromSetting(setting);
 
   return {
     provider: PROVIDER,
     configured: true,
-    enabled: Boolean(setting.enabled),
-    base_url: setting.base_url || POS_API_BASE,
-    sync_mode: setting.sync_mode,
-    notes: setting.notes,
-    shop_id: setting.page_id || null,
-    has_api_key: Boolean(setting.api_key),
+    enabled: Boolean(setting?.enabled),
+    base_url: setting?.base_url || POS_API_BASE,
+    sync_mode: setting?.sync_mode || 'pull_only',
+    notes: setting?.notes || null,
+    webhook_secret: setting?.webhook_secret || null,
     connections: connections.map(publicConnection),
     connection_count: connections.length,
-    updated_at: setting.updated_at,
+    updated_at: setting?.updated_at,
   };
 }
 
 async function getSavedConnections(db) {
-  return getSavedConnectionsFromSetting(await getSetting(db));
+  const rows = await db.prepare(
+    "SELECT * FROM integration_settings WHERE provider = ? AND connection_id != '' ORDER BY id"
+  ).all(PROVIDER);
+  return rows.map(rowToConnection).filter((c) => c.api_key && c.shop_id);
 }
 
 async function startRun(db, triggerType, payloadSummary) {
@@ -1179,7 +1168,7 @@ async function findSavedConnectionName(db, shopId) {
   const target = stringOrNull(shopId);
   if (!target) return null;
 
-  const connections = getSavedConnectionsFromSetting(await getSetting(db));
+  const connections = await getSavedConnections(db);
   const match = connections.find((connection) => stringOrNull(connection.shop_id) === target);
   return stringOrNull(match?.name);
 }
@@ -1396,8 +1385,7 @@ async function cleanupMalformedDashboardOrders(db) {
 async function normalizeSourceSheets(db) {
   // Unify source_sheet for all POS-linked dashboard orders that share the same shop_id + page_id,
   // using the current connection name as the canonical name.
-  const setting = await getSetting(db);
-  const connections = getSavedConnectionsFromSetting(setting);
+  const connections = await getSavedConnections(db);
   let normalized = 0;
   for (const conn of connections) {
     if (!conn.shop_id || !conn.name) continue;
@@ -1490,10 +1478,10 @@ function storedPosOrderToPayload(row = {}) {
 }
 
 async function replayStoredOrdersToDashboard(db, payload = {}) {
-  const setting = await getSetting(db);
+  const savedConnections = await getSavedConnections(db);
   const requestedShopId = stringOrNull(payload.shop_id || payload.shopId);
   const allRows = payload.all === true || payload.all === 'true' || payload.limit === 0 || payload.limit === '0';
-  const shopId = requestedShopId || (allRows ? null : stringOrNull(setting?.page_id));
+  const shopId = requestedShopId || (allRows ? null : stringOrNull(savedConnections[0]?.shop_id));
   const limit = allRows ? null : Math.max(1, Math.min(5000, Number(payload.limit || 1000)));
   const batchSize = Math.max(50, Math.min(2000, Number(payload.batch_size || payload.batchSize || 500)));
   const missingOnly = payload.missing_only === true || payload.missing_only === 'true' || payload.only_missing === true || payload.only_missing === 'true';
@@ -1581,9 +1569,10 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
 }
 
 async function listShopsFromApi(db, payload = {}) {
-  const setting = await getSetting(db);
-  const apiKey = stringOrNull(payload.api_key || setting?.api_key);
-  const baseUrl = stringOrNull(payload.base_url || setting?.base_url) || POS_API_BASE;
+  const connections = await getSavedConnections(db);
+  const firstConn = connections[0];
+  const apiKey = stringOrNull(payload.api_key || firstConn?.api_key);
+  const baseUrl = stringOrNull(payload.base_url || firstConn?.base_url) || POS_API_BASE;
   const response = await posRequest(baseUrl, '/shops', apiKey);
   const shops = Array.isArray(response?.shops) ? response.shops : [];
   await storeItems(db, 'shops', null, shops);
@@ -1672,10 +1661,20 @@ async function collectPosData(db, payload = {}) {
     return result;
   }
 
-  const setting = await getSetting(db);
-  const apiKey = stringOrNull(payload.api_key || setting?.api_key);
-  const shopId = stringOrNull(payload.shop_id || setting?.page_id);
-  const baseUrl = stringOrNull(payload.base_url || setting?.base_url) || POS_API_BASE;
+  // Auto-detect: use all saved connections when no explicit api_key/shop_id given
+  if (!payload.api_key && !payload.shop_id) {
+    const savedConnections = await getSavedConnections(db);
+    const enabledConnections = savedConnections.filter((c) => c.enabled !== false);
+    if (enabledConnections.length > 0) {
+      return collectPosData(db, { ...payload, connections: enabledConnections });
+    }
+  }
+
+  const savedConnections = await getSavedConnections(db);
+  const firstConn = savedConnections[0];
+  const apiKey = stringOrNull(payload.api_key || firstConn?.api_key);
+  const shopId = stringOrNull(payload.shop_id || firstConn?.shop_id);
+  const baseUrl = stringOrNull(payload.base_url || firstConn?.base_url) || POS_API_BASE;
   if (!apiKey) throw new Error('Missing Pancake POS api_key. Save it first.');
   if (!shopId) throw new Error('Missing Pancake POS shop_id. Select a shop first.');
 
@@ -1688,10 +1687,6 @@ async function collectPosData(db, payload = {}) {
     startDateTime: Number(payload.startDateTime ?? unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))),
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
   };
-
-  if (!payload.skip_save) {
-    await saveSetting(db, { ...setting, api_key: apiKey, page_id: shopId, base_url: baseUrl });
-  }
 
   const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
   const result = {
@@ -2011,8 +2006,8 @@ async function receiveWebhook(db, payload = {}) {
   }
 
   // Legacy: try to extract orders directly from payload (old/custom webhook formats)
-  const setting = await getSetting(db);
-  const shopId = stringOrNull(payload.shop_id || payload.shopId || payload.shop?.id || setting?.page_id);
+  const savedConnections = await getSavedConnections(db);
+  const shopId = stringOrNull(payload.shop_id || payload.shopId || payload.shop?.id || savedConnections[0]?.shop_id);
   const orders = extractWebhookOrders(payload);
   const localIds = [];
 

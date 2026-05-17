@@ -173,7 +173,9 @@ CREATE INDEX IF NOT EXISTS idx_scans_type ON scan_records(scan_type);
 
 CREATE TABLE IF NOT EXISTS integration_settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  provider TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL,
+  connection_id TEXT NOT NULL DEFAULT '',
+  name TEXT,
   enabled INTEGER NOT NULL DEFAULT 0,
   base_url TEXT,
   api_key TEXT,
@@ -184,7 +186,8 @@ CREATE TABLE IF NOT EXISTS integration_settings (
   sync_mode TEXT NOT NULL DEFAULT 'push_only',
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(provider, connection_id)
 );
 
 CREATE TABLE IF NOT EXISTS integration_sync_runs (
