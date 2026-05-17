@@ -471,10 +471,10 @@ async function upsertOrder(db, shopId, item) {
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
-      assigned_user_id, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
+      assigned_user_id, assigning_seller_name, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
       items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -493,6 +493,7 @@ async function upsertOrder(db, shopId, item) {
       attempts = excluded.attempts,
       tracking_no = COALESCE(excluded.tracking_no, pos_orders.tracking_no),
       assigned_user_id = excluded.assigned_user_id,
+      assigning_seller_name = excluded.assigning_seller_name,
       assigning_seller_json = excluded.assigning_seller_json,
       local_pos_user_id = excluded.local_pos_user_id,
       sprinter_name = COALESCE(excluded.sprinter_name, pos_orders.sprinter_name),
@@ -522,6 +523,7 @@ async function upsertOrder(db, shopId, item) {
     attempts,
     trackingNo || null,
     assignedUserId,
+    stringOrNull(assigningSeller?.name),
     assigningSeller ? JSON.stringify(assigningSeller) : null,
     localPosUserId,
     sprinterName,
