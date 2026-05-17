@@ -451,6 +451,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const pageName = connectionName || await findSavedConnectionName(db, resolvedShopId);
 
   const rawItems = item?.order_details || item?.items || [];
+  const noteProduct = stringOrNull(rawItems[0]?.note_product);
   const rawSeller = item?.assigning_seller
     || rawItems[0]?.assigning_seller
     || null;
@@ -474,10 +475,10 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
-      page_name, assigned_user_id, assigning_seller_name, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
+      note_product, page_name, assigned_user_id, assigning_seller_name, assigning_seller_json, local_pos_user_id, sprinter_name, sprinter_tel,
       items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -495,6 +496,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       note = excluded.note,
       attempts = excluded.attempts,
       tracking_no = COALESCE(excluded.tracking_no, pos_orders.tracking_no),
+      note_product = excluded.note_product,
       page_name = COALESCE(excluded.page_name, pos_orders.page_name),
       assigned_user_id = excluded.assigned_user_id,
       assigning_seller_name = excluded.assigning_seller_name,
@@ -526,6 +528,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     stringOrNull(item?.note),
     attempts,
     trackingNo || null,
+    noteProduct,
     pageName || null,
     assignedUserId,
     stringOrNull(assigningSeller?.name),

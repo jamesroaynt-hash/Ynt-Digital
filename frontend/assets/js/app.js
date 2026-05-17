@@ -331,15 +331,8 @@ async function refreshInventoryFromBackend() {
 async function refreshPosRawOrdersFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
-  const query = new URLSearchParams({
-    completeness: posRawCompletenessFilter,
-    tag: posRawTagFilter,
-    search: posRawSearch,
-    page: String(posRawPage),
-    per_page: '25',
-    _: String(Date.now()),
-  });
-  const result = await authorizedJsonRequest(`/orders/pos-raw?${query.toString()}`);
+  const query = new URLSearchParams({ page: String(posRawPage), per_page: '50', _: String(Date.now()) });
+  const result = await authorizedJsonRequest(`/orders/pos-orders?${query.toString()}`);
   DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
   DB.posRawTotal = Number(result?.total || 0);
   return true;
@@ -3992,7 +3985,7 @@ function renderViewRecords() {
 
   <div class="tabs" id="records-tabs">
     <button class="tab-btn active" onclick="switchTab(this,'rec-orders')">Orders (${DB.orders.length})</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-pos-raw'); renderPosRawOrdersTable();">POS Raw (${DB.posRawTotal})</button>
+    <button class="tab-btn" onclick="switchTab(this,'rec-pos-orders'); renderPosOrdersTable();">POS Orders (${DB.posRawTotal})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
@@ -4077,7 +4070,7 @@ function renderViewRecords() {
       </div>
       <div id="rec-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
       <table id="records-table">
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Confirmed By</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>POS Tags</th><th>Attempts</th><th>Qty</th><th>COD</th><th>Courier</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tags</th><th>Attempts</th><th>COD</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="rec-orders-tbody">
           ${DB.orders.map(o => `<tr data-status="${o.status}">
             <td class="font-mono text-xs text-muted">${o.id}</td>
@@ -4088,11 +4081,8 @@ function renderViewRecords() {
             <td class="font-mono text-xs">${escapeHtml(o.phone || '')}</td>
             <td>${escapeHtml(o.product || '')}</td>
             <td>${escapeHtml(o.tags || '')}</td>
-            <td>${(o.posTags || []).map(t => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('')}</td>
             <td>${o.attempts > 1 ? `<span class="badge badge-warning">${o.attempts}</span>` : o.attempts}</td>
-            <td>${o.qty}</td>
             <td>₱${o.cod.toLocaleString()}</td>
-            <td>${escapeHtml(o.courier || '')}</td>
             <td>${statusBadge(o.status)}</td>
             <td></td>
           </tr>`).join('')}
@@ -4102,48 +4092,15 @@ function renderViewRecords() {
     </div>
   </div>
 
-  <div id="rec-pos-raw" class="tab-content">
+  <div id="rec-pos-orders" class="tab-content">
     <div class="table-container">
-      <div class="records-filter-panel">
-        <div class="records-filter-row records-filter-primary">
-          <div class="records-filter-field">
-            <label class="records-filter-label" for="rec-pos-completeness">Data quality</label>
-            <select class="form-control records-product-filter" id="rec-pos-completeness" onchange="filterPosRawOrders()">
-              ${[
-                ['incomplete', 'Incomplete only'],
-                ['all', 'All POS orders'],
-                ['complete', 'Mapped to dashboard'],
-                ['missing_product', 'Missing product/items'],
-                ['missing_customer', 'Missing customer'],
-              ].map(([value, label]) => `<option value="${value}" ${posRawCompletenessFilter === value ? 'selected' : ''}>${label}</option>`).join('')}
-            </select>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label" for="rec-pos-tag">POS Tag</label>
-            <select class="form-control records-product-filter" id="rec-pos-tag" onchange="filterPosRawOrders()">
-              <option value="">All Tags</option>
-              ${[...posRawKnownTags].sort().map((tag) => `<option value="${escapeHtml(tag)}" ${posRawTagFilter === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="records-filter-field records-search-field">
-            <label class="records-filter-label" for="rec-pos-search">Search</label>
-            <input class="form-control" id="rec-pos-search" value="${escapeHtml(posRawSearch)}" placeholder="Customer, phone, POS id..." oninput="filterPosRawOrders()">
-          </div>
-        </div>
-      </div>
-      <div style="display:flex;justify-content:flex-end;padding:4px 0 8px;">
-        <button class="btn btn-danger btn-sm" onclick="deletePosRawNoContact()">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;"><path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>
-          Delete no phone &amp; no name
-        </button>
-      </div>
       <table>
-        <thead><tr><th>POS ID</th><th>Shop</th><th>Customer</th><th>Phone</th><th>Status</th><th>Tags</th><th>Items</th><th>COD</th><th>Updated</th><th>Quality</th></tr></thead>
-        <tbody id="rec-pos-raw-tbody">
-          <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading raw POS orders...</td></tr>
+        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tag</th><th>Attempts</th><th>COD</th><th>Assigned</th><th>Status</th><th>Rider</th><th>Rider Phone</th></tr></thead>
+        <tbody id="rec-pos-orders-tbody">
+          <tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
-      <div class="table-pagination" id="pos-raw-pagination"><span>Loading raw POS orders...</span></div>
+      <div class="table-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
     </div>
   </div>
 
@@ -5296,10 +5253,10 @@ function initPage(page) {
         showToast('warning', 'Orders refresh failed', error.message || 'Could not load saved orders.');
       });
     refreshPosRawOrdersFromBackend()
-      .then(renderPosRawOrdersTable)
+      .then(renderPosOrdersTable)
       .catch((error) => {
-        const tbody = document.getElementById('rec-pos-raw-tbody');
-        if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger)">Raw POS load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+        const tbody = document.getElementById('rec-pos-orders-tbody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
   }
 
@@ -5948,12 +5905,9 @@ let recordsDateTo = '';
 let recordsSourceFilter = 'all';
 let recordsYearFilter = 'all';
 let recordsMonthFilter = 'all';
-let posRawCompletenessFilter = 'incomplete';
-let posRawTagFilter = '';
 let posRawSearch = '';
 let recordsPosTagFilter = 'all';
 let recordsSummaryState = { total: 0, totalCod: 0, statusCounts: [], loading: false };
-const posRawKnownTags = new Set();
 let posRawPage = 1;
 let homeOrderFilter = 'all';
 let homeSourceFilter = 'all';
@@ -6853,86 +6807,67 @@ function changeRecordsPage(page) {
   renderViewRecordsOrdersTable();
 }
 
-function updatePosRawTagDropdown() {
-  const sel = document.getElementById('rec-pos-tag');
-  if (!sel) return;
-  const tags = [...posRawKnownTags].sort();
-  sel.innerHTML = `<option value="">All Tags</option>${tags.map((tag) => `<option value="${escapeHtml(tag)}" ${posRawTagFilter === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')}`;
-}
-
-function renderPosRawOrdersTable() {
-  const tbody = document.getElementById('rec-pos-raw-tbody');
+function renderPosOrdersTable() {
+  const tbody = document.getElementById('rec-pos-orders-tbody');
   if (!tbody) return;
 
+  const dash = '<span style="color:var(--text-muted)">—</span>';
   tbody.innerHTML = DB.posRawOrders.map((order) => {
-    const items = Array.isArray(order.items) ? order.items : [];
     const tags = Array.isArray(order.tags) ? order.tags : [];
-    tags.forEach((tag) => {
-      const label = typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || '');
-      if (label) posRawKnownTags.add(label);
-    });
-    const quality = order.complete
-      ? '<span class="badge badge-success">Mapped</span>'
-      : order.missing_product
-        ? '<span class="badge badge-warning">Missing product</span>'
-        : order.missing_customer
-          ? '<span class="badge badge-warning">Missing customer</span>'
-          : '<span class="badge badge-gray">Raw only</span>';
+    const tagLabels = tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean);
     const statusLabel = order.status_name
       ? escapeHtml(order.status_name.charAt(0).toUpperCase() + order.status_name.slice(1))
-      : '<span style="color:var(--text-muted)">—</span>';
-    const customerLabel = order.customer_name
-      ? `<span style="font-weight:500">${escapeHtml(order.customer_name)}</span>`
-      : '<span style="color:var(--text-muted)">—</span>';
-    const phoneLabel = order.customer_phone
-      ? `<span class="font-mono text-xs">${escapeHtml(order.customer_phone)}</span>`
-      : '<span style="color:var(--text-muted)">—</span>';
+      : dash;
     return `<tr>
       <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}</td>
-      <td>${escapeHtml(order.source_name || order.shop_id || '')}</td>
-      <td>${customerLabel}</td>
-      <td>${phoneLabel}</td>
+      <td class="font-mono text-xs">${escapeHtml(order.tracking_no || '') || dash}</td>
+      <td>${escapeHtml(order.page_name || '') || dash}</td>
+      <td>${escapeHtml(order.date || '')}</td>
+      <td style="font-weight:500">${escapeHtml(order.customer_name || '') || dash}</td>
+      <td class="font-mono text-xs">${escapeHtml(order.customer_phone || '') || dash}</td>
+      <td>${escapeHtml(order.note_product || '') || dash}</td>
+      <td>${tagLabels.map((t) => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('') || dash}</td>
+      <td>${order.attempts > 1 ? `<span class="badge badge-warning">${order.attempts}</span>` : (order.attempts || dash)}</td>
+      <td>₱${Number(order.cod || 0).toLocaleString()}</td>
+      <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
       <td>${statusLabel}</td>
-      <td>${tags.map((tag) => { const label = typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || tag?.id || ''); return label ? `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(label)}</span>` : ''; }).filter(Boolean).join('') || '<span style="color:var(--text-muted)">—</span>'}</td>
-      <td>${escapeHtml(items.map((item) => item?.name || item?.product_name || item?.variation_name || item?.variation_info?.name || '').filter(Boolean).slice(0, 2).join(', '))}</td>
-      <td>PHP ${Number(order.cod || order.cash || 0).toLocaleString()}</td>
-      <td>${escapeHtml((order.updated_at_remote || order.updated_at || '').slice(0, 10))}</td>
-      <td>${quality}</td>
+      <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
+      <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No raw POS orders match the selected filters.</td></tr>';
+  }).join('') || `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
-  const pagination = document.getElementById('pos-raw-pagination');
+  const pagination = document.getElementById('pos-orders-pagination');
   if (pagination) {
     const perPage = 25;
     const pages = Math.max(1, Math.ceil(DB.posRawTotal / perPage));
     const start = DB.posRawTotal ? ((posRawPage - 1) * perPage) + 1 : 0;
     const end = Math.min(posRawPage * perPage, DB.posRawTotal);
     pagination.innerHTML = `
-      <span>${start}-${end} of ${DB.posRawTotal} raw POS orders</span>
+      <span>${start}-${end} of ${DB.posRawTotal} POS orders</span>
       <div class="pagination-buttons">
         <button class="page-btn" onclick="changePosRawPage(${posRawPage - 1})" ${posRawPage <= 1 ? 'disabled' : ''}>‹</button>
         ${renderPaginationButtons(posRawPage, pages, 'changePosRawPage')}
         <button class="page-btn" onclick="changePosRawPage(${posRawPage + 1})" ${posRawPage >= pages ? 'disabled' : ''}>›</button>
       </div>`;
   }
-
-  updatePosRawTagDropdown();
 }
 
-function filterPosRawOrders() {
-  posRawCompletenessFilter = document.getElementById('rec-pos-completeness')?.value || 'incomplete';
-  posRawTagFilter = document.getElementById('rec-pos-tag')?.value || '';
+function renderPosRawOrdersTable() { renderPosOrdersTable(); }
+
+function filterPosOrders() {
   posRawSearch = document.getElementById('rec-pos-search')?.value || '';
   posRawPage = 1;
-  refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable).catch((error) => {
-    showToast('warning', 'Raw POS refresh failed', error.message || 'Could not load raw POS orders.');
+  refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((error) => {
+    showToast('warning', 'POS Orders refresh failed', error.message || 'Could not load POS orders.');
   });
 }
+
+function filterPosRawOrders() { filterPosOrders(); }
 
 async function deletePosRawNoContact() {
   if (!confirm('Delete all POS raw orders that have neither a phone number nor a customer name? This cannot be undone.')) return;
   try {
-    const result = await apiFetch('/api/orders/pos-raw/no-contact', { method: 'DELETE' });
+    const result = await apiFetch('/api/orders/pos-orders/no-contact', { method: 'DELETE' });
     showToast('success', 'Deleted', `Removed ${result.deleted || 0} anonymous POS raw orders.`);
     posRawPage = 1;
     refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable);
@@ -6945,8 +6880,8 @@ function changePosRawPage(page) {
   const pages = Math.max(1, Math.ceil(DB.posRawTotal / 25));
   if (page < 1 || page > pages) return;
   posRawPage = page;
-  refreshPosRawOrdersFromBackend().then(renderPosRawOrdersTable).catch((error) => {
-    showToast('warning', 'Raw POS refresh failed', error.message || 'Could not load raw POS orders.');
+  refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((error) => {
+    showToast('warning', 'POS Orders refresh failed', error.message || 'Could not load POS orders.');
   });
 }
 

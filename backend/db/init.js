@@ -206,6 +206,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'tags_json', 'TEXT');
   ensureColumn(db, 'pos_orders', 'attempts', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'tracking_no', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'note_product', 'TEXT');
   ensureColumn(db, 'pos_orders', 'sprinter_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'sprinter_tel', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_user_id', 'TEXT');
@@ -359,6 +360,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'tags_json', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'attempts', 'INTEGER');
   await ensureColumnAsync(db, 'pos_orders', 'tracking_no', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'note_product', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'sprinter_name', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'sprinter_tel', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_id', 'TEXT');
