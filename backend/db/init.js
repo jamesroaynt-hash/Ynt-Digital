@@ -120,6 +120,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'delivery_tel', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_user_name', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'local_pos_user_id', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'local_order_id', 'INTEGER');
   ensureOrderStatusConstraint(db);
   db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
@@ -269,6 +270,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'delivery_tel', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_name', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'local_pos_user_id', 'INTEGER');
   await ensureColumnAsync(db, 'pos_orders', 'local_order_id', 'INTEGER');
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");

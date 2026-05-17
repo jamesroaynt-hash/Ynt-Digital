@@ -468,13 +468,17 @@ async function upsertOrder(db, shopId, item) {
   const rawUser = getPosConfirmedBy(item);
   let assignedUserId = null;
   let assignedUserName = null;
+  let localPosUserId = null;
   if (rawUser) {
     if (UUID_RE.test(rawUser)) {
       assignedUserId = rawUser;
-      const posUser = await db.prepare('SELECT name FROM pos_users WHERE external_id = ? AND name IS NOT NULL LIMIT 1').get(rawUser);
+      const posUser = await db.prepare('SELECT id, name FROM pos_users WHERE external_id = ? LIMIT 1').get(rawUser);
       assignedUserName = posUser?.name || null;
+      localPosUserId = posUser?.id || null;
     } else {
       assignedUserName = rawUser;
+      const posUser = await db.prepare('SELECT id FROM pos_users WHERE username = ? OR name = ? LIMIT 1').get(rawUser, rawUser);
+      localPosUserId = posUser?.id || null;
     }
   }
 
@@ -482,9 +486,9 @@ async function upsertOrder(db, shopId, item) {
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no, delivery_name, delivery_tel,
-      assigned_user_id, assigned_user_name, items_json, tags_json, partner_json, shipping_address_json, raw_payload
+      assigned_user_id, assigned_user_name, local_pos_user_id, items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = excluded.inserted_at_remote,
@@ -506,6 +510,7 @@ async function upsertOrder(db, shopId, item) {
       delivery_tel = COALESCE(excluded.delivery_tel, pos_orders.delivery_tel),
       assigned_user_id = COALESCE(excluded.assigned_user_id, pos_orders.assigned_user_id),
       assigned_user_name = COALESCE(excluded.assigned_user_name, pos_orders.assigned_user_name),
+      local_pos_user_id = COALESCE(excluded.local_pos_user_id, pos_orders.local_pos_user_id),
       items_json = excluded.items_json,
       tags_json = excluded.tags_json,
       partner_json = excluded.partner_json,
@@ -534,6 +539,7 @@ async function upsertOrder(db, shopId, item) {
     deliveryTel,
     assignedUserId,
     assignedUserName,
+    localPosUserId,
     safeJson(item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(partner || null),
