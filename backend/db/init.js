@@ -314,6 +314,8 @@ function runMigrations(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  ensureColumn(db, 'google_orders', 'external_id', 'TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_google_orders_external_unique ON google_orders(external_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_tracking ON google_orders(tracking_no)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_sheet_day ON google_orders(source_sheet, day_created DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_updated ON google_orders(updated_at)');
@@ -499,6 +501,8 @@ async function runPostgresMigrations(db) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await ensureColumnAsync(db, 'google_orders', 'external_id', 'TEXT');
+  await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_google_orders_external_unique ON google_orders(external_id)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_tracking ON google_orders(tracking_no)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_sheet_day ON google_orders(source_sheet, day_created DESC)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_updated ON google_orders(updated_at)');
