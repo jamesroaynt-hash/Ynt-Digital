@@ -81,7 +81,7 @@ function publicConnection(connection) {
 }
 
 function shouldStoreRawPayloads() {
-  return process.env.POS_STORE_RAW_PAYLOADS === 'true';
+  return process.env.POS_STORE_RAW_PAYLOADS !== 'false';
 }
 
 function rawPayloadForStorage(value) {
@@ -1722,6 +1722,7 @@ async function collectPosData(db, payload = {}) {
       return Array.isArray(response?.data) ? response.data : [];
     },
     orders: async () => {
+      const orderExtraFields = ['return_rate', 'conversation_note'];
       // Fetch by creation date range (primary)
       const createdItems = await collectPagedItems(async (pageNumber) => {
         const response = await posRequest(baseUrl, `/shops/${shopId}/orders`, apiKey, {
@@ -1729,6 +1730,9 @@ async function collectPosData(db, payload = {}) {
           page_size: options.page_size,
           startDateTime: options.startDateTime,
           endDateTime: options.endDateTime,
+          include_removed: 1,
+          option_sort: 'inserted_at_desc',
+          'extra_fields[]': orderExtraFields,
         });
         return Array.isArray(response?.data) ? response.data : [];
       }, { startPage: options.page_number, pageSize: options.page_size });
@@ -1743,6 +1747,9 @@ async function collectPosData(db, payload = {}) {
             page_size: options.page_size,
             start_time_updated_at: updatedSince,
             end_time_updated_at: options.endDateTime,
+            include_removed: 1,
+            option_sort: 'updated_at_desc',
+            'extra_fields[]': orderExtraFields,
           });
           return Array.isArray(response?.data) ? response.data : [];
         }, { startPage: 1, pageSize: options.page_size });
