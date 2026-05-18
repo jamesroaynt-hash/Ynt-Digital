@@ -355,6 +355,27 @@ async function refreshPosRawOrdersFromBackend() {
   return true;
 }
 
+let posOrdersAutoRefreshTimer = null;
+const POS_ORDERS_AUTO_REFRESH_MS = 60 * 1000;
+const POS_ORDERS_LIVE_PAGES = ['home', 'sales', 'data-report', 'rts-rate', 'view-records'];
+
+function startPosOrdersAutoRefresh() {
+  if (posOrdersAutoRefreshTimer) return;
+  posOrdersAutoRefreshTimer = setInterval(() => {
+    if (!App.user || !getAuthToken()) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (!POS_ORDERS_LIVE_PAGES.includes(App.currentPage)) return;
+    refreshOrderViewsFromBackend().catch(() => {});
+  }, POS_ORDERS_AUTO_REFRESH_MS);
+}
+
+function stopPosOrdersAutoRefresh() {
+  if (posOrdersAutoRefreshTimer) {
+    clearInterval(posOrdersAutoRefreshTimer);
+    posOrdersAutoRefreshTimer = null;
+  }
+}
+
 async function refreshOrderViewsFromBackend() {
   try {
     await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard()]);
@@ -471,6 +492,7 @@ async function handleLogin(e) {
 }
 
 function handleLogout() {
+  stopPosOrdersAutoRefresh();
   localStorage.removeItem('ynt_user');
   localStorage.removeItem('ynt_token');
   App.user = null;
@@ -8532,6 +8554,8 @@ async function init() {
       loadPage(App.currentPage);
     }
   });
+
+  startPosOrdersAutoRefresh();
 }
 
 window.addEventListener('DOMContentLoaded', init);
