@@ -545,8 +545,8 @@ async function safeUpsertSourceLink(db, entityType, externalId, localTable, loca
 }
 
 async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetName, rowNumber) {
-  const externalId = stringOrNull(normalized.externalId);
-  if (!externalId) return null;
+  const trackingNo = stringOrNull(normalized.tracking_no);
+  if (!trackingNo) return null;
 
   const rawStatus = stringOrNull(getFirstValue(rawRow, [
     'status', 'status_name', 'status name', 'order_status', 'order status',
@@ -563,14 +563,13 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
 
   await db.prepare(`
     INSERT INTO google_orders (
-      external_id, tracking_no, customer_name, customer_phone, product_name,
+      tracking_no, customer_name, customer_phone, product_name,
       quantity, cod, status, status_normalized, courier, day_created, chat_page,
       confirmed_by, delivery_attempts, tag, pancake_tags,
       spreadsheet_id, source_sheet, sheet_row_number, raw_row, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(external_id) DO UPDATE SET
-      tracking_no = excluded.tracking_no,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(tracking_no) DO UPDATE SET
       customer_name = excluded.customer_name,
       customer_phone = excluded.customer_phone,
       product_name = excluded.product_name,
@@ -591,8 +590,7 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       raw_row = excluded.raw_row,
       updated_at = datetime('now')
   `).run(
-    externalId,
-    normalized.tracking_no,
+    trackingNo,
     normalized.customer,
     normalized.phone,
     normalized.product,
@@ -612,7 +610,7 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     rowNumber,
     safeJson(rawRow)
   );
-  return externalId;
+  return trackingNo;
 }
 
 async function upsertOrder(db, record) {
