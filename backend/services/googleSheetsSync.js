@@ -544,6 +544,77 @@ async function safeUpsertSourceLink(db, entityType, externalId, localTable, loca
   }
 }
 
+async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetName, rowNumber) {
+  const externalId = stringOrNull(normalized.externalId);
+  if (!externalId) return null;
+
+  const rawStatus = stringOrNull(getFirstValue(rawRow, [
+    'status', 'status_name', 'status name', 'order_status', 'order status',
+  ]));
+  const chatPage = stringOrNull(getFirstValue(rawRow, [
+    'chat_page', 'chat page', 'page', 'page_name', 'page name',
+    'account', 'account_name', 'shop', 'shop_name',
+    'fb_page', 'fb page', 'facebook_page', 'facebook page',
+  ]));
+  const tag = stringOrNull(getFirstValue(rawRow, ['tag', 'tags', 'label', 'labels']));
+  const pancakeTags = stringOrNull(getFirstValue(rawRow, [
+    'pancake_tags', 'pancake tags', 'pos_tags', 'pos tags',
+  ]));
+
+  await db.prepare(`
+    INSERT INTO google_orders (
+      external_id, tracking_no, customer_name, customer_phone, product_name,
+      quantity, cod, status, status_normalized, courier, day_created, chat_page,
+      confirmed_by, delivery_attempts, tag, pancake_tags,
+      spreadsheet_id, source_sheet, sheet_row_number, raw_row, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(external_id) DO UPDATE SET
+      tracking_no = excluded.tracking_no,
+      customer_name = excluded.customer_name,
+      customer_phone = excluded.customer_phone,
+      product_name = excluded.product_name,
+      quantity = excluded.quantity,
+      cod = excluded.cod,
+      status = excluded.status,
+      status_normalized = excluded.status_normalized,
+      courier = excluded.courier,
+      day_created = excluded.day_created,
+      chat_page = excluded.chat_page,
+      confirmed_by = COALESCE(excluded.confirmed_by, google_orders.confirmed_by),
+      delivery_attempts = excluded.delivery_attempts,
+      tag = excluded.tag,
+      pancake_tags = excluded.pancake_tags,
+      spreadsheet_id = excluded.spreadsheet_id,
+      source_sheet = excluded.source_sheet,
+      sheet_row_number = excluded.sheet_row_number,
+      raw_row = excluded.raw_row,
+      updated_at = datetime('now')
+  `).run(
+    externalId,
+    normalized.tracking_no,
+    normalized.customer,
+    normalized.phone,
+    normalized.product,
+    normalized.qty,
+    normalized.cod_amount,
+    rawStatus,
+    normalized.status,
+    normalized.courier,
+    normalized.order_date,
+    chatPage,
+    normalized.confirmed_by,
+    normalized.attempts,
+    tag,
+    pancakeTags,
+    spreadsheetId,
+    sheetName,
+    rowNumber,
+    safeJson(rawRow)
+  );
+  return externalId;
+}
+
 async function upsertOrder(db, record) {
   const existingByOrderRef = await db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(record.order_ref);
   if (existingByOrderRef) {
@@ -755,6 +826,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
         const row = records[index];
         try {
           const normalized = normalizeOrderRecord(row, sheetName);
+          await upsertGoogleOrder(db, normalized, row, spreadsheetId, sheetName, index + 2);
           const existing = await db.prepare(`
             SELECT id
             FROM orders
