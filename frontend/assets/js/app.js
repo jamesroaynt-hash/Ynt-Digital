@@ -369,7 +369,7 @@ async function refreshPosRawOrdersFromBackend() {
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
 const POS_ORDERS_AUTO_REFRESH_MS = 60 * 1000;
-const POS_ORDERS_LIVE_PAGES = ['home', 'sales', 'data-report', 'rts-rate', 'view-records'];
+const POS_ORDERS_LIVE_PAGES = ['home', 'sales', 'data-report', 'rts-rate', 'view-records', 'marketing-center'];
 
 function startPosOrdersAutoRefresh() {
   if (posOrdersAutoRefreshTimer) return;
@@ -410,6 +410,9 @@ async function refreshOrderViewsFromBackend() {
     }
     if (App.currentPage === 'home') {
       loadPage('home');
+    }
+    if (App.currentPage === 'marketing-center') {
+      loadPage('marketing-center');
     }
   } catch (error) {
     if (!App.user && /session expired/i.test(error.message || '')) return;
@@ -2952,17 +2955,29 @@ function renderMarketingCenter() {
     return true;
   });
   const totals = aggregateMarketing(entries);
-  // Gross sales KPI from DB delivered orders in date range (filtered by page if set)
-  const deliveredSales = (DB.orders || []).filter((o) => {
-    if (o.status !== 'Delivered') return false;
-    if (o.date < filterFrom || o.date > filterTo) return false;
+  // Gross sales (delivered) and RTS rate from pos_orders in date range
+  const posOrdersInRange = (DB.posOrders || []).filter((o) => {
+    const d = o.date || '';
+    if (d < filterFrom || d > filterTo) return false;
     if (filterPage) {
       const sheet = String(o.sourceSheet || '').toLowerCase();
       const pg = filterPage.toLowerCase();
       if (sheet !== pg && !sheet.includes(pg) && !pg.includes(sheet)) return false;
     }
     return true;
-  }).reduce((s, o) => s + Number(o.cod || 0), 0);
+  });
+  let deliveredSales = 0;
+  const posCounts = { delivered: 0, returned: 0, returning: 0 };
+  posOrdersInRange.forEach((o) => {
+    const key = getOrderStatusKey(o.status);
+    if (key === 'delivered') {
+      posCounts.delivered += 1;
+      deliveredSales += Number(o.cod || 0);
+    } else if (key === 'returned') posCounts.returned += 1;
+    else if (key === 'returning') posCounts.returning += 1;
+  });
+  const posRtsBase = posCounts.delivered + posCounts.returned + posCounts.returning;
+  const posRtsRate = posRtsBase ? (posCounts.returned + posCounts.returning) / posRtsBase : 0;
   const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
   const byDay = getMarketingDailyTotals(entries);
   const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
@@ -2999,7 +3014,7 @@ function renderMarketingCenter() {
         <input type="date" id="mkt-filter-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterTo}">
         <select id="mkt-filter-page" class="form-control" style="height:34px;font-size:13px;min-width:160px;">
           <option value="">All Pages</option>
-          ${state.pages.map((p) => `<option value="${escapeHtml(p.name)}"${filterPage === p.name ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          ${getPosSourceOptions().map((p) => `<option value="${escapeHtml(p)}"${filterPage === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
         </select>
         <button class="btn btn-primary btn-sm" onclick="applyMarketingFilter()">Apply</button>
         <button class="btn btn-secondary btn-sm" onclick="window.mktFilter=null;navigateTo('marketing-center')">Reset</button>
@@ -3012,7 +3027,7 @@ function renderMarketingCenter() {
     <div class="erp-kpi"><div class="erp-kpi-label">Gross Sales (Delivered)</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingMoney(deliveredSales)}</div><div class="erp-kpi-target">${Math.round(targetPct * 100)}% of monthly target</div></div>
     <div class="erp-kpi warn"><div class="erp-kpi-label">Ad Spend (Manual)</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingMoney(totals.spend)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
     <div class="erp-kpi ok"><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingRoas(totals.spend ? deliveredSales / totals.spend : 0)}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
-    <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingPct(totals.rtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
+    <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingPct(posRtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
   </div>
 
   <div class="tabs erp-tabs">
@@ -5220,6 +5235,9 @@ function initPage(page) {
 
   if (page === 'marketing-center') {
     syncMarketingPageMeta();
+    if (!DB.posOrders.length) {
+      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); }).catch(() => {});
+    }
   }
 
   if (page === 'csr') {
