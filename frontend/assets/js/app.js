@@ -2643,6 +2643,11 @@ function renderConfirmedByStatsTable(stats) {
 
 function upsertChart(existing, canvas, hasData, config) {
   if (!canvas || typeof Chart === 'undefined') return existing || null;
+  // Discard stale instance if the canvas was replaced by a page re-render
+  if (existing && (existing.canvas !== canvas || !canvas.isConnected)) {
+    try { existing.destroy(); } catch {}
+    existing = null;
+  }
   if (!hasData) {
     if (existing) existing.destroy();
     return null;
