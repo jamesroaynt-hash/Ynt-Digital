@@ -2221,7 +2221,7 @@ function renderSales() {
 }
 
 function renderRTSRate() {
-  const sourceOptions = getSourceSheetOptions();
+  const sourceOptions = getPosSourceOptions();
   return `
   <div class="rts-rate-page">
     <div class="page-header">
@@ -2267,7 +2267,7 @@ function getOrderStatusKey(status) {
 }
 
 function getFilteredRTSRateOrders() {
-  let data = [...DB.orders];
+  let data = [...DB.posOrders];
   const today = normalizeDateString(new Date());
 
   if (rtsRateFilter === 'weekly') {
@@ -2281,7 +2281,7 @@ function getFilteredRTSRateOrders() {
   }
 
   if (rtsRateSourceFilter !== 'all') {
-    data = data.filter((order) => (order.sourceSheet || 'Manual') === rtsRateSourceFilter);
+    data = data.filter((order) => (order.sourceSheet || 'POS') === rtsRateSourceFilter);
   }
 
   return data;
@@ -5157,6 +5157,9 @@ function initPage(page) {
     if (dateFromInput && !dateFromInput.value) dateFromInput.value = today;
     if (dateToInput && !dateToInput.value) dateToInput.value = today;
     renderRTSRateDashboard();
+    if (!DB.posOrders.length) {
+      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'rts-rate') renderRTSRateDashboard(); }).catch(() => {});
+    }
   }
 
   if (page === 'data-report') {
