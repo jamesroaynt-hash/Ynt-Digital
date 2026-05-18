@@ -80,11 +80,6 @@ const PANCAKE_POS_SYNC_PAGE_SIZE = Math.max(
   10,
   Math.min(100, Number(process.env.PANCAKE_POS_SYNC_PAGE_SIZE || 100))
 );
-const PANCAKE_POS_SYNC_MAX_PAGES = Math.max(
-  1,
-  Math.min(5000, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 2000))
-);
-const PANCAKE_POS_SYNC_FROM_DATE = process.env.PANCAKE_POS_SYNC_FROM_DATE || `${new Date().getFullYear()}-01-01`;
 
 // Shared security state
 const tokenBlocklist = new Map(); // jti -> expiresAt (ms)
@@ -349,10 +344,8 @@ async function createApp() {
 
   function getPancakePosSyncWindow() {
     return {
-      startDateTime: pancakePosSync.unixSecondsFromDate(PANCAKE_POS_SYNC_FROM_DATE),
       endDateTime: Math.floor(Date.now() / 1000),
       page_size: PANCAKE_POS_SYNC_PAGE_SIZE,
-      max_pages: PANCAKE_POS_SYNC_MAX_PAGES,
       resources: ['orders'],
       replay_stored_orders: true,
     };
@@ -411,7 +404,7 @@ async function createApp() {
       }
 
       const result = await pancakePosSync.collectPosData(db, trigger === 'manual'
-        ? { resources: ['orders'], max_pages: 200, replay_stored_orders: true }
+        ? { resources: ['orders'], replay_stored_orders: true }
         : getPancakePosSyncWindow());
       backupScheduler.schedule();
       const imported = Object.entries(result?.resources || {})
