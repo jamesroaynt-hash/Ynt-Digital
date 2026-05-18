@@ -827,12 +827,17 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
         try {
           const normalized = normalizeOrderRecord(row, sheetName);
           await upsertGoogleOrder(db, normalized, row, spreadsheetId, sheetName, index + 2);
-          const existing = await db.prepare(`
-            SELECT id
-            FROM orders
-            WHERE order_ref = ? OR (? IS NOT NULL AND tracking_no = ?)
-            LIMIT 1
-          `).get(normalized.order_ref, normalized.tracking_no, normalized.tracking_no);
+          const existing = normalized.tracking_no
+            ? await db.prepare(`
+                SELECT id FROM orders
+                WHERE order_ref = ? OR tracking_no = ?
+                LIMIT 1
+              `).get(normalized.order_ref, normalized.tracking_no)
+            : await db.prepare(`
+                SELECT id FROM orders
+                WHERE order_ref = ?
+                LIMIT 1
+              `).get(normalized.order_ref);
           const localId = await upsertOrder(db, normalized);
           if (existing?.id) {
             result.updated += 1;
