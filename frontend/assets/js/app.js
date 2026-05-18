@@ -332,7 +332,18 @@ async function loadPosOrdersDashboard() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
   const result = await authorizedJsonRequest(`/orders/pos-orders/dashboard?_=${Date.now()}`);
   DB.posOrders = Array.isArray(result?.data) ? result.data : [];
+  if (result?.version !== undefined) posOrdersLastVersion = result.version;
   return true;
+}
+
+async function fetchPosOrdersVersion() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return null;
+  try {
+    const result = await authorizedJsonRequest(`/orders/pos-orders/version?_=${Date.now()}`);
+    return result?.version ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function refreshPosRawOrdersFromBackend() {
@@ -356,15 +367,19 @@ async function refreshPosRawOrdersFromBackend() {
 }
 
 let posOrdersAutoRefreshTimer = null;
+let posOrdersLastVersion = null;
 const POS_ORDERS_AUTO_REFRESH_MS = 60 * 1000;
 const POS_ORDERS_LIVE_PAGES = ['home', 'sales', 'data-report', 'rts-rate', 'view-records'];
 
 function startPosOrdersAutoRefresh() {
   if (posOrdersAutoRefreshTimer) return;
-  posOrdersAutoRefreshTimer = setInterval(() => {
+  posOrdersAutoRefreshTimer = setInterval(async () => {
     if (!App.user || !getAuthToken()) return;
     if (typeof document !== 'undefined' && document.hidden) return;
     if (!POS_ORDERS_LIVE_PAGES.includes(App.currentPage)) return;
+    const version = await fetchPosOrdersVersion();
+    if (version === null) return;
+    if (version === posOrdersLastVersion) return;
     refreshOrderViewsFromBackend().catch(() => {});
   }, POS_ORDERS_AUTO_REFRESH_MS);
 }
@@ -2623,12 +2638,22 @@ function renderConfirmedByStatsTable(stats) {
     </table>`;
 }
 
+function upsertChart(existing, canvas, hasData, config) {
+  if (!canvas || typeof Chart === 'undefined') return existing || null;
+  if (!hasData) {
+    if (existing) existing.destroy();
+    return null;
+  }
+  if (!existing) return new Chart(canvas, config);
+  existing.data = config.data;
+  if (config.options) existing.options = config.options;
+  existing.update();
+  return existing;
+}
+
 function renderDataReportPriceChart(rows) {
   const canvas = document.getElementById('data-report-price-chart');
-  if (!canvas || typeof Chart === 'undefined') return;
-  if (dataReportPriceChart) dataReportPriceChart.destroy();
-
-  dataReportPriceChart = new Chart(canvas, {
+  dataReportPriceChart = upsertChart(dataReportPriceChart, canvas, rows.length > 0, {
     type: 'bar',
     data: {
       labels: rows.map((row) => row.label),
@@ -5969,8 +5994,7 @@ function renderHomeOrderCharts() {
     const donutEmpty = document.getElementById('home-donut-empty');
     if (donutEmpty) donutEmpty.classList.toggle('hidden', donutTotal > 0);
     donutCanvas.style.display = donutTotal > 0 ? '' : 'none';
-    if (homeDonutChart) homeDonutChart.destroy();
-    homeDonutChart = donutTotal > 0 ? new Chart(donutCanvas, {
+    homeDonutChart = upsertChart(homeDonutChart, donutCanvas, donutTotal > 0, {
       type: 'doughnut',
       data: {
         labels: Object.keys(statusCounts),
@@ -5986,7 +6010,7 @@ function renderHomeOrderCharts() {
         plugins: { legend: { position: 'right' } },
         cutout: '65%',
       }
-    }) : null;
+    });
   }
 
   const barCanvas = document.getElementById('home-rts-bar-chart');
@@ -5996,8 +6020,7 @@ function renderHomeOrderCharts() {
     const rtsEmpty = document.getElementById('home-rts-empty');
     if (rtsEmpty) rtsEmpty.classList.toggle('hidden', rtsTotal > 0);
     barCanvas.style.display = rtsTotal > 0 ? '' : 'none';
-    if (homeRtsBarChart) homeRtsBarChart.destroy();
-    homeRtsBarChart = rtsTotal > 0 ? new Chart(barCanvas, {
+    homeRtsBarChart = upsertChart(homeRtsBarChart, barCanvas, rtsTotal > 0, {
       type: 'bar',
       data: {
         labels: rts.labels,
@@ -6029,7 +6052,7 @@ function renderHomeOrderCharts() {
           x: { grid: { display: false } },
         }
       }
-    }) : null;
+    });
   }
 }
 

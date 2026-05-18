@@ -377,6 +377,19 @@ function ordersRoutes(db, { dispatch } = {}) {
     res.json({ total, total_cod, status_counts: rows });
   });
 
+  async function getPosOrdersVersion() {
+    const row = await db.prepare(`
+      SELECT MAX(updated_at) AS max_updated, COUNT(*) AS total
+      FROM pos_orders
+      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+    `).get();
+    return `${row?.max_updated || ''}:${row?.total || 0}`;
+  }
+
+  r.get('/pos-orders/version', async (req, res) => {
+    res.json({ version: await getPosOrdersVersion() });
+  });
+
   r.get('/pos-orders/dashboard', async (req, res) => {
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote,
@@ -396,6 +409,7 @@ function ordersRoutes(db, { dispatch } = {}) {
     };
 
     res.json({
+      version: await getPosOrdersVersion(),
       data: rows.map((row) => {
         const shipping = parseJsonObject(row.shipping_address_json, {});
         const province = readNamedValue(shipping, ['province', 'province_name', 'state', 'region', 'city', 'city_name']);
