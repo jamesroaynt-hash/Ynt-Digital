@@ -291,7 +291,8 @@ CREATE INDEX IF NOT EXISTS idx_pos_orders_shop ON pos_orders(shop_id, updated_at
 
 CREATE TABLE IF NOT EXISTS google_orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tracking_no TEXT UNIQUE,
+  external_id TEXT NOT NULL UNIQUE,
+  tracking_no TEXT,
   customer_name TEXT,
   customer_phone TEXT,
   product_name TEXT,
@@ -314,6 +315,7 @@ CREATE TABLE IF NOT EXISTS google_orders (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_google_orders_tracking ON google_orders(tracking_no);
 CREATE INDEX IF NOT EXISTS idx_google_orders_sheet_day ON google_orders(source_sheet, day_created DESC);
 CREATE INDEX IF NOT EXISTS idx_google_orders_updated ON google_orders(updated_at);
 CREATE INDEX IF NOT EXISTS idx_google_orders_status ON google_orders(status_normalized);
