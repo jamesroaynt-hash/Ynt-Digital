@@ -247,6 +247,16 @@ async function finishRun(db, runId, status, resultSummary, errorMessage) {
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
 }
 
+async function getLastSuccessfulSyncTime(db) {
+  const row = await db.prepare(`
+    SELECT finished_at FROM integration_sync_runs
+    WHERE provider = ? AND status IN ('success', 'partial')
+    ORDER BY finished_at DESC LIMIT 1
+  `).get(PROVIDER);
+  if (!row?.finished_at) return null;
+  return Math.floor(new Date(row.finished_at).getTime() / 1000);
+}
+
 async function upsertSourceLink(db, entityType, externalId, localTable, localId) {
   if (!externalId || !localId) return;
   await db.prepare(`
@@ -1588,7 +1598,7 @@ function collectSummaryPayload(resources, options) {
   };
 }
 
-async function collectPagedItems(fetchPage, { startPage = 1, pageSize = 100, maxPages = 50 } = {}) {
+async function collectPagedItems(fetchPage, { startPage = 1, pageSize = 100, maxPages = Infinity } = {}) {
   const allItems = [];
   for (let page = startPage; page < startPage + maxPages; page += 1) {
     const items = await fetchPage(page);
@@ -1679,12 +1689,14 @@ async function collectPosData(db, payload = {}) {
   if (!shopId) throw new Error('Missing Pancake POS shop_id. Select a shop first.');
 
   const resources = Array.isArray(payload.resources) && payload.resources.length ? payload.resources : DEFAULT_RESOURCES;
+  const lastSyncAt = await getLastSuccessfulSyncTime(db);
+  const defaultStart = lastSyncAt ?? unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
   const options = {
     shop_id: shopId,
     page_number: Math.max(1, Number(payload.page_number || 1)),
     page_size: Math.max(1, Math.min(100, Number(payload.page_size || 100))),
     page: Math.max(1, Number(payload.page || 1)),
-    startDateTime: Number(payload.startDateTime ?? unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))),
+    startDateTime: Number(payload.startDateTime ?? defaultStart),
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
   };
 
@@ -1719,11 +1731,10 @@ async function collectPosData(db, payload = {}) {
           endDateTime: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
+      }, { startPage: options.page_number, pageSize: options.page_size });
 
       // Also fetch by updated_at range to catch status changes on older orders
-      // Use last 90 days as the update window to catch recent status changes
-      const updatedSince = options.updatedSince || unixSecondsFromDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
+      const updatedSince = options.updatedSince || lastSyncAt || unixSecondsFromDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
       let updatedItems = [];
       try {
         updatedItems = await collectPagedItems(async (pageNumber) => {
@@ -1734,7 +1745,7 @@ async function collectPosData(db, payload = {}) {
             end_time_updated_at: options.endDateTime,
           });
           return Array.isArray(response?.data) ? response.data : [];
-        }, { startPage: 1, pageSize: options.page_size, maxPages: Math.min(50, Number(payload.max_pages || 200)) });
+        }, { startPage: 1, pageSize: options.page_size });
       } catch { /* API may not support updated_at filter — ignore */ }
 
       // Merge: deduplicate by external_id, prefer fresher record
@@ -1756,7 +1767,7 @@ async function collectPosData(db, payload = {}) {
           page_size: options.page_size,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
+      }, { startPage: options.page_number, pageSize: options.page_size });
     },
     customers: async () => {
       return collectPagedItems(async (pageNumber) => {
@@ -1767,7 +1778,7 @@ async function collectPosData(db, payload = {}) {
           end_time_updated_at: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
+      }, { startPage: options.page_number, pageSize: options.page_size });
     },
     users: async () => {
       const userMaxPages = Math.max(1, Math.min(10, Number(payload.user_max_pages || payload.userMaxPages || 5)));
@@ -1816,7 +1827,7 @@ async function collectPosData(db, payload = {}) {
           endDateTime: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
+      }, { startPage: options.page, pageSize: options.page_size });
     },
     inventory_histories: async () => {
       return collectPagedItems(async (page) => {
@@ -1827,7 +1838,7 @@ async function collectPosData(db, payload = {}) {
           endDate: options.endDateTime,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page, pageSize: options.page_size, maxPages: Number(payload.max_pages || 200) });
+      }, { startPage: options.page, pageSize: options.page_size });
     },
   };
 
