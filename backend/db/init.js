@@ -362,6 +362,21 @@ function runMigrations(db) {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id, created_at DESC)');
+  ensurePerformanceIndexes(db);
+}
+
+function ensurePerformanceIndexes(db) {
+  // Composite index that lets the orders→pos_orders join resolve without CAST.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_isl_orders_lookup
+    ON integration_source_links(local_table, entity_type, provider, local_id)`);
+  // Direct tracking lookups and case-insensitive scan lookups.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_tracking_no
+    ON orders(tracking_no) WHERE tracking_no IS NOT NULL`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_tracking_lower ON orders(LOWER(tracking_no))');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_scans_tracking_lower ON scan_records(LOWER(tracking_no))');
+  // Cover the common ORDER BY / status-filter access paths on orders.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_date_id ON orders(order_date DESC, id DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, order_date DESC)');
 }
 
 async function runPostgresMigrations(db) {
@@ -550,6 +565,18 @@ async function runPostgresMigrations(db) {
     )
   `);
   await db.exec('CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id, created_at DESC)');
+  await ensurePerformanceIndexesAsync(db);
+}
+
+async function ensurePerformanceIndexesAsync(db) {
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_isl_orders_lookup
+    ON integration_source_links(local_table, entity_type, provider, local_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_orders_tracking_no
+    ON orders(tracking_no) WHERE tracking_no IS NOT NULL`);
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_tracking_lower ON orders(LOWER(tracking_no))');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_scans_tracking_lower ON scan_records(LOWER(tracking_no))');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_date_id ON orders(order_date DESC, id DESC)');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, order_date DESC)');
 }
 
 function initializeDatabase(db) {

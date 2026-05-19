@@ -261,54 +261,82 @@ function ordersRoutes(db, { dispatch } = {}) {
 
   r.get('/', async (req, res) => {
     const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
-    let sql = `SELECT o.*, (
-      SELECT po.tags_json
-      FROM integration_source_links isl
-      JOIN pos_orders po ON po.external_id = isl.external_id
-      WHERE isl.provider = 'pancake_pos'
-        AND isl.entity_type = 'orders'
-        AND isl.local_table = 'orders'
-        AND CAST(isl.local_id AS INTEGER) = o.id
-      LIMIT 1
-    ) AS pos_tags_json, (
-      SELECT po.shipping_address_json
-      FROM integration_source_links isl
-      JOIN pos_orders po ON po.external_id = isl.external_id
-      WHERE isl.provider = 'pancake_pos'
-        AND isl.entity_type = 'orders'
-        AND isl.local_table = 'orders'
-        AND CAST(isl.local_id AS INTEGER) = o.id
-      LIMIT 1
-    ) AS pos_shipping_address_json, (
-      SELECT po.raw_payload
-      FROM integration_source_links isl
-      JOIN pos_orders po ON po.external_id = isl.external_id
-      WHERE isl.provider = 'pancake_pos'
-        AND isl.entity_type = 'orders'
-        AND isl.local_table = 'orders'
-        AND CAST(isl.local_id AS INTEGER) = o.id
-      LIMIT 1
-    ) AS pos_raw_payload
-    FROM orders o
-    WHERE 1=1`;
+    const perPage = Math.max(1, Math.min(100, parseInt(per_page) || 10));
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const offset  = (pageNum - 1) * perPage;
+
+    const where  = [];
     const params = [];
 
-    if (status && status !== 'All') { sql += ' AND status=?'; params.push(status); }
-    if (source_sheet && source_sheet !== 'all') { sql += ' AND COALESCE(source_sheet, "")=?'; params.push(source_sheet); }
-    if (month && month !== 'all') { sql += ` AND strftime('%m',order_date)=?`; params.push(String(month).padStart(2, '0')); }
-    if (year && year !== 'all') { sql += ` AND strftime('%Y',order_date)=?`; params.push(String(year)); }
-    if (search) { sql += ' AND (customer LIKE ? OR order_ref LIKE ? OR tracking_no LIKE ? OR courier LIKE ? OR source_sheet LIKE ? OR tags LIKE ?)'; const q=`%${search}%`; params.push(q,q,q,q,q,q); }
+    if (status && status !== 'All') { where.push('o.status = ?'); params.push(status); }
+    if (source_sheet && source_sheet !== 'all') {
+      where.push("(o.source_sheet = ? OR (o.source_sheet IS NULL AND ? = ''))");
+      params.push(source_sheet, source_sheet);
+    }
+    if (month && month !== 'all') {
+      const y = year && year !== 'all' ? Number(year) : new Date().getUTCFullYear();
+      const m = Math.max(1, Math.min(12, Number(month)));
+      const start = `${y}-${String(m).padStart(2,'0')}-01`;
+      const end   = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2,'0')}-01`;
+      where.push('o.order_date >= ? AND o.order_date < ?');
+      params.push(start, end);
+    } else if (year && year !== 'all') {
+      where.push('o.order_date >= ? AND o.order_date < ?');
+      params.push(`${year}-01-01`, `${Number(year) + 1}-01-01`);
+    }
+    if (filter === 'weekly') { where.push("o.order_date >= date('now','-7 days')"); }
+    if (filter === 'monthly') {
+      const now = new Date();
+      where.push('o.order_date >= ?');
+      params.push(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2,'0')}-01`);
+    }
+    if (filter === 'yearly') {
+      where.push('o.order_date >= ?');
+      params.push(`${new Date().getUTCFullYear()}-01-01`);
+    }
+    if (search) {
+      where.push(`(o.customer LIKE ? OR o.order_ref LIKE ? OR o.tracking_no LIKE ?
+                  OR o.courier LIKE ? OR o.source_sheet LIKE ? OR o.tags LIKE ?)`);
+      const q = `%${search}%`;
+      params.push(q, q, q, q, q, q);
+    }
 
-    if (filter === 'weekly')  { sql += ` AND order_date >= date('now','-7 days')`; }
-    if (filter === 'monthly') { sql += ` AND strftime('%Y-%m',order_date)=strftime('%Y-%m','now')`; }
-    if (filter === 'yearly')  { sql += ` AND strftime('%Y',order_date)=strftime('%Y','now')`; }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    const total = (await db.prepare(`SELECT COUNT(*) as c FROM orders WHERE 1=1${sql.slice(sql.indexOf('WHERE 1=1')+9)}`).get(...params)).c;
-    sql += ' ORDER BY order_date DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(per_page), (parseInt(page)-1)*parseInt(per_page));
+    // Cheap COUNT: no joins, no subqueries.
+    const total = (await db.prepare(
+      `SELECT COUNT(*) AS c FROM orders o ${whereSql}`
+    ).get(...params)).c;
 
-    const rows = await db.prepare(sql).all(...params);
-    res.json({ data: enrichOrderReportMeta(await normalizeOrderPageNames(rows)), total, page: parseInt(page), per_page: parseInt(per_page) });
+    // CAST is on the constant (per-row) side so isl.local_id stays bare and
+    // the idx_isl_orders_lookup composite index can resolve the join.
+    const rows = await db.prepare(`
+      SELECT
+        o.id, o.order_ref, o.tracking_no, o.customer, o.phone, o.product,
+        o.tags, o.qty, o.cod_amount, o.status, o.courier, o.source_sheet,
+        o.attempts, o.order_date, o.confirmed_by, o.created_by,
+        o.created_at, o.updated_at,
+        po.tags_json             AS pos_tags_json,
+        po.shipping_address_json AS pos_shipping_address_json,
+        po.raw_payload           AS pos_raw_payload
+      FROM orders o
+      LEFT JOIN integration_source_links isl
+        ON  isl.local_table = 'orders'
+        AND isl.entity_type = 'orders'
+        AND isl.provider    = 'pancake_pos'
+        AND isl.local_id    = CAST(o.id AS TEXT)
+      LEFT JOIN pos_orders po ON po.external_id = isl.external_id
+      ${whereSql}
+      ORDER BY o.order_date DESC, o.id DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, perPage, offset);
+
+    res.json({
+      data: enrichOrderReportMeta(await normalizeOrderPageNames(rows)),
+      total,
+      page: pageNum,
+      per_page: perPage,
+    });
   });
 
   r.get('/stats', async (req, res) => {
@@ -320,34 +348,42 @@ function ordersRoutes(db, { dispatch } = {}) {
 
   r.get('/summary', async (req, res) => {
     const { search, source_sheet, product, pos_tag, month, year, date_filter, date_from, date_to } = req.query;
+    const where  = [];
     const params = [];
-    let sql = `SELECT o.*, (
-      SELECT po.tags_json
-      FROM integration_source_links isl
-      JOIN pos_orders po ON po.external_id = isl.external_id
-      WHERE isl.provider = 'pancake_pos'
-        AND isl.entity_type = 'orders'
-        AND isl.local_table = 'orders'
-        AND CAST(isl.local_id AS INTEGER) = o.id
-      LIMIT 1
-    ) AS pos_tags_json
-    FROM orders o
-    WHERE 1=1`;
 
-    if (source_sheet && source_sheet !== 'all') { sql += ' AND COALESCE(o.source_sheet, "")=?'; params.push(source_sheet); }
-    if (product && product !== 'all') { sql += ' AND o.product=?'; params.push(product); }
-    if (month && month !== 'all') { sql += ` AND strftime('%m',order_date)=?`; params.push(String(month).padStart(2, '0')); }
-    if (year && year !== 'all') { sql += ` AND strftime('%Y',order_date)=?`; params.push(String(year)); }
-    if (date_filter === 'today') { sql += ` AND order_date = date('now')`; }
-    if (date_filter === 'yesterday') { sql += ` AND order_date = date('now','-1 day')`; }
-    if (date_filter === 'month') { sql += ` AND strftime('%Y-%m',order_date)=strftime('%Y-%m','now')`; }
-    if (date_filter === 'year') { sql += ` AND strftime('%Y',order_date)=strftime('%Y','now')`; }
+    if (source_sheet && source_sheet !== 'all') {
+      where.push("(o.source_sheet = ? OR (o.source_sheet IS NULL AND ? = ''))");
+      params.push(source_sheet, source_sheet);
+    }
+    if (product && product !== 'all') { where.push('o.product = ?'); params.push(product); }
+    if (month && month !== 'all') {
+      const y = year && year !== 'all' ? Number(year) : new Date().getUTCFullYear();
+      const m = Math.max(1, Math.min(12, Number(month)));
+      const start = `${y}-${String(m).padStart(2,'0')}-01`;
+      const end   = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2,'0')}-01`;
+      where.push('o.order_date >= ? AND o.order_date < ?');
+      params.push(start, end);
+    } else if (year && year !== 'all') {
+      where.push('o.order_date >= ? AND o.order_date < ?');
+      params.push(`${year}-01-01`, `${Number(year) + 1}-01-01`);
+    }
+    if (date_filter === 'today')     { where.push("o.order_date = date('now')"); }
+    if (date_filter === 'yesterday') { where.push("o.order_date = date('now','-1 day')"); }
+    if (date_filter === 'month') {
+      const now = new Date();
+      where.push('o.order_date >= ?');
+      params.push(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2,'0')}-01`);
+    }
+    if (date_filter === 'year') {
+      where.push('o.order_date >= ?');
+      params.push(`${new Date().getUTCFullYear()}-01-01`);
+    }
     if (date_filter === 'custom') {
-      if (date_from) { sql += ' AND order_date >= ?'; params.push(String(date_from).slice(0, 10)); }
-      if (date_to) { sql += ' AND order_date <= ?'; params.push(String(date_to).slice(0, 10)); }
+      if (date_from) { where.push('o.order_date >= ?'); params.push(String(date_from).slice(0, 10)); }
+      if (date_to)   { where.push('o.order_date <= ?'); params.push(String(date_to).slice(0, 10)); }
     }
     if (search) {
-      sql += ` AND (
+      where.push(`(
         LOWER(COALESCE(o.customer, '')) LIKE ?
         OR LOWER(COALESCE(o.order_ref, '')) LIKE ?
         OR LOWER(COALESCE(o.tracking_no, '')) LIKE ?
@@ -357,19 +393,35 @@ function ordersRoutes(db, { dispatch } = {}) {
         OR LOWER(COALESCE(o.source_sheet, '')) LIKE ?
         OR LOWER(COALESCE(o.tags, '')) LIKE ?
         OR LOWER(COALESCE(o.confirmed_by, '')) LIKE ?
-      )`;
+      )`);
       const q = `%${String(search).toLowerCase()}%`;
       params.push(q, q, q, q, q, q, q, q, q);
     }
+
+    // Only join into pos_orders when the pos_tag filter is actually used.
+    let join = '';
     if (pos_tag && pos_tag !== 'all') {
-      sql += ` AND LOWER(COALESCE(pos_tags_json, '')) LIKE ?`;
+      join = `
+        LEFT JOIN integration_source_links isl
+          ON  isl.local_table = 'orders'
+          AND isl.entity_type = 'orders'
+          AND isl.provider    = 'pancake_pos'
+          AND isl.local_id    = CAST(o.id AS TEXT)
+        LEFT JOIN pos_orders po ON po.external_id = isl.external_id`;
+      where.push("LOWER(COALESCE(po.tags_json, '')) LIKE ?");
       params.push(`%${String(pos_tag).toLowerCase()}%`);
     }
 
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
     const rows = await db.prepare(`
-      SELECT status, COUNT(*) AS count, SUM(cod_amount) AS total_cod
-      FROM (${sql}) filtered
-      GROUP BY status
+      SELECT o.status AS status,
+             COUNT(*) AS count,
+             COALESCE(SUM(o.cod_amount), 0) AS total_cod
+      FROM orders o
+      ${join}
+      ${whereSql}
+      GROUP BY o.status
       ORDER BY count DESC
     `).all(...params);
     const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
@@ -824,17 +876,26 @@ function scansRoutes(db) {
 
   r.get('/lookup/:tracking', async (req, res) => {
     const tracking = req.params.tracking.trim();
-    // First check scan records
-    let found = await db.prepare('SELECT * FROM scan_records WHERE LOWER(tracking_no)=LOWER(?) ORDER BY created_at DESC LIMIT 1').get(tracking);
-    if (!found) {
-      // Check orders
-      const order = await db.prepare('SELECT * FROM orders WHERE LOWER(tracking_no)=LOWER(?)').get(tracking);
-      if (order) {
-        found = { tracking_no: order.tracking_no, customer: order.customer, phone: order.phone, status: order.status, courier: order.courier, scan_date: order.order_date };
-      }
-    }
-    if (!found) return res.status(404).json({ error: 'Tracking number not found', tracking_no: tracking });
-    res.json(found);
+    if (!tracking) return res.status(400).json({ error: 'Tracking number required' });
+
+    // Both branches resolve via expression indexes on LOWER(tracking_no).
+    const found = await db.prepare(`
+      SELECT * FROM scan_records
+      WHERE LOWER(tracking_no) = LOWER(?)
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(tracking);
+    if (found) return res.json(found);
+
+    const order = await db.prepare(`
+      SELECT tracking_no, customer, phone, status, courier, order_date AS scan_date
+      FROM orders
+      WHERE LOWER(tracking_no) = LOWER(?)
+      LIMIT 1
+    `).get(tracking);
+    if (order) return res.json(order);
+
+    return res.status(404).json({ error: 'Tracking number not found', tracking_no: tracking });
   });
 
   r.post('/', async (req, res) => {
