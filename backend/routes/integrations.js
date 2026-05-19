@@ -156,7 +156,8 @@ module.exports = function integrationRoutes(db) {
 
       let where = 'WHERE 1=1';
       if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
-      if (status && status !== 'all') { where += ' AND (g.status_normalized = ? OR g.status = ?)'; params.push(status, status); }
+      // Filter on the raw status column (case-insensitive) so the dropdown matches what's in the sheet.
+      if (status && status !== 'all') { where += ' AND LOWER(TRIM(g.status)) = LOWER(?)'; params.push(status); }
       if (search) {
         where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ?)';
         const q = `%${search}%`;
@@ -179,7 +180,7 @@ module.exports = function integrationRoutes(db) {
                g.product_name  AS product,
                g.quantity      AS qty,
                g.cod           AS cod_amount,
-               COALESCE(g.status_normalized, g.status) AS status,
+               g.status        AS status,
                g.courier,
                g.source_sheet,
                g.confirmed_by,
