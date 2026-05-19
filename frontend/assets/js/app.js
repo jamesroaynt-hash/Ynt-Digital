@@ -1504,6 +1504,7 @@ function renderApiConnections() {
             <label class="form-label" style="font-size:12px;">Status</label>
             <select class="form-control" id="sheet-records-status-filter" onchange="loadSheetRecords(1)" style="height:34px;">
               <option value="all">All statuses</option>
+              <option value="New">New</option>
               <option value="Confirmed">Confirmed</option>
               <option value="Waiting for pickup">Waiting for pickup</option>
               <option value="Shipped">Shipped</option>
@@ -8168,13 +8169,27 @@ async function loadSheetRecords(page) {
     }
 
     const statusBadge = (s) => {
-      const map = { Delivered: 'badge-success', Returned: 'badge-danger', Returning: 'badge-warning', Canceled: 'badge-danger', Confirmed: 'badge-info' };
+      const map = {
+        New: 'badge-info',
+        Confirmed: 'badge-info',
+        'Waiting for pickup': 'badge-warning',
+        Shipped: 'badge-warning',
+        Delivered: 'badge-success',
+        Returning: 'badge-warning',
+        Returned: 'badge-danger',
+        Canceled: 'badge-danger',
+      };
       return `<span class="badge ${map[s] || 'badge-secondary'}">${escapeHtml(s || '-')}</span>`;
     };
+    const clip = (text, max = 60) => {
+      const t = String(text || '');
+      return t.length > max ? escapeHtml(t.slice(0, max - 1)) + '…' : escapeHtml(t);
+    };
+    const tdClip = 'style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"';
 
     tableEl.innerHTML = `
       <div style="overflow-x:auto;">
-        <table class="data-table" style="font-size:13px;">
+        <table class="data-table" style="font-size:13px;table-layout:auto;">
           <thead><tr>
             <th>Order ID</th><th>Customer</th><th>Product</th>
             <th>COD</th><th>Status</th><th>Courier</th>
@@ -8183,15 +8198,15 @@ async function loadSheetRecords(page) {
           </tr></thead>
           <tbody>
             ${data.records.map((r) => `<tr>
-              <td><span class="mono-text" style="font-size:12px;">${escapeHtml(r.order_ref || String(r.id))}</span></td>
-              <td>${escapeHtml(r.customer || '-')}</td>
-              <td>${escapeHtml(r.product || '-')}</td>
-              <td>${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
-              <td>${statusBadge(r.status)}</td>
-              <td>${escapeHtml(r.courier || '-')}</td>
-              <td>${escapeHtml(r.tag || '-')}</td>
-              <td>${escapeHtml(r.confirmed_by || '-')}</td>
-              <td><span class="badge badge-secondary" style="font-size:11px;">${escapeHtml(r.source_sheet || '-')}</span></td>
+              <td ${tdClip} title="${escapeHtml(r.order_ref || String(r.id))}"><span class="mono-text" style="font-size:12px;">${clip(r.order_ref || String(r.id), 24)}</span></td>
+              <td ${tdClip} title="${escapeHtml(r.customer || '')}">${clip(r.customer || '-', 32)}</td>
+              <td ${tdClip} title="${escapeHtml(r.product || '')}">${clip(r.product || '-', 40)}</td>
+              <td style="white-space:nowrap;">${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
+              <td style="white-space:nowrap;">${statusBadge(r.status)}</td>
+              <td ${tdClip} title="${escapeHtml(r.courier || '')}">${clip(r.courier || '-', 20)}</td>
+              <td ${tdClip} title="${escapeHtml(r.tag || '')}">${clip(r.tag || '-', 24)}</td>
+              <td ${tdClip} title="${escapeHtml(r.confirmed_by || '')}">${clip(r.confirmed_by || '-', 20)}</td>
+              <td style="white-space:nowrap;"><span class="badge badge-secondary" style="font-size:11px;">${clip(r.source_sheet || '-', 24)}</span></td>
               <td style="white-space:nowrap;">${escapeHtml((r.order_date || '').slice(0, 10))}</td>
               <td style="text-align:center;">${r.attempts || 1}</td>
             </tr>`).join('')}

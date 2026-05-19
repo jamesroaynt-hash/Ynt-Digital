@@ -318,6 +318,7 @@ CREATE TABLE IF NOT EXISTS google_orders (
 
 CREATE INDEX IF NOT EXISTS idx_google_orders_tracking ON google_orders(tracking_no);
 CREATE INDEX IF NOT EXISTS idx_google_orders_sheet_day ON google_orders(source_sheet, day_created DESC);
+CREATE INDEX IF NOT EXISTS idx_google_orders_day_id ON google_orders(day_created DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_google_orders_updated ON google_orders(updated_at);
 CREATE INDEX IF NOT EXISTS idx_google_orders_status ON google_orders(status_normalized);
 

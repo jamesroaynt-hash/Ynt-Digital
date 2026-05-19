@@ -193,14 +193,20 @@ module.exports = function integrationRoutes(db) {
         LIMIT ? OFFSET ?
       `).all(...params, perPage, offset);
 
-      // Distinct source_sheet values for the Page dropdown
-      const sheetNames = (await db.prepare(
-        `SELECT DISTINCT g.source_sheet ${baseFrom}
-         WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
-         ORDER BY g.source_sheet`
-      ).all()).map((r) => r.source_sheet);
+      // Only run the DISTINCT page query on the first page when no filters are active.
+      // The frontend caches dropdown options after the initial load, so we skip the scan otherwise.
+      const includeSheetNames = pageNum === 1 && !sheet && !status && !search;
+      const sheetNames = includeSheetNames
+        ? (await db.prepare(
+            `SELECT DISTINCT g.source_sheet ${baseFrom}
+             WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
+             ORDER BY g.source_sheet`
+          ).all()).map((r) => r.source_sheet)
+        : undefined;
 
-      res.json({ records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), sheet_names: sheetNames });
+      const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage) };
+      if (sheetNames) payload.sheet_names = sheetNames;
+      res.json(payload);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
