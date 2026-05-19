@@ -151,44 +151,53 @@ module.exports = function integrationRoutes(db) {
       const { sheet, status, search, page = 1, per_page = 50 } = req.query;
       const params = [];
 
-      // Base: only orders synced via Google Sheets (tracked in integration_source_links)
-      const baseJoin = `FROM orders o
-        INNER JOIN integration_source_links isl
-          ON isl.provider = 'google_sheets'
-         AND isl.local_table = 'orders'
-         AND o.id = CAST(isl.local_id AS INTEGER)`;
+      // Read directly from google_orders — show every synced row, no integration_source_links filter.
+      const baseFrom = 'FROM google_orders g';
 
       let where = 'WHERE 1=1';
-      if (sheet && sheet !== 'all') { where += ' AND o.source_sheet = ?'; params.push(sheet); }
-      if (status && status !== 'all') { where += ' AND o.status = ?'; params.push(status); }
+      if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
+      if (status && status !== 'all') { where += ' AND (g.status_normalized = ? OR g.status = ?)'; params.push(status, status); }
       if (search) {
-        where += ' AND (o.order_ref LIKE ? OR o.customer LIKE ? OR o.tracking_no LIKE ? OR o.source_sheet LIKE ?)';
+        where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ?)';
         const q = `%${search}%`;
-        params.push(q, q, q, q);
+        params.push(q, q, q, q, q);
       }
 
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
-      const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseJoin} ${where}`).get(...params);
+      const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
       const total = countRow?.total || 0;
 
       const records = await db.prepare(`
-        SELECT o.id, o.order_ref, o.tracking_no, o.customer, o.phone,
-               o.product, o.qty, o.cod_amount, o.status, o.courier,
-               o.source_sheet, o.confirmed_by, o.attempts, o.tags,
-               o.order_date, o.updated_at
-        ${baseJoin} ${where}
-        ORDER BY o.order_date DESC, o.id DESC
+        SELECT g.id,
+               g.external_id   AS order_ref,
+               g.tracking_no,
+               g.customer_name AS customer,
+               g.customer_phone AS phone,
+               g.product_name  AS product,
+               g.quantity      AS qty,
+               g.cod           AS cod_amount,
+               COALESCE(g.status_normalized, g.status) AS status,
+               g.courier,
+               g.source_sheet,
+               g.confirmed_by,
+               g.delivery_attempts AS attempts,
+               g.tag,
+               g.pancake_tags,
+               g.day_created   AS order_date,
+               g.updated_at
+        ${baseFrom} ${where}
+        ORDER BY g.day_created DESC, g.id DESC
         LIMIT ? OFFSET ?
       `).all(...params, perPage, offset);
 
-      // Distinct source_sheet values from Google Sheets records (for dropdown)
+      // Distinct source_sheet values for the Page dropdown
       const sheetNames = (await db.prepare(
-        `SELECT DISTINCT o.source_sheet ${baseJoin}
-         WHERE o.source_sheet IS NOT NULL AND TRIM(o.source_sheet) != ''
-         ORDER BY o.source_sheet`
+        `SELECT DISTINCT g.source_sheet ${baseFrom}
+         WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
+         ORDER BY g.source_sheet`
       ).all()).map((r) => r.source_sheet);
 
       res.json({ records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), sheet_names: sheetNames });
@@ -204,13 +213,8 @@ module.exports = function integrationRoutes(db) {
         return res.status(400).json({ error: 'old_name and new_name are required and must differ.' });
       }
       const result = await db.prepare(
-        `UPDATE orders SET source_sheet = ?, updated_at = datetime('now')
-         WHERE source_sheet = ?
-           AND id IN (
-             SELECT CAST(isl.local_id AS INTEGER)
-             FROM integration_source_links isl
-             WHERE isl.provider = 'google_sheets' AND isl.local_table = 'orders'
-           )`
+        `UPDATE google_orders SET source_sheet = ?, updated_at = datetime('now')
+         WHERE source_sheet = ?`
       ).run(new_name.trim(), old_name.trim());
       res.json({ updated: result.changes, old_name, new_name: new_name.trim() });
     } catch (error) {

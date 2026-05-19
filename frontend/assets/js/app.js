@@ -1492,12 +1492,12 @@ function renderApiConnections() {
       <div class="card-body">
         <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; align-items:flex-end;">
           <div class="form-group" style="margin:0; min-width:160px;">
-            <label class="form-label" style="font-size:12px;">Sheet Tab</label>
+            <label class="form-label" style="font-size:12px;">Page</label>
             <div style="display:flex; gap:6px; align-items:center;">
               <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-                <option value="all">All sheets</option>
+                <option value="all">All pages</option>
               </select>
-              <button class="btn btn-secondary" title="Rename selected source" onclick="showRenameSourceModal()" style="height:34px; padding:0 10px; flex-shrink:0;">✎</button>
+              <button class="btn btn-secondary" title="Rename selected page" onclick="showRenameSourceModal()" style="height:34px; padding:0 10px; flex-shrink:0;">✎</button>
             </div>
           </div>
           <div class="form-group" style="margin:0; min-width:140px;">
@@ -1505,9 +1505,11 @@ function renderApiConnections() {
             <select class="form-control" id="sheet-records-status-filter" onchange="loadSheetRecords(1)" style="height:34px;">
               <option value="all">All statuses</option>
               <option value="Confirmed">Confirmed</option>
+              <option value="Waiting for pickup">Waiting for pickup</option>
+              <option value="Shipped">Shipped</option>
               <option value="Delivered">Delivered</option>
-              <option value="Returned">Returned</option>
               <option value="Returning">Returning</option>
+              <option value="Returned">Returned</option>
               <option value="Canceled">Canceled</option>
             </select>
           </div>
@@ -8073,7 +8075,7 @@ function showRenameSourceModal() {
   const sel = document.getElementById('sheet-records-sheet-filter');
   const current = sel?.value;
   if (!current || current === 'all') {
-    showToast('warning', 'Select a source first', 'Choose a specific Sheet Tab from the dropdown before renaming.');
+    showToast('warning', 'Select a page first', 'Choose a specific Page from the dropdown before renaming.');
     return;
   }
 
@@ -8084,7 +8086,7 @@ function showRenameSourceModal() {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = `
     <div style="background:var(--bg-card);border-radius:12px;padding:28px 32px;min-width:360px;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-      <div style="font-size:16px;font-weight:600;margin-bottom:18px;">Rename Source Sheet</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:18px;">Rename Page</div>
       <div class="form-group" style="margin-bottom:14px;">
         <label class="form-label">Current name</label>
         <input class="form-control" id="rename-src-old" value="${escapeHtml(current)}" readonly style="opacity:0.6;">
@@ -8176,7 +8178,8 @@ async function loadSheetRecords(page) {
           <thead><tr>
             <th>Order ID</th><th>Customer</th><th>Product</th>
             <th>COD</th><th>Status</th><th>Courier</th>
-            <th>Confirmed By</th><th>Sheet Tab</th><th>Date</th><th>Attempts</th>
+            <th>Tag</th>
+            <th>Confirmed By</th><th>Page</th><th>Date</th><th>Attempts</th>
           </tr></thead>
           <tbody>
             ${data.records.map((r) => `<tr>
@@ -8186,6 +8189,7 @@ async function loadSheetRecords(page) {
               <td>${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
               <td>${statusBadge(r.status)}</td>
               <td>${escapeHtml(r.courier || '-')}</td>
+              <td>${escapeHtml(r.tag || '-')}</td>
               <td>${escapeHtml(r.confirmed_by || '-')}</td>
               <td><span class="badge badge-secondary" style="font-size:11px;">${escapeHtml(r.source_sheet || '-')}</span></td>
               <td style="white-space:nowrap;">${escapeHtml((r.order_date || '').slice(0, 10))}</td>
