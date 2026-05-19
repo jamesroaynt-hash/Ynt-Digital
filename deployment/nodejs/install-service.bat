@@ -60,6 +60,14 @@ echo   working dir: %BACKEND_DIR%
 echo   logs:        %LOG_DIR%
 echo.
 
+REM --- remove any prior install so this script is idempotent -------
+sc query %SERVICE_NAME% >nul 2>&1
+if not errorlevel 1 (
+  echo Existing service "%SERVICE_NAME%" found - removing before reinstall.
+  "%NSSM%" stop %SERVICE_NAME% >nul 2>&1
+  "%NSSM%" remove %SERVICE_NAME% confirm >nul 2>&1
+)
+
 REM --- install service ---------------------------------------------
 "%NSSM%" install %SERVICE_NAME% "%NODE_EXE%" "--experimental-sqlite" "%SERVER_JS%"
 if errorlevel 1 ( echo [error] nssm install failed. & pause & exit /b 1 )
