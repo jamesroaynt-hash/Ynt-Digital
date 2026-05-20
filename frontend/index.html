@@ -209,7 +209,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="user-chip">
+        <div class="user-chip" role="button" tabindex="0" title="Open my profile" style="cursor:pointer;" onclick="navigateTo('profile')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();navigateTo('profile');}">
           <div class="user-avatar" id="sidebar-user-initials">AU</div>
           <div class="user-info">
             <div class="name" id="sidebar-user-name">Admin User</div>

@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections'],
-  HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'data-report', 'view-records'],
-  Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records'],
-  CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users'],
-  'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users'],
-  RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
-  'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
-  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -113,6 +113,7 @@ function loadPage(page) {
     'damage-sheets': renderDamageSheets,
     'manage-users': renderManageUsers,
     'api-connections': renderApiConnections,
+    profile: renderProfilePage,
   };
 
   const fn = renderFns[page];
@@ -141,6 +142,7 @@ const pageNames = {
   'damage-sheets': 'Damage Reports',
   'manage-users': 'Users',
   'api-connections': 'Integrations',
+  profile: 'My Profile',
 };
 
 // ─── AUTH ──────────────────────────────────────────────────
@@ -2031,18 +2033,24 @@ function renderAttendance() {
   </div>`;
 }
 
-function renderManageUsers() {
-  const ownAccountSection = renderOwnAccountSection();
-  if (!isAdminUser()) {
-    return `
+function renderProfilePage() {
+  return `
     <div class="page-header">
       <div class="page-title">
-        <h1>Account</h1>
-        <p>View and update your own account details.</p>
+        <h1>My Profile</h1>
+        <p>Update your own account details and password.</p>
       </div>
     </div>
-    ${ownAccountSection}`;
+    ${renderOwnAccountSection()}`;
+}
+
+function renderManageUsers() {
+  if (!isAdminUser()) {
+    // Non-admin landed here via a stale link/bookmark — send them to the dedicated profile page.
+    setTimeout(() => navigateTo('profile'), 0);
+    return '';
   }
+  const ownAccountSection = renderOwnAccountSection();
 
   return `
   <div class="page-header">
@@ -5795,7 +5803,7 @@ async function handleOwnAccountSave(event) {
       getAuthToken(),
     );
     showToast('success', 'Account updated', 'Your account details were updated.');
-    loadPage('manage-users');
+    loadPage(isAdminUser() ? 'manage-users' : 'profile');
   } catch (error) {
     showToast('error', 'Update failed', error.message || 'Could not update your account.');
   }
