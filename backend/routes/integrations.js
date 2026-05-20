@@ -31,6 +31,47 @@ module.exports = function integrationRoutes(db) {
       || req.query.secret === expected;
   }
 
+  // Read-only report — available to any authenticated user, not just Administrators.
+  router.get('/pancake-pos/staff-stats', async (req, res) => {
+    try {
+      const { from, to, source } = req.query;
+      const params = [];
+
+      let onFilter = '';
+      if (from) { onFilter += ' AND DATE(po.inserted_at_remote) >= ?'; params.push(from); }
+      if (to)   { onFilter += ' AND DATE(po.inserted_at_remote) <= ?'; params.push(to); }
+      if (source && source !== 'all') { onFilter += ' AND po.page_name = ?'; params.push(source); }
+
+      const stats = await db.prepare(`
+        SELECT
+          COALESCE(NULLIF(TRIM(pu.name), ''), pu.username, pu.email, '—') AS staff_name,
+          COUNT(po.id) AS total,
+          SUM(CASE WHEN po.status_name = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN po.status_name IN ('returned','returning') THEN 1 ELSE 0 END) AS returned,
+          SUM(CASE WHEN po.status_name IN ('canceled','removed') THEN 1 ELSE 0 END) AS canceled,
+          SUM(CASE WHEN po.id IS NOT NULL AND po.status_name NOT IN ('delivered','returned','returning','canceled','removed') THEN 1 ELSE 0 END) AS active,
+          ROUND(100.0 * SUM(CASE WHEN po.status_name IN ('returned','returning') THEN 1 ELSE 0 END)
+            / NULLIF(SUM(CASE WHEN po.status_name IN ('delivered','returned','returning') THEN 1 ELSE 0 END),0), 1) AS rts_rate
+        FROM pos_users pu
+        LEFT JOIN pos_orders po
+          ON po.assigned_user_id = pu.external_id${onFilter}
+        WHERE pu.is_active = 1
+        GROUP BY pu.id, pu.name, pu.username, pu.email
+        ORDER BY total DESC, staff_name
+      `).all(...params);
+
+      const sources = await db.prepare(
+        `SELECT DISTINCT page_name FROM pos_orders
+         WHERE page_name IS NOT NULL AND TRIM(page_name) != ''
+         ORDER BY page_name`
+      ).all();
+
+      res.json({ stats, sources: sources.map((s) => s.page_name) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
 
   router.get('/pancake-pos/status', async (req, res) => {
@@ -105,47 +146,6 @@ module.exports = function integrationRoutes(db) {
     try {
       const result = await posSync.syncPancakePageUsers(db);
       res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.get('/pancake-pos/staff-stats', async (req, res) => {
-    try {
-      const { from, to, source } = req.query;
-      const params = [];
-
-      // Filters live on the JOIN so users with zero matching orders still appear with 0s.
-      let onFilter = '';
-      if (from) { onFilter += ' AND DATE(po.inserted_at_remote) >= ?'; params.push(from); }
-      if (to)   { onFilter += ' AND DATE(po.inserted_at_remote) <= ?'; params.push(to); }
-      if (source && source !== 'all') { onFilter += ' AND po.page_name = ?'; params.push(source); }
-
-      const stats = await db.prepare(`
-        SELECT
-          COALESCE(NULLIF(TRIM(pu.name), ''), pu.username, pu.email, '—') AS staff_name,
-          COUNT(po.id) AS total,
-          SUM(CASE WHEN po.status_name = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-          SUM(CASE WHEN po.status_name IN ('returned','returning') THEN 1 ELSE 0 END) AS returned,
-          SUM(CASE WHEN po.status_name IN ('canceled','removed') THEN 1 ELSE 0 END) AS canceled,
-          SUM(CASE WHEN po.id IS NOT NULL AND po.status_name NOT IN ('delivered','returned','returning','canceled','removed') THEN 1 ELSE 0 END) AS active,
-          ROUND(100.0 * SUM(CASE WHEN po.status_name IN ('returned','returning') THEN 1 ELSE 0 END)
-            / NULLIF(SUM(CASE WHEN po.status_name IN ('delivered','returned','returning') THEN 1 ELSE 0 END),0), 1) AS rts_rate
-        FROM pos_users pu
-        LEFT JOIN pos_orders po
-          ON po.assigned_user_id = pu.external_id${onFilter}
-        WHERE pu.is_active = 1
-        GROUP BY pu.id, pu.name, pu.username, pu.email
-        ORDER BY total DESC, staff_name
-      `).all(...params);
-
-      const sources = await db.prepare(
-        `SELECT DISTINCT page_name FROM pos_orders
-         WHERE page_name IS NOT NULL AND TRIM(page_name) != ''
-         ORDER BY page_name`
-      ).all();
-
-      res.json({ stats, sources: sources.map((s) => s.page_name) });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
