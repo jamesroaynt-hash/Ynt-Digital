@@ -2614,7 +2614,7 @@ async function loadConfirmedByStats() {
 
 function renderConfirmedByStatsTable(stats) {
   if (!stats.length) {
-    return `<div class="empty-state" style="padding:24px 0;"><h3>No data</h3><p>No orders with assigned seller data found. Sync Pancake POS orders first.</p></div>`;
+    return `<div class="empty-state" style="padding:24px 0;"><h3>No staff yet</h3><p>Click "Sync Staff Users" on the Pancake POS integration page to populate this list.</p></div>`;
   }
   return `
     <table class="data-report-table">
