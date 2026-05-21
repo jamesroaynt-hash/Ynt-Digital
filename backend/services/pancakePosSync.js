@@ -485,7 +485,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
-      inserted_at_remote = excluded.inserted_at_remote,
+      inserted_at_remote = COALESCE(pos_orders.inserted_at_remote, excluded.inserted_at_remote),
       updated_at_remote = excluded.updated_at_remote,
       status = excluded.status,
       status_name = COALESCE(excluded.status_name, pos_orders.status_name),
@@ -515,8 +515,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   `).run(
     externalId,
     stringOrNull(shopId || item?.shop_id),
-    stringOrNull(item?.inserted_at),
-    stringOrNull(item?.updated_at),
+    normalizePosTimestamp(item?.inserted_at),
+    normalizePosTimestamp(item?.updated_at),
     numberOrNull(item?.status),
     stringOrNull(item?.status_name || item?.status_text),
     customerName,
@@ -742,6 +742,17 @@ function normalizeDateString(value) {
   const parsed = value ? new Date(value) : new Date();
   if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
   return parsed.toISOString().slice(0, 10);
+}
+
+// Converts a POS timestamp (ISO string or Unix ms/s integer) to "YYYY-MM-DD HH:MM:SS" for storage.
+function normalizePosTimestamp(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  if (!Number.isNaN(num) && num > 1_000_000_000) {
+    const ms = num > 9_999_999_999 ? num : num * 1000;
+    return new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+  }
+  return String(value).trim() || null;
 }
 
 function getPartnerShipmentStatus(partner = {}) {
