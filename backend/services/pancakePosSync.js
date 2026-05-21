@@ -442,10 +442,18 @@ async function upsertWarehouse(db, shopId, item) {
   return externalId;
 }
 
+const PANCAKE_STATUS_NAME = {
+  0: 'new', 1: 'submitted', 2: 'shipped', 3: 'delivered',
+  4: 'returning', 5: 'returned', 6: 'canceled', 7: 'removed',
+  9: 'pending', 12: 'wait_print',
+};
+
 async function upsertOrder(db, shopId, item, connectionName = null) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
-  const statusName = stringOrNull(item?.status_name || item?.status_text);
+  const statusNum = numberOrNull(item?.status);
+  const statusName = stringOrNull(item?.status_name || item?.status_text)
+    || (statusNum !== null ? (PANCAKE_STATUS_NAME[statusNum] ?? null) : null);
   if (!statusName) return null;
   const customerName = getPosCustomerName(item, item?.shipping_address || {});
   const customerPhone = getPosCustomerPhone(item, item?.shipping_address || {});

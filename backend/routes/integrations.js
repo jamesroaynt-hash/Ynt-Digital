@@ -153,16 +153,16 @@ module.exports = function integrationRoutes(db) {
 
   router.get('/google-sheets/records', async (req, res) => {
     try {
-      const { sheet, status, search, page = 1, per_page = 50 } = req.query;
+      const { sheet, status, search, date_from, date_to, page = 1, per_page = 50 } = req.query;
       const params = [];
 
-      // Read directly from google_orders — show every synced row, no integration_source_links filter.
       const baseFrom = 'FROM google_orders g';
 
       let where = 'WHERE 1=1';
       if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
-      // Filter on the raw status column (case-insensitive) so the dropdown matches what's in the sheet.
       if (status && status !== 'all') { where += ' AND LOWER(TRIM(g.status)) = LOWER(?)'; params.push(status); }
+      if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
+      if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
       if (search) {
         where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ?)';
         const q = `%${search}%`;
@@ -199,9 +199,30 @@ module.exports = function integrationRoutes(db) {
         LIMIT ? OFFSET ?
       `).all(...params, perPage, offset);
 
-      // Only run the DISTINCT page query on the first page when no filters are active.
-      // The frontend caches dropdown options after the initial load, so we skip the scan otherwise.
-      const includeSheetNames = pageNum === 1 && !sheet && !status && !search;
+      // Status counts using same filters except status itself
+      const countParams = params.filter((_, i) => {
+        // Rebuild params without the status param — status is the 2nd condition if set
+        return true; // we rebuild separately below
+      });
+      const whereForCounts = (() => {
+        const cp = [];
+        let w = 'WHERE 1=1';
+        if (sheet && sheet !== 'all') { w += ' AND g.source_sheet = ?'; cp.push(sheet); }
+        if (date_from) { w += ' AND g.day_created >= ?'; cp.push(date_from); }
+        if (date_to)   { w += ' AND g.day_created <= ?'; cp.push(date_to); }
+        if (search) {
+          w += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ?)';
+          const q = `%${search}%`;
+          cp.push(q, q, q, q, q);
+        }
+        return { where: w, params: cp };
+      })();
+      const statusCounts = await db.prepare(
+        `SELECT TRIM(g.status) AS status, COUNT(*) AS count ${baseFrom} ${whereForCounts.where}
+         GROUP BY TRIM(g.status) ORDER BY count DESC`
+      ).all(...whereForCounts.params);
+
+      const includeSheetNames = pageNum === 1 && !sheet && !status && !search && !date_from && !date_to;
       const sheetNames = includeSheetNames
         ? (await db.prepare(
             `SELECT DISTINCT g.source_sheet ${baseFrom}
@@ -210,7 +231,7 @@ module.exports = function integrationRoutes(db) {
           ).all()).map((r) => r.source_sheet)
         : undefined;
 
-      const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage) };
+      const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), status_counts: statusCounts };
       if (sheetNames) payload.sheet_names = sheetNames;
       res.json(payload);
     } catch (error) {

@@ -1492,7 +1492,7 @@ function renderApiConnections() {
         <button class="btn btn-secondary" onclick="loadSheetRecords()">Refresh</button>
       </div>
       <div class="card-body">
-        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; align-items:flex-end;">
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
           <div class="form-group" style="margin:0; min-width:160px;">
             <label class="form-label" style="font-size:12px;">Page</label>
             <div style="display:flex; gap:6px; align-items:center;">
@@ -1521,6 +1521,27 @@ function renderApiConnections() {
             <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, tracking..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
           </div>
         </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" style="font-size:12px;">Date</label>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <div id="sheet-date-presets" style="display:flex; gap:4px; flex-wrap:wrap;">
+                <button class="btn btn-secondary sheet-date-preset active" data-preset="all" onclick="setSheetDatePreset('all')" style="height:30px;font-size:12px;padding:0 10px;">All</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="today" onclick="setSheetDatePreset('today')" style="height:30px;font-size:12px;padding:0 10px;">Today</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="yesterday" onclick="setSheetDatePreset('yesterday')" style="height:30px;font-size:12px;padding:0 10px;">Yesterday</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="month" onclick="setSheetDatePreset('month')" style="height:30px;font-size:12px;padding:0 10px;">This Month</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="year" onclick="setSheetDatePreset('year')" style="height:30px;font-size:12px;padding:0 10px;">This Year</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="custom" onclick="setSheetDatePreset('custom')" style="height:30px;font-size:12px;padding:0 10px;">Custom</button>
+              </div>
+              <div id="sheet-date-custom" style="display:none; gap:6px; align-items:center;">
+                <input type="date" class="form-control" id="sheet-date-from" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
+                <span style="font-size:12px;color:var(--text-muted);">—</span>
+                <input type="date" class="form-control" id="sheet-date-to" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="sheet-records-status-summary" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; min-height:0;"></div>
         <div id="sheet-records-table"><div class="loading-spinner"></div></div>
         <div id="sheet-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
       </div>
@@ -8080,6 +8101,42 @@ function showCreateApiKeyForm() {
 // ─── SHEET RECORDS ─────────────────────────────────────────
 let sheetRecordsPage = 1;
 
+function setSheetDatePreset(preset) {
+  const today = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const customDiv = document.getElementById('sheet-date-custom');
+  const fromEl = document.getElementById('sheet-date-from');
+  const toEl = document.getElementById('sheet-date-to');
+
+  document.querySelectorAll('.sheet-date-preset').forEach((b) => b.classList.remove('active', 'btn-primary'));
+  const activeBtn = document.querySelector(`.sheet-date-preset[data-preset="${preset}"]`);
+  if (activeBtn) { activeBtn.classList.add('active', 'btn-primary'); activeBtn.classList.remove('btn-secondary'); }
+
+  if (preset === 'custom') {
+    if (customDiv) customDiv.style.display = 'flex';
+    return;
+  }
+  if (customDiv) customDiv.style.display = 'none';
+
+  let from = '', to = '';
+  if (preset === 'today') {
+    from = to = fmt(today);
+  } else if (preset === 'yesterday') {
+    const y = new Date(today); y.setDate(y.getDate() - 1);
+    from = to = fmt(y);
+  } else if (preset === 'month') {
+    from = fmt(new Date(today.getFullYear(), today.getMonth(), 1));
+    to = fmt(today);
+  } else if (preset === 'year') {
+    from = `${today.getFullYear()}-01-01`;
+    to = fmt(today);
+  }
+  if (fromEl) fromEl.value = from;
+  if (toEl) toEl.value = to;
+  loadSheetRecords(1);
+}
+
 function showRenameSourceModal() {
   const sel = document.getElementById('sheet-records-sheet-filter');
   const current = sel?.value;
@@ -8146,11 +8203,15 @@ async function loadSheetRecords(page) {
   const sheet = document.getElementById('sheet-records-sheet-filter')?.value || 'all';
   const status = document.getElementById('sheet-records-status-filter')?.value || 'all';
   const search = (document.getElementById('sheet-records-search')?.value || '').trim();
+  const dateFrom = (document.getElementById('sheet-date-from')?.value || '').trim();
+  const dateTo = (document.getElementById('sheet-date-to')?.value || '').trim();
 
   const params = new URLSearchParams({ page: sheetRecordsPage, per_page: 50 });
   if (sheet !== 'all') params.set('sheet', sheet);
   if (status !== 'all') params.set('status', status);
   if (search) params.set('search', search);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
 
   try {
     const data = await authorizedJsonRequest(`/integrations/google-sheets/records?${params}`);
@@ -8168,6 +8229,24 @@ async function loadSheetRecords(page) {
         }
       });
       sheetSel.value = current;
+    }
+
+    // Render status count chips
+    const summaryEl = document.getElementById('sheet-records-status-summary');
+    if (summaryEl && Array.isArray(data.status_counts) && data.status_counts.length) {
+      const statusColors = {
+        New: 'badge-info', Confirmed: 'badge-info', 'Waiting for pickup': 'badge-warning',
+        Shipped: 'badge-warning', Delivered: 'badge-success',
+        Returning: 'badge-warning', Returned: 'badge-danger', Canceled: 'badge-danger',
+      };
+      const chips = data.status_counts
+        .filter((r) => Number(r.count) > 0)
+        .map((r) => `<span class="badge ${statusColors[r.status] || 'badge-secondary'}" style="font-size:12px;padding:4px 10px;cursor:pointer;" onclick="document.getElementById('sheet-records-status-filter').value=${JSON.stringify(r.status)};loadSheetRecords(1);">${escapeHtml(r.status)}: <strong>${Number(r.count).toLocaleString()}</strong></span>`)
+        .join('');
+      const total = data.status_counts.reduce((s, r) => s + Number(r.count), 0);
+      summaryEl.innerHTML = `<span class="badge badge-dark" style="font-size:12px;padding:4px 10px;">Total: <strong>${total.toLocaleString()}</strong></span>${chips}`;
+    } else if (summaryEl) {
+      summaryEl.innerHTML = '';
     }
 
     if (!data.records?.length) {
