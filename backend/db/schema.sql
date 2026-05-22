@@ -127,6 +127,8 @@ CREATE TABLE IF NOT EXISTS expenses (
   exp_date TEXT NOT NULL DEFAULT (date('now')),
   category TEXT NOT NULL
     CHECK(category IN ('Load', 'Utility', 'Product Supplies', 'Others')),
+  classification TEXT NOT NULL DEFAULT 'OPEX'
+    CHECK(classification IN ('COGS', 'OPEX', 'CAPEX')),
   item_name TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
   unit_price REAL NOT NULL DEFAULT 0,
@@ -138,6 +140,19 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(exp_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_cat ON expenses(category);
+
+CREATE TABLE IF NOT EXISTS expense_credits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  credit_ref TEXT NOT NULL UNIQUE,
+  credit_date TEXT NOT NULL DEFAULT (date('now')),
+  amount REAL NOT NULL DEFAULT 0,
+  source TEXT,
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_expense_credits_date ON expense_credits(credit_date);
 
 CREATE TABLE IF NOT EXISTS daily_pickups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -113,6 +113,40 @@ body {
 [data-theme="dark"] .data-report-table th,
 [data-theme="dark"] .data-report-table td { color: var(--text-primary); }
 
+/* ROAS Summary target cards in dark mode */
+[data-theme="dark"] .adspend-target-card {
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-3) 100%);
+  border-color: var(--border);
+}
+[data-theme="dark"] .adspend-target-value { color: var(--text-primary); }
+[data-theme="dark"] .adspend-target-label { color: var(--text-secondary); }
+[data-theme="dark"] .adspend-target-sub,
+[data-theme="dark"] .adspend-target-mute { color: var(--text-muted); }
+
+/* ROAS Summary table — undo hardcoded white row backgrounds */
+[data-theme="dark"] .card table tbody tr td { color: var(--text-primary); }
+[data-theme="dark"] .card table tbody tr[style*="background:var(--surface-1"],
+[data-theme="dark"] .card table tbody tr[style*="background:var(--surface-2"] { background: var(--surface) !important; }
+
+/* Integration cards / API Connections in dark mode */
+[data-theme="dark"] .erp-member-card {
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-3) 100%);
+  border-color: var(--border);
+}
+[data-theme="dark"] .integration-card,
+[data-theme="dark"] .integration-card .card-body,
+[data-theme="dark"] .integration-toggle { background: var(--surface); color: var(--text-primary); }
+[data-theme="dark"] .integration-card .card-header { border-bottom-color: var(--border); }
+[data-theme="dark"] .integration-card input,
+[data-theme="dark"] .integration-card textarea,
+[data-theme="dark"] .integration-card select { background: var(--surface-3); color: var(--text-primary); border-color: var(--border-strong); }
+[data-theme="dark"] .field-help { color: var(--text-muted); }
+[data-theme="dark"] .badge.badge-secondary { background: var(--surface-3); color: var(--text-secondary); }
+
+/* Marketing total card (light blue gradient) in dark mode */
+[data-theme="dark"] .mkt-total-card { background: linear-gradient(135deg, var(--surface-3), var(--surface)) !important; color: var(--text-primary); }
+[data-theme="dark"] .mkt-total-card span { color: var(--text-primary) !important; }
+
 /* Sales & Marketing ERP command center */
 .erp-command-center {
   --erp-navy: #1f3864;

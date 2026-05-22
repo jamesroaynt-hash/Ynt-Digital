@@ -4088,6 +4088,14 @@ function renderExpenses() {
             <option>Load</option><option>Utility</option><option>Product Supplies</option><option>Others</option>
           </select>
         </div>
+        <div class="form-group"><label class="form-label">Classification <span class="required">*</span></label>
+          <select class="form-control" id="exp-class">
+            <option value="OPEX" selected>OPEX — Operating Expense</option>
+            <option value="COGS">COGS — Cost of Goods Sold</option>
+            <option value="CAPEX">CAPEX — Capital Expenditure</option>
+          </select>
+          <div class="field-help">Accounting classification used for reporting.</div>
+        </div>
         <div class="form-group"><label class="form-label">Item Details / Name <span class="required">*</span></label><input type="text" class="form-control" id="exp-item" placeholder="e.g. Packing materials, Electricity bill..."></div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Quantity</label><input type="number" class="form-control" id="exp-qty" value="1" min="1" oninput="calcExpTotal()"></div>
@@ -4114,10 +4122,46 @@ function renderExpenses() {
     </div>
 
     <div>
-      <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr; margin-bottom:16px;">
-        <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:20px;">₱${totalExp.toLocaleString()}</div></div>
-        <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">This Month</div><div class="stat-value" style="font-size:20px;">₱${monthTotal.toLocaleString()}</div></div>
-        <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Records</div><div class="stat-value">${DB.expenses.length}</div></div>
+      <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr); margin-bottom:16px;">
+        <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
+        <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Credit Received</div><div class="stat-value" style="font-size:18px;" id="exp-credit-total">₱0</div></div>
+        <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Net Expenses</div><div class="stat-value" style="font-size:18px;" id="exp-net-total">₱${totalExp.toLocaleString()}</div></div>
+        <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">This Month</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+          <div>
+            <div class="card-title">Log Credit Received</div>
+            <div class="card-subtitle">Refunds, reimbursements, or income that offsets expenses</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadExpenseCredits()">↻ Refresh</button>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:140px 160px 1fr 1fr auto;gap:10px;align-items:end;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Date</label>
+              <input type="date" class="form-control" id="credit-date" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Amount</label>
+              <div class="input-group">
+                <span class="input-addon">₱</span>
+                <input type="number" class="form-control" id="credit-amount" placeholder="0.00" min="0" step="0.01">
+              </div>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Source</label>
+              <input type="text" class="form-control" id="credit-source" placeholder="e.g. Refund from supplier">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Notes</label>
+              <input type="text" class="form-control" id="credit-notes" placeholder="Optional">
+            </div>
+            <button class="btn btn-primary" onclick="saveCredit()">Add</button>
+          </div>
+          <div id="credit-list" style="margin-top:14px;"></div>
+        </div>
       </div>
 
       <div class="table-container">
@@ -4127,18 +4171,24 @@ function renderExpenses() {
             <input type="text" placeholder="Search expenses..." id="exp-search" oninput="filterExpTable()">
           </div>
           <div class="table-filters">
-            ${['All','Load','Utility','Product Supplies','Others'].map((c,i) => 
+            ${['All','Load','Utility','Product Supplies','Others'].map((c,i) =>
               `<button class="filter-pill ${i===0?'active':''}" onclick="setExpCatFilter('${c}',this)">${c}</button>`
+            ).join('')}
+          </div>
+          <div class="table-filters" style="margin-left:8px;">
+            ${['All','OPEX','COGS','CAPEX'].map((c,i) =>
+              `<button class="filter-pill exp-class-pill ${i===0?'active':''}" onclick="setExpClassFilter('${c}',this)">${c}</button>`
             ).join('')}
           </div>
         </div>
         <table id="expenses-table">
-          <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Noted By</th></tr></thead>
+          <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Noted By</th></tr></thead>
           <tbody id="exp-tbody">
-            ${DB.expenses.map(e => `<tr>
+            ${DB.expenses.map(e => `<tr data-classification="${escapeHtml(e.classification || 'OPEX')}">
               <td class="font-mono text-xs text-muted">${e.id}</td>
               <td>${e.date}</td>
               <td><span class="badge ${catBadge(e.category)}">${e.category}</span></td>
+              <td><span class="badge ${classBadge(e.classification || 'OPEX')}">${e.classification || 'OPEX'}</span></td>
               <td>${e.item}</td>
               <td>${e.qty}</td>
               <td>₱${e.price.toLocaleString()}</td>
@@ -4154,6 +4204,93 @@ function renderExpenses() {
 
 function catBadge(cat) {
   return { Load: 'badge-info', Utility: 'badge-warning', 'Product Supplies': 'badge-purple', Others: 'badge-gray' }[cat] || 'badge-gray';
+}
+
+function classBadge(cls) {
+  return { COGS: 'badge-danger', OPEX: 'badge-info', CAPEX: 'badge-success' }[cls] || 'badge-gray';
+}
+
+function setExpClassFilter(cls, btn) {
+  btn.parentElement.querySelectorAll('.filter-pill').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+  const rows = document.querySelectorAll('#exp-tbody tr');
+  rows.forEach((row) => {
+    if (cls === 'All') { row.style.display = ''; return; }
+    row.style.display = row.dataset.classification === cls ? '' : 'none';
+  });
+}
+
+async function saveCredit() {
+  const credit_date = document.getElementById('credit-date')?.value;
+  const amount = Number(document.getElementById('credit-amount')?.value || 0);
+  const source = document.getElementById('credit-source')?.value || '';
+  const notes = document.getElementById('credit-notes')?.value || '';
+  if (!credit_date || amount <= 0) {
+    showToast('error', 'Validation failed', 'Date and a positive amount are required.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/expenses/credits', {
+      method: 'POST',
+      body: JSON.stringify({ credit_date, amount, source, notes }),
+    });
+    showToast('success', 'Credit recorded', `₱${amount.toLocaleString()}`);
+    ['credit-amount', 'credit-source', 'credit-notes'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    loadExpenseCredits();
+  } catch (err) {
+    showToast('error', 'Save failed', err.message);
+  }
+}
+
+async function loadExpenseCredits() {
+  const wrap = document.getElementById('credit-list');
+  if (!wrap) return;
+  try {
+    const result = await authorizedJsonRequest('/expenses/credits/list?per_page=200');
+    const items = Array.isArray(result?.data) ? result.data : [];
+    const totalCredits = items.reduce((s, c) => s + Number(c.amount || 0), 0);
+
+    const totalExpEl = document.getElementById('exp-credit-total');
+    if (totalExpEl) totalExpEl.textContent = `₱${totalCredits.toLocaleString()}`;
+    const netEl = document.getElementById('exp-net-total');
+    if (netEl) {
+      const expSum = DB.expenses.reduce((s, e) => s + Number(e.total || 0), 0);
+      netEl.textContent = `₱${(expSum - totalCredits).toLocaleString()}`;
+    }
+
+    if (!items.length) {
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">No credits recorded yet.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="data-table" style="margin-top:8px;font-size:13px;">
+        <thead><tr><th>Date</th><th>Source</th><th>Notes</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+        <tbody>
+          ${items.slice(0, 10).map((c) => `<tr>
+            <td>${escapeHtml(c.credit_date || '')}</td>
+            <td>${escapeHtml(c.source || '-')}</td>
+            <td>${escapeHtml(c.notes || '-')}</td>
+            <td style="text-align:right;color:#059669;font-weight:600;">₱${Number(c.amount || 0).toLocaleString()}</td>
+            <td><button class="btn btn-ghost btn-sm" onclick="deleteCredit(${c.id})">×</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">Failed to load credits: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function deleteCredit(id) {
+  if (!confirm('Delete this credit entry?')) return;
+  try {
+    await authorizedJsonRequest(`/expenses/credits/${id}`, { method: 'DELETE' });
+    loadExpenseCredits();
+  } catch (err) {
+    showToast('error', 'Delete failed', err.message);
+  }
 }
 
 // ─── RENDER: DAILY PICKUP ──────────────────────────────────
@@ -5666,6 +5803,10 @@ function initPage(page) {
     if (dateToInput && !dateToInput.value) dateToInput.value = today;
     csrPage = 1;
     renderCSRTable();
+  }
+
+  if (page === 'expenses') {
+    loadExpenseCredits().catch(() => {});
   }
 
   if (page === 'view-records') {
@@ -7765,6 +7906,7 @@ function calcExpTotal() {
 function saveExpense() {
   const date = document.getElementById('exp-date')?.value;
   const category = document.getElementById('exp-cat')?.value;
+  const classification = document.getElementById('exp-class')?.value || 'OPEX';
   const item = document.getElementById('exp-item')?.value;
   const qty = parseInt(document.getElementById('exp-qty')?.value || 0);
   const price = parseFloat(document.getElementById('exp-price')?.value || 0);
@@ -7777,7 +7919,7 @@ function saveExpense() {
 
   const newExp = {
     id: `EXP-${String(DB.expenses.length + 1).padStart(4, '0')}`,
-    date, category, item, qty, price, total: qty * price, noted,
+    date, category, classification, item, qty, price, total: qty * price, noted,
   };
 
   DB.expenses.unshift(newExp);
@@ -7785,10 +7927,12 @@ function saveExpense() {
   const tbody = document.getElementById('exp-tbody');
   if (tbody) {
     const row = document.createElement('tr');
+    row.dataset.classification = classification;
     row.innerHTML = `
       <td class="font-mono text-xs text-muted">${newExp.id}</td>
       <td>${newExp.date}</td>
       <td><span class="badge ${catBadge(newExp.category)}">${newExp.category}</span></td>
+      <td><span class="badge ${classBadge(classification)}">${classification}</span></td>
       <td>${newExp.item}</td>
       <td>${newExp.qty}</td>
       <td>₱${newExp.price.toLocaleString()}</td>

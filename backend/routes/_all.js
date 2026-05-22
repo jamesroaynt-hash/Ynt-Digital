@@ -808,12 +808,17 @@ function inventoryRoutes(db, { dispatch } = {}) {
 /* ─── EXPENSES ────────────────────────────────────────────── */
 function expensesRoutes(db) {
   const r = express.Router();
+  const ALLOWED_CLASSIFICATIONS = new Set(['COGS', 'OPEX', 'CAPEX']);
 
   r.get('/', async (req, res) => {
-    const { category, search, page=1, per_page=25 } = req.query;
+    const { category, classification, search, page=1, per_page=25 } = req.query;
     let sql = 'SELECT * FROM expenses WHERE 1=1';
     const params = [];
     if (category && category !== 'All') { sql += ' AND category=?'; params.push(category); }
+    if (classification && classification !== 'All' && ALLOWED_CLASSIFICATIONS.has(classification)) {
+      sql += ' AND classification=?';
+      params.push(classification);
+    }
     if (search) { sql += ' AND (item_name LIKE ? OR noted_by LIKE ?)'; const q=`%${search}%`; params.push(q,q); }
     const total = (await db.prepare(`SELECT COUNT(*) as c ${sql.slice(sql.indexOf('FROM'))}`).get(...params)).c;
     sql += ' ORDER BY exp_date DESC LIMIT ? OFFSET ?';
@@ -822,15 +827,47 @@ function expensesRoutes(db) {
   });
 
   r.post('/', async (req, res) => {
-    const { exp_date, category, item_name, quantity, unit_price, noted_by } = req.body;
+    const { exp_date, category, classification, item_name, quantity, unit_price, noted_by } = req.body;
     if (!category || !item_name || !unit_price) return res.status(400).json({ error: 'Required fields missing' });
+    const cls = ALLOWED_CLASSIFICATIONS.has(classification) ? classification : 'OPEX';
     const ref = `EXP-${String(Date.now()).slice(-6)}`;
-    await db.prepare(`INSERT INTO expenses (expense_ref,exp_date,category,item_name,quantity,unit_price,noted_by,created_by) VALUES (?,?,?,?,?,?,?,?)`).run(ref, exp_date||new Date().toISOString().split('T')[0], category, item_name, quantity||1, unit_price, noted_by||null, req.user?.id||1);
+    await db.prepare(`INSERT INTO expenses (expense_ref,exp_date,category,classification,item_name,quantity,unit_price,noted_by,created_by) VALUES (?,?,?,?,?,?,?,?,?)`).run(ref, exp_date||new Date().toISOString().split('T')[0], category, cls, item_name, quantity||1, unit_price, noted_by||null, req.user?.id||1);
     res.status(201).json({ expense_ref: ref });
   });
 
   r.delete('/:id', async (req, res) => {
     await db.prepare('DELETE FROM expenses WHERE id=?').run(req.params.id);
+    res.json({ success: true });
+  });
+
+  r.get('/credits/list', async (req, res) => {
+    const { page = 1, per_page = 50 } = req.query;
+    const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const offset = (pageNum - 1) * perPage;
+    const total = (await db.prepare('SELECT COUNT(*) AS c FROM expense_credits').get()).c;
+    const data = await db.prepare('SELECT * FROM expense_credits ORDER BY credit_date DESC, id DESC LIMIT ? OFFSET ?').all(perPage, offset);
+    res.json({ data, total });
+  });
+
+  r.post('/credits', async (req, res) => {
+    const { credit_date, amount, source, notes } = req.body || {};
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
+    const ref = `CR-${String(Date.now()).slice(-6)}`;
+    await db.prepare('INSERT INTO expense_credits (credit_ref, credit_date, amount, source, notes, created_by) VALUES (?,?,?,?,?,?)').run(
+      ref,
+      credit_date || new Date().toISOString().split('T')[0],
+      amt,
+      source || null,
+      notes || null,
+      req.user?.id || null,
+    );
+    res.status(201).json({ credit_ref: ref });
+  });
+
+  r.delete('/credits/:id', async (req, res) => {
+    await db.prepare('DELETE FROM expense_credits WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   });
 
