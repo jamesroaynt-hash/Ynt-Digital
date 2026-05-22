@@ -188,6 +188,7 @@ module.exports = function integrationRoutes(db) {
                g.status        AS status,
                g.courier,
                g.source_sheet,
+               g.chat_page,
                g.confirmed_by,
                g.delivery_attempts AS attempts,
                g.tag,

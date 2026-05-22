@@ -8297,7 +8297,7 @@ async function loadSheetRecords(page) {
           <tbody>
             ${data.records.map((r) => `<tr>
               <td ${tdClip} title="${escapeHtml(r.order_ref || String(r.id))}"><span class="mono-text" style="font-size:12px;">${clip(r.order_ref || String(r.id), 24)}</span></td>
-              <td style="white-space:nowrap;"><span class="badge badge-secondary" style="font-size:11px;">${clip(r.source_sheet || '-', 24)}</span></td>
+              <td style="white-space:nowrap;" title="${escapeHtml(r.source_sheet || '')}"><span class="badge badge-secondary" style="font-size:11px;">${clip(r.chat_page || r.source_sheet || '-', 24)}</span></td>
               ${customerCell(r)}
               <td ${tdClip} title="${escapeHtml(r.product || '')}">${clip(r.product || '-', 40)}</td>
               <td style="white-space:nowrap;">${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
