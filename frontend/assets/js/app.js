@@ -865,7 +865,7 @@ function getDefaultIntegrationState() {
       enabled: false,
       syncMode: 'source_of_data',
       spreadsheetId: '',
-      sheetName: 'Orders',
+      sheetName: '',
       serviceAccountEmail: '',
       privateKey: '',
       syncIntervalMinutes: '5',
@@ -942,7 +942,7 @@ function mapBackendGoogleStatusToState(status = {}, previous = {}) {
     enabled: Boolean(status.enabled),
     syncMode: status.sync_mode || previous.syncMode || 'manual',
     spreadsheetId: status.spreadsheet_id || previous.spreadsheetId || '',
-    sheetName: status.sheet_name || previous.sheetName || 'Orders',
+    sheetName: status.sheet_name ?? previous.sheetName ?? '',
     syncIntervalMinutes: status.sync_interval_ms
       ? String(Math.max(1, Math.round(Number(status.sync_interval_ms) / 60000)))
       : previous.syncIntervalMinutes || '5',
@@ -1384,8 +1384,8 @@ function renderApiConnections() {
           </div>
           <div class="form-group">
             <label class="form-label">Sheet Name(s)</label>
-            <input type="text" class="form-control mono-input" id="google-sheets-sheet-name" placeholder="Orders, Team A, Team B" value="${escapeHtml(googleSettings.sheetName)}">
-            <div class="field-help">Enter one or more Google Sheets tab names separated by commas. Each imported order keeps its source sheet name.</div>
+            <input type="text" class="form-control mono-input" id="google-sheets-sheet-name" placeholder="* (auto-sync all tabs)  or  Orders, Team A, Team B" value="${escapeHtml(googleSettings.sheetName)}">
+            <div class="field-help">Leave blank or enter <code>*</code> to auto-sync every visible tab. Otherwise list tab names separated by commas. New tabs appear automatically in auto mode.</div>
           </div>
         </div>
 
@@ -7542,7 +7542,7 @@ function collectGoogleSheetsFormState() {
     enabled: Boolean(document.getElementById('google-sheets-enabled')?.checked),
     syncMode: document.getElementById('google-sheets-sync-mode')?.value || 'manual',
     spreadsheetId: (document.getElementById('google-sheets-spreadsheet-id')?.value || '').trim(),
-    sheetName: (document.getElementById('google-sheets-sheet-name')?.value || '').trim() || 'Orders',
+    sheetName: (document.getElementById('google-sheets-sheet-name')?.value || '').trim(),
     serviceAccountEmail: (document.getElementById('google-sheets-service-account-email')?.value || '').trim(),
     privateKey: document.getElementById('google-sheets-private-key')?.value || '',
     syncIntervalMinutes: (document.getElementById('google-sheets-sync-interval-minutes')?.value || '5').trim(),

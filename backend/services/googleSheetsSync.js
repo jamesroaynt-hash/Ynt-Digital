@@ -84,12 +84,20 @@ function normalizeHeaderKey(value) {
 
 function parseSheetNames(value) {
   const text = stringOrNull(value);
-  if (!text) return ['Orders'];
+  if (!text) return [];
   const names = text
     .split(/[\r\n,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
-  return names.length ? [...new Set(names)] : ['Orders'];
+  return names.length ? [...new Set(names)] : [];
+}
+
+function shouldAutoDiscoverTabs(names) {
+  if (!Array.isArray(names) || names.length === 0) return true;
+  return names.some((name) => {
+    const normalized = String(name || '').trim().toLowerCase();
+    return normalized === '*' || normalized === 'all';
+  });
 }
 
 function buildSheetRange(sheetName) {
@@ -191,7 +199,8 @@ async function getPublicSetting(db) {
       configured: false,
       enabled: false,
       spreadsheet_id: null,
-      sheet_name: 'Orders',
+      sheet_name: '',
+      auto_discover_tabs: true,
       sync_mode: 'manual',
       sync_interval_ms: DEFAULT_SYNC_INTERVAL_MS,
       has_service_account_email: false,
@@ -200,12 +209,14 @@ async function getPublicSetting(db) {
     };
   }
 
+  const storedSheetName = setting.page_id || '';
   return {
     provider: PROVIDER,
     configured: true,
     enabled: Boolean(setting.enabled),
     spreadsheet_id: setting.base_url || null,
-    sheet_name: setting.page_id || 'Orders',
+    sheet_name: storedSheetName,
+    auto_discover_tabs: shouldAutoDiscoverTabs(parseSheetNames(storedSheetName)),
     sync_mode: setting.sync_mode || 'manual',
     sync_interval_ms: numberOrDefault(setting.page_access_token, DEFAULT_SYNC_INTERVAL_MS),
     has_service_account_email: Boolean(setting.api_key),
@@ -223,7 +234,7 @@ async function saveSetting(db, payload = {}) {
   const next = {
     enabled: payload.enabled ?? current?.enabled ?? 0,
     spreadsheet_id: payload.spreadsheet_id ?? current?.base_url ?? process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? null,
-    sheet_name: payload.sheet_name ?? current?.page_id ?? process.env.GOOGLE_SHEETS_SHEET_NAME ?? 'Orders',
+    sheet_name: payload.sheet_name ?? current?.page_id ?? process.env.GOOGLE_SHEETS_SHEET_NAME ?? '',
     service_account_email: serviceAccountJson?.client_email ?? payload.service_account_email ?? current?.api_key ?? process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? null,
     private_key: serviceAccountJson?.private_key ?? payload.private_key ?? current?.user_access_token ?? process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? null,
     private_key_id: serviceAccountJson?.private_key_id ?? payload.private_key_id ?? current?.webhook_secret ?? process.env.GOOGLE_SHEETS_PRIVATE_KEY_ID ?? null,
@@ -360,6 +371,20 @@ async function fetchSheetRows(spreadsheetId, range, accessToken) {
     throw new Error(data.error?.message || `Google Sheets request failed (${response.status})`);
   }
   return Array.isArray(data.values) ? data.values : [];
+}
+
+async function fetchSpreadsheetTabs(spreadsheetId, accessToken) {
+  const url = `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties(title,hidden)`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error?.message || `Google Sheets metadata request failed (${response.status})`);
+  }
+  const sheets = Array.isArray(data.sheets) ? data.sheets : [];
+  return sheets
+    .map((sheet) => sheet?.properties)
+    .filter((props) => props && !props.hidden && stringOrNull(props.title))
+    .map((props) => String(props.title).trim());
 }
 
 function rowsToObjects(rows) {
@@ -796,7 +821,14 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
   }
 
   const spreadsheetId = stringOrNull(payload.spreadsheet_id || setting?.base_url || process.env.GOOGLE_SHEETS_SPREADSHEET_ID);
-  const sheetNames = parseSheetNames(payload.sheet_name || setting?.page_id || process.env.GOOGLE_SHEETS_SHEET_NAME);
+  const configuredSheetNames = parseSheetNames(payload.sheet_name || setting?.page_id || process.env.GOOGLE_SHEETS_SHEET_NAME);
+  const autoDiscover = shouldAutoDiscoverTabs(configuredSheetNames);
+  const explicitNames = autoDiscover
+    ? configuredSheetNames.filter((name) => {
+        const n = String(name || '').trim().toLowerCase();
+        return n && n !== '*' && n !== 'all';
+      })
+    : configuredSheetNames;
   const clientEmail = stringOrNull(payload.service_account_email || setting?.api_key || process.env.GOOGLE_SHEETS_CLIENT_EMAIL);
   const privateKey = normalizePrivateKey(payload.private_key || setting?.user_access_token || process.env.GOOGLE_SHEETS_PRIVATE_KEY);
   const privateKeyId = stringOrNull(payload.private_key_id || setting?.webhook_secret || process.env.GOOGLE_SHEETS_PRIVATE_KEY_ID);
@@ -808,14 +840,16 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
 
   const runId = await startRun(db, triggerType, {
     spreadsheet_id: spreadsheetId,
-    sheet_names: sheetNames,
+    sheet_names: configuredSheetNames,
+    auto_discover: autoDiscover,
     entity_type: entityType,
   });
 
   const result = {
     spreadsheet_id: spreadsheetId,
-    sheet_name: sheetNames.join(', '),
-    sheet_names: sheetNames,
+    sheet_name: configuredSheetNames.join(', '),
+    sheet_names: [],
+    auto_discover: autoDiscover,
     entity_type: entityType,
     imported: 0,
     updated: 0,
@@ -828,6 +862,19 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
 
   try {
     const accessToken = await requestGoogleAccessToken(clientEmail, privateKey, privateKeyId);
+
+    let sheetNames;
+    if (autoDiscover) {
+      const discovered = await fetchSpreadsheetTabs(spreadsheetId, accessToken);
+      sheetNames = [...new Set([...explicitNames, ...discovered])];
+      if (!sheetNames.length) {
+        throw new Error('No visible tabs found in this spreadsheet.');
+      }
+    } else {
+      sheetNames = explicitNames;
+    }
+    result.sheet_names = sheetNames;
+
     for (const sheetName of sheetNames) {
       const range = stringOrNull(payload.range) || buildSheetRange(sheetName);
       const rows = await fetchSheetRows(spreadsheetId, range, accessToken);
