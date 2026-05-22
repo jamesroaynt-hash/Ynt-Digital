@@ -135,7 +135,7 @@ const pageNames = {
   hr: 'HR & Payroll',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
-  'rts-rate': 'RTS Rate',
+  'rts-rate': 'Sale Report',
   'data-report': 'Data Report',
   scanning: 'Scan Orders',
   'view-records': 'Records',
@@ -2265,7 +2265,7 @@ function renderRTSRate() {
   return `
   <div class="rts-rate-page">
     <div class="page-header">
-      <div class="page-title"><h1>RTS Rate Dashboard</h1><p>Track delivery, return-to-sender, and COD exposure by sheet.</p></div>
+      <div class="page-title"><h1>Sale Report</h1><p>Delivery, return-to-sender, and COD performance based on Google Sheets records.</p></div>
     </div>
 
     <div class="rts-filter-bar">
@@ -2307,7 +2307,7 @@ function getOrderStatusKey(status) {
 }
 
 function getFilteredRTSRateOrders() {
-  let data = [...DB.posOrders];
+  let data = [...DB.sheetRecordsForReport];
   const today = normalizeDateString(new Date());
 
   if (rtsRateFilter === 'weekly') {
@@ -2321,7 +2321,7 @@ function getFilteredRTSRateOrders() {
   }
 
   if (rtsRateSourceFilter !== 'all') {
-    data = data.filter((order) => (order.sourceSheet || 'POS') === rtsRateSourceFilter);
+    data = data.filter((order) => (order.sourceSheet || 'Sheets') === rtsRateSourceFilter);
   }
 
   return data;
@@ -2396,6 +2396,18 @@ function renderRTSRateDashboard() {
       </div>
     </div>
 
+    <section class="card" style="margin-top:20px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Order Status Breakdown</div>
+          <div class="card-subtitle">Count of orders by status (from Sheet Records)</div>
+        </div>
+      </div>
+      <div style="padding:16px 20px 20px;">
+        <canvas id="sale-report-bar-chart" style="max-height:320px;"></canvas>
+      </div>
+    </section>
+
     <div class="rts-formula-card">
       <div>
         <div class="card-title">RTS Rate Formula</div>
@@ -2414,6 +2426,55 @@ function renderRTSRateDashboard() {
       ${renderRTSCodCard('Lost COD', cod.lost, 'red', 'Returned + Returning')}
       ${renderRTSCodCard('Shipped COD', cod.shipped, 'blue', 'In transit')}
     </div>`;
+
+  renderSaleReportBarChart(orders);
+}
+
+let saleReportBarChart = null;
+function renderSaleReportBarChart(orders) {
+  const canvas = document.getElementById('sale-report-bar-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const statusCounts = orders.reduce((acc, o) => {
+    const k = o.status || 'Unknown';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  const order = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
+  const labels = order.filter((s) => statusCounts[s]).concat(Object.keys(statusCounts).filter((s) => !order.includes(s)));
+  const data = labels.map((l) => statusCounts[l] || 0);
+  const colors = {
+    'New': '#60a5fa', 'Confirmed': '#3b82f6', 'Waiting for pickup': '#f59e0b',
+    'Shipped': '#a78bfa', 'Delivered': '#10b981',
+    'Returning': '#f97316', 'Returned': '#ef4444', 'Canceled': '#9ca3af',
+  };
+  if (saleReportBarChart && (saleReportBarChart.canvas !== canvas || !canvas.isConnected)) {
+    try { saleReportBarChart.destroy(); } catch {}
+    saleReportBarChart = null;
+  }
+  const config = {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Orders',
+        data,
+        backgroundColor: labels.map((l) => colors[l] || '#94a3b8'),
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+    },
+  };
+  if (saleReportBarChart) {
+    saleReportBarChart.data = config.data;
+    saleReportBarChart.update();
+  } else {
+    saleReportBarChart = new Chart(canvas, config);
+  }
 }
 
 function getDataReportOrders() {
@@ -5340,8 +5401,8 @@ function initPage(page) {
     if (dateFromInput && !dateFromInput.value) dateFromInput.value = today;
     if (dateToInput && !dateToInput.value) dateToInput.value = today;
     renderRTSRateDashboard();
-    if (!DB.posOrders.length) {
-      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'rts-rate') renderRTSRateDashboard(); }).catch(() => {});
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'rts-rate') renderRTSRateDashboard(); }).catch(() => {});
     }
   }
 
