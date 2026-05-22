@@ -26,9 +26,23 @@
       <div class="sidebar-logo">
         <div class="brand-name">
           <img class="logo-mark" src="/Images/yntlogo.png" alt="YNT logo">
-          YNT ERP
+          <span class="brand-label">YNT ERP</span>
         </div>
         <div class="brand-sub">Digital Marketing</div>
+        <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" onclick="toggleSidebarCollapsed()" title="Collapse sidebar" aria-label="Toggle sidebar">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M10 4l-4 4 4 4"/>
+          </svg>
+        </button>
+        <button class="sidebar-theme-btn" id="sidebar-theme-btn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark/light theme">
+          <svg class="theme-icon-light" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="8" cy="8" r="3"/>
+            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3"/>
+          </svg>
+          <svg class="theme-icon-dark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M13 9.2A5 5 0 116.8 3a4 4 0 006.2 6.2z"/>
+          </svg>
+        </button>
       </div>
 
       <nav class="sidebar-nav">

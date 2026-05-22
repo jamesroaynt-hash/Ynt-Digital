@@ -3872,14 +3872,6 @@ function renderCSR() {
 
     <div class="summary-stack">
       <div id="csr-summary"></div>
-      <div class="card">
-        <div class="card-header">
-          <div><div class="card-title">Status Pie Graph</div><div class="card-subtitle">Based on the currently filtered table records.</div></div>
-        </div>
-        <div class="card-body chart-panel">
-          <canvas id="csr-status-pie-chart" height="260"></canvas>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -5051,7 +5043,6 @@ function renderCSRTable() {
   }
 
   renderCSRSummaryCards(records);
-  renderCSRChart(records);
 }
 
 function changeCSRPage(page) {
@@ -9248,11 +9239,48 @@ function toggleSidebar() {
   overlay?.classList.toggle('open');
 }
 
+function toggleSidebarCollapsed() {
+  const shell = document.getElementById('app-shell');
+  const sidebar = document.getElementById('sidebar');
+  if (!shell || !sidebar) return;
+  const next = !shell.classList.contains('sidebar-collapsed');
+  shell.classList.toggle('sidebar-collapsed', next);
+  sidebar.classList.toggle('collapsed', next);
+  try { localStorage.setItem('sidebarCollapsed', next ? '1' : '0'); } catch {}
+}
+
+function applySidebarCollapsedFromStorage() {
+  try {
+    if (localStorage.getItem('sidebarCollapsed') === '1') {
+      document.getElementById('app-shell')?.classList.add('sidebar-collapsed');
+      document.getElementById('sidebar')?.classList.add('collapsed');
+    }
+  } catch {}
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('uiTheme', next); } catch {}
+}
+
+function applyThemeFromStorage() {
+  try {
+    const saved = localStorage.getItem('uiTheme');
+    if (saved === 'dark' || saved === 'light') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  } catch {}
+}
+
 // ─── INIT ──────────────────────────────────────────────────
 async function init() {
   const loginScreen = document.getElementById('login-screen');
   const shell = document.getElementById('app-shell');
   if (!loginScreen || !shell) return;
+
+  applyThemeFromStorage();
 
   if (!App.user) {
     loginScreen.innerHTML = renderLogin();
@@ -9270,6 +9298,8 @@ async function init() {
 
   loginScreen.innerHTML = '';
   shell.style.display = 'flex';
+  applySidebarCollapsedFromStorage();
+  applyThemeFromStorage();
   refreshCurrentUserChip();
   navigateTo(getDefaultPageForCurrentUser());
   refreshOrderStatsFromBackend()
