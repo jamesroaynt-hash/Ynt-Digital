@@ -864,32 +864,63 @@ function scansRoutes(db) {
   const r = express.Router();
 
   r.get('/', async (req, res) => {
-    const { type, page=1, per_page=25 } = req.query;
-    let sql = 'SELECT * FROM scan_records WHERE 1=1';
+    const { type, page=1, per_page=50, search, status, date_from, date_to } = req.query;
+    const where = ['1=1'];
     const params = [];
-    if (type) { sql += ' AND scan_type=?'; params.push(type); }
-    const total = (await db.prepare(`SELECT COUNT(*) as c ${sql.slice(sql.indexOf('FROM'))}`).get(...params)).c;
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(per_page), (parseInt(page)-1)*parseInt(per_page));
-    res.json({ data: await db.prepare(sql).all(...params), total });
+    if (type) { where.push('s.scan_type = ?'); params.push(type); }
+    if (status) { where.push('LOWER(TRIM(COALESCE(s.status, g.status))) = LOWER(?)'); params.push(status); }
+    if (date_from) { where.push('s.scan_date >= ?'); params.push(date_from); }
+    if (date_to)   { where.push('s.scan_date <= ?'); params.push(date_to); }
+    if (search) {
+      where.push('(s.tracking_no LIKE ? OR s.customer LIKE ? OR s.phone LIKE ? OR g.product_name LIKE ? OR g.province_city LIKE ?)');
+      const q = `%${search}%`;
+      params.push(q, q, q, q, q);
+    }
+    const whereSql = `WHERE ${where.join(' AND ')}`;
+    const baseFrom = `
+      FROM scan_records s
+      LEFT JOIN google_orders g ON LOWER(g.tracking_no) = LOWER(s.tracking_no)
+    `;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
+    const offset = (pageNum - 1) * perPage;
+
+    const totalRow = await db.prepare(`SELECT COUNT(*) AS c ${baseFrom} ${whereSql}`).get(...params);
+    const total = totalRow?.c || 0;
+
+    const data = await db.prepare(`
+      SELECT s.id, s.scan_ref, s.tracking_no, s.customer, s.phone,
+             s.scan_date, s.scan_time, s.status, s.courier, s.scan_type, s.created_at,
+             g.product_name, g.province_city, g.cod
+      ${baseFrom} ${whereSql}
+      ORDER BY s.created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, perPage, offset);
+
+    res.json({ data, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage) });
   });
 
   r.get('/lookup/:tracking', async (req, res) => {
     const tracking = req.params.tracking.trim();
     if (!tracking) return res.status(400).json({ error: 'Tracking number required' });
 
-    // Both branches resolve via expression indexes on LOWER(tracking_no).
     const found = await db.prepare(`
-      SELECT * FROM scan_records
-      WHERE LOWER(tracking_no) = LOWER(?)
-      ORDER BY created_at DESC
+      SELECT s.tracking_no, s.customer, s.phone, s.status, s.courier, s.scan_date,
+             g.product_name, g.province_city, g.cod
+      FROM scan_records s
+      LEFT JOIN google_orders g ON LOWER(g.tracking_no) = LOWER(s.tracking_no)
+      WHERE LOWER(s.tracking_no) = LOWER(?)
+      ORDER BY s.created_at DESC
       LIMIT 1
     `).get(tracking);
     if (found) return res.json(found);
 
     const order = await db.prepare(`
-      SELECT tracking_no, customer, phone, status, courier, order_date AS scan_date
-      FROM orders
+      SELECT tracking_no, customer_name AS customer, customer_phone AS phone,
+             status, courier, day_created AS scan_date,
+             product_name, province_city, cod
+      FROM google_orders
       WHERE LOWER(tracking_no) = LOWER(?)
       LIMIT 1
     `).get(tracking);

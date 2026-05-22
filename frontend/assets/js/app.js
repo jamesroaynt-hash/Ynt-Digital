@@ -3937,7 +3937,7 @@ function renderScanPage(pageId, pageTitle, scanType) {
     <div class="page-title"><h1>${pageTitle}</h1><p>Scan tracking numbers to retrieve order information.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary" onclick="navigateTo('damage-sheets')">📋 Damage Sheets</button>
-      <button class="btn btn-ghost" onclick="navigateTo('view-records')">View All Records →</button>
+      <button class="btn btn-ghost" onclick="openViewRecordsTab('rec-scans')">View All Records →</button>
     </div>
   </div>
 
@@ -3960,7 +3960,7 @@ function renderScanPage(pageId, pageTitle, scanType) {
     <div class="card">
       <div class="card-header">
         <div><div class="card-title">${scanType === 'RTS' ? 'RTS' : 'Scan'} Records</div><div class="card-subtitle">${records.length} records</div></div>
-        <button class="btn btn-ghost btn-sm" onclick="navigateTo('view-records')">View All →</button>
+        <button class="btn btn-ghost btn-sm" onclick="openViewRecordsTab('rec-scans')">View All →</button>
       </div>
       <div style="overflow-x:auto;">
         <table>
@@ -4026,7 +4026,7 @@ function renderViewRecords() {
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-scans')">Scan Records (${DB.scanRecords.length})</button>
+    <button class="tab-btn" onclick="switchTab(this,'rec-scans'); loadScanRecords()">Scan Records</button>
   </div>
 
   <div id="rec-pos-orders" class="tab-content active">
@@ -4143,15 +4143,52 @@ function renderViewRecords() {
 
   <div id="rec-scans" class="tab-content">
     <div class="table-container">
-      <table><thead><tr><th>Tracking</th><th>Customer</th><th>Phone</th><th>Date</th><th>Status</th><th>Courier</th><th>Type</th></tr></thead>
-        <tbody>${DB.scanRecords.map(r => `<tr>
-          <td class="font-mono text-xs">${r.tracking}</td>
-          <td style="font-weight:500">${r.customer}</td>
-          <td class="font-mono text-sm">${r.phone}</td>
-          <td>${r.date}</td><td>${statusBadge(r.status)}</td><td>${r.courier}</td>
-          <td><span class="badge ${r.type==='RTS'?'badge-danger':'badge-info'}">${r.type}</span></td>
-        </tr>`).join('')}</tbody>
-      </table>
+      <div class="records-filter-panel">
+        <div class="records-filter-row records-filter-primary">
+          <div class="records-filter-field records-search-field">
+            <label class="records-filter-label">Search</label>
+            <div class="table-search">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+              <input type="text" id="scan-records-search" placeholder="Tracking, customer, phone, product, province..." oninput="clearTimeout(window._scanSearchTimer); window._scanSearchTimer = setTimeout(() => loadScanRecords(1), 400)">
+            </div>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Type</label>
+            <select class="form-control" id="scan-records-type" onchange="loadScanRecords(1)">
+              <option value="">All</option>
+              <option value="Standard">Standard</option>
+              <option value="RTS">RTS</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Status</label>
+            <select class="form-control" id="scan-records-status" onchange="loadScanRecords(1)">
+              <option value="">All</option>
+              <option value="New">New</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Waiting for pickup">Waiting for pickup</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Returning">Returning</option>
+              <option value="Returned">Returned</option>
+              <option value="Canceled">Canceled</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">From</label>
+            <input type="date" class="form-control" id="scan-records-date-from" onchange="loadScanRecords(1)">
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">To</label>
+            <input type="date" class="form-control" id="scan-records-date-to" onchange="loadScanRecords(1)">
+          </div>
+          <div class="records-filter-field" style="align-self:flex-end;">
+            <button class="btn btn-secondary btn-sm" onclick="clearScanRecordsFilters()">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div id="scan-records-list"><div class="loading-spinner" style="margin:24px auto;"></div></div>
+      <div id="scan-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
     </div>
   </div>
 
@@ -7236,6 +7273,8 @@ async function performScan(pageId, scanType) {
         tracking: row.tracking_no || tracking,
         customer: row.customer || 'Unknown Customer',
         phone: row.phone || 'N/A',
+        product: row.product_name || '',
+        province: row.province_city || '',
         date: normalizeDateString(row.scan_date || row.order_date || new Date()),
         status: row.status || (scanType === 'RTS' ? 'Return to Sender' : 'For Delivery'),
         courier: row.courier || 'Unknown',
@@ -7312,6 +7351,8 @@ async function performScan(pageId, scanType) {
         <div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${found.tracking}</div></div>
         <div class="scan-field"><div class="scan-field-label">Customer Name</div><div class="scan-field-value">${found.customer}</div></div>
         <div class="scan-field"><div class="scan-field-label">Phone Number</div><div class="scan-field-value font-mono">${found.phone}</div></div>
+        ${found.product ? `<div class="scan-field"><div class="scan-field-label">Product</div><div class="scan-field-value">${escapeHtml(found.product)}</div></div>` : ''}
+        ${found.province ? `<div class="scan-field"><div class="scan-field-label">Province/City</div><div class="scan-field-value">${escapeHtml(found.province)}</div></div>` : ''}
         <div class="scan-field"><div class="scan-field-label">Attempt Date</div><div class="scan-field-value">${new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' })}</div></div>
         <div class="scan-field"><div class="scan-field-label">Order Status</div><div class="scan-field-value">${statusBadge(found.status)}</div></div>
         <div class="scan-field"><div class="scan-field-label">Courier</div><div class="scan-field-value">${found.courier}</div></div>
@@ -8116,6 +8157,91 @@ function showCreateApiKeyForm() {
   document.querySelectorAll('.api-key-scope').forEach((cb) => { cb.checked = cb.value === 'orders:read'; });
 }
 
+// ─── SCAN RECORDS (View Records sub-tab) ───────────────────
+let scanRecordsPage = 1;
+
+function clearScanRecordsFilters() {
+  ['scan-records-search', 'scan-records-type', 'scan-records-status', 'scan-records-date-from', 'scan-records-date-to']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  loadScanRecords(1);
+}
+
+async function loadScanRecords(page) {
+  if (page) scanRecordsPage = page;
+  const listEl = document.getElementById('scan-records-list');
+  const pagEl = document.getElementById('scan-records-pagination');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="loading-spinner" style="margin:24px auto;"></div>';
+
+  const params = new URLSearchParams({ page: String(scanRecordsPage), per_page: '50' });
+  const search = (document.getElementById('scan-records-search')?.value || '').trim();
+  const type = document.getElementById('scan-records-type')?.value || '';
+  const status = document.getElementById('scan-records-status')?.value || '';
+  const dateFrom = document.getElementById('scan-records-date-from')?.value || '';
+  const dateTo = document.getElementById('scan-records-date-to')?.value || '';
+  if (search) params.set('search', search);
+  if (type) params.set('type', type);
+  if (status) params.set('status', status);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+
+  try {
+    const data = await authorizedJsonRequest(`/scans?${params}`);
+    const records = Array.isArray(data?.data) ? data.data : [];
+    if (!records.length) {
+      listEl.innerHTML = '<div class="empty-state" style="padding:40px 0;"><p>No scan records found.</p></div>';
+      if (pagEl) pagEl.innerHTML = '';
+      return;
+    }
+    listEl.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Tracking No.</th><th>Customer</th><th>Phone</th>
+          <th>Product</th><th>Province/City</th>
+          <th>Date</th><th>Status</th><th>Courier</th><th>Type</th>
+        </tr></thead>
+        <tbody>
+          ${records.map((r) => `<tr>
+            <td class="font-mono text-xs">${escapeHtml(r.tracking_no || '')}</td>
+            <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
+            <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
+            <td>${escapeHtml(r.product_name || '-')}</td>
+            <td>${escapeHtml(r.province_city || '-')}</td>
+            <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
+            <td>${statusBadge(r.status)}</td>
+            <td>${escapeHtml(r.courier || '-')}</td>
+            <td><span class="badge ${r.scan_type === 'RTS' ? 'badge-danger' : 'badge-info'}">${escapeHtml(r.scan_type || 'Standard')}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+        Showing ${records.length} of ${Number(data.total || 0).toLocaleString()} scan${data.total === 1 ? '' : 's'}
+      </div>`;
+
+    if (pagEl) {
+      pagEl.innerHTML = '';
+      if (Number(data.pages || 1) > 1) {
+        const mkBtn = (label, p, disabled = false, active = false) => {
+          const btn = document.createElement('button');
+          btn.className = `btn btn-secondary${active ? ' btn-primary' : ''}`;
+          btn.style.minWidth = '36px';
+          btn.textContent = label;
+          btn.disabled = disabled;
+          if (!disabled) btn.onclick = () => loadScanRecords(p);
+          return btn;
+        };
+        pagEl.appendChild(mkBtn('‹', scanRecordsPage - 1, scanRecordsPage <= 1));
+        for (let p = Math.max(1, scanRecordsPage - 2); p <= Math.min(Number(data.pages), scanRecordsPage + 2); p++) {
+          pagEl.appendChild(mkBtn(p, p, false, p === scanRecordsPage));
+        }
+        pagEl.appendChild(mkBtn('›', scanRecordsPage + 1, scanRecordsPage >= Number(data.pages)));
+      }
+    }
+  } catch (err) {
+    listEl.innerHTML = `<div class="alert alert-danger">Failed to load scan records: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
 // ─── SHEET RECORDS ─────────────────────────────────────────
 let sheetRecordsPage = 1;
 
@@ -8668,6 +8794,15 @@ function switchTab(btn, contentId) {
   contentParent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   const target = document.getElementById(contentId);
   if (target) target.classList.add('active');
+}
+
+function openViewRecordsTab(tabId) {
+  navigateTo('view-records');
+  // Wait one tick for the page to render before activating the sub-tab
+  setTimeout(() => {
+    const tabBtn = document.querySelector(`#records-tabs .tab-btn[onclick*="${tabId}"]`);
+    if (tabBtn) tabBtn.click();
+  }, 60);
 }
 
 // ─── TOAST ─────────────────────────────────────────────────
