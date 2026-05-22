@@ -595,9 +595,11 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     'full_address', 'full address', 'bill_address', 'bill address',
     'delivery_address', 'delivery address', 'street', 'location',
   ]));
-  const province = stringOrNull(getFirstValue(rawRow, [
-    'province', 'province_city', 'province/city', 'province city',
-    'city_province', 'city/province', 'city province', 'city',
+  const provinceCity = stringOrNull(getFirstValue(rawRow, [
+    'province_city', 'province/city', 'province city',
+    'provinc_city', 'provinc/city', 'provinc city',
+    'city_province', 'city/province', 'city province',
+    'province', 'provinc', 'city',
     'state', 'region', 'bill_state', 'bill state',
     'shipping_state', 'shipping state', 'bill_province', 'bill province',
     'shipping_province', 'shipping province',
@@ -608,7 +610,7 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       external_id, tracking_no, customer_name, customer_phone, product_name,
       quantity, cod, status, status_normalized, courier, day_created, chat_page,
       confirmed_by, delivery_attempts, tag, pancake_tags,
-      internal_notes, address, province,
+      internal_notes, address, province_city,
       spreadsheet_id, source_sheet, sheet_row_number, raw_row, updated_at
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
@@ -630,7 +632,7 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       pancake_tags = excluded.pancake_tags,
       internal_notes = excluded.internal_notes,
       address = excluded.address,
-      province = excluded.province,
+      province_city = excluded.province_city,
       spreadsheet_id = excluded.spreadsheet_id,
       source_sheet = excluded.source_sheet,
       sheet_row_number = excluded.sheet_row_number,
@@ -655,7 +657,7 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     pancakeTags,
     internalNotes,
     address,
-    province,
+    provinceCity,
     spreadsheetId,
     sheetName,
     rowNumber,

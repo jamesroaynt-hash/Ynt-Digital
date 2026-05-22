@@ -1518,7 +1518,7 @@ function renderApiConnections() {
           </div>
           <div class="form-group" style="margin:0; flex:1; min-width:200px;">
             <label class="form-label" style="font-size:12px;">Search</label>
-            <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, phone, tracking, province..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
+            <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, phone, tracking, province/city..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
           </div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
@@ -8277,7 +8277,7 @@ async function loadSheetRecords(page) {
     const customerCell = (r) => {
       const name = clip(r.customer || '-', 32);
       const phone = r.phone ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(r.phone)}</div>` : '';
-      const titleParts = [r.customer, r.phone, r.province, r.address].filter(Boolean);
+      const titleParts = [r.customer, r.phone, r.province_city, r.address].filter(Boolean);
       return `<td style="max-width:220px;" title="${escapeHtml(titleParts.join(' • '))}">
         <div style="font-weight:500;">${name}</div>${phone}
       </td>`;
@@ -8287,7 +8287,7 @@ async function loadSheetRecords(page) {
       <div style="overflow-x:auto;">
         <table class="data-table" style="font-size:13px;table-layout:auto;">
           <thead><tr>
-            <th>Order ID</th><th>Page</th><th>Customer</th><th>Province</th>
+            <th>Order ID</th><th>Page</th><th>Customer</th><th>Province/City</th>
             <th>Product</th><th>COD</th><th>Tracking</th>
             <th style="text-align:center;">Attempts</th><th>Status</th>
             <th>Notes</th><th>Courier</th><th>Tag</th>
@@ -8298,7 +8298,7 @@ async function loadSheetRecords(page) {
               <td ${tdClip} title="${escapeHtml(r.order_ref || String(r.id))}"><span class="mono-text" style="font-size:12px;">${clip(r.order_ref || String(r.id), 24)}</span></td>
               <td style="white-space:nowrap;" title="${escapeHtml(r.source_sheet || '')}"><span class="badge badge-secondary" style="font-size:11px;">${clip(r.chat_page || r.source_sheet || '-', 24)}</span></td>
               ${customerCell(r)}
-              <td ${tdClip} title="${escapeHtml(r.province || '')}">${clip(r.province || '-', 24)}</td>
+              <td ${tdClip} title="${escapeHtml(r.province_city || '')}">${clip(r.province_city || '-', 24)}</td>
               <td ${tdClip} title="${escapeHtml(r.product || '')}">${clip(r.product || '-', 40)}</td>
               <td style="white-space:nowrap;">${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
               <td ${tdClip} title="${escapeHtml(r.tracking_no || '')}"><span class="mono-text" style="font-size:12px;">${clip(r.tracking_no || '-', 20)}</span></td>

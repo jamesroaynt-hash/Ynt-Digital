@@ -306,7 +306,7 @@ CREATE TABLE IF NOT EXISTS google_orders (
   pancake_tags TEXT,
   internal_notes TEXT,
   address TEXT,
-  province TEXT,
+  province_city TEXT,
   spreadsheet_id TEXT,
   source_sheet TEXT,
   sheet_row_number INTEGER,

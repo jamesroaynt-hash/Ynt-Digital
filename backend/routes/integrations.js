@@ -164,7 +164,7 @@ module.exports = function integrationRoutes(db) {
       if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
       if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
       if (search) {
-        where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province LIKE ? OR g.address LIKE ?)';
+        where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
         const q = `%${search}%`;
         params.push(q, q, q, q, q, q, q, q);
       }
@@ -195,7 +195,7 @@ module.exports = function integrationRoutes(db) {
                g.pancake_tags,
                g.internal_notes,
                g.address,
-               g.province,
+               g.province_city,
                g.day_created   AS order_date,
                g.updated_at
         ${baseFrom} ${where}
@@ -215,7 +215,7 @@ module.exports = function integrationRoutes(db) {
         if (date_from) { w += ' AND g.day_created >= ?'; cp.push(date_from); }
         if (date_to)   { w += ' AND g.day_created <= ?'; cp.push(date_to); }
         if (search) {
-          w += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province LIKE ? OR g.address LIKE ?)';
+          w += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
           const q = `%${search}%`;
           cp.push(q, q, q, q, q, q, q, q);
         }

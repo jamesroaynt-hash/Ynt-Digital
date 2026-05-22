@@ -13,6 +13,38 @@ function ensureColumn(db, tableName, columnName, definition) {
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
+function migrateGoogleOrdersProvinceCity(db) {
+  const columns = db.prepare('PRAGMA table_info(google_orders)').all();
+  const hasProvinceCity = columns.some((c) => c.name === 'province_city');
+  const hasProvince = columns.some((c) => c.name === 'province');
+  if (hasProvinceCity) return;
+  if (hasProvince) {
+    db.exec('ALTER TABLE google_orders RENAME COLUMN province TO province_city');
+    return;
+  }
+  db.exec('ALTER TABLE google_orders ADD COLUMN province_city TEXT');
+}
+
+async function migrateGoogleOrdersProvinceCityAsync(db) {
+  if (db.type !== 'postgres') {
+    migrateGoogleOrdersProvinceCity(db);
+    return;
+  }
+  const columnExists = async (name) => {
+    const row = await db.prepare(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'google_orders' AND column_name = ?
+    `).get(name);
+    return Boolean(row);
+  };
+  if (await columnExists('province_city')) return;
+  if (await columnExists('province')) {
+    await db.exec('ALTER TABLE google_orders RENAME COLUMN province TO province_city');
+    return;
+  }
+  await db.exec('ALTER TABLE google_orders ADD COLUMN province_city TEXT');
+}
+
 async function ensureColumnAsync(db, tableName, columnName, definition) {
   if (db.type !== 'postgres') {
     ensureColumn(db, tableName, columnName, definition);
@@ -314,7 +346,7 @@ function runMigrations(db) {
   ensureColumn(db, 'google_orders', 'external_id', 'TEXT');
   ensureColumn(db, 'google_orders', 'internal_notes', 'TEXT');
   ensureColumn(db, 'google_orders', 'address', 'TEXT');
-  ensureColumn(db, 'google_orders', 'province', 'TEXT');
+  migrateGoogleOrdersProvinceCity(db);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_google_orders_external_unique ON google_orders(external_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_tracking ON google_orders(tracking_no)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_sheet_day ON google_orders(source_sheet, day_created DESC)');
@@ -517,7 +549,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'google_orders', 'external_id', 'TEXT');
   await ensureColumnAsync(db, 'google_orders', 'internal_notes', 'TEXT');
   await ensureColumnAsync(db, 'google_orders', 'address', 'TEXT');
-  await ensureColumnAsync(db, 'google_orders', 'province', 'TEXT');
+  await migrateGoogleOrdersProvinceCityAsync(db);
   await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_google_orders_external_unique ON google_orders(external_id)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_tracking ON google_orders(tracking_no)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_google_orders_sheet_day ON google_orders(source_sheet, day_created DESC)');
