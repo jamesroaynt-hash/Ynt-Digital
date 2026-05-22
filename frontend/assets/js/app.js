@@ -3227,6 +3227,13 @@ function renderMarketingCenter() {
           <input type="hidden" id="mkt-team-edit-index" value="">
           <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-control" id="mkt-team-name" placeholder="e.g. Mark"></div>
           <div class="form-group"><label class="form-label">Role</label><input type="text" class="form-control" id="mkt-team-role" placeholder="e.g. Ads + Creatives"></div>
+          <div class="form-group">
+            <label class="form-label">Page (assigned)</label>
+            <select class="form-control" id="mkt-team-page">
+              <option value="">— No page —</option>
+              ${getPosSourceOptions().map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
+            </select>
+          </div>
           <div class="form-group"><label class="form-label">Primary Focus</label><input type="text" class="form-control" id="mkt-team-primary" placeholder="e.g. Dragon pages"></div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-primary" onclick="saveMarketingTeamMember()">Save Member</button>
@@ -3244,6 +3251,7 @@ function renderMarketingCenter() {
             </div>` : ''}
             <div class="stat-label" style="padding-right:${marketingManager ? '64px' : '0'}">${escapeHtml(member.role)}</div>
             <div class="stat-value" style="font-size:18px;overflow-wrap:break-word;">${escapeHtml(member.name)}</div>
+            ${member.page ? `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:4px 0;overflow-wrap:break-word;">📍 ${escapeHtml(member.page)}</div>` : ''}
             <div class="stat-meta" style="overflow-wrap:break-word;">${escapeHtml(member.primary)}</div>
             <div style="margin-top:12px; display:grid; gap:4px; font-size:12px;">
               <div style="display:flex;justify-content:space-between;"><span>Sales</span><strong>${marketingMoney(member.sales)}</strong></div>
@@ -6619,15 +6627,16 @@ function saveMarketingTeamMember() {
   }
   const name = document.getElementById('mkt-team-name')?.value.trim() || '';
   const role = document.getElementById('mkt-team-role')?.value.trim() || '';
+  const page = document.getElementById('mkt-team-page')?.value.trim() || '';
   const primary = document.getElementById('mkt-team-primary')?.value.trim() || '';
   if (!name) { showToast('error', 'Name required', 'Please enter a team member name.'); return; }
   const state = getMarketingState();
   const editVal = document.getElementById('mkt-team-edit-index')?.value;
   const editIndex = editVal === '' ? -1 : Number(editVal);
   if (editIndex >= 0) {
-    state.team[editIndex] = { name, role, primary };
+    state.team[editIndex] = { name, role, page, primary };
   } else {
-    state.team.push({ name, role, primary });
+    state.team.push({ name, role, page, primary });
   }
   saveMarketingState(state);
   showToast('success', editIndex >= 0 ? 'Team member updated' : 'Team member added', name);
@@ -6639,7 +6648,7 @@ function editMarketingTeamMember(index) {
   const state = getMarketingState();
   const member = state.team[index];
   if (!member) return;
-  const fields = { 'mkt-team-name': member.name, 'mkt-team-role': member.role, 'mkt-team-primary': member.primary, 'mkt-team-edit-index': index };
+  const fields = { 'mkt-team-name': member.name, 'mkt-team-role': member.role, 'mkt-team-page': member.page || '', 'mkt-team-primary': member.primary, 'mkt-team-edit-index': index };
   Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
   document.getElementById('mkt-team-name')?.focus();
   showToast('success', 'Editing member', 'Update fields and click Save Member.');
@@ -6660,7 +6669,7 @@ function deleteMarketingTeamMember(index) {
 }
 
 function cancelMarketingTeamEdit() {
-  ['mkt-team-name', 'mkt-team-role', 'mkt-team-primary'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['mkt-team-name', 'mkt-team-role', 'mkt-team-page', 'mkt-team-primary'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   const idx = document.getElementById('mkt-team-edit-index'); if (idx) idx.value = '';
 }
 

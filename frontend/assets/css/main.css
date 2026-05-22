@@ -1089,10 +1089,15 @@ tbody td {
   font-family: inherit;
 }
 
-.tab-btn:hover { color: var(--text-primary); }
+.tab-btn:hover {
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.08);
+  border-bottom-color: rgba(59, 130, 246, 0.35);
+}
 .tab-btn.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+  background: rgba(59, 130, 246, 0.10);
 }
 
 .tab-content { display: none; }
