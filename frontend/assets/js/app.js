@@ -3175,53 +3175,53 @@ function renderMarketingCenter() {
   </div>
 
   <div id="mkt-entries" class="tab-content active">
-    <div style="display:grid; grid-template-columns:minmax(360px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
+    <div style="display:grid; grid-template-columns:minmax(380px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">${marketingManager ? 'One row per page per day.' : 'View only — TL access required to add entries.'}</div></div></div>
+        <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">${marketingManager ? 'Log ad spend per product/page. Add as many products as you need.' : 'View only — TL access required to add entries.'}</div></div></div>
         ${marketingManager ? `<div class="card-body">
-          <div class="form-grid-2">
-            <input type="hidden" id="mkt-entry-edit-index" value="">
-            <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}" onchange="syncMarketingPageMeta()"></div>
-            <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-page" onchange="syncMarketingPageMeta()">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
-            <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control${marketingManager ? '' : ' readonly-field'}" id="mkt-product"${marketingManager ? '' : ' readonly'}></div>
-            <div class="form-group"><label class="form-label">Owner</label><input type="text" class="form-control readonly-field" id="mkt-owner" readonly></div>
-            <div class="form-group" style="grid-column:1/-1">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                <label class="form-label" style="margin:0">Gross Sales (Delivered Orders)</label>
-                <button class="btn btn-secondary btn-sm" type="button" onclick="autoFillMarketingSalesFromOrders()" style="font-size:11px;padding:2px 8px;">Auto-fill</button>
-              </div>
-              <input type="number" class="form-control" id="mkt-sales" min="0" placeholder="0">
-              <div class="field-help">Auto-fills from delivered orders for the selected page + date.</div>
-            </div>
-            <div class="form-group"><label class="form-label">Orders Confirmed</label><input type="number" class="form-control" id="mkt-orders" min="0" placeholder="0"></div>
-            <div class="form-group"><label class="form-label">Ad Spend (from Ads Manager)</label><input type="number" class="form-control" id="mkt-spend" min="0" placeholder="0"></div>
-            <div class="form-group"><label class="form-label">RTS Count</label><input type="number" class="form-control" id="mkt-rts" min="0" placeholder="0"></div>
+          <input type="hidden" id="mkt-entry-edit-index" value="">
+          <div class="form-group" style="max-width:240px;">
+            <label class="form-label">Date</label>
+            <input type="date" class="form-control" id="mkt-date" value="${normalizeDateString(new Date())}">
           </div>
-          <button class="btn btn-primary" onclick="addMarketingEntry()">Add Entry</button>
+
+          <div style="margin-top:8px;">
+            <label class="form-label" style="display:block;margin-bottom:6px;">Products</label>
+            <div id="mkt-product-rows" style="display:flex;flex-direction:column;gap:8px;">
+              ${marketingProductRowHtml(state)}
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addMarketingProductRow()" style="margin-top:10px;">
+              + Add Product
+            </button>
+          </div>
+
+          <div class="mkt-total-card" style="margin-top:14px;padding:12px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:8px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12px;font-weight:700;letter-spacing:.6px;color:#1e3a8a;text-transform:uppercase;">Total Adspend</span>
+            <span id="mkt-total-adspend" style="font-size:20px;font-weight:700;color:#1e3a8a;">0.00</span>
+          </div>
+
+          <button class="btn btn-primary" onclick="submitMarketingEntries()" style="margin-top:14px;width:100%;">Add Entry</button>
         </div>` : `<div class="card-body"><div style="padding:24px;text-align:center;color:var(--text-muted);font-size:14px;">Only <strong>Sales & Marketing TL</strong> can add or edit entries.</div></div>`}
       </div>
 
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest page performance logs.</div></div></div>
+        <div class="card-header"><div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest ad spend logs by product.</div></div></div>
         <div class="table-container">
           <table>
-            <thead><tr><th>Date</th><th>Page</th><th>Owner</th><th>Sales</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Product</th><th>Owner</th><th style="text-align:right;">Ad Spend</th><th></th></tr></thead>
             <tbody>
-              ${state.entries.slice().reverse().slice(0, 12).map((entry) => {
+              ${state.entries.slice().reverse().slice(0, 15).map((entry) => {
                 const index = state.entries.indexOf(entry);
-                const roas = Number(entry.spend || 0) ? Number(entry.sales || 0) / Number(entry.spend || 0) : 0;
                 return `<tr>
                   <td>${escapeHtml(entry.date)}</td>
-                  <td>${escapeHtml(entry.page)}</td>
-                  <td>${escapeHtml(entry.owner)}</td>
-                  <td>${marketingMoney(entry.sales)}</td>
-                  <td>${marketingMoney(entry.spend)}</td>
-                  <td><span class="badge ${marketingRoasClass(roas)}">${marketingRoas(roas)}</span></td>
+                  <td><strong>${escapeHtml(entry.page)}</strong>${entry.product ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(entry.product)}</div>` : ''}</td>
+                  <td>${escapeHtml(entry.owner || '—')}</td>
+                  <td style="text-align:right;font-weight:600;">${marketingMoney(entry.spend)}</td>
                   <td>
-                    ${marketingManager ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editMarketingEntry(${index})">Edit</button><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">Delete</button></div>` : '<span class="text-xs text-muted">Saved</span>'}
+                    ${marketingManager ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editMarketingEntry(${index})">Edit</button><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">×</button></div>` : '<span class="text-xs text-muted">—</span>'}
                   </td>
                 </tr>`;
-              }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
+              }).join('') || '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -6450,54 +6450,83 @@ function applyRTSRateCustomRange() {
 }
 
 function syncMarketingPageMeta() {
-  const state = getMarketingState();
-  const pageName = document.getElementById('mkt-page')?.value;
-  const page = state.pages.find((item) => item.name === pageName) || state.pages[0];
-  const productInput = document.getElementById('mkt-product');
-  const ownerInput = document.getElementById('mkt-owner');
-  if (productInput) productInput.value = page?.product || '';
-  if (ownerInput) ownerInput.value = page?.owner || '';
+  // Legacy: kept for backward compatibility but no longer used by the new
+  // multi-row entry form. Individual rows derive their owner via state.pages.
 }
 
-function addMarketingEntry() {
+function marketingProductRowHtml(state, selected = '', spend = '') {
+  const pages = (state && Array.isArray(state.pages)) ? state.pages : [];
+  return `
+    <div class="mkt-product-row" style="display:flex;gap:8px;align-items:center;">
+      <select class="form-control mkt-row-page" style="flex:1;">
+        <option value="">— Select product / page —</option>
+        ${pages.map((page) => `<option value="${escapeHtml(page.name)}"${page.name === selected ? ' selected' : ''}>${escapeHtml(page.name)}${page.product ? ' · ' + escapeHtml(page.product) : ''}</option>`).join('')}
+      </select>
+      <input type="number" class="form-control mkt-row-spend" min="0" step="0.01" placeholder="Ad Spend" value="${spend !== '' && spend !== null && spend !== undefined ? Number(spend) : ''}" oninput="recalcMarketingTotal()" style="width:140px;">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="removeMarketingProductRow(this)" style="font-size:18px;line-height:1;padding:4px 10px;color:var(--danger);">×</button>
+    </div>`;
+}
+
+function addMarketingProductRow() {
+  const container = document.getElementById('mkt-product-rows');
+  if (!container) return;
   const state = getMarketingState();
-  const pageName = document.getElementById('mkt-page')?.value || '';
-  const page = state.pages.find((item) => item.name === pageName) || {};
+  container.insertAdjacentHTML('beforeend', marketingProductRowHtml(state));
+  recalcMarketingTotal();
+}
+
+function removeMarketingProductRow(btn) {
+  const row = btn.closest('.mkt-product-row');
+  if (!row) return;
+  const container = row.parentElement;
+  row.remove();
+  if (container && !container.querySelector('.mkt-product-row')) {
+    const state = getMarketingState();
+    container.insertAdjacentHTML('beforeend', marketingProductRowHtml(state));
+  }
+  recalcMarketingTotal();
+}
+
+function recalcMarketingTotal() {
+  const inputs = document.querySelectorAll('#mkt-product-rows .mkt-row-spend');
+  let total = 0;
+  inputs.forEach((el) => { total += Number(el.value || 0); });
+  const display = document.getElementById('mkt-total-adspend');
+  if (display) display.textContent = Number(total).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function submitMarketingEntries() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can add entries.');
+    return;
+  }
+  const state = getMarketingState();
+  const date = document.getElementById('mkt-date')?.value || normalizeDateString(new Date());
   const editIndexValue = document.getElementById('mkt-entry-edit-index')?.value || '';
   const editIndex = editIndexValue === '' ? -1 : Number(editIndexValue);
-  const entry = {
-    date: document.getElementById('mkt-date')?.value || normalizeDateString(new Date()),
-    page: pageName,
-    product: document.getElementById('mkt-product')?.value || page.product || '',
-    owner: page.owner || document.getElementById('mkt-owner')?.value || '',
-    orders: Number(document.getElementById('mkt-orders')?.value || 0),
-    sales: Number(document.getElementById('mkt-sales')?.value || 0),
-    spend: Number(document.getElementById('mkt-spend')?.value || 0),
-    rts: Number(document.getElementById('mkt-rts')?.value || 0),
-  };
 
-  if (!entry.date || !entry.page) {
-    showToast('error', 'Entry incomplete', 'Date and page are required.');
+  const rows = [...document.querySelectorAll('#mkt-product-rows .mkt-product-row')];
+  const collected = rows.map((row) => {
+    const pageName = row.querySelector('.mkt-row-page')?.value || '';
+    const spend = Number(row.querySelector('.mkt-row-spend')?.value || 0);
+    if (!pageName || spend <= 0) return null;
+    const page = state.pages.find((p) => p.name === pageName) || {};
+    return { date, page: pageName, product: page.product || '', owner: page.owner || '', spend, sales: 0, orders: 0, rts: 0 };
+  }).filter(Boolean);
+
+  if (!collected.length) {
+    showToast('error', 'Nothing to save', 'Pick a product and enter an ad spend.');
     return;
   }
 
   if (editIndex >= 0) {
-    if (!canManageMarketing()) {
-      showToast('warning', 'TL only', 'Only Sales and Marketing TL can update entries.');
-      return;
-    }
-    state.entries[editIndex] = entry;
+    state.entries[editIndex] = collected[0];
+    if (collected.length > 1) state.entries.push(...collected.slice(1));
   } else {
-    state.entries.push(entry);
+    state.entries.push(...collected);
   }
   saveMarketingState(state);
-  ['mkt-orders', 'mkt-sales', 'mkt-spend', 'mkt-rts'].forEach((id) => {
-    const input = document.getElementById(id);
-    if (input) input.value = '';
-  });
-  const editInput = document.getElementById('mkt-entry-edit-index');
-  if (editInput) editInput.value = '';
-  showToast('success', editIndex >= 0 ? 'Marketing entry updated' : 'Marketing entry saved', `${entry.page} - ${marketingRoas(entry.spend ? entry.sales / entry.spend : 0)}`);
+  showToast('success', editIndex >= 0 ? 'Entry updated' : `${collected.length} entr${collected.length === 1 ? 'y' : 'ies'} saved`, collected.map((e) => e.page).join(', '));
   navigateTo('marketing-center');
 }
 
@@ -6509,23 +6538,16 @@ function editMarketingEntry(index) {
   const state = getMarketingState();
   const entry = state.entries[index];
   if (!entry) return;
-  const fields = {
-    'mkt-entry-edit-index': index,
-    'mkt-date': entry.date,
-    'mkt-page': entry.page,
-    'mkt-orders': entry.orders,
-    'mkt-sales': entry.sales,
-    'mkt-spend': entry.spend,
-    'mkt-rts': entry.rts,
-  };
-  Object.entries(fields).forEach(([id, value]) => {
-    const input = document.getElementById(id);
-    if (input) input.value = value;
-  });
-  syncMarketingPageMeta();
-  const productInput = document.getElementById('mkt-product');
-  if (productInput && entry.product) productInput.value = entry.product;
-  showToast('success', 'Editing entry', 'Update the fields and click Add Entry to save changes.');
+  const editInput = document.getElementById('mkt-entry-edit-index');
+  if (editInput) editInput.value = index;
+  const dateInput = document.getElementById('mkt-date');
+  if (dateInput) dateInput.value = entry.date || '';
+  const container = document.getElementById('mkt-product-rows');
+  if (container) {
+    container.innerHTML = marketingProductRowHtml(state, entry.page, entry.spend);
+    recalcMarketingTotal();
+  }
+  showToast('success', 'Editing entry', 'Update the row and click Add Entry to save.');
 }
 
 function deleteMarketingEntry(index) {
