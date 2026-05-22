@@ -398,6 +398,18 @@ CREATE TABLE IF NOT EXISTS pos_transactions (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS announcements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  posted_by INTEGER REFERENCES users(id),
+  posted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_announcements_active ON announcements(is_active, posted_at DESC);
+
 CREATE TABLE IF NOT EXISTS api_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,

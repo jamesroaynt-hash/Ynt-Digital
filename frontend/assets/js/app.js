@@ -1647,6 +1647,19 @@ function renderHome() {
     </div>
   </div>
 
+  <section class="card" style="margin-bottom: 28px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">📢 Announcements</div>
+        <div class="card-subtitle">Latest updates from HR and management</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadHomeAnnouncements()">Refresh</button>
+    </div>
+    <div id="home-announcements" class="card-body" style="display:grid;gap:10px;">
+      <div class="empty-state" style="padding:20px 0;color:var(--text-muted);font-size:13px;">Loading announcements...</div>
+    </div>
+  </section>
+
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
     <div class="card home-chart-card">
       <div class="card-header">
@@ -1702,6 +1715,97 @@ function renderHome() {
       </div>
     </div>
   </div>`;
+}
+
+async function loadHomeAnnouncements() {
+  const wrap = document.getElementById('home-announcements');
+  if (!wrap) return;
+  try {
+    const result = await authorizedJsonRequest('/announcements');
+    const items = Array.isArray(result?.data) ? result.data : [];
+    const today = normalizeDateString(new Date());
+    const visible = items.filter((a) => !a.expires_at || a.expires_at >= today).slice(0, 5);
+    if (!visible.length) {
+      wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;color:var(--text-muted);font-size:13px;">No announcements right now.</div>';
+      return;
+    }
+    wrap.innerHTML = visible.map((a) => {
+      const when = a.posted_at ? new Date(a.posted_at.replace(' ', 'T')).toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      return `<div style="padding:14px 16px;border-left:4px solid #6366f1;background:#eef2ff;border-radius:8px;">
+        <div style="font-weight:700;font-size:14px;color:#1e1b4b;margin-bottom:4px;">${escapeHtml(a.title || '')}</div>
+        <div style="font-size:13px;color:#374151;line-height:1.5;white-space:pre-wrap;">${escapeHtml(a.body || '')}</div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">— ${escapeHtml(a.posted_by_name || a.posted_by_username || 'Admin')} · ${escapeHtml(when)}</div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state" style="padding:16px 0;color:var(--text-muted);font-size:12px;">Failed to load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function loadHRAnnouncements() {
+  const wrap = document.getElementById('hr-announcement-list');
+  if (!wrap) return;
+  try {
+    const result = await authorizedJsonRequest('/announcements');
+    const items = Array.isArray(result?.data) ? result.data : [];
+    if (!items.length) {
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No announcements posted yet.</div>';
+      return;
+    }
+    wrap.innerHTML = items.map((a) => {
+      const when = a.posted_at ? new Date(a.posted_at.replace(' ', 'T')).toLocaleString() : '';
+      const exp = a.expires_at ? `· expires ${escapeHtml(a.expires_at)}` : '';
+      return `<div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:13px;color:var(--text-primary);">${escapeHtml(a.title)}</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;white-space:pre-wrap;">${escapeHtml(a.body)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${escapeHtml(a.posted_by_name || a.posted_by_username || 'Admin')} · ${escapeHtml(when)} ${exp}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteHRAnnouncement(${a.id})">Delete</button>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">Failed to load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function submitHRAnnouncement() {
+  const title = document.getElementById('hr-announce-title')?.value.trim() || '';
+  const body = document.getElementById('hr-announce-body')?.value.trim() || '';
+  const expires = document.getElementById('hr-announce-expires')?.value.trim() || '';
+  if (!title || !body) {
+    showToast('warning', 'Missing fields', 'Title and message are required.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/announcements', {
+      method: 'POST',
+      body: JSON.stringify({ title, body, expires_at: expires || null }),
+    });
+    showToast('success', 'Announcement posted', title);
+    clearHRAnnouncementForm();
+    loadHRAnnouncements();
+  } catch (err) {
+    showToast('error', 'Post failed', err.message);
+  }
+}
+
+async function deleteHRAnnouncement(id) {
+  if (!confirm('Delete this announcement?')) return;
+  try {
+    await authorizedJsonRequest(`/announcements/${id}`, { method: 'DELETE' });
+    showToast('success', 'Announcement removed', `#${id}`);
+    loadHRAnnouncements();
+  } catch (err) {
+    showToast('error', 'Delete failed', err.message);
+  }
+}
+
+function clearHRAnnouncementForm() {
+  ['hr-announce-title', 'hr-announce-body', 'hr-announce-expires'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
 }
 
 function renderTimeClockCard() {
@@ -1897,6 +2001,37 @@ function renderHR() {
     <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">View daily time records. Edit holiday % to adjust pay. Days under 4 hrs do not count toward salary.</div></div></div>
     <div class="card-body" id="hr-attendance-table-wrap">
       <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">📢 Announcement Editor</div>
+        <div class="card-subtitle">Posts here appear on every user's Home page.</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadHRAnnouncements()">Refresh</button>
+    </div>
+    <div class="card-body">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input type="text" class="form-control" id="hr-announce-title" placeholder="e.g. Holiday schedule update">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Expires On (optional)</label>
+          <input type="date" class="form-control" id="hr-announce-expires">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Message</label>
+        <textarea class="form-control" id="hr-announce-body" rows="3" placeholder="Write the announcement details..."></textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="submitHRAnnouncement()">Post Announcement</button>
+        <button class="btn btn-secondary" onclick="clearHRAnnouncementForm()">Clear</button>
+      </div>
+      <div id="hr-announcement-list" style="margin-top:16px;display:grid;gap:8px;"></div>
     </div>
   </div>`;
 }
@@ -5482,6 +5617,7 @@ function initPage(page) {
     if (homeDateFromInput && !homeDateFromInput.value) homeDateFromInput.value = today;
     if (homeDateToInput && !homeDateToInput.value) homeDateToInput.value = today;
     loadTimeClockStatus();
+    loadHomeAnnouncements().catch(() => {});
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'home') loadPage('home'); }).catch(() => {});
     }
@@ -5702,6 +5838,7 @@ async function initHRPage() {
     showToast('error', 'Users unavailable', error.message || 'Could not load HR users.');
   }
   await loadHRDashboard();
+  loadHRAnnouncements().catch(() => {});
 }
 
 async function loadHRDashboard() {
