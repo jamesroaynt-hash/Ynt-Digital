@@ -1608,11 +1608,43 @@ function renderHome() {
     </div>
   </div>
 
-  <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 28px;">
-    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Total Orders</div><div class="stat-value">${total}</div><div class="stat-meta"><span class="stat-badge up">↑ 12%</span> vs last month</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta"><span class="stat-badge up">↑ 8%</span> delivery rate</div></div>
-    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">COD Revenue</div><div class="stat-value">₱${totalCOD.toLocaleString()}</div><div class="stat-meta"><span class="stat-badge up">↑ 15%</span> this week</div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Low Stock Items</div><div class="stat-value">${DB.inventory.filter(i => i.stock < i.reorder).length}</div><div class="stat-meta"><span class="stat-badge down">↓ needs reorder</span></div></div>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-icon kpi-icon-lavender">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M9 3v4M15 3v4M4 11h16"/></svg>
+      </div>
+      <div class="kpi-body">
+        <div class="kpi-value">${total.toLocaleString()}</div>
+        <div class="kpi-label">Total Orders</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon kpi-icon-sky">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>
+      </div>
+      <div class="kpi-body">
+        <div class="kpi-value">${delivered.toLocaleString()}</div>
+        <div class="kpi-label">Delivered Orders</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon kpi-icon-peach">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="8" cy="14" r="1.2"/></svg>
+      </div>
+      <div class="kpi-body">
+        <div class="kpi-value">₱${totalCOD.toLocaleString()}</div>
+        <div class="kpi-label">COD Revenue</div>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon kpi-icon-blush">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l3-3h12l3 3M3 7v12a2 2 0 002 2h14a2 2 0 002-2V7M3 7h18M9 11a3 3 0 006 0"/></svg>
+      </div>
+      <div class="kpi-body">
+        <div class="kpi-value">${DB.inventory.filter(i => i.stock < i.reorder).length}</div>
+        <div class="kpi-label">Low Stock Items</div>
+      </div>
+    </div>
   </div>
 
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
