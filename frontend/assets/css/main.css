@@ -1749,7 +1749,7 @@ tbody td {
 .ls-shape-5 { width: 280px; height: 280px; right: -100px; top: -80px; border-radius: 50%; background: radial-gradient(circle, rgba(251, 146, 60, 0.45) 0%, transparent 70%); opacity: 0.8; filter: none; }
 
 .login-panel {
-  background: #fff;
+  background: #0a172a;
   padding: 56px 56px;
   display: flex;
   flex-direction: column;
@@ -1769,7 +1769,7 @@ tbody td {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 4px;
-  color: #6366f1;
+  color: #a5b4fc;
   margin-bottom: 32px;
 }
 
@@ -1816,7 +1816,7 @@ tbody td {
 
 .login-helper {
   font-size: 11px;
-  color: var(--text-muted, #6b7280);
+  color: rgba(255, 255, 255, 0.55);
   text-align: center;
   line-height: 1.4;
   margin: 6px 0 18px;
@@ -1828,20 +1828,19 @@ tbody td {
   height: 44px;
   border: none;
   border-radius: 24px;
-  background: #0a172a;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
   color: #fff;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 3px;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s;
   font-family: inherit;
 }
 
 .login-submit-btn:hover {
   transform: translateY(-1px);
-  background: #142540;
-  box-shadow: 0 12px 24px -8px rgba(10, 23, 42, 0.45);
+  box-shadow: 0 12px 24px -8px rgba(139, 92, 246, 0.55);
 }
 
 .login-submit-btn:active { transform: translateY(0); }
