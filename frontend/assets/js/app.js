@@ -366,8 +366,8 @@ async function loadSheetRecordsForDataReport() {
     assigning_seller_name: r.confirmed_by || '',
     confirmed_by: r.confirmed_by || '',
     date: (r.order_date || '').slice(0, 10),
-    source_sheet: r.chat_page || r.source_sheet || '',
-    sourceSheet: r.chat_page || r.source_sheet || '',
+    source_sheet: r.chat_page || '',
+    sourceSheet: r.chat_page || '',
   }));
   return true;
 }
