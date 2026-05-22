@@ -3205,12 +3205,26 @@ function renderMarketingCenter() {
       </div>
 
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest ad spend logs by product.</div></div></div>
+        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+          <div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest ad spend logs by product.</div></div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input type="date" class="form-control" id="mkt-recent-from" value="${window.mktRecentFilter?.from || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
+            <span style="font-size:12px;color:var(--text-muted);">—</span>
+            <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
+            <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 10px;">All</button>
+          </div>
+        </div>
         <div class="table-container">
           <table>
             <thead><tr><th>Date</th><th>Product</th><th>Owner</th><th style="text-align:right;">Ad Spend</th><th></th></tr></thead>
             <tbody>
-              ${state.entries.slice().reverse().slice(0, 15).map((entry) => {
+              ${(() => {
+                const rf = window.mktRecentFilter || {};
+                let filtered = state.entries.slice();
+                if (rf.from) filtered = filtered.filter((e) => (e.date || '') >= rf.from);
+                if (rf.to) filtered = filtered.filter((e) => (e.date || '') <= rf.to);
+                return filtered.reverse().slice(0, 50);
+              })().map((entry) => {
                 const index = state.entries.indexOf(entry);
                 return `<tr>
                   <td>${escapeHtml(entry.date)}</td>
@@ -6570,6 +6584,26 @@ function updateMarketingEntrySpend(index, value) {
   state.entries[index].spend = spend;
   saveMarketingState(state);
   showToast('success', 'Ad spend updated', `${state.entries[index].page}: ${marketingMoney(spend)}`);
+}
+
+function applyMarketingRecentFilter() {
+  const from = document.getElementById('mkt-recent-from')?.value || '';
+  const to = document.getElementById('mkt-recent-to')?.value || '';
+  window.mktRecentFilter = { from, to };
+  navigateTo('marketing-center');
+  setTimeout(() => {
+    const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
+    if (tab) tab.click();
+  }, 50);
+}
+
+function clearMarketingRecentFilter() {
+  window.mktRecentFilter = { from: '', to: '' };
+  navigateTo('marketing-center');
+  setTimeout(() => {
+    const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
+    if (tab) tab.click();
+  }, 50);
 }
 
 function deleteMarketingEntry(index) {
