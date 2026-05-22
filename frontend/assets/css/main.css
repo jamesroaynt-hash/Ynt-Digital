@@ -1828,19 +1828,20 @@ tbody td {
   height: 44px;
   border: none;
   border-radius: 24px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  background: #0a172a;
   color: #fff;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 3px;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
   font-family: inherit;
 }
 
 .login-submit-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px -8px rgba(139, 92, 246, 0.55);
+  background: #142540;
+  box-shadow: 0 12px 24px -8px rgba(10, 23, 42, 0.45);
 }
 
 .login-submit-btn:active { transform: translateY(0); }
