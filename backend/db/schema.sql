@@ -154,6 +154,22 @@ CREATE TABLE IF NOT EXISTS expense_credits (
 
 CREATE INDEX IF NOT EXISTS idx_expense_credits_date ON expense_credits(credit_date);
 
+CREATE TABLE IF NOT EXISTS overtime_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  work_date TEXT NOT NULL,
+  requested_minutes INTEGER NOT NULL DEFAULT 0,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'approved', 'rejected')),
+  reviewed_by INTEGER REFERENCES users(id),
+  reviewed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, work_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_overtime_user_date ON overtime_requests(user_id, work_date);
+
 CREATE TABLE IF NOT EXISTS daily_pickups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pickup_ref TEXT NOT NULL UNIQUE,

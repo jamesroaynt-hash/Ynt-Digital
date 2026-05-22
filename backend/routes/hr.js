@@ -54,7 +54,25 @@ function calculateOtMinutes(record) {
   return Math.max(0, calculateWorkedMinutes(record) - STANDARD_DAY_MINUTES);
 }
 
-function calculatePayroll(users, attendance, advances) {
+function approvedOtKey(userId, workDate) { return `${userId}|${workDate}`; }
+
+function buildApprovedOtMap(rows) {
+  const map = new Map();
+  (rows || []).forEach((row) => {
+    map.set(approvedOtKey(Number(row.user_id), String(row.work_date)), Number(row.requested_minutes || 0));
+  });
+  return map;
+}
+
+function payableOtMinutes(record, approvedMap) {
+  if (!approvedMap) return 0;
+  const approved = approvedMap.get(approvedOtKey(Number(record.user_id), String(record.work_date)));
+  if (!Number.isFinite(approved) || approved <= 0) return 0;
+  const earnedOt = calculateOtMinutes(record);
+  return Math.min(approved, earnedOt);
+}
+
+function calculatePayroll(users, attendance, advances, approvedOtMap) {
   const byUser = new Map();
   users.forEach((user) => {
     byUser.set(Number(user.id), {
@@ -78,20 +96,22 @@ function calculatePayroll(users, attendance, advances) {
 
     const dailyRate = Number(summary.user.daily_rate || 0);
     const workedMinutes = calculateWorkedMinutes(record);
-    const otMinutes = calculateOtMinutes(record);
+    const otMinutes = payableOtMinutes(record, approvedOtMap);
     const holidayPercentage = Number(record.holiday_percentage || 100);
-    const completedDay = workedMinutes >= 4 * 60; // at least 4 hours to count as a work day
+    const perMinuteRate = dailyRate > 0 ? dailyRate / STANDARD_DAY_MINUTES : 0;
+    const cappedWorkedMinutes = Math.min(workedMinutes, STANDARD_DAY_MINUTES);
+    const proratedBase = cappedWorkedMinutes * perMinuteRate;
 
-    if (completedDay) {
+    if (workedMinutes > 0) {
       summary.days_worked += 1;
-      summary.base_pay += dailyRate;
+      summary.base_pay += proratedBase;
       if (holidayPercentage > 100) {
-        summary.holiday_pay += dailyRate * ((holidayPercentage - 100) / 100);
+        summary.holiday_pay += proratedBase * ((holidayPercentage - 100) / 100);
       }
     }
     summary.worked_minutes += workedMinutes;
     summary.ot_minutes += otMinutes;
-    summary.ot_pay += dailyRate > 0 ? (dailyRate / STANDARD_DAY_MINUTES) * otMinutes * 1.25 : 0;
+    summary.ot_pay += perMinuteRate > 0 ? perMinuteRate * otMinutes * 1.25 : 0;
   });
 
   advances.forEach((advance) => {
@@ -401,8 +421,13 @@ module.exports = function hrRoutes(db) {
       FROM cash_advances
       WHERE user_id IN (${placeholders}) AND advance_date BETWEEN ? AND ?
     `).all(...ids, from, to);
+    const approvedOt = await db.prepare(`
+      SELECT user_id, work_date, requested_minutes
+      FROM overtime_requests
+      WHERE status = 'approved' AND user_id IN (${placeholders}) AND work_date BETWEEN ? AND ?
+    `).all(...ids, from, to);
 
-    res.json({ summary: calculatePayroll(users, attendance, advances) });
+    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt)) });
   });
 
   router.get('/cash-advances', async (req, res) => {
@@ -567,7 +592,12 @@ module.exports = function hrRoutes(db) {
       WHERE user_id = ? AND advance_date BETWEEN ? AND ?
       ORDER BY advance_date ASC
     `).all(userId, from, to);
-    const [payroll] = calculatePayroll([user], attendance, advances);
+    const approvedOt = await db.prepare(`
+      SELECT user_id, work_date, requested_minutes
+      FROM overtime_requests
+      WHERE status = 'approved' AND user_id = ? AND work_date BETWEEN ? AND ?
+    `).all(userId, from, to);
+    const [payroll] = calculatePayroll([user], attendance, advances, buildApprovedOtMap(approvedOt));
 
     res.json({
       payslip: {
@@ -583,6 +613,80 @@ module.exports = function hrRoutes(db) {
         totals: payroll,
       },
     });
+  });
+
+  // ─── OVERTIME REQUESTS ───────────────────────────────────────
+  router.get('/ot-requests', requireCurrentUser, async (req, res) => {
+    const isManager = isHrManager(req.user);
+    const status = String(req.query?.status || '').trim();
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (!isManager) { where += ' AND o.user_id = ?'; params.push(req.user.id); }
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      where += ' AND o.status = ?';
+      params.push(status);
+    }
+    if (req.query?.from) { where += ' AND o.work_date >= ?'; params.push(req.query.from); }
+    if (req.query?.to)   { where += ' AND o.work_date <= ?'; params.push(req.query.to); }
+    const rows = await db.prepare(`
+      SELECT o.*, u.full_name AS user_name, r.full_name AS reviewer_name
+      FROM overtime_requests o
+      JOIN users u ON u.id = o.user_id
+      LEFT JOIN users r ON r.id = o.reviewed_by
+      ${where}
+      ORDER BY o.created_at DESC
+      LIMIT 200
+    `).all(...params);
+    res.json({ data: rows });
+  });
+
+  router.post('/ot-requests', requireCurrentUser, async (req, res) => {
+    const workDate = normalizeDate(req.body?.work_date, manilaParts().date);
+    const minutes = Math.max(0, Math.round(Number(req.body?.requested_minutes || 0)));
+    const reason = String(req.body?.reason || '').trim() || null;
+    if (!minutes) return res.status(400).json({ error: 'requested_minutes must be greater than 0' });
+    try {
+      const result = await db.prepare(`
+        INSERT INTO overtime_requests (user_id, work_date, requested_minutes, reason)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, work_date) DO UPDATE SET
+          requested_minutes = excluded.requested_minutes,
+          reason = excluded.reason,
+          status = 'pending',
+          reviewed_by = NULL,
+          reviewed_at = NULL
+      `).run(req.user.id, workDate, minutes, reason);
+      res.status(201).json({ id: Number(result.lastInsertRowid) || null, work_date: workDate });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.patch('/ot-requests/:id', requireCurrentUser, async (req, res) => {
+    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    const id = Number(req.params.id);
+    const status = String(req.body?.status || '').trim();
+    if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'status must be approved or rejected' });
+    await db.prepare(`
+      UPDATE overtime_requests
+      SET status = ?, reviewed_by = ?, reviewed_at = datetime('now')
+      WHERE id = ?
+    `).run(status, req.user.id, id);
+    res.json({ id, status });
+  });
+
+  router.delete('/ot-requests/:id', requireCurrentUser, async (req, res) => {
+    const id = Number(req.params.id);
+    const row = await db.prepare('SELECT user_id, status FROM overtime_requests WHERE id = ?').get(id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (Number(row.user_id) !== Number(req.user.id) && !isHrManager(req.user)) {
+      return res.status(403).json({ error: 'Cannot delete another user request' });
+    }
+    if (row.status === 'approved' && !isHrManager(req.user)) {
+      return res.status(403).json({ error: 'Approved requests can only be removed by HR' });
+    }
+    await db.prepare('DELETE FROM overtime_requests WHERE id = ?').run(id);
+    res.json({ deleted: id });
   });
 
   return router;

@@ -1813,20 +1813,30 @@ function renderTimeClockCard() {
       <div class="card-header">
         <div>
           <div class="card-title">Time Clock</div>
-          <div class="card-subtitle">Today attendance and 15-minute break</div>
+          <div class="card-subtitle">Today attendance with break countdown</div>
         </div>
+        <div class="philippine-clock" id="philippine-clock-home">--:--:--</div>
       </div>
       <div class="card-body">
         <div id="time-clock-status" class="empty-state" style="padding:12px; margin-bottom:12px;">
           <h3>Loading clock</h3>
           <p>Checking today record.</p>
         </div>
+
+        <div id="break-countdown-card" class="break-countdown hidden">
+          <div class="break-countdown-label" id="break-countdown-label">On break</div>
+          <div class="break-countdown-time" id="break-countdown-time">00:00</div>
+          <div class="break-countdown-bar"><span id="break-countdown-fill"></span></div>
+          <button class="btn btn-primary btn-sm" onclick="endBreakCountdown()" style="margin-top:8px;">End Break Now</button>
+        </div>
+
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <button class="btn btn-primary" onclick="submitTimeClock('time_in')">Time In</button>
-          <button class="btn btn-secondary" onclick="submitTimeClock('break_out')">Break Out</button>
-          <button class="btn btn-secondary" onclick="submitTimeClock('break_in')">Break In</button>
           <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
+          <button class="btn btn-secondary" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
+          <button class="btn btn-secondary" onclick="startBreakWithCountdown(15)">15-min Break</button>
         </div>
+
         ${canAccessPage('hr') ? "<button class=\"btn btn-ghost btn-sm\" style=\"margin-top:12px;\" onclick=\"navigateTo('hr')\">Open HR records</button>" : ''}
       </div>
     </div>`;
@@ -2006,6 +2016,19 @@ function renderHR() {
   <div class="card" style="margin-top:20px;">
     <div class="card-header">
       <div>
+        <div class="card-title">Overtime Approvals</div>
+        <div class="card-subtitle">Approved hours count toward pay. Pending and rejected do not.</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadHRPendingOT()">Refresh</button>
+    </div>
+    <div class="card-body" id="hr-ot-request-list">
+      <div style="color:var(--text-muted);font-size:13px;">Loading pending OT requests...</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px;">
+    <div class="card-header">
+      <div>
         <div class="card-title">📢 Announcement Editor</div>
         <div class="card-subtitle">Posts here appear on every user's Home page.</div>
       </div>
@@ -2052,20 +2075,32 @@ function renderAttendance() {
     <button class="tab-btn active" onclick="switchTab(this,'attendance-tab-clock')">Time Clock</button>
     <button class="tab-btn" onclick="switchTab(this,'attendance-tab-cash')">Cash Advance</button>
     <button class="tab-btn" onclick="switchTab(this,'attendance-tab-leave')">Request Leave</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-ot'); loadMyOTRequests();">Overtime</button>
     <button class="tab-btn" onclick="switchTab(this,'attendance-tab-hours'); loadMyWorkHours();">Work Hours</button>
   </div>
 
   <div id="attendance-tab-clock" class="tab-content active">
     <div style="display:grid; grid-template-columns:minmax(0, .9fr) minmax(320px, 1.1fr); gap:16px;">
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Today Status</div><div class="card-subtitle">Use the buttons for live time, or edit the time fields manually.</div></div></div>
+        <div class="card-header">
+          <div><div class="card-title">Today Status</div><div class="card-subtitle">Use the buttons for live time, or edit the time fields manually.</div></div>
+          <div class="philippine-clock" id="philippine-clock">--:--:--</div>
+        </div>
         <div class="card-body">
           <div id="attendance-clock-status" class="empty-state"><h3>Loading attendance</h3><p>Checking today time record.</p></div>
+
+          <div id="attendance-break-countdown" class="break-countdown hidden" style="margin-top:14px;">
+            <div class="break-countdown-label" id="attendance-break-countdown-label">On break</div>
+            <div class="break-countdown-time" id="attendance-break-countdown-time">00:00</div>
+            <div class="break-countdown-bar"><span id="attendance-break-countdown-fill"></span></div>
+            <button class="btn btn-primary btn-sm" onclick="endBreakCountdown()" style="margin-top:8px;">End Break Now</button>
+          </div>
+
           <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;">
             <button class="btn btn-primary" onclick="submitTimeClock('time_in')">Time In</button>
-            <button class="btn btn-secondary" onclick="submitTimeClock('break_out')">Break Out</button>
-            <button class="btn btn-secondary" onclick="submitTimeClock('break_in')">Break In</button>
             <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
+            <button class="btn btn-secondary" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
+            <button class="btn btn-secondary" onclick="startBreakWithCountdown(15)">15-min Break</button>
           </div>
         </div>
       </div>
@@ -2163,6 +2198,38 @@ function renderAttendance() {
       <div class="card">
         <div class="card-header"><div><div class="card-title">Leave Records</div><div class="card-subtitle">Pending and reviewed requests</div></div></div>
         <div class="card-body" id="attendance-leave-list"><div class="empty-state"><h3>Loading leave</h3><p>Checking request list.</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="attendance-tab-ot" class="tab-content">
+    <div style="display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1.2fr); gap:16px;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Request Overtime</div><div class="card-subtitle">OT hours are paid only if HR approves.</div></div></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Work Date</label>
+            <input type="date" id="ot-work-date" class="form-control" value="${today}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Overtime Hours</label>
+            <input type="number" id="ot-hours" class="form-control" min="0" step="0.25" placeholder="e.g. 2">
+            <div class="field-help">In hours (0.25 = 15 min). Saved as minutes.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reason</label>
+            <textarea id="ot-reason" class="form-control" rows="3" placeholder="What did you work on?"></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="submitOTRequest()">Submit Request</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">My OT Requests</div><div class="card-subtitle">Latest 25 requests</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="loadMyOTRequests()">↻</button>
+        </div>
+        <div class="card-body" id="ot-request-list"><div class="empty-state"><h3>Loading</h3><p>Pulling your overtime requests.</p></div></div>
       </div>
     </div>
   </div>
@@ -5412,6 +5479,109 @@ async function loadTimeClockStatus() {
   }
 }
 
+function startBreakWithCountdown(minutes) {
+  const duration = Math.max(1, Number(minutes) || 15) * 60;
+  const state = { endsAt: Date.now() + duration * 1000, duration };
+  try { localStorage.setItem('breakCountdown', JSON.stringify(state)); } catch {}
+  submitTimeClock('break_out');
+  startBreakCountdownTicker();
+}
+
+function endBreakCountdown() {
+  try { localStorage.removeItem('breakCountdown'); } catch {}
+  stopBreakCountdownTicker();
+  hideBreakCountdownUI();
+  submitTimeClock('break_in');
+}
+
+let _breakCountdownTimer = null;
+function startBreakCountdownTicker() {
+  stopBreakCountdownTicker();
+  tickBreakCountdown();
+  _breakCountdownTimer = setInterval(tickBreakCountdown, 1000);
+}
+
+function stopBreakCountdownTicker() {
+  if (_breakCountdownTimer) { clearInterval(_breakCountdownTimer); _breakCountdownTimer = null; }
+}
+
+function tickBreakCountdown() {
+  let state = null;
+  try { state = JSON.parse(localStorage.getItem('breakCountdown') || 'null'); } catch {}
+  if (!state || !state.endsAt) { hideBreakCountdownUI(); stopBreakCountdownTicker(); return; }
+  const remainingMs = state.endsAt - Date.now();
+  const remainingSec = Math.max(0, Math.floor(remainingMs / 1000));
+  const mm = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+  const ss = String(remainingSec % 60).padStart(2, '0');
+  const display = `${mm}:${ss}`;
+  const pctRemaining = state.duration ? (remainingSec / state.duration) * 100 : 0;
+  const fillPct = Math.max(0, Math.min(100, 100 - pctRemaining));
+  const labelText = state.duration === 60 * 60 ? 'On 1-hour break' : state.duration === 15 * 60 ? 'On 15-minute break' : 'On break';
+
+  ['break-countdown-card', 'attendance-break-countdown'].forEach((id) => {
+    const card = document.getElementById(id);
+    if (card) card.classList.remove('hidden');
+    if (card) card.classList.toggle('expired', remainingSec === 0);
+  });
+  ['break-countdown-time', 'attendance-break-countdown-time'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = remainingSec === 0 ? "Time's up!" : display;
+  });
+  ['break-countdown-label', 'attendance-break-countdown-label'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = labelText;
+  });
+  ['break-countdown-fill', 'attendance-break-countdown-fill'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = `${fillPct.toFixed(1)}%`;
+  });
+
+  if (remainingSec === 0) {
+    stopBreakCountdownTicker();
+    // Auto-notify once
+    if (!state.notified) {
+      state.notified = true;
+      try { localStorage.setItem('breakCountdown', JSON.stringify(state)); } catch {}
+      showToast('warning', 'Break is over', 'Click "End Break Now" to clock back in.');
+    }
+  }
+}
+
+function hideBreakCountdownUI() {
+  ['break-countdown-card', 'attendance-break-countdown'].forEach((id) => {
+    const card = document.getElementById(id);
+    if (card) card.classList.add('hidden');
+  });
+}
+
+function restoreBreakCountdownIfActive() {
+  let state = null;
+  try { state = JSON.parse(localStorage.getItem('breakCountdown') || 'null'); } catch {}
+  if (state && state.endsAt && state.endsAt > Date.now() - 60 * 60 * 1000) {
+    startBreakCountdownTicker();
+  }
+}
+
+let _philippineClockTimer = null;
+function startPhilippineClockTicker() {
+  if (_philippineClockTimer) clearInterval(_philippineClockTimer);
+  const tick = () => {
+    const now = new Date();
+    const formatted = now.toLocaleTimeString('en-PH', {
+      timeZone: 'Asia/Manila',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    document.querySelectorAll('#philippine-clock, .philippine-clock').forEach((el) => {
+      el.textContent = formatted;
+    });
+  };
+  tick();
+  _philippineClockTimer = setInterval(tick, 1000);
+}
+
 async function submitTimeClock(action) {
   const labels = {
     time_in: 'Time in',
@@ -5436,6 +5606,119 @@ async function submitTimeClock(action) {
 
 function initAttendancePage() {
   loadAttendanceDashboard();
+}
+
+async function submitOTRequest() {
+  const work_date = document.getElementById('ot-work-date')?.value;
+  const hours = Number(document.getElementById('ot-hours')?.value || 0);
+  const reason = document.getElementById('ot-reason')?.value || '';
+  if (!work_date || hours <= 0) {
+    showToast('error', 'Validation', 'Pick a date and a positive OT hours value.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/hr/ot-requests', {
+      method: 'POST',
+      body: JSON.stringify({ work_date, requested_minutes: Math.round(hours * 60), reason }),
+    });
+    showToast('success', 'Request submitted', `${hours}h on ${work_date}`);
+    document.getElementById('ot-hours').value = '';
+    document.getElementById('ot-reason').value = '';
+    loadMyOTRequests();
+  } catch (err) {
+    showToast('error', 'Submit failed', err.message);
+  }
+}
+
+async function loadMyOTRequests() {
+  const wrap = document.getElementById('ot-request-list');
+  if (!wrap) return;
+  try {
+    const result = await authorizedJsonRequest('/hr/ot-requests');
+    const rows = Array.isArray(result?.data) ? result.data : [];
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="empty-state"><h3>No requests yet</h3><p>Submit an OT request on the left.</p></div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="data-table" style="font-size:13px;">
+        <thead><tr><th>Date</th><th>Hours</th><th>Status</th><th>Reviewer</th><th></th></tr></thead>
+        <tbody>
+          ${rows.slice(0, 25).map((r) => {
+            const cls = r.status === 'approved' ? 'badge-success' : r.status === 'rejected' ? 'badge-danger' : 'badge-warning';
+            const hours = (Number(r.requested_minutes || 0) / 60).toFixed(2);
+            return `<tr>
+              <td>${escapeHtml(r.work_date || '')}</td>
+              <td>${hours}h <span style="color:var(--text-muted);font-size:11px;">${r.reason ? '· ' + escapeHtml(r.reason).slice(0, 40) : ''}</span></td>
+              <td><span class="badge ${cls}">${escapeHtml(r.status)}</span></td>
+              <td>${escapeHtml(r.reviewer_name || '-')}</td>
+              <td>${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" onclick="deleteOTRequest(${r.id})">×</button>` : ''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    wrap.innerHTML = `<div class="empty-state"><h3>Failed to load</h3><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+async function deleteOTRequest(id) {
+  if (!confirm('Cancel this OT request?')) return;
+  try {
+    await authorizedJsonRequest(`/hr/ot-requests/${id}`, { method: 'DELETE' });
+    loadMyOTRequests();
+    if (typeof loadHRPendingOT === 'function') loadHRPendingOT();
+  } catch (err) {
+    showToast('error', 'Delete failed', err.message);
+  }
+}
+
+async function loadHRPendingOT() {
+  const wrap = document.getElementById('hr-ot-request-list');
+  if (!wrap) return;
+  try {
+    const result = await authorizedJsonRequest('/hr/ot-requests?status=pending');
+    const rows = Array.isArray(result?.data) ? result.data : [];
+    if (!rows.length) {
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:14px 0;">No pending OT requests.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="data-table" style="font-size:13px;">
+        <thead><tr><th>User</th><th>Date</th><th>Hours</th><th>Reason</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${rows.map((r) => {
+            const hours = (Number(r.requested_minutes || 0) / 60).toFixed(2);
+            return `<tr>
+              <td><strong>${escapeHtml(r.user_name || '')}</strong></td>
+              <td>${escapeHtml(r.work_date || '')}</td>
+              <td>${hours}h</td>
+              <td style="max-width:240px;white-space:normal;">${escapeHtml(r.reason || '-')}</td>
+              <td>
+                <button class="btn btn-primary btn-sm" onclick="reviewOTRequest(${r.id}, 'approved')">Approve</button>
+                <button class="btn btn-secondary btn-sm" onclick="reviewOTRequest(${r.id}, 'rejected')">Reject</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    wrap.innerHTML = `<div style="color:var(--text-muted);">Failed: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function reviewOTRequest(id, status) {
+  try {
+    await authorizedJsonRequest(`/hr/ot-requests/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    showToast('success', `Request ${status}`, `#${id}`);
+    loadHRPendingOT();
+    if (App.currentPage === 'hr') loadHRDashboard();
+  } catch (err) {
+    showToast('error', 'Update failed', err.message);
+  }
 }
 
 async function loadMyWorkHours() {
@@ -5970,6 +6253,7 @@ async function initHRPage() {
   }
   await loadHRDashboard();
   loadHRAnnouncements().catch(() => {});
+  loadHRPendingOT().catch(() => {});
 }
 
 async function loadHRDashboard() {
@@ -9444,6 +9728,8 @@ async function init() {
   shell.style.display = 'flex';
   applySidebarCollapsedFromStorage();
   applyThemeFromStorage();
+  startPhilippineClockTicker();
+  restoreBreakCountdownIfActive();
   refreshCurrentUserChip();
   navigateTo(getDefaultPageForCurrentUser());
   refreshOrderStatsFromBackend()
