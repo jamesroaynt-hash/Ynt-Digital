@@ -87,7 +87,11 @@ body {
 [data-theme="dark"] .card,
 [data-theme="dark"] .form-control,
 [data-theme="dark"] .stat-card,
-[data-theme="dark"] .kpi-card {
+[data-theme="dark"] .kpi-card,
+[data-theme="dark"] .erp-kpi,
+[data-theme="dark"] .erp-member-card,
+[data-theme="dark"] .rts-metric-card,
+[data-theme="dark"] .rts-cod-card {
   background: var(--surface);
   color: var(--text-primary);
 }
@@ -95,6 +99,19 @@ body {
 [data-theme="dark"] .kpi-card { border-color: var(--border); }
 [data-theme="dark"] .kpi-value { color: var(--text-primary); }
 [data-theme="dark"] .kpi-label { color: var(--text-secondary); }
+
+[data-theme="dark"] .erp-kpi { border-color: var(--border); }
+[data-theme="dark"] .erp-kpi-value { color: var(--text-primary); }
+[data-theme="dark"] .erp-kpi-label { color: var(--text-secondary); }
+[data-theme="dark"] .erp-kpi-target { color: var(--text-muted); }
+
+[data-theme="dark"] .rts-metric-card { border-color: var(--border); }
+[data-theme="dark"] .rts-metric-value,
+[data-theme="dark"] .rts-cod-value { color: var(--text-primary); }
+
+[data-theme="dark"] .data-report-table,
+[data-theme="dark"] .data-report-table th,
+[data-theme="dark"] .data-report-table td { color: var(--text-primary); }
 
 /* Sales & Marketing ERP command center */
 .erp-command-center {
@@ -461,7 +478,7 @@ body {
 .sidebar.collapsed .sidebar-logo .brand-sub { display: none; }
 .sidebar.collapsed .logo-mark { width: 32px; height: 32px; margin: 0 auto; }
 
-.sidebar.collapsed .nav-section-label { display: none; }
+.sidebar.collapsed .nav-section-label { display: none !important; }
 .sidebar.collapsed .nav-section-body { max-height: none !important; opacity: 1 !important; pointer-events: auto !important; }
 
 .sidebar.collapsed .nav-item {
