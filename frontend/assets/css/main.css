@@ -1669,10 +1669,7 @@ tbody td {
   align-items: center;
   justify-content: center;
   padding: 40px 24px;
-  background:
-    radial-gradient(circle at 20% 30%, rgba(168, 85, 247, 0.35) 0%, transparent 45%),
-    radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.35) 0%, transparent 45%),
-    linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #ec4899 100%);
+  background: #0a172a;
 }
 
 .login-card {
