@@ -72,6 +72,96 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Read-only Google Sheets records — available to any authenticated user.
+  router.get('/google-sheets/records', async (req, res) => {
+    try {
+      const { sheet, status, search, date_from, date_to, page = 1, per_page = 50 } = req.query;
+      const params = [];
+
+      const baseFrom = 'FROM google_orders g';
+
+      let where = 'WHERE 1=1';
+      if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
+      if (status && status !== 'all') { where += ' AND LOWER(TRIM(g.status)) = LOWER(?)'; params.push(status); }
+      if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
+      if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
+      if (search) {
+        where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
+        const q = `%${search}%`;
+        params.push(q, q, q, q, q, q, q, q);
+      }
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
+      const offset = (pageNum - 1) * perPage;
+
+      const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
+      const total = countRow?.total || 0;
+
+      const records = await db.prepare(`
+        SELECT g.id,
+               g.external_id   AS order_ref,
+               g.tracking_no,
+               g.customer_name AS customer,
+               g.customer_phone AS phone,
+               g.product_name  AS product,
+               g.quantity      AS qty,
+               g.cod           AS cod_amount,
+               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
+               g.courier,
+               g.source_sheet,
+               g.chat_page,
+               g.confirmed_by,
+               g.delivery_attempts AS attempts,
+               g.tag,
+               g.pancake_tags,
+               g.internal_notes,
+               g.address,
+               g.province_city,
+               g.day_created   AS order_date,
+               g.updated_at
+        ${baseFrom} ${where}
+        ORDER BY g.day_created DESC, g.id DESC
+        LIMIT ? OFFSET ?
+      `).all(...params, perPage, offset);
+
+      const whereForCounts = (() => {
+        const cp = [];
+        let w = 'WHERE 1=1';
+        if (sheet && sheet !== 'all') { w += ' AND g.source_sheet = ?'; cp.push(sheet); }
+        if (date_from) { w += ' AND g.day_created >= ?'; cp.push(date_from); }
+        if (date_to)   { w += ' AND g.day_created <= ?'; cp.push(date_to); }
+        if (search) {
+          w += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
+          const q = `%${search}%`;
+          cp.push(q, q, q, q, q, q, q, q);
+        }
+        return { where: w, params: cp };
+      })();
+      const statusCounts = await db.prepare(
+        `SELECT COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status, COUNT(*) AS count
+         ${baseFrom} ${whereForCounts.where}
+         GROUP BY COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))
+         ORDER BY count DESC`
+      ).all(...whereForCounts.params);
+
+      const includeSheetNames = pageNum === 1 && !sheet && !status && !search && !date_from && !date_to;
+      const sheetNames = includeSheetNames
+        ? (await db.prepare(
+            `SELECT DISTINCT g.source_sheet ${baseFrom}
+             WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
+             ORDER BY g.source_sheet`
+          ).all()).map((r) => r.source_sheet)
+        : undefined;
+
+      const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), status_counts: statusCounts };
+      if (sheetNames) payload.sheet_names = sheetNames;
+      res.json(payload);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
 
   router.get('/pancake-pos/status', async (req, res) => {
@@ -146,100 +236,6 @@ module.exports = function integrationRoutes(db) {
     try {
       const result = await posSync.syncPancakePageUsers(db);
       res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.get('/google-sheets/records', async (req, res) => {
-    try {
-      const { sheet, status, search, date_from, date_to, page = 1, per_page = 50 } = req.query;
-      const params = [];
-
-      const baseFrom = 'FROM google_orders g';
-
-      let where = 'WHERE 1=1';
-      if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
-      if (status && status !== 'all') { where += ' AND LOWER(TRIM(g.status)) = LOWER(?)'; params.push(status); }
-      if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
-      if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
-      if (search) {
-        where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
-        const q = `%${search}%`;
-        params.push(q, q, q, q, q, q, q, q);
-      }
-
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
-      const offset = (pageNum - 1) * perPage;
-
-      const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
-      const total = countRow?.total || 0;
-
-      const records = await db.prepare(`
-        SELECT g.id,
-               g.external_id   AS order_ref,
-               g.tracking_no,
-               g.customer_name AS customer,
-               g.customer_phone AS phone,
-               g.product_name  AS product,
-               g.quantity      AS qty,
-               g.cod           AS cod_amount,
-               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
-               g.courier,
-               g.source_sheet,
-               g.chat_page,
-               g.confirmed_by,
-               g.delivery_attempts AS attempts,
-               g.tag,
-               g.pancake_tags,
-               g.internal_notes,
-               g.address,
-               g.province_city,
-               g.day_created   AS order_date,
-               g.updated_at
-        ${baseFrom} ${where}
-        ORDER BY g.day_created DESC, g.id DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, perPage, offset);
-
-      // Status counts using same filters except status itself
-      const countParams = params.filter((_, i) => {
-        // Rebuild params without the status param — status is the 2nd condition if set
-        return true; // we rebuild separately below
-      });
-      const whereForCounts = (() => {
-        const cp = [];
-        let w = 'WHERE 1=1';
-        if (sheet && sheet !== 'all') { w += ' AND g.source_sheet = ?'; cp.push(sheet); }
-        if (date_from) { w += ' AND g.day_created >= ?'; cp.push(date_from); }
-        if (date_to)   { w += ' AND g.day_created <= ?'; cp.push(date_to); }
-        if (search) {
-          w += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
-          const q = `%${search}%`;
-          cp.push(q, q, q, q, q, q, q, q);
-        }
-        return { where: w, params: cp };
-      })();
-      const statusCounts = await db.prepare(
-        `SELECT COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status, COUNT(*) AS count
-         ${baseFrom} ${whereForCounts.where}
-         GROUP BY COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))
-         ORDER BY count DESC`
-      ).all(...whereForCounts.params);
-
-      const includeSheetNames = pageNum === 1 && !sheet && !status && !search && !date_from && !date_to;
-      const sheetNames = includeSheetNames
-        ? (await db.prepare(
-            `SELECT DISTINCT g.source_sheet ${baseFrom}
-             WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
-             ORDER BY g.source_sheet`
-          ).all()).map((r) => r.source_sheet)
-        : undefined;
-
-      const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), status_counts: statusCounts };
-      if (sheetNames) payload.sheet_names = sheetNames;
-      res.json(payload);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

@@ -16,7 +16,7 @@ const NAV_ACCESS = {
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'profile'],
+  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -1583,9 +1583,9 @@ function renderHome() {
   const summaryStatusCount = (status) => Number(
     DB.orderStats?.status_counts?.find((row) => row.status === status)?.count || 0
   );
-  const total = DB.posOrders.length;
-  const delivered = DB.posOrders.filter(o => o.status === 'Delivered').length;
-  const totalCOD = DB.posOrders.reduce((s, o) => s + Number(o.cod || 0), 0);
+  const total = DB.sheetRecordsForReport.length;
+  const delivered = DB.sheetRecordsForReport.filter(o => o.status === 'Delivered').length;
+  const totalCOD = DB.sheetRecordsForReport.reduce((s, o) => s + Number(o.cod || 0), 0);
   const sourceOptions = getPosSourceOptions();
 
 
@@ -1629,7 +1629,7 @@ function renderHome() {
           <button class="filter-pill ${homeOrderFilter === 'custom' ? 'active' : ''}" onclick="setHomeOrderFilter('custom',this)">Custom</button>
         </div>
         <select class="form-control home-sheet-filter" id="home-source-filter" onchange="setHomeSourceFilter()">
-          <option value="all">All Sheets</option>
+          <option value="all">All Pages</option>
           ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${homeSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
         </select>
         <div class="home-custom-range ${homeOrderFilter === 'custom' ? '' : 'hidden'}" id="home-custom-range">
@@ -2223,7 +2223,7 @@ function renderSales() {
       </div>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <select class="form-control" style="width:150px; padding:6px 10px; font-size:13px;" id="sales-source-filter" onchange="setSalesSourceFilter()">
-          <option value="all">All Sheets</option>
+          <option value="all">All Pages</option>
           ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${salesSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
         </select>
         <select class="form-control" style="width:105px; padding:6px 10px; font-size:13px;" id="sales-year-filter" onchange="setSalesYearFilter()">
@@ -2280,9 +2280,9 @@ function renderRTSRate() {
         </div>
       </div>
       <div class="rts-filter-group rts-sheet-filter">
-        <label class="rts-filter-label" for="rts-rate-source-filter">Sheet Filter</label>
+        <label class="rts-filter-label" for="rts-rate-source-filter">Page Filter</label>
         <select class="form-control" id="rts-rate-source-filter" onchange="setRTSRateSourceFilter()">
-          <option value="all">All Sheets</option>
+          <option value="all">All Pages</option>
           ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${rtsRateSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
         </select>
       </div>
@@ -5373,8 +5373,8 @@ function initPage(page) {
     if (homeDateFromInput && !homeDateFromInput.value) homeDateFromInput.value = today;
     if (homeDateToInput && !homeDateToInput.value) homeDateToInput.value = today;
     loadTimeClockStatus();
-    if (!DB.posOrders.length) {
-      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'home') loadPage('home'); }).catch(() => {});
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'home') loadPage('home'); }).catch(() => {});
     }
   }
 
@@ -6128,7 +6128,7 @@ function getPosMonthOptions(year = '') {
 }
 
 function getFilteredHomeOrders() {
-  let data = [...DB.posOrders];
+  let data = [...DB.sheetRecordsForReport];
   const today = normalizeDateString(new Date());
 
   if (homeOrderFilter === 'weekly') {
@@ -6142,7 +6142,7 @@ function getFilteredHomeOrders() {
   }
 
   if (homeSourceFilter !== 'all') {
-    data = data.filter((order) => (order.sourceSheet || 'Manual') === homeSourceFilter);
+    data = data.filter((order) => (order.sourceSheet || 'Sheets') === homeSourceFilter);
   }
 
   return data;
@@ -6155,7 +6155,7 @@ function getHomeFilterLabel() {
     monthly: 'This month',
     custom: homeDateFrom || homeDateTo ? `${homeDateFrom || 'Start'} to ${homeDateTo || 'Today'}` : 'Custom range',
   };
-  const sheetLabel = homeSourceFilter === 'all' ? 'All sheets' : homeSourceFilter;
+  const sheetLabel = homeSourceFilter === 'all' ? 'All pages' : homeSourceFilter;
   return `${filterLabels[homeOrderFilter] || 'All time'} - ${sheetLabel}`;
 }
 
