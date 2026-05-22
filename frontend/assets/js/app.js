@@ -1169,7 +1169,6 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-sheet-records'); loadSheetRecords()">Sheet Records</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -1478,72 +1477,6 @@ function renderApiConnections() {
           <div style="margin-top:10px;"><strong>API discovery:</strong></div>
           <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:6px 0;">curl https://your-domain.com/api</code>
         </div>
-      </div>
-    </section>
-  </div>
-
-  <div id="api-tab-sheet-records" class="tab-content">
-    <section class="card integration-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Google Sheets Synced Records</div>
-          <div class="card-subtitle">All orders imported from the connected Google Sheets tab(s). Records update each time you run a sync.</div>
-        </div>
-        <button class="btn btn-secondary" onclick="loadSheetRecords()">Refresh</button>
-      </div>
-      <div class="card-body">
-        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
-          <div class="form-group" style="margin:0; min-width:160px;">
-            <label class="form-label" style="font-size:12px;">Page</label>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-                <option value="all">All pages</option>
-              </select>
-              <button class="btn btn-secondary" title="Rename selected page" onclick="showRenameSourceModal()" style="height:34px; padding:0 10px; flex-shrink:0;">✎</button>
-            </div>
-          </div>
-          <div class="form-group" style="margin:0; min-width:140px;">
-            <label class="form-label" style="font-size:12px;">Status</label>
-            <select class="form-control" id="sheet-records-status-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-              <option value="all">All statuses</option>
-              <option value="New">New</option>
-              <option value="Confirmed">Confirmed</option>
-              <option value="Waiting for pickup">Waiting for pickup</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Returning">Returning</option>
-              <option value="Returned">Returned</option>
-              <option value="Canceled">Canceled</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin:0; flex:1; min-width:200px;">
-            <label class="form-label" style="font-size:12px;">Search</label>
-            <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, phone, tracking, province/city..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
-          </div>
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
-          <div class="form-group" style="margin:0;">
-            <label class="form-label" style="font-size:12px;">Date</label>
-            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-              <div id="sheet-date-presets" style="display:flex; gap:4px; flex-wrap:wrap;">
-                <button class="btn btn-secondary sheet-date-preset active" data-preset="all" onclick="setSheetDatePreset('all')" style="height:30px;font-size:12px;padding:0 10px;">All</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="today" onclick="setSheetDatePreset('today')" style="height:30px;font-size:12px;padding:0 10px;">Today</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="yesterday" onclick="setSheetDatePreset('yesterday')" style="height:30px;font-size:12px;padding:0 10px;">Yesterday</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="month" onclick="setSheetDatePreset('month')" style="height:30px;font-size:12px;padding:0 10px;">This Month</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="year" onclick="setSheetDatePreset('year')" style="height:30px;font-size:12px;padding:0 10px;">This Year</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="custom" onclick="setSheetDatePreset('custom')" style="height:30px;font-size:12px;padding:0 10px;">Custom</button>
-              </div>
-              <div id="sheet-date-custom" style="display:none; gap:6px; align-items:center;">
-                <input type="date" class="form-control" id="sheet-date-from" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
-                <span style="font-size:12px;color:var(--text-muted);">—</span>
-                <input type="date" class="form-control" id="sheet-date-to" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="sheet-records-status-summary" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; min-height:0;"></div>
-        <div id="sheet-records-table"><div class="loading-spinner"></div></div>
-        <div id="sheet-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
       </div>
     </section>
   </div>
@@ -4071,6 +4004,7 @@ function renderViewRecords() {
 
   <div class="tabs" id="records-tabs">
     <button class="tab-btn active" onclick="switchTab(this,'rec-pos-orders')">POS Orders (${DB.posRawTotal})</button>
+    <button class="tab-btn" onclick="switchTab(this,'rec-sheets'); loadSheetRecords()">Sheet Records</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
@@ -4201,6 +4135,72 @@ function renderViewRecords() {
         </tr>`).join('')}</tbody>
       </table>
     </div>
+  </div>
+
+  <div id="rec-sheets" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Google Sheets Synced Records</div>
+          <div class="card-subtitle">All orders imported from the connected Google Sheets tab(s). Records update each time you run a sync.</div>
+        </div>
+        <button class="btn btn-secondary" onclick="loadSheetRecords()">Refresh</button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
+          <div class="form-group" style="margin:0; min-width:160px;">
+            <label class="form-label" style="font-size:12px;">Page</label>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
+                <option value="all">All pages</option>
+              </select>
+              <button class="btn btn-secondary" title="Rename selected page" onclick="showRenameSourceModal()" style="height:34px; padding:0 10px; flex-shrink:0;">✎</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin:0; min-width:140px;">
+            <label class="form-label" style="font-size:12px;">Status</label>
+            <select class="form-control" id="sheet-records-status-filter" onchange="loadSheetRecords(1)" style="height:34px;">
+              <option value="all">All statuses</option>
+              <option value="New">New</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Waiting for pickup">Waiting for pickup</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Returning">Returning</option>
+              <option value="Returned">Returned</option>
+              <option value="Canceled">Canceled</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0; flex:1; min-width:200px;">
+            <label class="form-label" style="font-size:12px;">Search</label>
+            <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, phone, tracking, province/city..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" style="font-size:12px;">Date</label>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <div id="sheet-date-presets" style="display:flex; gap:4px; flex-wrap:wrap;">
+                <button class="btn btn-secondary sheet-date-preset active" data-preset="all" onclick="setSheetDatePreset('all')" style="height:30px;font-size:12px;padding:0 10px;">All</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="today" onclick="setSheetDatePreset('today')" style="height:30px;font-size:12px;padding:0 10px;">Today</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="yesterday" onclick="setSheetDatePreset('yesterday')" style="height:30px;font-size:12px;padding:0 10px;">Yesterday</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="month" onclick="setSheetDatePreset('month')" style="height:30px;font-size:12px;padding:0 10px;">This Month</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="year" onclick="setSheetDatePreset('year')" style="height:30px;font-size:12px;padding:0 10px;">This Year</button>
+                <button class="btn btn-secondary sheet-date-preset" data-preset="custom" onclick="setSheetDatePreset('custom')" style="height:30px;font-size:12px;padding:0 10px;">Custom</button>
+              </div>
+              <div id="sheet-date-custom" style="display:none; gap:6px; align-items:center;">
+                <input type="date" class="form-control" id="sheet-date-from" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
+                <span style="font-size:12px;color:var(--text-muted);">—</span>
+                <input type="date" class="form-control" id="sheet-date-to" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="sheet-records-status-summary" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; min-height:0;"></div>
+        <div id="sheet-records-table"><div class="loading-spinner"></div></div>
+        <div id="sheet-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
+      </div>
+    </section>
   </div>`;
 }
 
