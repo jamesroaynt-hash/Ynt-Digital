@@ -560,15 +560,31 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
   const pancakeTags = stringOrNull(getFirstValue(rawRow, [
     'pancake_tags', 'pancake tags', 'pos_tags', 'pos tags',
   ]));
+  const internalNotes = stringOrNull(getFirstValue(rawRow, [
+    'internal_notes', 'internal notes', 'internal_note', 'internal note',
+    'notes', 'note', 'remarks', 'remark', 'comment', 'comments',
+    'admin_note', 'admin notes', 'agent_notes', 'agent notes',
+  ]));
+  const address = stringOrNull(getFirstValue(rawRow, [
+    'address', 'shipping_address', 'shipping address', 'street_address', 'street address',
+    'full_address', 'full address', 'bill_address', 'bill address',
+    'delivery_address', 'delivery address', 'street', 'location',
+  ]));
+  const province = stringOrNull(getFirstValue(rawRow, [
+    'province', 'state', 'region', 'bill_state', 'bill state',
+    'shipping_state', 'shipping state', 'bill_province', 'bill province',
+    'shipping_province', 'shipping province',
+  ]));
 
   await db.prepare(`
     INSERT INTO google_orders (
       external_id, tracking_no, customer_name, customer_phone, product_name,
       quantity, cod, status, status_normalized, courier, day_created, chat_page,
       confirmed_by, delivery_attempts, tag, pancake_tags,
+      internal_notes, address, province,
       spreadsheet_id, source_sheet, sheet_row_number, raw_row, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(external_id) DO UPDATE SET
       tracking_no = excluded.tracking_no,
       customer_name = excluded.customer_name,
@@ -585,6 +601,9 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       delivery_attempts = excluded.delivery_attempts,
       tag = excluded.tag,
       pancake_tags = excluded.pancake_tags,
+      internal_notes = excluded.internal_notes,
+      address = excluded.address,
+      province = excluded.province,
       spreadsheet_id = excluded.spreadsheet_id,
       source_sheet = excluded.source_sheet,
       sheet_row_number = excluded.sheet_row_number,
@@ -607,6 +626,9 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     normalized.attempts,
     tag,
     pancakeTags,
+    internalNotes,
+    address,
+    province,
     spreadsheetId,
     sheetName,
     rowNumber,
