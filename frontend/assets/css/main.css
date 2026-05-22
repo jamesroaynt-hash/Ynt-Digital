@@ -571,6 +571,19 @@ body {
   position: relative;
 }
 
+/* Announcement card sized to match the chart cards */
+.home-announce-card { max-width: 540px; }
+.home-announce-body {
+  padding: 14px 16px;
+  height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.home-announce-body::-webkit-scrollbar { width: 6px; }
+.home-announce-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.25); border-radius: 3px; }
+
 .stat-card {
   background: var(--surface);
   border: 1px solid var(--border);

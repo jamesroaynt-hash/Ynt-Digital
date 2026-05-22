@@ -1647,19 +1647,6 @@ function renderHome() {
     </div>
   </div>
 
-  <section class="card" style="margin-bottom: 28px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">📢 Announcements</div>
-        <div class="card-subtitle">Latest updates from HR and management</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="loadHomeAnnouncements()">Refresh</button>
-    </div>
-    <div id="home-announcements" class="card-body" style="display:grid;gap:10px;">
-      <div class="empty-state" style="padding:20px 0;color:var(--text-muted);font-size:13px;">Loading announcements...</div>
-    </div>
-  </section>
-
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
     <div class="card home-chart-card">
       <div class="card-header">
@@ -1692,6 +1679,18 @@ function renderHome() {
       <div class="card-body home-chart-body">
         <div class="empty-state hidden" id="home-rts-empty" style="padding:24px;"><h3>No delivery status data</h3><p>Delivered, shipped, returning, or returned orders will appear here.</p></div>
         <canvas id="home-rts-bar-chart"></canvas>
+      </div>
+    </div>
+    <div class="card home-announce-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">📢 Announcements</div>
+          <div class="card-subtitle">Latest from HR & management</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadHomeAnnouncements()">↻</button>
+      </div>
+      <div id="home-announcements" class="card-body home-announce-body">
+        <div class="empty-state" style="padding:16px 0;color:var(--text-muted);font-size:13px;">Loading…</div>
       </div>
     </div>
   </div>
