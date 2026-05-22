@@ -2477,8 +2477,50 @@ function renderSaleReportBarChart(orders) {
   }
 }
 
+let dataReportPreset = 'all';
+let dataReportDateFrom = '';
+let dataReportDateTo = '';
+let dataReportPageFilter = 'all';
+
 function getDataReportOrders() {
-  return [...(DB.sheetRecordsForReport || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  let data = [...(DB.sheetRecordsForReport || [])];
+  const today = normalizeDateString(new Date());
+
+  if (dataReportPreset === 'today') {
+    data = data.filter((o) => o.date === today);
+  } else if (dataReportPreset === 'yesterday') {
+    const y = normalizeDateString(getDateDaysAgo(1));
+    data = data.filter((o) => o.date === y);
+  } else if (dataReportPreset === 'monthly') {
+    data = data.filter((o) => String(o.date || '').startsWith(today.slice(0, 7)));
+  } else if (dataReportPreset === 'custom') {
+    if (dataReportDateFrom) data = data.filter((o) => o.date >= dataReportDateFrom);
+    if (dataReportDateTo) data = data.filter((o) => o.date <= dataReportDateTo);
+  }
+
+  if (dataReportPageFilter !== 'all') {
+    data = data.filter((o) => (o.sourceSheet || '') === dataReportPageFilter);
+  }
+
+  return data.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+}
+
+function setDataReportPreset(preset) {
+  dataReportPreset = preset;
+  if (preset !== 'custom') { dataReportDateFrom = ''; dataReportDateTo = ''; }
+  navigateTo('data-report');
+}
+
+function applyDataReportCustomRange() {
+  dataReportDateFrom = document.getElementById('data-report-date-from')?.value || '';
+  dataReportDateTo = document.getElementById('data-report-date-to')?.value || '';
+  dataReportPreset = 'custom';
+  navigateTo('data-report');
+}
+
+function setDataReportPageFilter() {
+  dataReportPageFilter = document.getElementById('data-report-page-filter')?.value || 'all';
+  navigateTo('data-report');
 }
 
 function groupDataReportRows(orders, keyFn) {
@@ -2568,11 +2610,38 @@ function renderDataReport() {
     ['view-records', 'Order Records'],
   ].filter(([page]) => canAccessPage(page));
 
+  const pageOptions = getPosSourceOptions();
+  const presets = [['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']];
+
   return `
   <div class="data-report-page">
     <div class="page-header data-report-header">
       <div class="page-title"><h1>Data Report</h1><p>RTS analytics from synced Google Sheets records.</p></div>
       <button class="btn btn-secondary btn-sm" onclick="refreshOrderViewsFromBackend()">Refresh Data</button>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Time Filter</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${presets.map(([v, l]) => `<button class="filter-pill ${dataReportPreset === v ? 'active' : ''}" onclick="setDataReportPreset('${v}')">${l}</button>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Page Name</div>
+          <select class="form-control" id="data-report-page-filter" onchange="setDataReportPageFilter()" style="min-width:200px;height:34px;font-size:13px;">
+            <option value="all">All Pages</option>
+            ${pageOptions.map((p) => `<option value="${escapeHtml(p)}"${dataReportPageFilter === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="${dataReportPreset === 'custom' ? '' : 'hidden'}" style="display:flex;gap:6px;align-items:center;">
+          <input type="date" class="form-control" id="data-report-date-from" value="${dataReportDateFrom}" style="height:34px;font-size:13px;width:140px;">
+          <span style="font-size:13px;color:var(--text-muted);">—</span>
+          <input type="date" class="form-control" id="data-report-date-to" value="${dataReportDateTo}" style="height:34px;font-size:13px;width:140px;">
+          <button class="btn btn-primary btn-sm" onclick="applyDataReportCustomRange()" style="height:34px;">Apply</button>
+        </div>
+      </div>
     </div>
 
     <div class="data-report-connect">
