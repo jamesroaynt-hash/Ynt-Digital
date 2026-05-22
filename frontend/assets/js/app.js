@@ -3011,8 +3011,8 @@ function renderMarketingCenter() {
     return true;
   });
   const totals = aggregateMarketing(entries);
-  // Gross sales (delivered) and RTS rate from pos_orders in date range
-  const posOrdersInRange = (DB.posOrders || []).filter((o) => {
+  // Gross sales (delivered) and RTS rate from Sheet Records (google_orders) in date range
+  const sheetOrdersInRange = (DB.sheetRecordsForReport || []).filter((o) => {
     const d = o.date || '';
     if (d < filterFrom || d > filterTo) return false;
     if (filterPage) {
@@ -3024,7 +3024,7 @@ function renderMarketingCenter() {
   });
   let deliveredSales = 0;
   const posCounts = { delivered: 0, returned: 0, returning: 0 };
-  posOrdersInRange.forEach((o) => {
+  sheetOrdersInRange.forEach((o) => {
     const key = getOrderStatusKey(o.status);
     if (key === 'delivered') {
       posCounts.delivered += 1;
@@ -5423,8 +5423,8 @@ function initPage(page) {
 
   if (page === 'marketing-center') {
     syncMarketingPageMeta();
-    if (!DB.posOrders.length) {
-      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); }).catch(() => {});
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); }).catch(() => {});
     }
   }
 
