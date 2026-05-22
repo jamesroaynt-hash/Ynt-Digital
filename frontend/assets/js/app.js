@@ -2875,9 +2875,13 @@ function renderAdspendRoas() {
 
   const ordersByDate = {};
   filteredOrders.forEach((o) => {
-    if (!ordersByDate[o.date]) ordersByDate[o.date] = { orders: 0, amount: 0 };
+    if (!ordersByDate[o.date]) ordersByDate[o.date] = { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
     ordersByDate[o.date].orders++;
     ordersByDate[o.date].amount += Number(o.cod || 0);
+    const key = getOrderStatusKey(o.status);
+    if (key === 'delivered') ordersByDate[o.date].delivered++;
+    else if (key === 'returned') ordersByDate[o.date].returned++;
+    else if (key === 'returning') ordersByDate[o.date].returning++;
   });
 
   // Marketing ad spend by date
@@ -2897,16 +2901,25 @@ function renderAdspendRoas() {
   }
 
   const rows = dates.map((date) => {
-    const o = ordersByDate[date] || { orders: 0, amount: 0 };
+    const o = ordersByDate[date] || { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
     const spend = spendByDate[date] || 0;
     const roas = spend > 0 ? o.amount / spend : 0;
-    return { date, orders: o.orders, amount: o.amount, spend, roas };
+    const cpp = o.orders > 0 ? spend / o.orders : 0;
+    const rtsBase = o.delivered + o.returned + o.returning;
+    const rtsRate = rtsBase > 0 ? ((o.returned + o.returning) / rtsBase) * 100 : 0;
+    return { date, orders: o.orders, delivered: o.delivered, returned: o.returned, returning: o.returning, amount: o.amount, spend, roas, cpp, rtsRate };
   });
 
   const totalOrders = rows.reduce((s, r) => s + r.orders, 0);
+  const totalDelivered = rows.reduce((s, r) => s + r.delivered, 0);
+  const totalReturned = rows.reduce((s, r) => s + r.returned, 0);
+  const totalReturning = rows.reduce((s, r) => s + r.returning, 0);
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
   const totalSpend = rows.reduce((s, r) => s + r.spend, 0);
   const totalRoas = totalSpend > 0 ? totalAmount / totalSpend : 0;
+  const totalCpp = totalOrders > 0 ? totalSpend / totalOrders : 0;
+  const totalRtsBase = totalDelivered + totalReturned + totalReturning;
+  const totalRtsRate = totalRtsBase > 0 ? ((totalReturned + totalReturning) / totalRtsBase) * 100 : 0;
   const n = rows.length || 1;
 
   const fmt = (v) => Number(v).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2991,16 +3004,20 @@ function renderAdspendRoas() {
 
   <div class="card" style="padding:0;overflow:hidden;">
     <div class="table-container" style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;min-width:640px;">
+      <table style="width:100%;border-collapse:collapse;min-width:920px;">
         <thead>
           <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th colspan="5" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">TOTAL</th>
+            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">TOTAL</th>
           </tr>
           <tr style="background:var(--primary,#3b82f6);color:#fff;">
             <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">TOTAL ORDERS</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">TOTAL ORDERS AMOUNT</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">TOTAL AD SPENT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">DELIVERED</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RETURNED</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS AMOUNT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">AD SPENT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">CPP</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RTS RATE</th>
             <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
           </tr>
         </thead>
@@ -3008,8 +3025,12 @@ function renderAdspendRoas() {
           ${rows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
             <td style="padding:10px 14px;font-weight:500;font-size:13px;">${row.date}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.amount)}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.spend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
           </tr>`).join('')}
         </tbody>
@@ -3017,15 +3038,23 @@ function renderAdspendRoas() {
           <tr style="background:#f59e0b;color:#fff;font-weight:700;">
             <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalOrders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalDelivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalReturned.toLocaleString()}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalAmount)}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalSpend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalOrders > 0 && totalSpend > 0 ? fmt(totalCpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalRtsBase > 0 ? totalRtsRate.toFixed(1) + '%' : '—'}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalSpend > 0 ? totalRoas.toFixed(2) : '—'}</td>
           </tr>
           <tr style="background:#10b981;color:#fff;font-weight:700;">
             <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">AVERAGE</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalOrders / n).toFixed(2)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalDelivered / n).toFixed(2)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalReturned / n).toFixed(2)}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalAmount / n)}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalSpend / n)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
           </tr>
         </tfoot>
