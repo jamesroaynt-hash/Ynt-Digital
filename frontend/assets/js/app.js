@@ -2913,6 +2913,13 @@ function renderAdspendRoas() {
 
   const statusOptions = ADSPEND_STATUS_MAP;
 
+  const monthlyTarget = Number(mktState.targets?.sales || 0);
+  const dailyTarget = monthlyTarget / 31;
+  const dailySpendTarget = Number(mktState.targets?.spend || 0);
+  const monthlySpendTarget = dailySpendTarget * 31;
+  const goalPct = monthlyTarget > 0 ? Math.min(100, (totalAmount / monthlyTarget) * 100) : 0;
+  const goalRemaining = Math.max(0, monthlyTarget - totalAmount);
+
   return `
   <div class="page-header">
     <div class="page-title"><h1>Ad Spend ROAS Summary</h1><p>Daily orders and ad spend performance across pages.</p></div>
@@ -2943,6 +2950,42 @@ function renderAdspendRoas() {
           <input type="checkbox" id="${id}" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter()" style="width:14px;height:14px;accent-color:var(--primary);">
           ${label}
         </label>`).join('')}
+    </div>
+
+    <div class="adspend-target-grid">
+      <div class="adspend-target-card adspend-target-monthly">
+        <div class="adspend-target-icon">🎯</div>
+        <div>
+          <div class="adspend-target-label">Monthly Sales Target</div>
+          <div class="adspend-target-value">${fmt(monthlyTarget)}</div>
+          <div class="adspend-target-sub">Set by Marketing TL</div>
+        </div>
+      </div>
+      <div class="adspend-target-card adspend-target-daily">
+        <div class="adspend-target-icon">📅</div>
+        <div>
+          <div class="adspend-target-label">Daily Sales Target</div>
+          <div class="adspend-target-value">${fmt(dailyTarget)}</div>
+          <div class="adspend-target-sub">Monthly ÷ 31</div>
+        </div>
+      </div>
+      <div class="adspend-target-card adspend-target-spend">
+        <div class="adspend-target-icon">💸</div>
+        <div>
+          <div class="adspend-target-label">Daily Spend Target</div>
+          <div class="adspend-target-value">${fmt(dailySpendTarget)}</div>
+          <div class="adspend-target-sub">${fmt(monthlySpendTarget)} monthly cap</div>
+        </div>
+      </div>
+      <div class="adspend-target-card adspend-target-goal">
+        <div class="adspend-target-icon">📈</div>
+        <div style="flex:1;">
+          <div class="adspend-target-label">Total Sales vs Goal</div>
+          <div class="adspend-target-value">${fmt(totalAmount)} <span class="adspend-target-mute">/ ${fmt(monthlyTarget)}</span></div>
+          <div class="adspend-target-bar"><span style="width:${goalPct.toFixed(1)}%;"></span></div>
+          <div class="adspend-target-sub">${goalPct.toFixed(1)}% achieved · ${fmt(goalRemaining)} to go</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3087,8 +3130,7 @@ function renderMarketingCenter() {
   </div>
 
   <div class="tabs erp-tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'mkt-overview')">Overview</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-roas')">Page ROAS Tracker</button>
+    <button class="tab-btn active" onclick="switchTab(this,'mkt-roas')">Page ROAS Tracker</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-entries')">Daily Entry</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-adspend')">Ad Spend Summary</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-team')">Team</button>
@@ -3100,44 +3142,7 @@ function renderMarketingCenter() {
     ${marketingManager ? "<button class=\"tab-btn\" onclick=\"switchTab(this,'mkt-targets')\">Settings</button>" : ''}
   </div>
 
-  <div id="mkt-overview" class="tab-content active">
-    <div class="erp-split">
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Page Leaderboard</div><div class="card-subtitle">Month-to-date ROAS and cost per purchase.</div></div></div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Page</th><th>Orders</th><th>Sales</th><th>Ad Spend</th><th>ROAS</th><th>CPP</th><th>RTS</th></tr></thead>
-          <tbody>
-            ${byPage.length ? byPage.map((page) => `<tr>
-              <td style="font-weight:600">${escapeHtml(page.page)}</td>
-              <td>${page.orders}</td>
-              <td>${marketingMoney(page.sales)}</td>
-              <td>${marketingMoney(page.spend)}</td>
-              <td><span class="badge ${marketingRoasClass(page.roas)}">${marketingRoas(page.roas)}</span></td>
-              <td>${marketingMoney(page.cpp)}</td>
-              <td>${marketingPct(page.rtsRate)}</td>
-            </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No marketing entries yet.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Pacing Tracker</div><div class="card-subtitle">Monthly target health — sales from delivered orders.</div></div></div>
-      <div class="erp-progress-row">
-        <div><strong>${marketingMoney(deliveredSales)}</strong><span>${marketingMoney(state.targets.sales)} target</span></div>
-        <div class="erp-progress"><div style="width:${Math.min(100, Math.round(targetPct * 100))}%"></div></div>
-      </div>
-      <div class="erp-mini-list">
-        <div><span>Daily target</span><strong>${marketingMoney(Number(state.targets.sales || 0) / 31)}</strong></div>
-        <div><span>Spend target</span><strong>${marketingMoney(state.targets.spend)}/day</strong></div>
-        <div><span>Creative survival</span><strong>${Math.round(survivalRate * 100)}%</strong></div>
-        <div><span>Standups logged</span><strong>${(state.standups || []).length}</strong></div>
-      </div>
-    </div>
-    </div>
-  </div>
-
-  <div id="mkt-roas" class="tab-content">
+  <div id="mkt-roas" class="tab-content active">
     <div class="card erp-card">
       <div class="card-header"><div><div class="card-title">Page ROAS Tracker</div><div class="card-subtitle">Green >= 4.0, yellow 3.0-3.9, red below 3.0.</div></div></div>
       <div class="table-container">
