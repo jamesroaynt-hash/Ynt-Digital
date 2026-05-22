@@ -3931,7 +3931,6 @@ function renderRTSScanning() {
 }
 
 function renderScanPage(pageId, pageTitle, scanType) {
-  const records = DB.scanRecords.filter(r => scanType === 'RTS' ? r.type === 'RTS' : r.type !== 'RTS');
   return `
   <div class="page-header">
     <div class="page-title"><h1>${pageTitle}</h1><p>Scan tracking numbers to retrieve order information.</p></div>
@@ -3959,25 +3958,48 @@ function renderScanPage(pageId, pageTitle, scanType) {
 
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">${scanType === 'RTS' ? 'RTS' : 'Scan'} Records</div><div class="card-subtitle">${records.length} records</div></div>
+        <div><div class="card-title">${scanType === 'RTS' ? 'RTS' : 'Scan'} Records</div><div class="card-subtitle" id="scan-preview-subtitle-${pageId}">Loading...</div></div>
         <button class="btn btn-ghost btn-sm" onclick="openViewRecordsTab('rec-scans')">View All →</button>
       </div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>Tracking No.</th><th>Customer</th><th>Date</th><th>Status</th><th>Courier</th></tr></thead>
-          <tbody>
-            ${records.slice(0,10).map(r => `<tr>
-              <td class="font-mono text-xs">${r.tracking}</td>
-              <td style="font-weight:500">${r.customer}</td>
-              <td>${r.date}</td>
-              <td>${statusBadge(r.status)}</td>
-              <td class="text-secondary">${r.courier}</td>
-            </tr>`).join('')}
+          <thead><tr><th>Tracking No.</th><th>Customer</th><th>Phone Number</th><th>Product</th><th>Province/City</th><th>Date</th><th>Status</th><th>Courier</th></tr></thead>
+          <tbody id="scan-preview-tbody-${pageId}">
+            <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Loading recent scans...</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </div>`;
+}
+
+async function loadScanPreviewForPage(pageId, scanType) {
+  const tbody = document.getElementById(`scan-preview-tbody-${pageId}`);
+  const subtitle = document.getElementById(`scan-preview-subtitle-${pageId}`);
+  if (!tbody) return;
+  try {
+    const params = new URLSearchParams({ per_page: '10', page: '1' });
+    if (scanType) params.set('type', scanType);
+    const data = await authorizedJsonRequest(`/scans?${params}`);
+    const records = Array.isArray(data?.data) ? data.data : [];
+    if (subtitle) subtitle.textContent = `${Number(data?.total || 0).toLocaleString()} record${data?.total === 1 ? '' : 's'}`;
+    if (!records.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No scans yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = records.map((r) => `<tr>
+      <td class="font-mono text-xs">${escapeHtml(r.tracking_no || '')}</td>
+      <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
+      <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
+      <td>${escapeHtml(r.product_name || '-')}</td>
+      <td>${escapeHtml(r.province_city || '-')}</td>
+      <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td class="text-secondary">${escapeHtml(r.courier || '-')}</td>
+    </tr>`).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Failed to load scans: ${escapeHtml(err.message)}</td></tr>`;
+  }
 }
 
 function statusBadge(status) {
@@ -5373,6 +5395,7 @@ function initPage(page) {
       });
       el.focus();
     }
+    loadScanPreviewForPage(page, page === 'rts-scanning' ? 'RTS' : 'Standard').catch(() => {});
   }
 }
 
@@ -7362,6 +7385,7 @@ async function performScan(pageId, scanType) {
   showToast('success', 'Scan recorded', `${tracking} — ${found.customer}`);
   input.value = '';
   input.focus();
+  loadScanPreviewForPage(pageId, scanType).catch(() => {});
 }
 
 // ─── EXPENSE HELPERS ───────────────────────────────────────
