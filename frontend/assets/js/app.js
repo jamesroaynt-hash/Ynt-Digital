@@ -2904,7 +2904,7 @@ function renderAdspendRoas() {
     const o = ordersByDate[date] || { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
     const spend = spendByDate[date] || 0;
     const roas = spend > 0 ? o.amount / spend : 0;
-    const cpp = o.orders > 0 ? spend / o.orders : 0;
+    const cpp = spend > 0 ? o.orders / spend : 0;
     const rtsBase = o.delivered + o.returned + o.returning;
     const rtsRate = rtsBase > 0 ? ((o.returned + o.returning) / rtsBase) * 100 : 0;
     return { date, orders: o.orders, delivered: o.delivered, returned: o.returned, returning: o.returning, amount: o.amount, spend, roas, cpp, rtsRate };
@@ -2917,7 +2917,7 @@ function renderAdspendRoas() {
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
   const totalSpend = rows.reduce((s, r) => s + r.spend, 0);
   const totalRoas = totalSpend > 0 ? totalAmount / totalSpend : 0;
-  const totalCpp = totalOrders > 0 ? totalSpend / totalOrders : 0;
+  const totalCpp = totalSpend > 0 ? totalOrders / totalSpend : 0;
   const totalRtsBase = totalDelivered + totalReturned + totalReturning;
   const totalRtsRate = totalRtsBase > 0 ? ((totalReturned + totalReturning) / totalRtsBase) * 100 : 0;
   const n = rows.length || 1;
