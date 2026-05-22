@@ -2439,11 +2439,10 @@ function renderSaleReportBarChart(orders) {
     acc[k] = (acc[k] || 0) + 1;
     return acc;
   }, {});
-  const order = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
-  const labels = order.filter((s) => statusCounts[s]).concat(Object.keys(statusCounts).filter((s) => !order.includes(s)));
+  const labels = ['New', 'Confirmed', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const data = labels.map((l) => statusCounts[l] || 0);
   const colors = {
-    'New': '#60a5fa', 'Confirmed': '#3b82f6', 'Waiting for pickup': '#f59e0b',
+    'New': '#60a5fa', 'Confirmed': '#3b82f6',
     'Shipped': '#a78bfa', 'Delivered': '#10b981',
     'Returning': '#f97316', 'Returned': '#ef4444', 'Canceled': '#9ca3af',
   };
@@ -6112,11 +6111,11 @@ const HOME_STATUS_CHART_ITEMS = [
 ];
 
 function getPosSourceOptions() {
-  return [...new Set(DB.posOrders.map((o) => o.sourceSheet || 'POS').filter(Boolean))].sort();
+  return [...new Set(DB.sheetRecordsForReport.map((o) => o.sourceSheet || 'Sheets').filter(Boolean))].sort();
 }
 
 function getPosYearOptions() {
-  return [...new Set(DB.posOrders.map((o) => (o.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  return [...new Set(DB.sheetRecordsForReport.map((o) => (o.date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b.localeCompare(a));
 }
 
 function getPosMonthOptions(year = '') {
