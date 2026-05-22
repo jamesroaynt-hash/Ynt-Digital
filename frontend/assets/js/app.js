@@ -354,6 +354,12 @@ async function loadSheetRecordsForDataReport() {
     if (page > 100) break;
   } while (page <= totalPages);
   DB.sheetRecordsForReport = all.map((r) => ({
+    id: r.order_ref || String(r.id || ''),
+    tracking: r.tracking_no || '',
+    customer: r.customer || '',
+    phone: r.phone || '',
+    product: r.product || '',
+    attempts: Number(r.attempts || 0),
     status: r.status,
     cod: Number(r.cod_amount || 0),
     province: r.province_city || '',
@@ -361,6 +367,7 @@ async function loadSheetRecordsForDataReport() {
     confirmed_by: r.confirmed_by || '',
     date: (r.order_date || '').slice(0, 10),
     source_sheet: r.chat_page || r.source_sheet || '',
+    sourceSheet: r.chat_page || r.source_sheet || '',
   }));
   return true;
 }
@@ -2776,16 +2783,16 @@ function renderAdspendRoas() {
 
   const mktState = getMarketingState();
 
-  if (!DB.orders.length && ordersLoadPromise) {
-    ordersLoadPromise.then(() => { if (App.currentPage === 'adspend-roas') navigateTo('adspend-roas'); });
+  if (!DB.sheetRecordsForReport.length) {
+    loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'adspend-roas') navigateTo('adspend-roas'); }).catch(() => {});
     return `<div class="page-header"><div class="page-title"><h1>Ad Spend ROAS Summary</h1></div></div>
-      <div class="card" style="text-align:center;padding:48px;color:var(--text-muted);">Loading orders...</div>`;
+      <div class="card" style="text-align:center;padding:48px;color:var(--text-muted);">Loading sheet records...</div>`;
   }
 
-  // Pages: merge POS source sheets + configured marketing pages (deduplicated, sorted)
-  const posPages = [...new Set(DB.orders.map((o) => o.sourceSheet).filter(Boolean))].sort();
+  // Pages: merge sheet source pages + configured marketing pages (deduplicated, sorted)
+  const sheetPages = [...new Set(DB.sheetRecordsForReport.map((o) => o.sourceSheet).filter(Boolean))].sort();
   const mktPageNames = mktState.pages.map((p) => p.name).filter(Boolean);
-  const allPages = [...new Set([...posPages, ...mktPageNames])].sort();
+  const allPages = [...new Set([...sheetPages, ...mktPageNames])].sort();
 
   // Build every date in range
   const dates = [];
@@ -2796,9 +2803,9 @@ function renderAdspendRoas() {
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  // Orders filtered by date + page + status
+  // Orders filtered by date + page + status (from google_orders / Sheet Records)
   const statusActive = adspendStatusFilters.size > 0;
-  const filteredOrders = DB.orders.filter((o) => {
+  const filteredOrders = DB.sheetRecordsForReport.filter((o) => {
     if (o.date < adspendDateFrom || o.date > adspendDateTo) return false;
     if (adspendPageFilter !== 'all' && (o.sourceSheet || 'Manual') !== adspendPageFilter) return false;
     if (statusActive && !adspendStatusFilters.has(o.status)) return false;
@@ -5321,8 +5328,8 @@ function initPage(page) {
     if (salesDateFromInput && !salesDateFromInput.value) salesDateFromInput.value = today;
     if (salesDateToInput && !salesDateToInput.value) salesDateToInput.value = today;
     renderSalesTable();
-    if (!DB.posOrders.length) {
-      loadPosOrdersDashboard().then(() => { if (App.currentPage === 'sales') { renderSalesTable(); initCharts('sales'); } }).catch(() => {});
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'sales') { renderSalesTable(); initCharts('sales'); } }).catch(() => {});
     }
   }
 
@@ -6232,10 +6239,10 @@ function renderSalesSummaryCards(data) {
 }
 
 function getFilteredSalesOrders() {
-  let data = [...DB.posOrders];
+  let data = [...DB.sheetRecordsForReport];
   const today = normalizeDateString(new Date());
   if (salesFilter === 'all') {
-    data = [...DB.posOrders];
+    data = [...DB.sheetRecordsForReport];
   } else if (salesFilter === 'daily') {
     data = data.filter((order) => order.date === today);
   } else if (salesFilter === 'weekly') {
@@ -6278,8 +6285,8 @@ function renderSalesTable() {
 
   renderSalesSummaryCards(data);
 
-  if (!DB.posOrders.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>';
+  if (!DB.sheetRecordsForReport.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading sheet records...</td></tr>';
     const pag = document.getElementById('sales-pagination');
     if (pag) pag.innerHTML = '<span>Loading...</span>';
     return;
