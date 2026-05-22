@@ -1094,41 +1094,40 @@ function getOrderById(orderId) {
 function renderLogin() {
   return `
   <div class="login-page" id="login-page">
-    <div class="login-panel">
-      <div class="brand">
-        <img class="brand-logo" src="/Images/yntlogo.png" alt="YNT logo">
-        <div class="brand-text">
-          <div class="name">YNT ERP</div>
-          <div class="sub">Digital Marketing</div>
+    <div class="login-card">
+      <div class="login-visual">
+        <div class="login-visual-shapes">
+          <span class="ls-shape ls-shape-1"></span>
+          <span class="ls-shape ls-shape-2"></span>
+          <span class="ls-shape ls-shape-3"></span>
+          <span class="ls-shape ls-shape-4"></span>
+          <span class="ls-shape ls-shape-5"></span>
+        </div>
+        <div class="login-visual-content">
+          <div class="login-eyebrow">Welcome to</div>
+          <h2 class="login-headline">YNT Digital Marketing Services</h2>
+          <p class="login-subhead">Your all-in-one workspace for sales, marketing, and operations — built for the YNT team.</p>
         </div>
       </div>
-      <div class="login-welcome">
-        <h2>Welcome back</h2>
-        <p id="auth-helper-copy">Sign in with your registered username and password. Only admin can create new accounts.</p>
-      </div>
-      <form onsubmit="handleAuthSubmit(event)">
-        <div class="form-group">
-          <label class="form-label">Username <span class="required">*</span></label>
-          <input type="text" id="username" class="form-control" placeholder="Enter username" autocomplete="username">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password <span class="required">*</span></label>
-          <input type="password" id="password" class="form-control" placeholder="Enter password" autocomplete="current-password">
-        </div>
-        <div style="margin-bottom:20px; font-size:12px; color:var(--text-muted)">
-          LAN mode: admin creates named accounts first, then each team member logs in using that account.
-        </div>
-        <button type="submit" class="btn btn-primary w-full btn-lg"><span id="auth-submit-label">Sign In</span></button>
-      </form>
-    </div>
-    <div class="login-visual">
-      <div class="login-visual-bg"></div>
-      <h3>Your Business,<br>Fully Managed</h3>
-      <p>Track sales, inventory, shipments, and more — all in one internal dashboard built for YNT Digital Marketing.</p>
-      <div class="login-stats-preview">
-        <div class="login-stat-chip"><span class="val">₱2.4M</span><span class="lbl">Monthly Sales</span></div>
-        <div class="login-stat-chip"><span class="val">1,842</span><span class="lbl">Orders</span></div>
-        <div class="login-stat-chip"><span class="val">98.2%</span><span class="lbl">Delivered</span></div>
+      <div class="login-panel">
+        <img class="login-brand-logo" src="/Images/yntlogo.png" alt="YNT">
+        <div class="login-form-title">USER LOGIN</div>
+        <form onsubmit="handleAuthSubmit(event)">
+          <div class="login-field">
+            <span class="login-field-icon">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="6" r="3"/><path d="M2.5 13.5c.8-2.5 2.9-4 5.5-4s4.7 1.5 5.5 4"/></svg>
+            </span>
+            <input type="text" id="username" placeholder="Username" autocomplete="username">
+          </div>
+          <div class="login-field">
+            <span class="login-field-icon">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 116 0v2"/></svg>
+            </span>
+            <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <div id="auth-helper-copy" class="login-helper">Sign in with your registered username and password. Only admin can create new accounts.</div>
+          <button type="submit" class="login-submit-btn"><span id="auth-submit-label">LOGIN</span></button>
+        </form>
       </div>
     </div>
   </div>`;
