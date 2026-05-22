@@ -338,6 +338,33 @@ async function loadPosOrdersDashboard() {
   return true;
 }
 
+async function loadSheetRecordsForDataReport() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  const all = [];
+  const perPage = 200;
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const params = new URLSearchParams({ page: String(page), per_page: String(perPage), _: String(Date.now()) });
+    const result = await authorizedJsonRequest(`/integrations/google-sheets/records?${params}`);
+    const records = Array.isArray(result?.records) ? result.records : [];
+    all.push(...records);
+    totalPages = Number(result?.pages || 1);
+    page += 1;
+    if (page > 100) break;
+  } while (page <= totalPages);
+  DB.sheetRecordsForReport = all.map((r) => ({
+    status: r.status,
+    cod: Number(r.cod_amount || 0),
+    province: r.province_city || '',
+    assigning_seller_name: r.confirmed_by || '',
+    confirmed_by: r.confirmed_by || '',
+    date: (r.order_date || '').slice(0, 10),
+    source_sheet: r.chat_page || r.source_sheet || '',
+  }));
+  return true;
+}
+
 async function fetchPosOrdersVersion() {
   if (!App.user || !getAuthToken() || !getApiBase()) return null;
   try {
@@ -395,7 +422,7 @@ function stopPosOrdersAutoRefresh() {
 
 async function refreshOrderViewsFromBackend() {
   try {
-    await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard()]);
+    await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard(), loadSheetRecordsForDataReport()]);
 
     if (App.currentPage === 'sales') {
       renderSalesTable();
@@ -527,6 +554,7 @@ const DB = {
   posRawOrders: [],
   posRawTotal: 0,
   posRawStatusCounts: [],
+  sheetRecordsForReport: [],
   csrRecords: loadCsrRecords(),
   inventory: [],
   expenses: [],
@@ -2382,7 +2410,7 @@ function renderRTSRateDashboard() {
 }
 
 function getDataReportOrders() {
-  return [...(DB.posOrders || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  return [...(DB.sheetRecordsForReport || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }
 
 function groupDataReportRows(orders, keyFn) {
@@ -2421,7 +2449,7 @@ function getPriceRangeLabel(amount) {
 
 function renderDataReportTable(rows, firstColumn, emptyText) {
   if (!rows.length) {
-    return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Pancake POS or Google Sheets orders to populate this report.</p></div>`;
+    return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Google Sheets to populate this report.</p></div>`;
   }
 
   return `
@@ -2475,7 +2503,7 @@ function renderDataReport() {
   return `
   <div class="data-report-page">
     <div class="page-header data-report-header">
-      <div class="page-title"><h1>Data Report</h1><p>RTS analytics from synced Pancake POS and Google Sheets order data.</p></div>
+      <div class="page-title"><h1>Data Report</h1><p>RTS analytics from synced Google Sheets records.</p></div>
       <button class="btn btn-secondary btn-sm" onclick="refreshOrderViewsFromBackend()">Refresh Data</button>
     </div>
 
@@ -2511,35 +2539,25 @@ function renderDataReportDashboard() {
       <div class="data-report-chart-wrap"><canvas id="data-report-price-chart"></canvas></div>
     </section>
 
-    <section class="data-report-section" id="confirmed-by-section">
-      <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+    <section class="data-report-section">
+      <div class="card-header">
         <div>
           <div class="card-title">By Assigned Staff</div>
-          <div class="card-subtitle">Orders and RTS rate per assigned seller in Pancake POS</div>
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-          <select class="form-control" id="cb-source-filter" style="width:160px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()">
-            <option value="all">All Pages</option>
-          </select>
-          <input type="date" class="form-control" id="cb-from" style="width:130px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()" />
-          <span style="font-size:13px; color:var(--text-secondary);">to</span>
-          <input type="date" class="form-control" id="cb-to" style="width:130px; padding:5px 8px; font-size:13px;" onchange="loadConfirmedByStats()" />
-          <button class="btn btn-secondary btn-sm" onclick="loadConfirmedByStats()">Refresh</button>
+          <div class="card-subtitle">Orders and RTS rate per staff who confirmed the order</div>
         </div>
       </div>
-      <div id="confirmed-by-table-wrap"><div class="loading-spinner" style="margin:24px auto;"></div></div>
+      ${renderDataReportTable(metrics.byConfirmed, 'Assigned Staff', 'No staff data yet')}
     </section>
 
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">By Province</div><div class="card-subtitle">RTS rate grouped by province</div></div>
+        <div><div class="card-title">By Province/City</div><div class="card-subtitle">RTS rate grouped by province/city</div></div>
       </div>
-      ${renderDataReportTable(metrics.byProvince, 'Province', 'No province data yet')}
+      ${renderDataReportTable(metrics.byProvince, 'Province/City', 'No province data yet')}
     </section>
 `;
 
   renderDataReportPriceChart(metrics.byPrice);
-  loadConfirmedByStats();
 }
 
 async function loadConfirmedByStats() {
@@ -5263,9 +5281,9 @@ function initPage(page) {
 
   if (page === 'data-report') {
     renderDataReportDashboard();
-    if (!DB.posOrders.length) {
-      loadPosOrdersDashboard().then(() => renderDataReportDashboard()).catch((error) => {
-        showToast('warning', 'Orders refresh failed', error.message || 'Could not load POS orders.');
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => renderDataReportDashboard()).catch((error) => {
+        showToast('warning', 'Sheet records load failed', error.message || 'Could not load sheet records.');
       });
     }
   }
