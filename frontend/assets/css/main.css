@@ -563,6 +563,14 @@ body {
   font-weight: 500;
 }
 
+/* Constrain Home page chart cards to a medium size */
+.home-chart-card { max-width: 540px; }
+.home-chart-card .home-chart-body {
+  padding: 16px;
+  height: 280px;
+  position: relative;
+}
+
 .stat-card {
   background: var(--surface);
   border: 1px solid var(--border);

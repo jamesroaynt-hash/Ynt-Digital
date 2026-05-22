@@ -1648,7 +1648,7 @@ function renderHome() {
   </div>
 
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
-    <div class="card">
+    <div class="card home-chart-card">
       <div class="card-header">
         <div><div class="card-title">Order Status Overview</div><div class="card-subtitle" id="home-status-subtitle">Filtered order data</div></div>
       </div>
@@ -1669,16 +1669,16 @@ function renderHome() {
           <button class="btn btn-secondary btn-sm" onclick="applyHomeCustomRange()">Apply</button>
         </div>
       </div>
-      <div class="card-body" style="padding: 16px;">
+      <div class="card-body home-chart-body">
         <div class="empty-state hidden" id="home-donut-empty" style="padding:24px;"><h3>No matching orders</h3><p>Try another period or sheet filter.</p></div>
-        <canvas id="home-donut-chart" height="200"></canvas>
+        <canvas id="home-donut-chart"></canvas>
       </div>
     </div>
-    <div class="card">
+    <div class="card home-chart-card">
       <div class="card-header"><div><div class="card-title">RTS Percentage</div><div class="card-subtitle">Delivered, returned, returning, and shipped</div></div></div>
-      <div class="card-body" style="padding: 16px;">
+      <div class="card-body home-chart-body">
         <div class="empty-state hidden" id="home-rts-empty" style="padding:24px;"><h3>No delivery status data</h3><p>Delivered, shipped, returning, or returned orders will appear here.</p></div>
-        <canvas id="home-rts-bar-chart" height="200"></canvas>
+        <canvas id="home-rts-bar-chart"></canvas>
       </div>
     </div>
   </div>
@@ -6316,7 +6316,7 @@ function renderHomeOrderCharts() {
       },
       options: {
         responsive: true,
-        maintainAspectRatio: true,
+        maintainAspectRatio: false,
         plugins: { legend: { position: 'right' } },
         cutout: '65%',
       }
@@ -6343,7 +6343,7 @@ function renderHomeOrderCharts() {
       },
       options: {
         responsive: true,
-        maintainAspectRatio: true,
+        maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
           tooltip: {
