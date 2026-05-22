@@ -2156,15 +2156,16 @@ function renderManageUsers() {
 
 // ─── RENDER: SALES DASHBOARD ───────────────────────────────
 function renderSales() {
-  const newOrders = DB.posOrders.filter((o) => o.status === 'New').length;
-  const confirmed = DB.posOrders.filter((o) => o.status === 'Confirmed').length;
-  const waiting = DB.posOrders.filter((o) => o.status === 'Waiting for pickup').length;
-  const shipped = DB.posOrders.filter((o) => o.status === 'Shipped').length;
-  const delivered = DB.posOrders.filter((o) => o.status === 'Delivered').length;
-  const returned = DB.posOrders.filter((o) => o.status === 'Returned').length;
-  const returning = DB.posOrders.filter((o) => o.status === 'Returning').length;
-  const canceled = DB.posOrders.filter((o) => o.status === 'Canceled').length;
-  const totalCOD = DB.posOrders.reduce((sum, o) => sum + Number(o.cod || 0), 0);
+  const records = DB.sheetRecordsForReport;
+  const newOrders = records.filter((o) => o.status === 'New').length;
+  const confirmed = records.filter((o) => o.status === 'Confirmed').length;
+  const waiting = records.filter((o) => o.status === 'Waiting for pickup').length;
+  const shipped = records.filter((o) => o.status === 'Shipped').length;
+  const delivered = records.filter((o) => o.status === 'Delivered').length;
+  const returned = records.filter((o) => o.status === 'Returned').length;
+  const returning = records.filter((o) => o.status === 'Returning').length;
+  const canceled = records.filter((o) => o.status === 'Canceled').length;
+  const totalCOD = records.reduce((sum, o) => sum + Number(o.cod || 0), 0);
   const sourceOptions = getPosSourceOptions();
   const yearOptions = getPosYearOptions();
   const monthOptions = getPosMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
