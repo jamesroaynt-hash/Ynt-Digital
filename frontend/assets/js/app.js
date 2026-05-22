@@ -6455,12 +6455,14 @@ function syncMarketingPageMeta() {
 }
 
 function marketingProductRowHtml(state, selected = '', spend = '') {
-  const pages = (state && Array.isArray(state.pages)) ? state.pages : [];
+  // Products = chat_page values discovered in google_orders (Sheet Records)
+  const chatPages = getPosSourceOptions();
+  const allOptions = [...new Set([...chatPages, selected].filter(Boolean))].sort();
   return `
     <div class="mkt-product-row" style="display:flex;gap:8px;align-items:center;">
       <select class="form-control mkt-row-page" style="flex:1;">
         <option value="">— Select product / page —</option>
-        ${pages.map((page) => `<option value="${escapeHtml(page.name)}"${page.name === selected ? ' selected' : ''}>${escapeHtml(page.name)}${page.product ? ' · ' + escapeHtml(page.product) : ''}</option>`).join('')}
+        ${allOptions.map((name) => `<option value="${escapeHtml(name)}"${name === selected ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
       </select>
       <input type="number" class="form-control mkt-row-spend" min="0" step="0.01" placeholder="Ad Spend" value="${spend !== '' && spend !== null && spend !== undefined ? Number(spend) : ''}" oninput="recalcMarketingTotal()" style="width:140px;">
       <button type="button" class="btn btn-ghost btn-sm" onclick="removeMarketingProductRow(this)" style="font-size:18px;line-height:1;padding:4px 10px;color:var(--danger);">×</button>
@@ -6510,8 +6512,11 @@ function submitMarketingEntries() {
     const pageName = row.querySelector('.mkt-row-page')?.value || '';
     const spend = Number(row.querySelector('.mkt-row-spend')?.value || 0);
     if (!pageName || spend <= 0) return null;
-    const page = state.pages.find((p) => p.name === pageName) || {};
-    return { date, page: pageName, product: page.product || '', owner: page.owner || '', spend, sales: 0, orders: 0, rts: 0 };
+    const configured = state.pages.find((p) => p.name === pageName);
+    const teamMember = (state.team || []).find((t) => t.page === pageName);
+    const owner = configured?.owner || teamMember?.name || '';
+    const product = configured?.product || '';
+    return { date, page: pageName, product, owner, spend, sales: 0, orders: 0, rts: 0 };
   }).filter(Boolean);
 
   if (!collected.length) {
