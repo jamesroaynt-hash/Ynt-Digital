@@ -8277,10 +8277,9 @@ async function loadSheetRecords(page) {
     const customerCell = (r) => {
       const name = clip(r.customer || '-', 32);
       const phone = r.phone ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(r.phone)}</div>` : '';
-      const province = r.province ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(r.province)}</div>` : '';
       const titleParts = [r.customer, r.phone, r.province, r.address].filter(Boolean);
       return `<td style="max-width:220px;" title="${escapeHtml(titleParts.join(' • '))}">
-        <div style="font-weight:500;">${name}</div>${phone}${province}
+        <div style="font-weight:500;">${name}</div>${phone}
       </td>`;
     };
 
@@ -8288,7 +8287,7 @@ async function loadSheetRecords(page) {
       <div style="overflow-x:auto;">
         <table class="data-table" style="font-size:13px;table-layout:auto;">
           <thead><tr>
-            <th>Order ID</th><th>Page</th><th>Customer</th>
+            <th>Order ID</th><th>Page</th><th>Customer</th><th>Province</th>
             <th>Product</th><th>COD</th><th>Tracking</th>
             <th style="text-align:center;">Attempts</th><th>Status</th>
             <th>Notes</th><th>Courier</th><th>Tag</th>
@@ -8299,6 +8298,7 @@ async function loadSheetRecords(page) {
               <td ${tdClip} title="${escapeHtml(r.order_ref || String(r.id))}"><span class="mono-text" style="font-size:12px;">${clip(r.order_ref || String(r.id), 24)}</span></td>
               <td style="white-space:nowrap;" title="${escapeHtml(r.source_sheet || '')}"><span class="badge badge-secondary" style="font-size:11px;">${clip(r.chat_page || r.source_sheet || '-', 24)}</span></td>
               ${customerCell(r)}
+              <td ${tdClip} title="${escapeHtml(r.province || '')}">${clip(r.province || '-', 24)}</td>
               <td ${tdClip} title="${escapeHtml(r.product || '')}">${clip(r.product || '-', 40)}</td>
               <td style="white-space:nowrap;">${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
               <td ${tdClip} title="${escapeHtml(r.tracking_no || '')}"><span class="mono-text" style="font-size:12px;">${clip(r.tracking_no || '-', 20)}</span></td>
