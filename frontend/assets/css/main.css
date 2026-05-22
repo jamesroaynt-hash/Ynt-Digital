@@ -1669,7 +1669,7 @@ tbody td {
   align-items: center;
   justify-content: center;
   padding: 40px 24px;
-  background: #0a172a;
+  background: #ffffff;
 }
 
 .login-card {
@@ -1687,7 +1687,7 @@ tbody td {
 
 .login-visual {
   position: relative;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #ec4899 100%);
+  background: #0a172a;
   color: #fff;
   padding: 56px 48px;
   display: flex;
