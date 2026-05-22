@@ -5450,7 +5450,22 @@ function saveCSRRecord() {
 }
 
 function formatClockValue(value) {
-  return value ? escapeHtml(value) : '<span class="text-muted">--:--</span>';
+  if (!value) return '<span class="text-muted">--:--</span>';
+  return escapeHtml(formatClock12(value));
+}
+
+function formatClock12(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return raw;
+  let hour = parseInt(match[1], 10);
+  const minute = match[2];
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return raw;
+  const period = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  return `${hour}:${minute} ${period}`;
 }
 
 function renderTimeClockStatus(record, date) {
@@ -5572,7 +5587,7 @@ function startPhilippineClockTicker() {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false,
+      hour12: true,
     });
     document.querySelectorAll('#philippine-clock, .philippine-clock').forEach((el) => {
       el.textContent = formatted;
@@ -5786,10 +5801,10 @@ function renderMyWorkHours(payslip) {
             const complete = r.time_in && r.time_out;
             return `<tr>
               <td><strong>${escapeHtml(r.work_date || '')}</strong></td>
-              <td class="font-mono text-xs">${escapeHtml(r.time_in || '—')}</td>
-              <td class="font-mono text-xs">${escapeHtml(r.break_out || '—')}</td>
-              <td class="font-mono text-xs">${escapeHtml(r.break_in || '—')}</td>
-              <td class="font-mono text-xs">${escapeHtml(r.time_out || '—')}</td>
+              <td class="font-mono text-xs">${r.time_in ? escapeHtml(formatClock12(r.time_in)) : '—'}</td>
+              <td class="font-mono text-xs">${r.break_out ? escapeHtml(formatClock12(r.break_out)) : '—'}</td>
+              <td class="font-mono text-xs">${r.break_in ? escapeHtml(formatClock12(r.break_in)) : '—'}</td>
+              <td class="font-mono text-xs">${r.time_out ? escapeHtml(formatClock12(r.time_out)) : '—'}</td>
               <td>${complete ? `<strong>${formatMinutes(worked)}</strong>` : '<span style="color:var(--text-muted)">Incomplete</span>'}</td>
               <td>${ot > 0 ? `<span class="badge badge-warning">${formatMinutes(ot)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td class="text-xs text-muted">${escapeHtml(r.notes || '')}</td>
