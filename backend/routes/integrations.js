@@ -75,7 +75,7 @@ module.exports = function integrationRoutes(db) {
   // Read-only Google Sheets records — available to any authenticated user.
   router.get('/google-sheets/records', async (req, res) => {
     try {
-      const { sheet, status, search, date_from, date_to, page = 1, per_page = 50 } = req.query;
+      const { sheet, status, tag, search, date_from, date_to, page = 1, per_page = 50 } = req.query;
       const params = [];
 
       const baseFrom = 'FROM google_orders g';
@@ -83,6 +83,7 @@ module.exports = function integrationRoutes(db) {
       let where = 'WHERE 1=1';
       if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
       if (status && status !== 'all') { where += ' AND LOWER(TRIM(g.status)) = LOWER(?)'; params.push(status); }
+      if (tag && tag !== 'all') { where += ' AND TRIM(g.tag) = ?'; params.push(tag); }
       if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
       if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
       if (search) {
@@ -145,17 +146,25 @@ module.exports = function integrationRoutes(db) {
          ORDER BY count DESC`
       ).all(...whereForCounts.params);
 
-      const includeSheetNames = pageNum === 1 && !sheet && !status && !search && !date_from && !date_to;
-      const sheetNames = includeSheetNames
+      const includeFilterOptions = pageNum === 1 && !sheet && !status && !tag && !search && !date_from && !date_to;
+      const sheetNames = includeFilterOptions
         ? (await db.prepare(
             `SELECT DISTINCT g.source_sheet ${baseFrom}
              WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
              ORDER BY g.source_sheet`
           ).all()).map((r) => r.source_sheet)
         : undefined;
+      const tags = includeFilterOptions
+        ? (await db.prepare(
+            `SELECT DISTINCT TRIM(g.tag) AS tag ${baseFrom}
+             WHERE g.tag IS NOT NULL AND TRIM(g.tag) != ''
+             ORDER BY tag`
+          ).all()).map((r) => r.tag)
+        : undefined;
 
       const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), status_counts: statusCounts };
       if (sheetNames) payload.sheet_names = sheetNames;
+      if (tags) payload.tags = tags;
       res.json(payload);
     } catch (error) {
       res.status(500).json({ error: error.message });

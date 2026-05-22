@@ -4316,6 +4316,12 @@ function renderViewRecords() {
               <option value="Canceled">Canceled</option>
             </select>
           </div>
+          <div class="form-group" style="margin:0; min-width:140px;">
+            <label class="form-label" style="font-size:12px;">Tag</label>
+            <select class="form-control" id="sheet-records-tag-filter" onchange="loadSheetRecords(1)" style="height:34px;">
+              <option value="all">All tags</option>
+            </select>
+          </div>
           <div class="form-group" style="margin:0; flex:1; min-width:200px;">
             <label class="form-label" style="font-size:12px;">Search</label>
             <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, phone, tracking, province/city..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
@@ -8438,6 +8444,7 @@ async function loadSheetRecords(page) {
 
   const sheet = document.getElementById('sheet-records-sheet-filter')?.value || 'all';
   const status = document.getElementById('sheet-records-status-filter')?.value || 'all';
+  const tag = document.getElementById('sheet-records-tag-filter')?.value || 'all';
   const search = (document.getElementById('sheet-records-search')?.value || '').trim();
   const dateFrom = (document.getElementById('sheet-date-from')?.value || '').trim();
   const dateTo = (document.getElementById('sheet-date-to')?.value || '').trim();
@@ -8445,6 +8452,7 @@ async function loadSheetRecords(page) {
   const params = new URLSearchParams({ page: sheetRecordsPage, per_page: 50 });
   if (sheet !== 'all') params.set('sheet', sheet);
   if (status !== 'all') params.set('status', status);
+  if (tag !== 'all') params.set('tag', tag);
   if (search) params.set('search', search);
   if (dateFrom) params.set('date_from', dateFrom);
   if (dateTo) params.set('date_to', dateTo);
@@ -8465,6 +8473,21 @@ async function loadSheetRecords(page) {
         }
       });
       sheetSel.value = current;
+    }
+
+    // Populate tag dropdown on first load
+    const tagSel = document.getElementById('sheet-records-tag-filter');
+    if (tagSel && data.tags?.length) {
+      const current = tagSel.value;
+      const existingOptions = [...tagSel.options].map((o) => o.value);
+      data.tags.forEach((name) => {
+        if (!existingOptions.includes(name)) {
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          tagSel.appendChild(opt);
+        }
+      });
+      tagSel.value = current;
     }
 
     // Render status count chips
