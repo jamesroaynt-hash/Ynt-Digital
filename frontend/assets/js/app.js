@@ -341,7 +341,7 @@ async function loadPosOrdersDashboard() {
 async function loadSheetRecordsForDataReport() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
   const all = [];
-  const perPage = 200;
+  const perPage = 1000;
   let page = 1;
   let totalPages = 1;
   do {
@@ -351,7 +351,7 @@ async function loadSheetRecordsForDataReport() {
     all.push(...records);
     totalPages = Number(result?.pages || 1);
     page += 1;
-    if (page > 100) break;
+    if (page > 200) break;
   } while (page <= totalPages);
   DB.sheetRecordsForReport = all.map((r) => ({
     id: r.order_ref || String(r.id || ''),

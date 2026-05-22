@@ -170,7 +170,7 @@ module.exports = function integrationRoutes(db) {
       }
 
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
+      const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
       const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
@@ -185,7 +185,7 @@ module.exports = function integrationRoutes(db) {
                g.product_name  AS product,
                g.quantity      AS qty,
                g.cod           AS cod_amount,
-               g.status        AS status,
+               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
                g.courier,
                g.source_sheet,
                g.chat_page,
@@ -222,8 +222,10 @@ module.exports = function integrationRoutes(db) {
         return { where: w, params: cp };
       })();
       const statusCounts = await db.prepare(
-        `SELECT TRIM(g.status) AS status, COUNT(*) AS count ${baseFrom} ${whereForCounts.where}
-         GROUP BY TRIM(g.status) ORDER BY count DESC`
+        `SELECT COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status, COUNT(*) AS count
+         ${baseFrom} ${whereForCounts.where}
+         GROUP BY COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))
+         ORDER BY count DESC`
       ).all(...whereForCounts.params);
 
       const includeSheetNames = pageNum === 1 && !sheet && !status && !search && !date_from && !date_to;
