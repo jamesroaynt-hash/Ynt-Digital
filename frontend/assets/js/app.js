@@ -2819,12 +2819,14 @@ let adspendPageFilter = 'all';
 let adspendStatusFilters = new Set();
 
 const ADSPEND_STATUS_MAP = [
-  ['Shipped',            'adspend-cb-shipped',  'View Shipped Out'],
-  ['Waiting for pickup', 'adspend-cb-transit',  'View In Transit'],
-  ['Confirmed',          'adspend-cb-delivery', 'View On Delivery'],
-  ['Returned',           'adspend-cb-returned', 'View Returned'],
-  ['Delivered',          'adspend-cb-delivered','View Delivered'],
+  ['Confirmed',          'adspend-cb-confirmed', 'View Confirmed'],
+  ['Shipped',            'adspend-cb-shipped',   'View Shipped'],
+  ['Delivered',          'adspend-cb-delivered', 'View Delivered'],
+  ['Returning',          'adspend-cb-returning', 'View Returning'],
+  ['Returned',           'adspend-cb-returned',  'View Returned'],
 ];
+
+const ADSPEND_ALLOWED_STATUSES = new Set(['Confirmed', 'Shipped', 'Delivered', 'Returning', 'Returned']);
 
 function applyAdspendFilter() {
   adspendDateFrom = document.getElementById('adspend-from')?.value || adspendDateFrom;
@@ -2855,18 +2857,22 @@ function renderAdspendRoas() {
   const mktPageNames = mktState.pages.map((p) => p.name).filter(Boolean);
   const allPages = [...new Set([...sheetPages, ...mktPageNames])].sort();
 
-  // Build every date in range
+  // Build every date in range (local time — avoid toISOString UTC shift)
   const dates = [];
   const cursor = new Date(adspendDateFrom + 'T00:00:00');
   const endDate = new Date(adspendDateTo + 'T00:00:00');
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmtLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   while (cursor <= endDate) {
-    dates.push(normalizeDateString(cursor));
+    dates.push(fmtLocal(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
 
   // Orders filtered by date + page + status (from google_orders / Sheet Records)
+  // Baseline: only count orders with one of the 5 allowed statuses
   const statusActive = adspendStatusFilters.size > 0;
   const filteredOrders = DB.sheetRecordsForReport.filter((o) => {
+    if (!ADSPEND_ALLOWED_STATUSES.has(o.status)) return false;
     if (o.date < adspendDateFrom || o.date > adspendDateTo) return false;
     if (adspendPageFilter !== 'all' && (o.sourceSheet || 'Manual') !== adspendPageFilter) return false;
     if (statusActive && !adspendStatusFilters.has(o.status)) return false;
@@ -3159,46 +3165,16 @@ function renderMarketingCenter() {
   </div>
 
   <div class="tabs erp-tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'mkt-roas')">Page ROAS Tracker</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-entries')">Daily Entry</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-adspend')">Ad Spend Summary</button>
+    <button class="tab-btn active" onclick="switchTab(this,'mkt-entries')">Daily Entry</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-team')">Team</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-creatives')">Creatives</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-standup')">Daily Standup</button>
     <button class="tab-btn" onclick="switchTab(this,'mkt-adaccounts')">Ad Accounts</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-weekly')">Weekly Report</button>
     ${marketingManager ? "<button class=\"tab-btn\" onclick=\"switchTab(this,'mkt-csr-sales')\">CSR Sales</button>" : ''}
     ${marketingManager ? "<button class=\"tab-btn\" onclick=\"switchTab(this,'mkt-targets')\">Settings</button>" : ''}
   </div>
 
-  <div id="mkt-roas" class="tab-content active">
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Page ROAS Tracker</div><div class="card-subtitle">Green >= 4.0, yellow 3.0-3.9, red below 3.0.</div></div></div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Page</th><th>Product</th><th>Owner</th><th>Orders</th><th>Sales</th><th>Ad Spend</th><th>ROAS</th><th>CPP</th><th>RTS</th></tr></thead>
-          <tbody>
-            ${state.pages.map((configuredPage) => {
-              const page = byPage.find((row) => row.page === configuredPage.name) || { orders: 0, sales: 0, spend: 0, roas: 0, cpp: 0, rtsRate: 0 };
-              return `<tr>
-                <td style="font-weight:700">${escapeHtml(configuredPage.name)}</td>
-                <td>${escapeHtml(configuredPage.product)}</td>
-                <td>${escapeHtml(configuredPage.owner)}</td>
-                <td>${page.orders}</td>
-                <td>${marketingMoney(page.sales)}</td>
-                <td>${marketingMoney(page.spend)}</td>
-                <td><span class="erp-roas ${marketingRoasPillClass(page.roas)}">${marketingRoas(page.roas)}</span></td>
-                <td>${marketingMoney(page.cpp)}</td>
-                <td>${marketingPct(page.rtsRate)}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div id="mkt-entries" class="tab-content">
+  <div id="mkt-entries" class="tab-content active">
     <div style="display:grid; grid-template-columns:minmax(360px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
       <div class="card">
         <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">${marketingManager ? 'One row per page per day.' : 'View only — TL access required to add entries.'}</div></div></div>
@@ -3299,32 +3275,6 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-adspend" class="tab-content">
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Ad Spend Summary</div><div class="card-subtitle">Daily spend, sales, ROAS, CPP, and RTS pacing.</div></div></div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Date</th><th>Spend</th><th>Sales</th><th>ROAS</th><th>Orders</th><th>CPP</th><th>RTS Rate</th><th>vs Target</th></tr></thead>
-          <tbody>
-            ${byDay.length ? byDay.map((day) => {
-              const spendPct = Number(state.targets.spend || 0) ? day.spend / Number(state.targets.spend || 1) : 0;
-              return `<tr>
-                <td>${escapeHtml(day.date)}</td>
-                <td>${marketingMoney(day.spend)}</td>
-                <td>${marketingMoney(day.sales)}</td>
-                <td><span class="erp-roas ${marketingRoasPillClass(day.roas)}">${marketingRoas(day.roas)}</span></td>
-                <td>${day.orders}</td>
-                <td>${marketingMoney(day.cpp)}</td>
-                <td>${marketingPct(day.rtsRate)}</td>
-                <td><span class="badge ${spendPct >= .85 ? 'badge-success' : spendPct >= .6 ? 'badge-warning' : 'badge-danger'}">${spendPct >= .85 ? 'On pace' : spendPct >= .6 ? 'Under' : 'Underspend'}</span></td>
-              </tr>`;
-            }).join('') : '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No ad spend data yet.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <div id="mkt-creatives" class="tab-content">
     <div style="display:grid; grid-template-columns:minmax(360px,.85fr) minmax(420px,1.15fr); gap:20px; align-items:start;">
       <div class="card">
@@ -3420,13 +3370,6 @@ function renderMarketingCenter() {
           </tbody>
         </table>
       </div>
-    </div>
-  </div>
-
-  <div id="mkt-weekly" class="tab-content">
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Weekly Report</div><div class="card-subtitle">Generated from the current month entries.</div></div><button class="btn btn-secondary" onclick="copyMarketingWeeklyReport()">Copy</button></div>
-      <pre class="code-block" id="mkt-weekly-output">${escapeHtml(generateMarketingWeeklyText(state))}</pre>
     </div>
   </div>
 
