@@ -596,7 +596,9 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     'delivery_address', 'delivery address', 'street', 'location',
   ]));
   const province = stringOrNull(getFirstValue(rawRow, [
-    'province', 'state', 'region', 'bill_state', 'bill state',
+    'province', 'province_city', 'province/city', 'province city',
+    'city_province', 'city/province', 'city province', 'city',
+    'state', 'region', 'bill_state', 'bill state',
     'shipping_state', 'shipping state', 'bill_province', 'bill province',
     'shipping_province', 'shipping province',
   ]));
