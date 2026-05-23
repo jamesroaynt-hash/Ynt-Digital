@@ -3143,13 +3143,14 @@ let adspendStatusFilters = new Set();
 
 const ADSPEND_STATUS_MAP = [
   ['Confirmed',          'adspend-cb-confirmed', 'View Confirmed'],
+  ['Waiting for pickup', 'adspend-cb-waiting',   'View Waiting for pickup'],
   ['Shipped',            'adspend-cb-shipped',   'View Shipped'],
   ['Delivered',          'adspend-cb-delivered', 'View Delivered'],
   ['Returning',          'adspend-cb-returning', 'View Returning'],
   ['Returned',           'adspend-cb-returned',  'View Returned'],
 ];
 
-const ADSPEND_ALLOWED_STATUSES = new Set(['Confirmed', 'Shipped', 'Delivered', 'Returning', 'Returned']);
+const ADSPEND_ALLOWED_STATUSES = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned']);
 
 function applyAdspendFilter() {
   adspendDateFrom = document.getElementById('adspend-from')?.value || adspendDateFrom;

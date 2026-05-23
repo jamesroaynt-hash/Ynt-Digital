@@ -82,8 +82,16 @@ module.exports = function integrationRoutes(db) {
 
       let where = 'WHERE 1=1';
       if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
-      if (status && status !== 'all') { where += ' AND LOWER(TRIM(g.status)) = LOWER(?)'; params.push(status); }
-      if (tag && tag !== 'all') { where += ' AND TRIM(g.tag) = ?'; params.push(tag); }
+      // Match the displayed/normalized status so filter agrees with status chips.
+      if (status && status !== 'all') {
+        where += " AND LOWER(COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))) = LOWER(?)";
+        params.push(status);
+      }
+      // g.tag may hold a comma-joined list ("1st Attemp, 2ND ATTEMP"); match any single tag.
+      if (tag && tag !== 'all') {
+        where += " AND ',' || REPLACE(COALESCE(g.tag, ''), ', ', ',') || ',' LIKE '%,' || ? || ',%'";
+        params.push(tag);
+      }
       if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
       if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
       if (search) {
@@ -154,13 +162,23 @@ module.exports = function integrationRoutes(db) {
              ORDER BY g.source_sheet`
           ).all()).map((r) => r.source_sheet)
         : undefined;
-      const tags = includeFilterOptions
-        ? (await db.prepare(
-            `SELECT DISTINCT TRIM(g.tag) AS tag ${baseFrom}
-             WHERE g.tag IS NOT NULL AND TRIM(g.tag) != ''
-             ORDER BY tag`
-          ).all()).map((r) => r.tag)
-        : undefined;
+      // g.tag is a comma-joined list per row — fetch distinct compound strings,
+      // then split + dedupe in JS so the dropdown shows individual tags.
+      let tags;
+      if (includeFilterOptions) {
+        const tagRows = await db.prepare(
+          `SELECT DISTINCT TRIM(g.tag) AS tag ${baseFrom}
+           WHERE g.tag IS NOT NULL AND TRIM(g.tag) != ''`
+        ).all();
+        const seen = new Set();
+        for (const row of tagRows) {
+          for (const piece of String(row.tag || '').split(',')) {
+            const t = piece.trim();
+            if (t) seen.add(t);
+          }
+        }
+        tags = Array.from(seen).sort((a, b) => a.localeCompare(b));
+      }
 
       const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), status_counts: statusCounts };
       if (sheetNames) payload.sheet_names = sheetNames;
