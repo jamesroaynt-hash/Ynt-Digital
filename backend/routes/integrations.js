@@ -171,6 +171,28 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Lightweight aggregates for home-page tiles. Returns ~50 bytes instead of
+  // ~30 MB the full /records walk costs, and renders before the heavy load
+  // finishes. Mirrors the status normalization used by /records.
+  router.get('/google-sheets/stats', async (req, res) => {
+    try {
+      const row = await db.prepare(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))) = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          COALESCE(SUM(g.cod), 0) AS total_cod
+        FROM google_orders g
+      `).get();
+      res.json({
+        total: Number(row?.total || 0),
+        delivered: Number(row?.delivered || 0),
+        total_cod: Number(row?.total_cod || 0),
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
 
   router.get('/pancake-pos/status', async (req, res) => {

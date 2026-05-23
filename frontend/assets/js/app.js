@@ -338,6 +338,21 @@ async function loadPosOrdersDashboard() {
   return true;
 }
 
+async function loadSheetRecordsStats() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  try {
+    const result = await authorizedJsonRequest(`/integrations/google-sheets/stats?_=${Date.now()}`);
+    DB.sheetRecordsStats = {
+      total: Number(result?.total || 0),
+      delivered: Number(result?.delivered || 0),
+      totalCOD: Number(result?.total_cod || 0),
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadSheetRecordsForDataReport() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
   const all = [];
@@ -429,7 +444,7 @@ function stopPosOrdersAutoRefresh() {
 
 async function refreshOrderViewsFromBackend() {
   try {
-    await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard(), loadSheetRecordsForDataReport()]);
+    await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard(), loadSheetRecordsStats(), loadSheetRecordsForDataReport()]);
 
     if (App.currentPage === 'sales') {
       renderSalesTable();
@@ -562,6 +577,7 @@ const DB = {
   posRawTotal: 0,
   posRawStatusCounts: [],
   sheetRecordsForReport: [],
+  sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: loadCsrRecords(),
   inventory: [],
   expenses: [],
@@ -1582,9 +1598,15 @@ function renderHome() {
   const summaryStatusCount = (status) => Number(
     DB.orderStats?.status_counts?.find((row) => row.status === status)?.count || 0
   );
-  const total = DB.sheetRecordsForReport.length;
-  const delivered = DB.sheetRecordsForReport.filter(o => o.status === 'Delivered').length;
-  const totalCOD = DB.sheetRecordsForReport.reduce((s, o) => s + Number(o.cod || 0), 0);
+  // Read from the cheap server-side aggregate so the tiles are correct even
+  // before the heavy /records walk finishes. Falls back to client array if the
+  // stats call hasn't returned yet (e.g. first paint).
+  const stats = DB.sheetRecordsStats || { total: 0, delivered: 0, totalCOD: 0 };
+  const total = stats.total || DB.sheetRecordsForReport.length;
+  const delivered = stats.delivered
+    || DB.sheetRecordsForReport.filter(o => o.status === 'Delivered').length;
+  const totalCOD = stats.totalCOD
+    || DB.sheetRecordsForReport.reduce((s, o) => s + Number(o.cod || 0), 0);
   const sourceOptions = getPosSourceOptions();
 
 
