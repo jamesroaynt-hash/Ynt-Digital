@@ -1367,6 +1367,8 @@ async function transferPosProductToInventory(db, shopId, item) {
 
 async function cleanupMalformedDashboardOrders(db) {
   // Remove POS-linked orders that have placeholder or missing customer/product
+  // CAST is on the constant side (o.id → text) so isl.local_id stays bare
+  // and idx_isl_orders_lookup (local_table, entity_type, provider, local_id) can be used.
   const result = await db.prepare(`
     DELETE FROM orders
     WHERE id IN (
@@ -1376,7 +1378,7 @@ async function cleanupMalformedDashboardOrders(db) {
         ON isl.provider = 'pancake_pos'
        AND isl.entity_type = 'orders'
        AND isl.local_table = 'orders'
-       AND CAST(isl.local_id AS INTEGER) = o.id
+       AND isl.local_id = CAST(o.id AS TEXT)
       WHERE o.customer = 'Pancake POS Customer'
          OR o.customer IS NULL
          OR TRIM(o.customer) = ''
@@ -1387,13 +1389,14 @@ async function cleanupMalformedDashboardOrders(db) {
   `).run();
   const cleaned = result.changes || 0;
 
-  // Clean up source links pointing to deleted orders
+  // Clean up source links pointing to deleted orders.
+  // CAST moved to the subquery side so the index on local_id can still be used.
   await db.prepare(`
     DELETE FROM integration_source_links
     WHERE provider = 'pancake_pos'
       AND entity_type = 'orders'
       AND local_table = 'orders'
-      AND CAST(local_id AS INTEGER) NOT IN (SELECT id FROM orders)
+      AND local_id NOT IN (SELECT CAST(id AS TEXT) FROM orders)
   `).run();
 
   return cleaned;

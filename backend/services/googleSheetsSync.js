@@ -817,6 +817,45 @@ async function getCounts(db) {
   };
 }
 
+// Batch lookup of existing orders by order_ref OR tracking_no.
+// Replaces per-row SELECTs in the sync loop (was 1-2 round-trips × N records).
+// Chunked to stay under SQLite's 999-parameter limit when running locally.
+async function fetchExistingOrderIds(db, refs, trackings) {
+  const byRef = new Map();
+  const byTracking = new Map();
+  const chunk = 400;
+
+  async function runLookup(refChunk, trackChunk) {
+    if (!refChunk.length && !trackChunk.length) return;
+    const conditions = [];
+    const params = [];
+    if (refChunk.length) {
+      conditions.push(`order_ref IN (${refChunk.map(() => '?').join(',')})`);
+      params.push(...refChunk);
+    }
+    if (trackChunk.length) {
+      conditions.push(`tracking_no IN (${trackChunk.map(() => '?').join(',')})`);
+      params.push(...trackChunk);
+    }
+    const rows = await db.prepare(
+      `SELECT id, order_ref, tracking_no FROM orders WHERE ${conditions.join(' OR ')}`
+    ).all(...params);
+    for (const row of rows) {
+      if (row.order_ref) byRef.set(row.order_ref, row.id);
+      if (row.tracking_no) byTracking.set(row.tracking_no, row.id);
+    }
+  }
+
+  for (let i = 0; i < refs.length; i += chunk) {
+    await runLookup(refs.slice(i, i + chunk), []);
+  }
+  for (let i = 0; i < trackings.length; i += chunk) {
+    await runLookup([], trackings.slice(i, i + chunk));
+  }
+
+  return { byRef, byTracking };
+}
+
 async function collectSheetData(db, payload = {}, triggerType = 'manual') {
   const setting = await getSetting(db);
   const enabled = payload.enabled ?? setting?.enabled ?? process.env.GOOGLE_SHEETS_SYNC_ENABLED ?? 0;
@@ -895,23 +934,38 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
 
       result.total_rows += records.length;
 
+      // Pre-normalize so we can batch the existing-id lookup before the write loop.
+      // Bad rows are tolerated — the main loop re-normalizes and routes them to failed_rows.
+      const normalizedRecords = new Array(records.length);
+      const refSet = new Set();
+      const trackingSet = new Set();
+      for (let index = 0; index < records.length; index += 1) {
+        try {
+          const normalized = normalizeOrderRecord(records[index], sheetName);
+          normalizedRecords[index] = normalized;
+          if (normalized.order_ref) refSet.add(normalized.order_ref);
+          if (normalized.tracking_no) trackingSet.add(normalized.tracking_no);
+        } catch {
+          normalizedRecords[index] = null;
+        }
+      }
+      const { byRef: existingByRef, byTracking: existingByTracking } = await fetchExistingOrderIds(
+        db,
+        Array.from(refSet),
+        Array.from(trackingSet),
+      );
+
       for (let index = 0; index < records.length; index += 1) {
         const row = records[index];
         try {
-          const normalized = normalizeOrderRecord(row, sheetName);
+          const normalized = normalizedRecords[index] || normalizeOrderRecord(row, sheetName);
           await upsertGoogleOrder(db, normalized, row, spreadsheetId, sheetName, index + 2);
-          const existing = normalized.tracking_no
-            ? await db.prepare(`
-                SELECT id FROM orders
-                WHERE order_ref = ? OR tracking_no = ?
-                LIMIT 1
-              `).get(normalized.order_ref, normalized.tracking_no)
-            : await db.prepare(`
-                SELECT id FROM orders
-                WHERE order_ref = ?
-                LIMIT 1
-              `).get(normalized.order_ref);
+          const existingId = existingByRef.get(normalized.order_ref)
+            ?? (normalized.tracking_no ? existingByTracking.get(normalized.tracking_no) : undefined);
+          const existing = existingId ? { id: existingId } : null;
           const localId = await upsertOrder(db, normalized);
+          if (localId && normalized.order_ref) existingByRef.set(normalized.order_ref, localId);
+          if (localId && normalized.tracking_no) existingByTracking.set(normalized.tracking_no, localId);
           if (existing?.id) {
             result.updated += 1;
             sheetSummary.updated += 1;

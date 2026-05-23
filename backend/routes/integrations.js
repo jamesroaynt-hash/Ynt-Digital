@@ -93,7 +93,7 @@ module.exports = function integrationRoutes(db) {
       }
 
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
+      const perPage = Math.min(100, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
       const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);

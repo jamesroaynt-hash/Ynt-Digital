@@ -451,6 +451,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       FROM pos_orders
       WHERE customer_phone IS NOT NULL AND customer_phone != ''
       ORDER BY inserted_at_remote DESC
+      LIMIT 200
     `).all();
 
     const statusMap = {
@@ -621,7 +622,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       WHERE provider = 'pancake_pos'
         AND entity_type = 'orders'
         AND local_table = 'orders'
-        AND CAST(local_id AS INTEGER) NOT IN (SELECT id FROM orders)
+        AND local_id NOT IN (SELECT CAST(id AS TEXT) FROM orders)
     `).run();
     res.json({ deleted_pos_orders: del.changes || 0, deleted_links: linkDel.changes || 0 });
   });
