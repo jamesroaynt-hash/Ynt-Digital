@@ -386,20 +386,13 @@ module.exports = function hrRoutes(db) {
     res.json({ record });
   });
 
-  router.patch('/attendance/:id/holiday', requireHrManager, async (req, res) => {
+  router.delete('/attendance/:id', requireHrManager, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid attendance id' });
     const existing = await db.prepare('SELECT id FROM attendance_records WHERE id = ?').get(id);
     if (!existing) return res.status(404).json({ error: 'Attendance record not found' });
-    const holidayPercentage = Math.max(100, Number(req.body?.holiday_percentage || 100));
-    const holidayType = holidayPercentage > 100 ? 'Holiday' : 'Regular day';
-    await db.prepare(`
-      UPDATE attendance_records
-      SET holiday_type = ?, holiday_percentage = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(holidayType, holidayPercentage, id);
-    const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(id);
-    res.json({ record });
+    await db.prepare('DELETE FROM attendance_records WHERE id = ?').run(id);
+    res.json({ deleted: true, id });
   });
 
   router.get('/summary', async (req, res) => {

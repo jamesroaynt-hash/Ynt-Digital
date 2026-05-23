@@ -6392,24 +6392,27 @@ function renderHRAttendanceTable() {
             const holidayPct = Number(record.holiday_percentage || 100);
             const dailyRate = Number(record.daily_rate || 0);
             const dailySalary = qualifies ? dailyRate * (holidayPct / 100) : 0;
-            const dash = '<span style="color:var(--text-muted)">—</span>';
+            const timeInput = (field) => `<input type="time" class="form-control" style="width:110px;padding:4px 6px;" id="att-${field}-${record.id}" value="${escapeHtml(record[field] || '')}">`;
             return `
             <tr>
               <td><strong>${escapeHtml(record.work_date || '')}</strong></td>
               <td>${escapeHtml(record.full_name || '')}</td>
-              <td class="font-mono text-xs">${record.time_in ? escapeHtml(record.time_in) : dash}</td>
-              <td class="font-mono text-xs">${record.break_out ? escapeHtml(record.break_out) : dash}</td>
-              <td class="font-mono text-xs">${record.break_in ? escapeHtml(record.break_in) : dash}</td>
-              <td class="font-mono text-xs">${record.time_out ? escapeHtml(record.time_out) : dash}</td>
-              <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : dash}</td>
-              <td>${otMins > 0 ? `<span class="badge badge-warning">${formatMinutes(otMins)}</span>` : dash}</td>
+              <td>${timeInput('time_in')}</td>
+              <td>${timeInput('break_out')}</td>
+              <td>${timeInput('break_in')}</td>
+              <td>${timeInput('time_out')}</td>
+              <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+              <td>${otMins > 0 ? `<span class="badge badge-warning">${formatMinutes(otMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td>
                 <input type="number" min="100" step="1" class="form-control" style="width:90px;"
                   id="att-holiday-${record.id}" value="${holidayPct}"
                   title="100=regular, 125=special holiday, 150=regular holiday">
               </td>
               <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong></td>
-              <td><button class="btn btn-ghost btn-sm" onclick="saveAttendanceAdjustments(${record.id})">Save</button></td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-ghost btn-sm" onclick="saveAttendanceAdjustments(${record.id})">Save</button>
+                <button class="btn btn-ghost btn-sm" style="color:var(--danger, #dc2626);" onclick="deleteAttendance(${record.id})">Delete</button>
+              </td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -6442,15 +6445,41 @@ async function saveDailyRateOnBlur(userId, originalRate) {
 
 async function saveAttendanceAdjustments(recordId) {
   try {
-    const holidayPercentage = Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100);
-    await authorizedJsonRequest(`/hr/attendance/${recordId}/holiday`, {
-      method: 'PATCH',
-      body: JSON.stringify({ holiday_percentage: holidayPercentage }),
+    const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
+    if (!record) throw new Error('Record not found in current view.');
+    const readTime = (field) => String(document.getElementById(`att-${field}-${recordId}`)?.value || '').trim();
+    const holidayPercentage = Math.max(100, Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100));
+    await authorizedJsonRequest(`/hr/attendance/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        time_in: readTime('time_in'),
+        break_out: readTime('break_out'),
+        break_in: readTime('break_in'),
+        time_out: readTime('time_out'),
+        break_minutes: Number(record.break_minutes || 0),
+        ot_minutes: Number(record.ot_minutes || 0),
+        holiday_type: holidayPercentage > 100 ? (record.holiday_type || 'Holiday') : 'Regular day',
+        holiday_percentage: holidayPercentage,
+        notes: record.notes || '',
+      }),
     });
-    showToast('success', 'Holiday saved', 'Holiday adjustment was updated.');
+    showToast('success', 'Attendance saved', 'Attendance record was updated.');
     await loadHRDashboard();
   } catch (error) {
     showToast('error', 'Attendance failed', error.message || 'Could not save attendance.');
+  }
+}
+
+async function deleteAttendance(recordId) {
+  const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
+  const who = record ? `${record.full_name || 'user'} on ${record.work_date}` : `record #${recordId}`;
+  if (!window.confirm(`Delete attendance for ${who}? This cannot be undone.`)) return;
+  try {
+    await authorizedJsonRequest(`/hr/attendance/${recordId}`, { method: 'DELETE' });
+    showToast('success', 'Attendance deleted', 'The attendance record was removed.');
+    await loadHRDashboard();
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete attendance.');
   }
 }
 
