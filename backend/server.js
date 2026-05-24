@@ -266,7 +266,6 @@ async function createApp() {
   app.use('/api/inventory', authMiddleware, require('./routes/inventory')(db, { dispatch: webhookDispatch }));
   app.use('/api/expenses', authMiddleware, require('./routes/expenses')(db));
   app.use('/api/hr', authMiddleware, require('./routes/hr')(db));
-  app.use('/api/marketing', authMiddleware, require('./routes/marketing')(db));
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));
   app.use('/api/scans', authMiddleware, require('./routes/scans')(db));
   const integrationsRouter = require('./routes/integrations')(db);

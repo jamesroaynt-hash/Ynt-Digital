@@ -75,13 +75,8 @@ module.exports = function integrationRoutes(db) {
   // Read-only Google Sheets records — available to any authenticated user.
   router.get('/google-sheets/records', async (req, res) => {
     try {
-      const { sheet, status, tag, search, date_from, date_to, page = 1, per_page = 50, view } = req.query;
+      const { sheet, status, tag, search, date_from, date_to, page = 1, per_page = 50 } = req.query;
       const params = [];
-
-      // The data-report loader walks every page just to read 12 aggregate
-      // fields, so it requests view=report: a narrow projection that drops the
-      // ~8 columns it discards and skips the per-page status/filter queries.
-      const reportView = view === 'report';
 
       const baseFrom = 'FROM google_orders g';
 
@@ -112,21 +107,8 @@ module.exports = function integrationRoutes(db) {
       const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
       const total = countRow?.total || 0;
 
-      const selectCols = reportView
-        ? `g.id,
-               g.external_id   AS order_ref,
-               g.tracking_no,
-               g.customer_name AS customer,
-               g.customer_phone AS phone,
-               g.product_name  AS product,
-               g.cod           AS cod_amount,
-               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
-               g.chat_page,
-               g.confirmed_by,
-               g.delivery_attempts AS attempts,
-               g.province_city,
-               g.day_created   AS order_date`
-        : `g.id,
+      const records = await db.prepare(`
+        SELECT g.id,
                g.external_id   AS order_ref,
                g.tracking_no,
                g.customer_name AS customer,
@@ -146,21 +128,11 @@ module.exports = function integrationRoutes(db) {
                g.address,
                g.province_city,
                g.day_created   AS order_date,
-               g.updated_at`;
-
-      const records = await db.prepare(`
-        SELECT ${selectCols}
+               g.updated_at
         ${baseFrom} ${where}
         ORDER BY g.day_created DESC, g.id DESC
         LIMIT ? OFFSET ?
       `).all(...params, perPage, offset);
-
-      // Report mode only needs rows + pagination; skip the status GROUP BY and
-      // the distinct sheet/tag scans the records UI uses.
-      if (reportView) {
-        res.json({ records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage) });
-        return;
-      }
 
       const whereForCounts = (() => {
         const cp = [];
@@ -212,23 +184,6 @@ module.exports = function integrationRoutes(db) {
       if (sheetNames) payload.sheet_names = sheetNames;
       if (tags) payload.tags = tags;
       res.json(payload);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Cheap fingerprint of google_orders (~30 bytes, ~0.3ms). The data-report
-  // loader fetches this first and skips the whole multi-page /records walk when
-  // the fingerprint is unchanged — reloads only when a sync changed data.
-  // MAX(updated_at) catches upserts, MAX(id) catches inserts; both are instant
-  // index-backward scans. google_orders is never DELETEd, so this never misses
-  // a change. (COUNT(*) would be exact but costs a ~1s full index scan.)
-  router.get('/google-sheets/version', async (req, res) => {
-    try {
-      const row = await db.prepare(
-        `SELECT MAX(updated_at) AS max_updated, MAX(id) AS max_id FROM google_orders`
-      ).get();
-      res.json({ version: `${row?.max_updated || ''}:${row?.max_id || 0}` });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

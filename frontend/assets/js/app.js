@@ -9,8 +9,8 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'hr', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -29,9 +29,6 @@ const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
 const MARKETING_STORAGE_KEY = 'ynt_marketing_center';
 const DAMAGE_REPORT_STORAGE_KEY = 'ynt_damage_reports';
-const TRAINING_STORAGE_KEY = 'ynt_trainings';
-const TRAINING_DEPARTMENTS = ['Logistics Staff', 'HR Assistant', 'Marketplace Associate', 'CSR Associate', 'Operations Assistant', 'Sales and Marketing Associate'];
-const TRAINING_CATEGORIES = ['Safety', 'Onboarding', 'Compliance', 'Skills', 'Policy'];
 const CSR_PAGE_OPTIONS = [
   'AGELESS',
   'GINSENG PH',
@@ -107,7 +104,6 @@ function loadPage(page) {
     inventory: renderInventory,
     expenses: renderExpenses,
     hr: renderHR,
-    training: renderTraining,
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
     'rts-rate': renderRTSRate,
@@ -137,7 +133,6 @@ const pageNames = {
   inventory: 'Stock',
   expenses: 'Expenses',
   hr: 'HR & Payroll',
-  training: 'Training',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
   'rts-rate': 'Sale Report',
@@ -358,35 +353,14 @@ async function loadSheetRecordsStats() {
   }
 }
 
-let sheetRecordsLastVersion = null;
-
-async function fetchSheetRecordsVersion() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return null;
-  try {
-    const result = await authorizedJsonRequest(`/integrations/google-sheets/version?_=${Date.now()}`);
-    return result?.version ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function loadSheetRecordsForDataReport({ force = false } = {}) {
+async function loadSheetRecordsForDataReport() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
-
-  // Skip the full multi-page walk when google_orders is unchanged since the
-  // last load — this is the single biggest egress source on the dashboard.
-  const version = await fetchSheetRecordsVersion();
-  if (!force && version !== null && version === sheetRecordsLastVersion
-      && Array.isArray(DB.sheetRecordsForReport)) {
-    return true;
-  }
-
   const all = [];
   const perPage = 1000;
   let page = 1;
   let totalPages = 1;
   do {
-    const params = new URLSearchParams({ view: 'report', page: String(page), per_page: String(perPage), _: String(Date.now()) });
+    const params = new URLSearchParams({ page: String(page), per_page: String(perPage), _: String(Date.now()) });
     const result = await authorizedJsonRequest(`/integrations/google-sheets/records?${params}`);
     const records = Array.isArray(result?.records) ? result.records : [];
     all.push(...records);
@@ -410,7 +384,6 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
     source_sheet: r.chat_page || '',
     sourceSheet: r.chat_page || '',
   }));
-  sheetRecordsLastVersion = version;
   return true;
 }
 
@@ -611,8 +584,6 @@ const DB = {
   dailyPickups: [],
   scanRecords: [],
   damageReports: loadDamageReports(),
-  trainings: loadTrainings(),
-  marketingEntries: [],
   customers: [],
 };
 
@@ -765,7 +736,7 @@ function getMarketingState() {
       targets: { ...fallback.targets, ...(saved.targets || {}) },
       pages: Array.isArray(saved.pages) && saved.pages.length ? saved.pages : fallback.pages,
       team: Array.isArray(saved.team) && saved.team.length ? saved.team : fallback.team,
-      entries: Array.isArray(DB.marketingEntries) ? DB.marketingEntries : [],
+      entries: Array.isArray(saved.entries) ? saved.entries : [],
       creatives: Array.isArray(saved.creatives) ? saved.creatives : [],
       standups: Array.isArray(saved.standups) ? saved.standups : [],
       adAccounts: Array.isArray(saved.adAccounts) ? saved.adAccounts : fallback.adAccounts,
@@ -776,57 +747,7 @@ function getMarketingState() {
 }
 
 function saveMarketingState(state) {
-  // Marketing entries are persisted to the backend via /api/marketing/entries.
-  // Only the non-entries portion of the state lives in localStorage.
-  const { entries, ...persistable } = state || {};
-  localStorage.setItem(MARKETING_STORAGE_KEY, JSON.stringify(persistable));
-}
-
-async function loadMarketingEntries() {
-  try {
-    const result = await authorizedJsonRequest('/marketing/entries');
-    DB.marketingEntries = Array.isArray(result?.entries) ? result.entries : [];
-    DB.marketingEntriesLoaded = true;
-  } catch (error) {
-    console.error('[marketing] load entries failed:', error);
-    DB.marketingEntries = DB.marketingEntries || [];
-  }
-}
-
-async function migrateLocalMarketingEntriesIfNeeded() {
-  const MIGRATED_FLAG = 'ynt_marketing_entries_migrated';
-  if (localStorage.getItem(MIGRATED_FLAG) === '1') return;
-  if (!canManageMarketing()) return; // Only managers can POST; defer migration until one logs in.
-  let localState = {};
-  try { localState = JSON.parse(localStorage.getItem(MARKETING_STORAGE_KEY) || '{}'); } catch {}
-  const localEntries = Array.isArray(localState.entries) ? localState.entries : [];
-  if (!localEntries.length) {
-    localStorage.setItem(MIGRATED_FLAG, '1');
-    return;
-  }
-  for (const entry of localEntries) {
-    try {
-      await authorizedJsonRequest('/marketing/entries', {
-        method: 'POST',
-        body: JSON.stringify({
-          date: entry.date || '',
-          page: entry.page || '',
-          product: entry.product || '',
-          owner: entry.owner || '',
-          spend: Number(entry.spend || 0),
-          sales: Number(entry.sales || 0),
-          orders: Number(entry.orders || 0),
-          rts: Number(entry.rts || 0),
-        }),
-      });
-    } catch (error) {
-      console.error('[marketing] migration failed for entry:', entry, error);
-    }
-  }
-  delete localState.entries;
-  localStorage.setItem(MARKETING_STORAGE_KEY, JSON.stringify(localState));
-  localStorage.setItem(MIGRATED_FLAG, '1');
-  await loadMarketingEntries();
+  localStorage.setItem(MARKETING_STORAGE_KEY, JSON.stringify(state));
 }
 
 function marketingMonth(date = new Date()) {
@@ -974,18 +895,6 @@ function loadDamageReports() {
 
 function saveDamageReports() {
   localStorage.setItem(DAMAGE_REPORT_STORAGE_KEY, JSON.stringify(DB.damageReports));
-}
-
-function loadTrainings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(TRAINING_STORAGE_KEY) || '[]');
-    if (Array.isArray(saved)) return saved;
-  } catch {}
-  return [];
-}
-
-function saveTrainings() {
-  localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(DB.trainings));
 }
 
 function getDefaultIntegrationState() {
@@ -3267,8 +3176,10 @@ function renderAdspendRoas() {
       <div class="card" style="text-align:center;padding:48px;color:var(--text-muted);">Loading sheet records...</div>`;
   }
 
-  // Pages: only chat pages that actually have sheet records (chat_page from google_orders).
-  const allPages = [...new Set(DB.sheetRecordsForReport.map((o) => o.sourceSheet).filter(Boolean))].sort();
+  // Pages: merge sheet source pages + configured marketing pages (deduplicated, sorted)
+  const sheetPages = [...new Set(DB.sheetRecordsForReport.map((o) => o.sourceSheet).filter(Boolean))].sort();
+  const mktPageNames = mktState.pages.map((p) => p.name).filter(Boolean);
+  const allPages = [...new Set([...sheetPages, ...mktPageNames])].sort();
 
   // Build every date in range (local time — avoid toISOString UTC shift)
   const dates = [];
@@ -3638,18 +3549,18 @@ function renderMarketingCenter() {
                 if (rf.to) filtered = filtered.filter((e) => (e.date || '') <= rf.to);
                 return filtered.reverse().slice(0, 50);
               })().map((entry) => {
-                const id = Number(entry.id || 0);
+                const index = state.entries.indexOf(entry);
                 return `<tr>
                   <td>${escapeHtml(entry.date)}</td>
                   <td><strong>${escapeHtml(entry.page)}</strong>${entry.product ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(entry.product)}</div>` : ''}</td>
                   <td>${escapeHtml(entry.owner || '—')}</td>
                   <td style="text-align:right;">
                     ${marketingManager
-                      ? `<input type="number" class="form-control" min="0" step="0.01" value="${Number(entry.spend || 0)}" onchange="updateMarketingEntrySpend(${id}, this.value)" style="width:120px;text-align:right;font-weight:600;padding:4px 8px;font-size:13px;margin-left:auto;">`
+                      ? `<input type="number" class="form-control" min="0" step="0.01" value="${Number(entry.spend || 0)}" onchange="updateMarketingEntrySpend(${index}, this.value)" style="width:120px;text-align:right;font-weight:600;padding:4px 8px;font-size:13px;margin-left:auto;">`
                       : `<span style="font-weight:600;">${marketingMoney(entry.spend)}</span>`}
                   </td>
                   <td>
-                    ${marketingManager ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editMarketingEntry(${id})">Edit</button><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${id})">×</button></div>` : '<span class="text-xs text-muted">—</span>'}
+                    ${marketingManager ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editMarketingEntry(${index})">Edit</button><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${index})">×</button></div>` : '<span class="text-xs text-muted">—</span>'}
                   </td>
                 </tr>`;
               }).join('') || '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No entries yet.</td></tr>'}
@@ -6202,18 +6113,6 @@ function initPage(page) {
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); }).catch(() => {});
     }
-    if (!DB.marketingEntriesLoaded) {
-      migrateLocalMarketingEntriesIfNeeded()
-        .then(() => loadMarketingEntries())
-        .then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); })
-        .catch(() => {});
-    }
-  }
-
-  if (page === 'adspend-roas' && !DB.marketingEntriesLoaded) {
-    loadMarketingEntries()
-      .then(() => { if (App.currentPage === 'adspend-roas') loadPage('adspend-roas'); })
-      .catch(() => {});
   }
 
   if (page === 'csr') {
@@ -7335,15 +7234,15 @@ function recalcMarketingTotal() {
   if (display) display.textContent = Number(total).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-async function submitMarketingEntries() {
+function submitMarketingEntries() {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can add entries.');
     return;
   }
   const state = getMarketingState();
   const date = document.getElementById('mkt-date')?.value || normalizeDateString(new Date());
-  const editIdValue = document.getElementById('mkt-entry-edit-index')?.value || '';
-  const editId = editIdValue === '' ? 0 : Number(editIdValue);
+  const editIndexValue = document.getElementById('mkt-entry-edit-index')?.value || '';
+  const editIndex = editIndexValue === '' ? -1 : Number(editIndexValue);
 
   const rows = [...document.querySelectorAll('#mkt-product-rows .mkt-product-row')];
   const collected = rows.map((row) => {
@@ -7362,37 +7261,27 @@ async function submitMarketingEntries() {
     return;
   }
 
-  try {
-    if (editId > 0) {
-      await authorizedJsonRequest(`/marketing/entries/${editId}`, { method: 'PUT', body: JSON.stringify(collected[0]) });
-      for (const entry of collected.slice(1)) {
-        await authorizedJsonRequest('/marketing/entries', { method: 'POST', body: JSON.stringify(entry) });
-      }
-    } else {
-      for (const entry of collected) {
-        await authorizedJsonRequest('/marketing/entries', { method: 'POST', body: JSON.stringify(entry) });
-      }
-    }
-  } catch (error) {
-    showToast('error', 'Save failed', error.message || 'Could not save entries.');
-    return;
+  if (editIndex >= 0) {
+    state.entries[editIndex] = collected[0];
+    if (collected.length > 1) state.entries.push(...collected.slice(1));
+  } else {
+    state.entries.push(...collected);
   }
-
-  await loadMarketingEntries();
-  showToast('success', editId > 0 ? 'Entry updated' : `${collected.length} entr${collected.length === 1 ? 'y' : 'ies'} saved`, collected.map((e) => e.page).join(', '));
+  saveMarketingState(state);
+  showToast('success', editIndex >= 0 ? 'Entry updated' : `${collected.length} entr${collected.length === 1 ? 'y' : 'ies'} saved`, collected.map((e) => e.page).join(', '));
   navigateTo('marketing-center');
 }
 
-function editMarketingEntry(id) {
+function editMarketingEntry(index) {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can update entries.');
     return;
   }
   const state = getMarketingState();
-  const entry = (DB.marketingEntries || []).find((e) => Number(e.id) === Number(id));
+  const entry = state.entries[index];
   if (!entry) return;
   const editInput = document.getElementById('mkt-entry-edit-index');
-  if (editInput) editInput.value = String(entry.id);
+  if (editInput) editInput.value = index;
   const dateInput = document.getElementById('mkt-date');
   if (dateInput) dateInput.value = entry.date || '';
   const container = document.getElementById('mkt-product-rows');
@@ -7403,27 +7292,17 @@ function editMarketingEntry(id) {
   showToast('success', 'Editing entry', 'Update the row and click Add Entry to save.');
 }
 
-async function updateMarketingEntrySpend(id, value) {
+function updateMarketingEntrySpend(index, value) {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can update entries.');
     return;
   }
-  const entry = (DB.marketingEntries || []).find((e) => Number(e.id) === Number(id));
-  if (!entry) return;
+  const state = getMarketingState();
+  if (index < 0 || index >= state.entries.length) return;
   const spend = Math.max(0, Number(value) || 0);
-  try {
-    const result = await authorizedJsonRequest(`/marketing/entries/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ ...entry, spend }),
-    });
-    if (result?.entry) {
-      const idx = DB.marketingEntries.findIndex((e) => Number(e.id) === Number(id));
-      if (idx >= 0) DB.marketingEntries[idx] = result.entry;
-    }
-    showToast('success', 'Ad spend updated', `${entry.page}: ${marketingMoney(spend)}`);
-  } catch (error) {
-    showToast('error', 'Update failed', error.message || 'Could not update ad spend.');
-  }
+  state.entries[index].spend = spend;
+  saveMarketingState(state);
+  showToast('success', 'Ad spend updated', `${state.entries[index].page}: ${marketingMoney(spend)}`);
 }
 
 function applyMarketingRecentFilter() {
@@ -7446,18 +7325,16 @@ function clearMarketingRecentFilter() {
   }, 50);
 }
 
-async function deleteMarketingEntry(id) {
+function deleteMarketingEntry(index) {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can delete entries.');
     return;
   }
-  try {
-    await authorizedJsonRequest(`/marketing/entries/${id}`, { method: 'DELETE' });
-    await loadMarketingEntries();
-    navigateTo('marketing-center');
-  } catch (error) {
-    showToast('error', 'Delete failed', error.message || 'Could not delete entry.');
-  }
+  const state = getMarketingState();
+  if (index < 0 || index >= state.entries.length) return;
+  state.entries.splice(index, 1);
+  saveMarketingState(state);
+  navigateTo('marketing-center');
 }
 
 function addMarketingCreative() {
