@@ -309,6 +309,8 @@ async function upsertSourceLink(db, entityType, externalId, localTable, localId)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(provider, entity_type, external_id)
     DO UPDATE SET local_table = excluded.local_table, local_id = excluded.local_id, last_synced_at = datetime('now')
+    WHERE integration_source_links.local_table IS DISTINCT FROM excluded.local_table
+       OR integration_source_links.local_id    IS DISTINCT FROM excluded.local_id
   `).run(PROVIDER, entityType, String(externalId), localTable, String(localId));
 }
 
@@ -638,6 +640,30 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       sheet_row_number = excluded.sheet_row_number,
       raw_row = excluded.raw_row,
       updated_at = datetime('now')
+    WHERE
+         google_orders.tracking_no       IS DISTINCT FROM excluded.tracking_no
+      OR google_orders.customer_name      IS DISTINCT FROM excluded.customer_name
+      OR google_orders.customer_phone     IS DISTINCT FROM excluded.customer_phone
+      OR google_orders.product_name       IS DISTINCT FROM excluded.product_name
+      OR google_orders.quantity           IS DISTINCT FROM excluded.quantity
+      OR google_orders.cod                IS DISTINCT FROM excluded.cod
+      OR google_orders.status             IS DISTINCT FROM excluded.status
+      OR google_orders.status_normalized  IS DISTINCT FROM excluded.status_normalized
+      OR google_orders.courier            IS DISTINCT FROM excluded.courier
+      OR google_orders.day_created        IS DISTINCT FROM excluded.day_created
+      OR google_orders.chat_page          IS DISTINCT FROM excluded.chat_page
+      OR (excluded.confirmed_by IS NOT NULL
+          AND google_orders.confirmed_by  IS DISTINCT FROM excluded.confirmed_by)
+      OR google_orders.delivery_attempts  IS DISTINCT FROM excluded.delivery_attempts
+      OR google_orders.tag                IS DISTINCT FROM excluded.tag
+      OR google_orders.pancake_tags       IS DISTINCT FROM excluded.pancake_tags
+      OR google_orders.internal_notes     IS DISTINCT FROM excluded.internal_notes
+      OR google_orders.address            IS DISTINCT FROM excluded.address
+      OR google_orders.province_city      IS DISTINCT FROM excluded.province_city
+      OR google_orders.spreadsheet_id     IS DISTINCT FROM excluded.spreadsheet_id
+      OR google_orders.source_sheet       IS DISTINCT FROM excluded.source_sheet
+      OR google_orders.sheet_row_number   IS DISTINCT FROM excluded.sheet_row_number
+      OR google_orders.raw_row            IS DISTINCT FROM excluded.raw_row
   `).run(
     externalId,
     normalized.tracking_no,
@@ -666,42 +692,65 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
   return externalId;
 }
 
+// Shared by both UPDATE-by-id branches in upsertOrder. The WHERE skips the write
+// entirely when every column already matches the incoming record, so re-syncing
+// unchanged rows produces no write / no updated_at bump. `confirmed_by` mirrors
+// its COALESCE(?, confirmed_by) SET: it only counts as a change when the incoming
+// value is non-null and differs. The compare values are bound a second time after
+// the id (hence the duplicated params in buildOrderUpdateParams).
+const ORDER_UPDATE_SQL = `
+  UPDATE orders
+  SET tracking_no = ?,
+      customer = ?,
+      phone = ?,
+      product = ?,
+      tags = ?,
+      qty = ?,
+      cod_amount = ?,
+      status = ?,
+      courier = ?,
+      source_sheet = ?,
+      confirmed_by = COALESCE(?, confirmed_by),
+      attempts = ?,
+      order_date = ?,
+      updated_at = datetime('now')
+  WHERE id = ?
+    AND (
+         tracking_no  IS DISTINCT FROM ?
+      OR customer     IS DISTINCT FROM ?
+      OR phone        IS DISTINCT FROM ?
+      OR product      IS DISTINCT FROM ?
+      OR tags         IS DISTINCT FROM ?
+      OR qty          IS DISTINCT FROM ?
+      OR cod_amount   IS DISTINCT FROM ?
+      OR status       IS DISTINCT FROM ?
+      OR courier      IS DISTINCT FROM ?
+      OR source_sheet IS DISTINCT FROM ?
+      OR (? IS NOT NULL AND confirmed_by IS DISTINCT FROM ?)
+      OR attempts     IS DISTINCT FROM ?
+      OR order_date   IS DISTINCT FROM ?
+    )
+`;
+
+function buildOrderUpdateParams(record, id) {
+  return [
+    // SET
+    record.tracking_no, record.customer, record.phone, record.product, record.tags,
+    record.qty, record.cod_amount, record.status, record.courier, record.source_sheet,
+    record.confirmed_by, record.attempts, record.order_date,
+    // WHERE id
+    id,
+    // WHERE no-op guard (same values, compared against current row)
+    record.tracking_no, record.customer, record.phone, record.product, record.tags,
+    record.qty, record.cod_amount, record.status, record.courier, record.source_sheet,
+    record.confirmed_by, record.confirmed_by, record.attempts, record.order_date,
+  ];
+}
+
 async function upsertOrder(db, record) {
   const existingByOrderRef = await db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(record.order_ref);
   if (existingByOrderRef) {
-    await db.prepare(`
-      UPDATE orders
-      SET tracking_no = ?,
-          customer = ?,
-          phone = ?,
-          product = ?,
-          tags = ?,
-          qty = ?,
-          cod_amount = ?,
-          status = ?,
-          courier = ?,
-          source_sheet = ?,
-          confirmed_by = COALESCE(?, confirmed_by),
-          attempts = ?,
-          order_date = ?,
-          updated_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      record.tracking_no,
-      record.customer,
-      record.phone,
-      record.product,
-      record.tags,
-      record.qty,
-      record.cod_amount,
-      record.status,
-      record.courier,
-      record.source_sheet,
-      record.confirmed_by,
-      record.attempts,
-      record.order_date,
-      existingByOrderRef.id
-    );
+    await db.prepare(ORDER_UPDATE_SQL).run(...buildOrderUpdateParams(record, existingByOrderRef.id));
     return Number(existingByOrderRef.id);
   }
 
@@ -710,39 +759,7 @@ async function upsertOrder(db, record) {
     : null;
 
   if (existingByTracking) {
-    await db.prepare(`
-      UPDATE orders
-      SET tracking_no = ?,
-          customer = ?,
-          phone = ?,
-          product = ?,
-          tags = ?,
-          qty = ?,
-          cod_amount = ?,
-          status = ?,
-          courier = ?,
-          source_sheet = ?,
-          confirmed_by = COALESCE(?, confirmed_by),
-          attempts = ?,
-          order_date = ?,
-          updated_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      record.tracking_no,
-      record.customer,
-      record.phone,
-      record.product,
-      record.tags,
-      record.qty,
-      record.cod_amount,
-      record.status,
-      record.courier,
-      record.source_sheet,
-      record.confirmed_by,
-      record.attempts,
-      record.order_date,
-      existingByTracking.id
-    );
+    await db.prepare(ORDER_UPDATE_SQL).run(...buildOrderUpdateParams(record, existingByTracking.id));
     return Number(existingByTracking.id);
   }
 
@@ -766,6 +783,21 @@ async function upsertOrder(db, record) {
       attempts = excluded.attempts,
       order_date = excluded.order_date,
       updated_at = datetime('now')
+    WHERE
+         orders.tracking_no  IS DISTINCT FROM excluded.tracking_no
+      OR orders.customer     IS DISTINCT FROM excluded.customer
+      OR orders.phone        IS DISTINCT FROM excluded.phone
+      OR orders.product      IS DISTINCT FROM excluded.product
+      OR orders.tags         IS DISTINCT FROM excluded.tags
+      OR orders.qty          IS DISTINCT FROM excluded.qty
+      OR orders.cod_amount   IS DISTINCT FROM excluded.cod_amount
+      OR orders.status       IS DISTINCT FROM excluded.status
+      OR orders.courier      IS DISTINCT FROM excluded.courier
+      OR orders.source_sheet IS DISTINCT FROM excluded.source_sheet
+      OR (excluded.confirmed_by IS NOT NULL
+          AND orders.confirmed_by IS DISTINCT FROM excluded.confirmed_by)
+      OR orders.attempts     IS DISTINCT FROM excluded.attempts
+      OR orders.order_date   IS DISTINCT FROM excluded.order_date
   `).run(
     record.order_ref,
     record.tracking_no,

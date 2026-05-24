@@ -266,6 +266,8 @@ async function upsertSourceLink(db, entityType, externalId, localTable, localId)
       local_table = excluded.local_table,
       local_id = excluded.local_id,
       last_synced_at = datetime('now')
+    WHERE integration_source_links.local_table IS DISTINCT FROM excluded.local_table
+       OR integration_source_links.local_id    IS DISTINCT FROM excluded.local_id
   `).run(PROVIDER, entityType, String(externalId), localTable, String(localId));
 }
 
