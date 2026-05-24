@@ -420,4 +420,22 @@ CREATE TABLE IF NOT EXISTS pos_inventory_histories (
 
 CREATE INDEX IF NOT EXISTS idx_pos_inventory_histories_shop ON pos_inventory_histories(shop_id, inserted_at_remote DESC);
 
+CREATE TABLE IF NOT EXISTS marketing_entries (
+  id SERIAL PRIMARY KEY,
+  entry_date TEXT NOT NULL,
+  page TEXT NOT NULL,
+  product TEXT,
+  owner TEXT,
+  spend NUMERIC NOT NULL DEFAULT 0,
+  sales NUMERIC NOT NULL DEFAULT 0,
+  orders INTEGER NOT NULL DEFAULT 0,
+  rts INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_marketing_entries_date ON marketing_entries(entry_date DESC);
+CREATE INDEX IF NOT EXISTS idx_marketing_entries_page ON marketing_entries(page);
+
 COMMIT;
