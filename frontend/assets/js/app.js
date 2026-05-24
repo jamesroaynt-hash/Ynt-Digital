@@ -988,6 +988,23 @@ function saveTrainings() {
   localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(DB.trainings));
 }
 
+// Placeholder Training page. The training feature is scaffolded (storage,
+// departments, categories) but its UI isn't built yet; this stub exists so the
+// `training: renderTraining` entry in loadPage's renderFns map resolves —
+// otherwise the object literal throws and EVERY page renders blank.
+function renderTraining() {
+  const trainings = Array.isArray(DB.trainings) ? DB.trainings : [];
+  return `
+    <div class="page-header">
+      <h1 class="page-title">Training</h1>
+      <p class="page-subtitle">Employee training records</p>
+    </div>
+    <div class="card" style="padding:48px;text-align:center;color:var(--text-muted);">
+      <h3 style="margin-bottom:8px;">Training module coming soon</h3>
+      <p>${trainings.length ? `${trainings.length} saved record(s).` : 'No training records yet.'}</p>
+    </div>`;
+}
+
 function getDefaultIntegrationState() {
   return {
     pancakePos: {
