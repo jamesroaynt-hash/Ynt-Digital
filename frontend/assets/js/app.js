@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr-sales', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -17,8 +17,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr-sales', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr-sales', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -103,6 +103,7 @@ function loadPage(page) {
     sales: renderSales,
     'marketing-center': renderMarketingCenter,
     creatives: renderCreatives,
+    'csr-sales': renderCsrSales,
     'adspend-roas': renderAdspendRoas,
     csr: renderCSR,
     inventory: renderInventory,
@@ -134,6 +135,7 @@ const pageNames = {
   sales: 'Sales',
   'marketing-center': 'Marketing',
   creatives: 'Ad Creatives',
+  'csr-sales': 'CSR Sales',
   'adspend-roas': 'ROAS Summary',
   csr: 'CSR Records',
   inventory: 'Stock',
@@ -3304,12 +3306,82 @@ function applyCsrSalesFilter() {
   const to = document.getElementById('csr-sales-to')?.value || '';
   const status = document.getElementById('csr-sales-status')?.value || '';
   window.csrSalesFilter = { from, to: to || from, status };
-  navigateTo('marketing-center');
-  // Re-open CSR Sales tab after re-render
-  setTimeout(() => {
-    const btn = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-csr-sales"]');
-    if (btn) btn.click();
-  }, 50);
+  navigateTo('csr-sales');
+}
+
+function renderCsrSales() {
+  if (!canManageMarketing() && !isAdminUser()) {
+    return '<div class="page-header"><div class="page-title"><h1>CSR Sales</h1><p>Sales and Marketing TL access required.</p></div></div>';
+  }
+  const csrF = window.csrSalesFilter || {};
+  const today = new Date();
+  const defaultFrom = normalizeDateString(new Date(today.getFullYear(), today.getMonth(), 1));
+  const defaultTo = normalizeDateString(today);
+  const csrFrom = csrF.from || defaultFrom;
+  const csrTo = csrF.to || defaultTo;
+  const csrStatus = csrF.status || '';
+  let csrData = [...DB.csrRecords];
+  if (csrFrom) csrData = csrData.filter((r) => r.date >= csrFrom);
+  if (csrTo) csrData = csrData.filter((r) => r.date <= csrTo);
+  if (csrStatus) csrData = csrData.filter((r) => r.status === csrStatus);
+  const totalSales = csrData.reduce((s, r) => s + Number(r.price || 0), 0);
+  const totalRecords = csrData.length;
+  const byUser = {};
+  csrData.forEach((r) => {
+    const u = r.csrName || 'Unknown';
+    if (!byUser[u]) byUser[u] = { name: u, records: 0, sales: 0, statuses: {} };
+    byUser[u].records++;
+    byUser[u].sales += Number(r.price || 0);
+    byUser[u].statuses[r.status] = (byUser[u].statuses[r.status] || 0) + 1;
+  });
+  const users = Object.values(byUser).sort((a, b) => b.sales - a.sales);
+  const statusCounts = {};
+  csrData.forEach((r) => { statusCounts[r.status] = (statusCounts[r.status] || 0) + 1; });
+  const statusBadgeMap = { DELIVERED:'badge-success', INTRANSIT:'badge-info', RETURNED:'badge-danger', 'FOR RETURN':'badge-warning', DELIVERING:'badge-purple', 'FOR MONITORING':'badge-warning', 'DASHBOARD CANCELLED':'badge-gray', CANCELLED:'badge-gray' };
+
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>CSR Sales</h1><p>Per-CSR totals, status mix, and date-range pacing.</p></div>
+  </div>
+
+  <div class="card erp-card" style="margin-bottom:16px;padding:12px 16px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span style="font-weight:700;font-size:13px;white-space:nowrap;">CSR Filter</span>
+      <input type="date" id="csr-sales-from" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${csrFrom}">
+      <span style="color:var(--text-muted);font-size:13px;">to</span>
+      <input type="date" id="csr-sales-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${csrTo}">
+      <select id="csr-sales-status" class="form-control" style="height:34px;font-size:13px;min-width:180px;">
+        <option value="">All Statuses</option>
+        ${CSR_STATUS_OPTIONS.map((s) => `<option value="${s}"${csrStatus === s ? ' selected' : ''}>${s}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="applyCsrSalesFilter()">Apply</button>
+      <button class="btn btn-secondary btn-sm" onclick="window.csrSalesFilter=null;navigateTo('csr-sales')">Reset</button>
+    </div>
+  </div>
+
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Total Records</div><div class="stat-value">${totalRecords}</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total Sales</div><div class="stat-value" style="font-size:18px;">₱${totalSales.toLocaleString()}</div></div>
+    ${Object.entries(statusCounts).sort((a,b)=>b[1]-a[1]).map(([s,c]) => `<div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">${s}</div><div class="stat-value">${c}</div></div>`).join('')}
+  </div>
+
+  <div class="card erp-card">
+    <div class="card-header"><div><div class="card-title">Sales by CSR User</div><div class="card-subtitle">Individual totals for the selected date range and status.</div></div></div>
+    <div class="table-container">
+      <table>
+        <thead><tr><th>CSR Name</th><th>Records</th><th>Total Sales</th><th>Avg per Record</th><th>Status Breakdown</th></tr></thead>
+        <tbody>
+          ${users.length ? users.map((u) => `<tr>
+            <td style="font-weight:700">${escapeHtml(u.name)}</td>
+            <td>${u.records}</td>
+            <td><strong>₱${u.sales.toLocaleString()}</strong></td>
+            <td>₱${u.records ? Math.round(u.sales / u.records).toLocaleString() : 0}</td>
+            <td style="max-width:260px;white-space:normal;">${Object.entries(u.statuses).map(([s,c]) => `<span class="badge ${statusBadgeMap[s]||'badge-gray'}" style="margin:1px 2px;font-size:10px;">${s}: ${c}</span>`).join('')}</td>
+          </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records for the selected filters.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
 }
 
 function computePresetRange(preset) {
@@ -4083,7 +4155,6 @@ function renderMarketingCenter() {
       ['mkt-team', 'Team', true],
       ['mkt-standup', 'Daily Standup', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
-      ['mkt-csr-sales', 'CSR Sales', marketingManager],
     ];
     const validIds = mktTabs.filter(([, , show]) => show).map(([id]) => id);
     if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-entries';
@@ -4337,70 +4408,6 @@ function renderMarketingCenter() {
     </div>
   </div>` : ''}
 
-  ${marketingManager ? (() => {
-    const csrF = window.csrSalesFilter || {};
-    const csrFrom = csrF.from || filterFrom;
-    const csrTo = csrF.to || filterTo;
-    const csrStatus = csrF.status || '';
-    let csrData = [...DB.csrRecords];
-    if (csrFrom) csrData = csrData.filter((r) => r.date >= csrFrom);
-    if (csrTo) csrData = csrData.filter((r) => r.date <= csrTo);
-    if (csrStatus) csrData = csrData.filter((r) => r.status === csrStatus);
-    const totalSales = csrData.reduce((s, r) => s + Number(r.price || 0), 0);
-    const totalRecords = csrData.length;
-    // per-user totals
-    const byUser = {};
-    csrData.forEach((r) => {
-      const u = r.csrName || 'Unknown';
-      if (!byUser[u]) byUser[u] = { name: u, records: 0, sales: 0, statuses: {} };
-      byUser[u].records++;
-      byUser[u].sales += Number(r.price || 0);
-      byUser[u].statuses[r.status] = (byUser[u].statuses[r.status] || 0) + 1;
-    });
-    const users = Object.values(byUser).sort((a, b) => b.sales - a.sales);
-    // status breakdown
-    const statusCounts = {};
-    csrData.forEach((r) => { statusCounts[r.status] = (statusCounts[r.status] || 0) + 1; });
-    const statusBadgeMap = { DELIVERED:'badge-success', INTRANSIT:'badge-info', RETURNED:'badge-danger', 'FOR RETURN':'badge-warning', DELIVERING:'badge-purple', 'FOR MONITORING':'badge-warning', 'DASHBOARD CANCELLED':'badge-gray', CANCELLED:'badge-gray' };
-    return `<div id="mkt-csr-sales" class="tab-content${lastMarketingTab === 'mkt-csr-sales' ? ' active' : ''}">
-    <div class="card erp-card" style="margin-bottom:16px;padding:12px 16px;">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <span style="font-weight:700;font-size:13px;white-space:nowrap;">CSR Filter</span>
-        <input type="date" id="csr-sales-from" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${csrFrom}">
-        <span style="color:var(--text-muted);font-size:13px;">to</span>
-        <input type="date" id="csr-sales-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${csrTo}">
-        <select id="csr-sales-status" class="form-control" style="height:34px;font-size:13px;min-width:180px;">
-          <option value="">All Statuses</option>
-          ${CSR_STATUS_OPTIONS.map((s) => `<option value="${s}"${csrStatus === s ? ' selected' : ''}>${s}</option>`).join('')}
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="applyCsrSalesFilter()">Apply</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.csrSalesFilter=null;navigateTo('marketing-center')">Reset</button>
-      </div>
-    </div>
-    <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
-      <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Total Records</div><div class="stat-value">${totalRecords}</div></div>
-      <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total Sales</div><div class="stat-value" style="font-size:18px;">₱${totalSales.toLocaleString()}</div></div>
-      ${Object.entries(statusCounts).sort((a,b)=>b[1]-a[1]).map(([s,c]) => `<div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">${s}</div><div class="stat-value">${c}</div></div>`).join('')}
-    </div>
-    <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Sales by CSR User</div><div class="card-subtitle">Individual totals for the selected date range and status.</div></div></div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>CSR Name</th><th>Records</th><th>Total Sales</th><th>Avg per Record</th><th>Status Breakdown</th></tr></thead>
-          <tbody>
-            ${users.length ? users.map((u) => `<tr>
-              <td style="font-weight:700">${escapeHtml(u.name)}</td>
-              <td>${u.records}</td>
-              <td><strong>₱${u.sales.toLocaleString()}</strong></td>
-              <td>₱${u.records ? Math.round(u.sales / u.records).toLocaleString() : 0}</td>
-              <td style="max-width:260px;white-space:normal;">${Object.entries(u.statuses).map(([s,c]) => `<span class="badge ${statusBadgeMap[s]||'badge-gray'}" style="margin:1px 2px;font-size:10px;">${s}: ${c}</span>`).join('')}</td>
-            </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records for the selected filters.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>`;
-  })() : ''}
   </div>`;
 }
 
