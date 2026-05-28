@@ -695,9 +695,9 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
 // Shared by both UPDATE-by-id branches in upsertOrder. The WHERE skips the write
 // entirely when every column already matches the incoming record, so re-syncing
 // unchanged rows produces no write / no updated_at bump. `confirmed_by` mirrors
-// its COALESCE(?, confirmed_by) SET: it only counts as a change when the incoming
-// value is non-null and differs. The compare values are bound a second time after
-// the id (hence the duplicated params in buildOrderUpdateParams).
+// its COALESCE(?, confirmed_by) SET via `IS DISTINCT FROM COALESCE(?, confirmed_by)`
+// so a null incoming value never counts as a change. The compare values are bound
+// a second time after the id (hence the duplicated params in buildOrderUpdateParams).
 const ORDER_UPDATE_SQL = `
   UPDATE orders
   SET tracking_no = ?,
@@ -726,7 +726,7 @@ const ORDER_UPDATE_SQL = `
       OR status       IS DISTINCT FROM ?
       OR courier      IS DISTINCT FROM ?
       OR source_sheet IS DISTINCT FROM ?
-      OR (? IS NOT NULL AND confirmed_by IS DISTINCT FROM ?)
+      OR confirmed_by IS DISTINCT FROM COALESCE(?, confirmed_by)
       OR attempts     IS DISTINCT FROM ?
       OR order_date   IS DISTINCT FROM ?
     )
@@ -743,7 +743,7 @@ function buildOrderUpdateParams(record, id) {
     // WHERE no-op guard (same values, compared against current row)
     record.tracking_no, record.customer, record.phone, record.product, record.tags,
     record.qty, record.cod_amount, record.status, record.courier, record.source_sheet,
-    record.confirmed_by, record.confirmed_by, record.attempts, record.order_date,
+    record.confirmed_by, record.attempts, record.order_date,
   ];
 }
 
