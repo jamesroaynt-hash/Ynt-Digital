@@ -4040,7 +4040,7 @@ function renderMarketingCenter() {
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
         Export CSV
       </button>
-      ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="saveMarketingTargets()">Save Targets</button>' : ''}
+      ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingTargetsModal()">Targets</button>' : ''}
     </div>
   </div>
 
@@ -4084,7 +4084,6 @@ function renderMarketingCenter() {
       ['mkt-standup', 'Daily Standup', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
       ['mkt-csr-sales', 'CSR Sales', marketingManager],
-      ['mkt-targets', 'Settings', marketingManager],
     ];
     const validIds = mktTabs.filter(([, , show]) => show).map(([id]) => id);
     if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-entries';
@@ -4316,17 +4315,27 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-targets" class="tab-content${lastMarketingTab === 'mkt-targets' ? ' active' : ''}">
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">Targets</div><div class="card-subtitle">Used for pacing and dashboard status.</div></div></div>
-      <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Monthly Gross Sales</label><input type="number" class="form-control" id="mkt-target-sales" value="${state.targets.sales}"></div>
-        <div class="form-group"><label class="form-label">Daily Ad Spend Target</label><input type="number" class="form-control" id="mkt-target-spend" value="${state.targets.spend}"></div>
-        <div class="form-group"><label class="form-label">ROAS Target</label><input type="number" class="form-control" id="mkt-target-roas" value="${state.targets.roas}" step="0.1"></div>
-        <div class="form-group"><label class="form-label">Max RTS Rate %</label><input type="number" class="form-control" id="mkt-target-rts" value="${state.targets.rts}" step="0.1"></div>
+  ${marketingManager ? `<div class="modal-overlay" id="mkt-targets-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Marketing Targets</div>
+        <button class="modal-close" onclick="closeModal('mkt-targets-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="card-subtitle" style="margin-bottom:14px;">Used for pacing and dashboard status indicators.</div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Monthly Gross Sales</label><input type="number" class="form-control" id="mkt-target-sales" value="${state.targets.sales}"></div>
+          <div class="form-group"><label class="form-label">Daily Ad Spend Target</label><input type="number" class="form-control" id="mkt-target-spend" value="${state.targets.spend}"></div>
+          <div class="form-group"><label class="form-label">ROAS Target</label><input type="number" class="form-control" id="mkt-target-roas" value="${state.targets.roas}" step="0.1"></div>
+          <div class="form-group"><label class="form-label">Max RTS Rate %</label><input type="number" class="form-control" id="mkt-target-rts" value="${state.targets.rts}" step="0.1"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('mkt-targets-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveMarketingTargets()">Save Targets</button>
       </div>
     </div>
-  </div>
+  </div>` : ''}
 
   ${marketingManager ? (() => {
     const csrF = window.csrSalesFilter || {};
@@ -8246,6 +8255,15 @@ async function copyMarketingWeeklyReport() {
   }
 }
 
+function openMarketingTargetsModal() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can update settings.');
+    return;
+  }
+  openModal('mkt-targets-modal');
+  document.getElementById('mkt-target-sales')?.focus();
+}
+
 function saveMarketingTargets() {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can update settings.');
@@ -8260,6 +8278,7 @@ function saveMarketingTargets() {
   };
   saveMarketingState(state);
   showToast('success', 'Targets saved', 'Marketing pacing targets were updated.');
+  closeModal('mkt-targets-modal');
   navigateTo('marketing-center');
 }
 
