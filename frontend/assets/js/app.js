@@ -446,20 +446,25 @@ async function refreshPosRawOrdersFromBackend() {
 
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
-const POS_ORDERS_AUTO_REFRESH_MS = 60 * 1000;
+// 180s interval; the visibilitychange handler triggers an immediate check when
+// the user returns, so the slower cadence has no UX cost on active tabs and
+// trims background egress ~3x for idle/backgrounded sessions.
+const POS_ORDERS_AUTO_REFRESH_MS = 180 * 1000;
 const POS_ORDERS_LIVE_PAGES = ['home', 'sales', 'data-report', 'rts-rate', 'view-records', 'marketing-center'];
+
+async function checkAndRefreshPosOrders() {
+  if (!App.user || !getAuthToken()) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (!POS_ORDERS_LIVE_PAGES.includes(App.currentPage)) return;
+  const version = await fetchPosOrdersVersion();
+  if (version === null) return;
+  if (version === posOrdersLastVersion) return;
+  refreshOrderViewsFromBackend().catch(() => {});
+}
 
 function startPosOrdersAutoRefresh() {
   if (posOrdersAutoRefreshTimer) return;
-  posOrdersAutoRefreshTimer = setInterval(async () => {
-    if (!App.user || !getAuthToken()) return;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    if (!POS_ORDERS_LIVE_PAGES.includes(App.currentPage)) return;
-    const version = await fetchPosOrdersVersion();
-    if (version === null) return;
-    if (version === posOrdersLastVersion) return;
-    refreshOrderViewsFromBackend().catch(() => {});
-  }, POS_ORDERS_AUTO_REFRESH_MS);
+  posOrdersAutoRefreshTimer = setInterval(checkAndRefreshPosOrders, POS_ORDERS_AUTO_REFRESH_MS);
 }
 
 function stopPosOrdersAutoRefresh() {
@@ -467,6 +472,12 @@ function stopPosOrdersAutoRefresh() {
     clearInterval(posOrdersAutoRefreshTimer);
     posOrdersAutoRefreshTimer = null;
   }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkAndRefreshPosOrders();
+  });
 }
 
 async function refreshOrderViewsFromBackend() {
