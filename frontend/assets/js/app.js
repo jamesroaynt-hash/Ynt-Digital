@@ -4081,7 +4081,6 @@ function renderMarketingCenter() {
     const mktTabs = [
       ['mkt-entries', 'Daily Entry', true],
       ['mkt-team', 'Team', true],
-      ['mkt-creatives', 'Creatives', true],
       ['mkt-standup', 'Daily Standup', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
       ['mkt-csr-sales', 'CSR Sales', marketingManager],
@@ -4217,52 +4216,6 @@ function renderMarketingCenter() {
               <div style="display:flex;justify-content:space-between;"><span>Orders</span><strong>${member.orders}</strong></div>
             </div>
           </div>`).join('')}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="mkt-creatives" class="tab-content${lastMarketingTab === 'mkt-creatives' ? ' active' : ''}">
-    <div style="display:grid; grid-template-columns:minmax(360px,.85fr) minmax(420px,1.15fr); gap:20px; align-items:start;">
-      <div class="card">
-        <div class="card-header"><div><div class="card-title">Creative Output</div><div class="card-subtitle">Track hooks, winners, and survival rate.</div></div></div>
-        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom:16px;">
-          <div class="stat-card blue"><div class="stat-label">This Month</div><div class="stat-value">${creativeMonth.length}</div></div>
-          <div class="stat-card green"><div class="stat-label">Survival Rate</div><div class="stat-value">${Math.round(survivalRate * 100)}%</div></div>
-          <div class="stat-card amber"><div class="stat-label">Scaled</div><div class="stat-value">${creativeMonth.filter((item) => item.status === 'Scaled').length}</div></div>
-        </div>
-        <div class="form-grid-2">
-          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-creative-date" value="${normalizeDateString(new Date())}"></div>
-          <div class="form-group"><label class="form-label">Page</label><select class="form-control" id="mkt-creative-page">${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}</select></div>
-          <div class="form-group"><label class="form-label">Hook Angle</label><select class="form-control" id="mkt-creative-hook"><option>Pain Point</option><option>Before/After</option><option>UGC Testimonial</option><option>Demo</option><option>Educational</option><option>Trend Hijack</option></select></div>
-          <div class="form-group"><label class="form-label">Status</label><select class="form-control" id="mkt-creative-status"><option>Live</option><option>Killed</option><option>Scaled</option></select></div>
-          <div class="form-group"><label class="form-label">Spend Reached</label><input type="number" class="form-control" id="mkt-creative-spend" min="0"></div>
-          <div class="form-group"><label class="form-label">ROAS</label><input type="number" class="form-control" id="mkt-creative-roas" min="0" step="0.1"></div>
-        </div>
-        <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-control" id="mkt-creative-notes" placeholder="What made it work or fail"></div>
-        <button class="btn btn-primary" onclick="addMarketingCreative()">Add Creative</button>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><div><div class="card-title">Creative Log</div><div class="card-subtitle">Most recent tests and winners.</div></div></div>
-        <div class="table-container">
-          <table>
-            <thead><tr><th>Date</th><th>Hook</th><th>Page</th><th>Status</th><th>Spend</th><th>ROAS</th><th></th></tr></thead>
-            <tbody>
-              ${state.creatives.slice().reverse().slice(0, 12).map((item) => {
-                const index = state.creatives.indexOf(item);
-                return `<tr>
-                  <td>${escapeHtml(item.date)}</td>
-                  <td>${escapeHtml(item.hook)}</td>
-                  <td>${escapeHtml(item.page)}</td>
-                  <td><span class="badge ${item.status === 'Scaled' ? 'badge-success' : item.status === 'Killed' ? 'badge-danger' : 'badge-warning'}">${escapeHtml(item.status)}</span></td>
-                  <td>${marketingMoney(item.spend)}</td>
-                  <td><span class="badge ${marketingRoasClass(Number(item.roas || 0))}">${marketingRoas(item.roas)}</span></td>
-                  <td>${marketingManager ? `<button class="btn btn-ghost btn-sm" onclick="deleteMarketingCreative(${index})">Delete</button>` : '<span class="text-xs text-muted">Saved</span>'}</td>
-                </tr>`;
-              }).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No creatives logged yet.</td></tr>'}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>
