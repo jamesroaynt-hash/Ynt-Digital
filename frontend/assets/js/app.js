@@ -3914,15 +3914,16 @@ function renderCreatives() {
     </div>
     <div class="table-container">
       <table>
-        <thead><tr>
-          <th>Creative</th><th>Platform</th>
-          <th style="text-align:right;">Spend</th>
-          <th style="text-align:right;">Revenue</th>
-          <th style="text-align:right;">ROAS</th>
-          <th style="text-align:right;">CPP</th>
-          <th style="text-align:right;">Conv.</th>
-          <th>Status</th>
-          ${marketingManager ? '<th></th>' : ''}
+        <thead><tr style="background:var(--surface-2);">
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Creative</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Platform</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Spend</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Revenue</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">ROAS</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">CPP</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Conv.</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Status</th>
+          ${marketingManager ? '<th style="border-bottom:1px solid var(--border);"></th>' : ''}
         </tr></thead>
         <tbody>
           ${sorted.length ? sorted.map((c) => {
