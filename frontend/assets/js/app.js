@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -17,8 +17,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -102,6 +102,7 @@ function loadPage(page) {
     attendance: renderAttendance,
     sales: renderSales,
     'marketing-center': renderMarketingCenter,
+    creatives: renderCreatives,
     'adspend-roas': renderAdspendRoas,
     csr: renderCSR,
     inventory: renderInventory,
@@ -132,6 +133,7 @@ const pageNames = {
   attendance: 'Time & Attendance',
   sales: 'Sales',
   'marketing-center': 'Marketing',
+  creatives: 'Ad Creatives',
   'adspend-roas': 'ROAS Summary',
   csr: 'CSR Records',
   inventory: 'Stock',
@@ -3641,6 +3643,306 @@ function renderAdspendRoas() {
             <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
           </tr>
         </tfoot>
+      </table>
+    </div>
+  </div>`;
+}
+
+// ─── AD CREATIVES MONITOR ──────────────────────────────────
+let creativesDateFrom = '';
+let creativesDateTo = '';
+let creativesDatePreset = 'monthly';
+let creativesPlatformFilter = 'all';
+
+const CREATIVE_PLATFORMS = ['Meta', 'TikTok', 'Google', 'YouTube', 'Other'];
+const CREATIVE_STATUSES = ['active', 'paused', 'disabled'];
+const CREATIVE_STATUS_BADGE = {
+  active: 'badge-success',
+  paused: 'badge-warning',
+  disabled: 'badge-gray',
+};
+
+function normalizeCreative(item, index) {
+  const legacyStatusMap = { Live: 'active', Killed: 'disabled', Scaled: 'active' };
+  let status = item?.status || 'active';
+  if (legacyStatusMap[status]) status = legacyStatusMap[status];
+  if (!CREATIVE_STATUSES.includes(status)) status = 'active';
+  return {
+    _index: index,
+    date: item?.date || '',
+    name: item?.name || item?.hook || '(untitled)',
+    platform: item?.platform || 'Meta',
+    spend: Number(item?.spend || 0),
+    revenue: Number(item?.revenue || 0),
+    conversions: Number(item?.conversions || 0),
+    ctr: Number(item?.ctr || 0),
+    status,
+    page: item?.page || '',
+    notes: item?.notes || '',
+  };
+}
+
+function setCreativesPreset(preset) {
+  creativesDatePreset = preset;
+  if (preset !== 'custom') {
+    const range = computePresetRange(preset);
+    if (range) { creativesDateFrom = range.from; creativesDateTo = range.to; }
+  }
+  navigateTo('creatives');
+}
+
+function applyCreativesFilter() {
+  const from = document.getElementById('creatives-from')?.value || '';
+  const to = document.getElementById('creatives-to')?.value || '';
+  const platform = document.getElementById('creatives-platform')?.value || 'all';
+  if (from) {
+    creativesDateFrom = from;
+    creativesDateTo = to || from;
+    creativesDatePreset = 'custom';
+  }
+  creativesPlatformFilter = platform;
+  navigateTo('creatives');
+}
+
+function openCreativeModal() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage creatives.');
+    return;
+  }
+  ['creative-name', 'creative-spend', 'creative-revenue', 'creative-conversions', 'creative-ctr', 'creative-page', 'creative-notes']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const dateEl = document.getElementById('creative-date'); if (dateEl) dateEl.value = normalizeDateString(new Date());
+  const platformEl = document.getElementById('creative-platform'); if (platformEl) platformEl.value = 'Meta';
+  const statusEl = document.getElementById('creative-status'); if (statusEl) statusEl.value = 'active';
+  const idx = document.getElementById('creative-edit-index'); if (idx) idx.value = '';
+  const titleEl = document.getElementById('creative-modal-title'); if (titleEl) titleEl.textContent = 'Add Creative';
+  openModal('creative-modal');
+  document.getElementById('creative-name')?.focus();
+}
+
+function closeCreativeModal() {
+  closeModal('creative-modal');
+}
+
+function saveCreative() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage creatives.');
+    return;
+  }
+  const name = document.getElementById('creative-name')?.value.trim() || '';
+  if (!name) { showToast('error', 'Name required', 'Please enter a creative name.'); return; }
+  const date = document.getElementById('creative-date')?.value || normalizeDateString(new Date());
+  const platform = document.getElementById('creative-platform')?.value || 'Meta';
+  const status = document.getElementById('creative-status')?.value || 'active';
+  const spend = Math.max(0, Number(document.getElementById('creative-spend')?.value || 0));
+  const revenue = Math.max(0, Number(document.getElementById('creative-revenue')?.value || 0));
+  const conversions = Math.max(0, Number(document.getElementById('creative-conversions')?.value || 0));
+  const ctr = Math.max(0, Number(document.getElementById('creative-ctr')?.value || 0));
+  const page = document.getElementById('creative-page')?.value.trim() || '';
+  const notes = document.getElementById('creative-notes')?.value.trim() || '';
+  const payload = { name, date, platform, status, spend, revenue, conversions, ctr, page, notes };
+
+  const state = getMarketingState();
+  const editVal = document.getElementById('creative-edit-index')?.value;
+  const editIndex = editVal === '' ? -1 : Number(editVal);
+  if (editIndex >= 0 && editIndex < (state.creatives || []).length) {
+    state.creatives[editIndex] = payload;
+  } else {
+    state.creatives = state.creatives || [];
+    state.creatives.push(payload);
+  }
+  saveMarketingState(state);
+  showToast('success', editIndex >= 0 ? 'Creative updated' : 'Creative added', name);
+  closeModal('creative-modal');
+  navigateTo('creatives');
+}
+
+function editCreative(index) {
+  if (!canManageMarketing()) return;
+  const state = getMarketingState();
+  const item = (state.creatives || [])[index];
+  if (!item) return;
+  const norm = normalizeCreative(item, index);
+  const fields = {
+    'creative-name': norm.name,
+    'creative-date': norm.date,
+    'creative-platform': norm.platform,
+    'creative-status': norm.status,
+    'creative-spend': String(norm.spend),
+    'creative-revenue': String(norm.revenue),
+    'creative-conversions': String(norm.conversions),
+    'creative-ctr': String(norm.ctr),
+    'creative-page': norm.page,
+    'creative-notes': norm.notes,
+    'creative-edit-index': String(index),
+  };
+  Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
+  const titleEl = document.getElementById('creative-modal-title'); if (titleEl) titleEl.textContent = 'Edit Creative';
+  openModal('creative-modal');
+}
+
+function deleteCreativeAt(index) {
+  if (!canManageMarketing()) return;
+  const state = getMarketingState();
+  if (!state.creatives || index < 0 || index >= state.creatives.length) return;
+  const name = normalizeCreative(state.creatives[index], index).name;
+  state.creatives.splice(index, 1);
+  saveMarketingState(state);
+  showToast('success', 'Creative removed', name);
+  navigateTo('creatives');
+}
+
+function updateCreativeStatus(index, newStatus) {
+  if (!canManageMarketing()) return;
+  if (!CREATIVE_STATUSES.includes(newStatus)) return;
+  const state = getMarketingState();
+  if (!state.creatives || index < 0 || index >= state.creatives.length) return;
+  state.creatives[index] = { ...state.creatives[index], status: newStatus };
+  saveMarketingState(state);
+  // Light update — no full re-render needed; toast confirms
+  showToast('success', 'Status updated', `${normalizeCreative(state.creatives[index], index).name} → ${newStatus}`);
+}
+
+function renderCreatives() {
+  if (!creativesDateFrom) {
+    const r = computePresetRange('monthly');
+    creativesDateFrom = r.from;
+    creativesDateTo = r.to;
+  }
+  const state = getMarketingState();
+  const marketingManager = canManageMarketing();
+  const all = (state.creatives || []).map(normalizeCreative);
+  const platformOptions = Array.from(new Set([...CREATIVE_PLATFORMS, ...all.map((c) => c.platform)])).filter(Boolean);
+  const filtered = all.filter((c) => {
+    if (c.date && (c.date < creativesDateFrom || c.date > creativesDateTo)) return false;
+    if (creativesPlatformFilter !== 'all' && c.platform !== creativesPlatformFilter) return false;
+    return true;
+  });
+
+  const totals = filtered.reduce((acc, c) => {
+    acc.spend += c.spend;
+    acc.revenue += c.revenue;
+    acc.conversions += c.conversions;
+    acc.ctrSum += c.ctr;
+    return acc;
+  }, { spend: 0, revenue: 0, conversions: 0, ctrSum: 0 });
+  const avgRoas = totals.spend ? totals.revenue / totals.spend : 0;
+  const avgCtr = filtered.length ? totals.ctrSum / filtered.length : 0;
+  const peso = (v) => `₱${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+  const num = (v) => Number(v || 0).toLocaleString('en-PH');
+  const sorted = filtered.slice().sort((a, b) => b.spend - a.spend);
+
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>Ad Creatives Monitor</h1><p>Per-creative spend, revenue, ROAS, conversions, and status across all ad platforms.</p></div>
+  </div>
+
+  ${marketingManager ? `<div class="modal-overlay" id="creative-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="creative-modal-title">Add Creative</div>
+        <button class="modal-close" onclick="closeCreativeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="creative-edit-index" value="">
+        <div class="form-grid-2">
+          <div class="form-group" style="grid-column:1 / -1;"><label class="form-label">Creative Name</label><input type="text" class="form-control" id="creative-name" placeholder="e.g. Summer sale — carousel"></div>
+          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="creative-date" value="${normalizeDateString(new Date())}"></div>
+          <div class="form-group"><label class="form-label">Platform</label>
+            <select class="form-control" id="creative-platform">
+              ${CREATIVE_PLATFORMS.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Spend (₱)</label><input type="number" min="0" step="0.01" class="form-control" id="creative-spend" placeholder="0"></div>
+          <div class="form-group"><label class="form-label">Revenue (₱)</label><input type="number" min="0" step="0.01" class="form-control" id="creative-revenue" placeholder="0"></div>
+          <div class="form-group"><label class="form-label">Conversions</label><input type="number" min="0" step="1" class="form-control" id="creative-conversions" placeholder="0"></div>
+          <div class="form-group"><label class="form-label">CTR (%)</label><input type="number" min="0" step="0.01" class="form-control" id="creative-ctr" placeholder="0.00"></div>
+          <div class="form-group"><label class="form-label">Page (optional)</label><input type="text" class="form-control" id="creative-page" placeholder="Associated page"></div>
+          <div class="form-group"><label class="form-label">Status</label>
+            <select class="form-control" id="creative-status">
+              ${CREATIVE_STATUSES.map((s) => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" style="grid-column:1 / -1;"><label class="form-label">Notes</label><input type="text" class="form-control" id="creative-notes" placeholder="Hook angle, learnings, etc."></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeCreativeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveCreative()">Save Creative</button>
+      </div>
+    </div>
+  </div>` : ''}
+
+  <div class="card" style="margin-bottom:16px;padding:16px 20px;">
+    <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
+      <div>
+        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
+            .map(([key,label]) => `<button type="button" class="filter-pill${creativesDatePreset===key?' active':''}" onclick="setCreativesPreset('${key}')">${label}</button>`)
+            .join('')}
+        </div>
+        ${creativesDatePreset === 'custom' ? `<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <input type="date" class="form-control" id="creatives-from" value="${creativesDateFrom}" style="width:148px;height:34px;">
+          <span style="color:var(--text-muted);">–</span>
+          <input type="date" class="form-control" id="creatives-to" value="${creativesDateTo}" style="width:148px;height:34px;">
+          <button class="btn btn-primary btn-sm" onclick="applyCreativesFilter()">Apply</button>
+        </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${creativesDateFrom} — ${creativesDateTo}</div>`}
+      </div>
+      <div>
+        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PLATFORM FILTER</div>
+        <select class="form-control" id="creatives-platform" style="height:38px;font-size:13px;min-width:220px;" onchange="applyCreativesFilter()">
+          <option value="all"${creativesPlatformFilter === 'all' ? ' selected' : ''}>All Platforms</option>
+          ${platformOptions.map((p) => `<option value="${escapeHtml(p)}"${creativesPlatformFilter === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Total Spend</div><div class="stat-value">${peso(totals.spend)}</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total Revenue</div><div class="stat-value">${peso(totals.revenue)}</div></div>
+    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Avg ROAS</div><div class="stat-value">${avgRoas.toFixed(2)}x</div></div>
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Conversions</div><div class="stat-value">${num(totals.conversions)}</div></div>
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Avg CTR</div><div class="stat-value">${avgCtr.toFixed(2)}%</div></div>
+  </div>
+
+  <div class="card erp-card">
+    <div class="card-header">
+      <div><div class="card-title">Creatives</div><div class="card-subtitle">${filtered.length} of ${all.length} creatives in range. ROAS and CPP are computed from spend/revenue/conversions.</div></div>
+      ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openCreativeModal()">+ Add Creative</button>' : ''}
+    </div>
+    <div class="table-container">
+      <table>
+        <thead><tr>
+          <th>Creative</th><th>Platform</th>
+          <th style="text-align:right;">Spend</th>
+          <th style="text-align:right;">Revenue</th>
+          <th style="text-align:right;">ROAS</th>
+          <th style="text-align:right;">CPP</th>
+          <th style="text-align:right;">Conv.</th>
+          <th>Status</th>
+          ${marketingManager ? '<th></th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${sorted.length ? sorted.map((c) => {
+            const roas = c.spend ? c.revenue / c.spend : 0;
+            const cpp = c.conversions ? c.spend / c.conversions : 0;
+            return `<tr>
+              <td><strong>${escapeHtml(c.name)}</strong>${c.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.notes)}</div>` : ''}${c.date ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.date)}</div>` : ''}</td>
+              <td>${escapeHtml(c.platform)}</td>
+              <td style="text-align:right;">${peso(c.spend)}</td>
+              <td style="text-align:right;">${peso(c.revenue)}</td>
+              <td style="text-align:right;font-weight:600;${roas >= 2 ? 'color:var(--success);' : roas >= 1 ? '' : 'color:var(--danger);'}">${roas.toFixed(2)}x</td>
+              <td style="text-align:right;">${cpp ? peso(cpp) : '—'}</td>
+              <td style="text-align:right;">${num(c.conversions)}</td>
+              <td>${marketingManager ? `<select class="form-control" style="height:30px;font-size:12px;padding:0 8px;width:110px;" onchange="updateCreativeStatus(${c._index}, this.value)">
+                ${CREATIVE_STATUSES.map((s) => `<option value="${s}"${s === c.status ? ' selected' : ''}>${s}</option>`).join('')}
+              </select>` : `<span class="badge ${CREATIVE_STATUS_BADGE[c.status]}">${c.status}</span>`}</td>
+              ${marketingManager ? `<td><button class="btn btn-ghost btn-sm" onclick="editCreative(${c._index})">Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteCreativeAt(${c._index})">×</button></td>` : ''}
+            </tr>`;
+          }).join('') : `<tr><td colspan="${marketingManager ? 9 : 8}" style="text-align:center;padding:32px;color:var(--text-muted);">No creatives in range.</td></tr>`}
+        </tbody>
       </table>
     </div>
   </div>`;
