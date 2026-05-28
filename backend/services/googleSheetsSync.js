@@ -747,7 +747,14 @@ function buildOrderUpdateParams(record, id) {
   ];
 }
 
-async function upsertOrder(db, record) {
+async function upsertOrder(db, record, existingId = null) {
+  // Caller (sheet sync loop) pre-fetches existing ids in batch via
+  // fetchExistingOrderIds; when supplied, skip the per-row lookups.
+  if (existingId) {
+    await db.prepare(ORDER_UPDATE_SQL).run(...buildOrderUpdateParams(record, Number(existingId)));
+    return Number(existingId);
+  }
+
   const existingByOrderRef = await db.prepare('SELECT id FROM orders WHERE order_ref = ?').get(record.order_ref);
   if (existingByOrderRef) {
     await db.prepare(ORDER_UPDATE_SQL).run(...buildOrderUpdateParams(record, existingByOrderRef.id));
@@ -995,7 +1002,7 @@ async function collectSheetData(db, payload = {}, triggerType = 'manual') {
           const existingId = existingByRef.get(normalized.order_ref)
             ?? (normalized.tracking_no ? existingByTracking.get(normalized.tracking_no) : undefined);
           const existing = existingId ? { id: existingId } : null;
-          const localId = await upsertOrder(db, normalized);
+          const localId = await upsertOrder(db, normalized, existingId || null);
           if (localId && normalized.order_ref) existingByRef.set(normalized.order_ref, localId);
           if (localId && normalized.tracking_no) existingByTracking.set(normalized.tracking_no, localId);
           if (existing?.id) {

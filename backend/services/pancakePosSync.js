@@ -188,6 +188,7 @@ async function saveSetting(db, payload) {
     }
   }
 
+  invalidateSavedConnectionsCache();
   return await getPublicSetting(db);
 }
 
@@ -223,11 +224,35 @@ async function getPublicSetting(db) {
   };
 }
 
+// Short-TTL cache for getSavedConnections. The list is read once per POS order
+// during sync (extractPosOrderSummary + getResolvedPosOrderSourceName), so the
+// uncached version fired ~80k SELECT * /day. Connections change only when an
+// admin edits config, so a few-second staleness window is fine — and writes
+// (saveSetting, webhook upsert in saveSetting's connections loop) call
+// invalidateSavedConnectionsCache() to drop the cache immediately.
+const SAVED_CONNECTIONS_TTL_MS = 30_000;
+let savedConnectionsCache = { expiresAt: 0, promise: null };
+
+function invalidateSavedConnectionsCache() {
+  savedConnectionsCache = { expiresAt: 0, promise: null };
+}
+
 async function getSavedConnections(db) {
-  const rows = await db.prepare(
-    "SELECT * FROM integration_settings WHERE provider = ? AND connection_id != '' ORDER BY id"
-  ).all(PROVIDER);
-  return rows.map(rowToConnection).filter((c) => c.api_key && c.shop_id);
+  const now = Date.now();
+  if (savedConnectionsCache.promise && savedConnectionsCache.expiresAt > now) {
+    return savedConnectionsCache.promise;
+  }
+  const promise = (async () => {
+    const rows = await db.prepare(
+      "SELECT * FROM integration_settings WHERE provider = ? AND connection_id != '' ORDER BY id"
+    ).all(PROVIDER);
+    return rows.map(rowToConnection).filter((c) => c.api_key && c.shop_id);
+  })().catch((err) => {
+    invalidateSavedConnectionsCache();
+    throw err;
+  });
+  savedConnectionsCache = { expiresAt: now + SAVED_CONNECTIONS_TTL_MS, promise };
+  return promise;
 }
 
 async function startRun(db, triggerType, payloadSummary) {
@@ -407,6 +432,7 @@ async function upsertShop(db, item) {
     safeJson(item?.link_post_marketer || []),
     rawPayloadForStorage(item)
   );
+  invalidateStoredShopCache(externalId);
   return externalId;
 }
 
@@ -1172,10 +1198,32 @@ function findPageNameById(payload, pageId) {
   return null;
 }
 
+// Same rationale as savedConnectionsCache above: findStoredPageName is called
+// once per POS order in the sync loop (via getResolvedPosOrderSourceName), so
+// without the cache it issued ~300k SELECTs/day against pos_shops. Shops change
+// only when sync ingests a new one; staleness is harmless for name resolution.
+const STORED_SHOP_TTL_MS = 30_000;
+const storedShopCache = new Map(); // shopId -> { expiresAt, promise }
+
+function invalidateStoredShopCache(shopId) {
+  if (shopId == null) storedShopCache.clear();
+  else storedShopCache.delete(String(shopId));
+}
+
 async function findStoredPageName(db, shopId, pageId) {
-  const shop = shopId
-    ? await db.prepare('SELECT name, pages_json, raw_payload FROM pos_shops WHERE external_id = ? LIMIT 1').get(shopId)
-    : null;
+  if (!shopId) return null;
+  const key = String(shopId);
+  const now = Date.now();
+  let entry = storedShopCache.get(key);
+  if (!entry || entry.expiresAt <= now) {
+    const promise = db
+      .prepare('SELECT name, pages_json, raw_payload FROM pos_shops WHERE external_id = ? LIMIT 1')
+      .get(shopId)
+      .catch((err) => { storedShopCache.delete(key); throw err; });
+    entry = { expiresAt: now + STORED_SHOP_TTL_MS, promise };
+    storedShopCache.set(key, entry);
+  }
+  const shop = await entry.promise;
   if (!shop) return null;
 
   const pages = parseJsonObject(shop.pages_json, []);
