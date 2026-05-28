@@ -9217,11 +9217,46 @@ async function loadScanRecords(page) {
       if (pagEl) pagEl.innerHTML = '';
       return;
     }
+
+    const summary = data.summary || { by_status: [], by_page: [], total_pcs: 0 };
+    const statusChipClass = {
+      'New': 'badge-info',
+      'Confirmed': 'badge-gray',
+      'Waiting for pickup': 'badge-warning',
+      'Shipped': 'badge-warning',
+      'Delivered': 'badge-success',
+      'Returning': 'badge-warning',
+      'Returned': 'badge-danger',
+      'Canceled': 'badge-danger',
+      'Cancelled': 'badge-danger',
+      'DELIVERED': 'badge-success',
+      'RETURNED': 'badge-danger',
+      'CANCELLED': 'badge-danger',
+    };
+    const chip = (label, count, cls) =>
+      `<span class="badge ${cls || 'badge-secondary'}" style="font-size:12px;padding:6px 10px;margin:2px;">
+        ${escapeHtml(label)} ${Number(count || 0).toLocaleString()}
+      </span>`;
+    const statusChips = (summary.by_status || [])
+      .map((s) => chip(s.status, s.pcs, statusChipClass[s.status] || 'badge-gray'))
+      .join('');
+    const pageChips = (summary.by_page || [])
+      .map((p) => chip(`${p.page} · ${p.scans} scans`, `${p.pcs} pcs`, 'badge-info'))
+      .join('');
+
     listEl.innerHTML = `
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;">
+        ${statusChips}
+        ${chip('Total', `${Number(summary.total_pcs || 0).toLocaleString()} pcs`, 'badge-gray')}
+      </div>
+      ${pageChips ? `<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;">
+        <span style="font-size:11px;color:var(--text-muted);margin-right:4px;">Per page:</span>
+        ${pageChips}
+      </div>` : ''}
       <table>
         <thead><tr>
           <th>Tracking No.</th><th>Customer</th><th>Phone</th>
-          <th>Product</th><th>Province/City</th>
+          <th>Product</th><th>Page</th><th>Province/City</th>
           <th>Date</th><th>Status</th><th>Courier</th><th>Type</th>
         </tr></thead>
         <tbody>
@@ -9230,6 +9265,7 @@ async function loadScanRecords(page) {
             <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
             <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
             <td>${escapeHtml(r.product_name || '-')}</td>
+            <td>${escapeHtml(r.chat_page || '-')}</td>
             <td>${escapeHtml(r.province_city || '-')}</td>
             <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
             <td>${statusBadge(r.status)}</td>

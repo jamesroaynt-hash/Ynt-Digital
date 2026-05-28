@@ -930,13 +930,57 @@ function scansRoutes(db) {
     const data = await db.prepare(`
       SELECT s.id, s.scan_ref, s.tracking_no, s.customer, s.phone,
              s.scan_date, s.scan_time, s.status, s.courier, s.scan_type, s.created_at,
-             g.product_name, g.province_city, g.cod
+             g.product_name, g.province_city, g.cod, g.chat_page
       ${baseFrom} ${whereSql}
       ORDER BY s.created_at DESC
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset);
 
-    res.json({ data, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage) });
+    // Lightweight rows for client-agnostic pcs aggregation. Leading-digit parse
+    // ("2 Niacinamide" → 2, no leading digits → 1 pc) is hard to write portably
+    // across SQLite + Postgres, so we ship the three needed fields and roll up
+    // in JS. Egress stays modest — only status / product_name / chat_page.
+    const summaryRows = await db.prepare(`
+      SELECT
+        TRIM(COALESCE(NULLIF(TRIM(s.status), ''), g.status_normalized, g.status)) AS status,
+        g.product_name,
+        g.chat_page
+      ${baseFrom} ${whereSql}
+    `).all(...params);
+
+    const extractLeadingPcs = (name) => {
+      const m = String(name || '').match(/^\s*(\d+)/);
+      return m ? Math.min(10000, parseInt(m[1], 10)) : 1;
+    };
+    const pcsByStatus = new Map();
+    const pcsByPage = new Map();
+    const scansByPage = new Map();
+    let totalPcs = 0;
+    for (const r of summaryRows) {
+      const pcs = extractLeadingPcs(r.product_name);
+      const status = r.status || 'Unknown';
+      const chatPage = r.chat_page || 'Unknown';
+      pcsByStatus.set(status, (pcsByStatus.get(status) || 0) + pcs);
+      pcsByPage.set(chatPage, (pcsByPage.get(chatPage) || 0) + pcs);
+      scansByPage.set(chatPage, (scansByPage.get(chatPage) || 0) + 1);
+      totalPcs += pcs;
+    }
+    const by_status = Array.from(pcsByStatus, ([status, pcs]) => ({ status, pcs }))
+      .sort((a, b) => b.pcs - a.pcs);
+    const by_page = Array.from(pcsByPage, ([page, pcs]) => ({
+      page,
+      pcs,
+      scans: scansByPage.get(page) || 0,
+    })).sort((a, b) => b.scans - a.scans);
+
+    res.json({
+      data,
+      total,
+      page: pageNum,
+      per_page: perPage,
+      pages: Math.ceil(total / perPage),
+      summary: { by_status, by_page, total_pcs: totalPcs },
+    });
   });
 
   r.get('/lookup/:tracking', async (req, res) => {
