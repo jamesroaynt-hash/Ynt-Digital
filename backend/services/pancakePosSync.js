@@ -1415,41 +1415,57 @@ async function transferPosProductToInventory(db, shopId, item) {
   return result.lastInsertRowid;
 }
 
-async function cleanupMalformedDashboardOrders(db) {
-  // Remove POS-linked orders that have placeholder or missing customer/product
-  // CAST is on the constant side (o.id → text) so isl.local_id stays bare
-  // and idx_isl_orders_lookup (local_table, entity_type, provider, local_id) can be used.
-  const result = await db.prepare(`
-    DELETE FROM orders
-    WHERE id IN (
-      SELECT o.id
-      FROM orders o
-      INNER JOIN integration_source_links isl
-        ON isl.provider = 'pancake_pos'
-       AND isl.entity_type = 'orders'
-       AND isl.local_table = 'orders'
-       AND isl.local_id = CAST(o.id AS TEXT)
-      WHERE o.customer = 'Pancake POS Customer'
-         OR o.customer IS NULL
-         OR TRIM(o.customer) = ''
-         OR o.product = 'Pancake POS Order'
-         OR o.product IS NULL
-         OR TRIM(o.product) = ''
-    )
-  `).run();
-  const cleaned = result.changes || 0;
+// Throttle the two-scan cleanup so high-frequency callers (per-batch storeItems,
+// per-webhook handler) don't fire it every few seconds. Without this the pair
+// burned ~5h of DB CPU across 207k calls over 18 days. 5 min staleness is fine —
+// the placeholders are cosmetic, not correctness-critical.
+const CLEANUP_THROTTLE_MS = 5 * 60 * 1000;
+let cleanupLastRunAt = 0;
+let cleanupInflight = null;
 
-  // Clean up source links pointing to deleted orders.
-  // CAST moved to the subquery side so the index on local_id can still be used.
-  await db.prepare(`
-    DELETE FROM integration_source_links
-    WHERE provider = 'pancake_pos'
-      AND entity_type = 'orders'
-      AND local_table = 'orders'
-      AND local_id NOT IN (SELECT CAST(id AS TEXT) FROM orders)
-  `).run();
+async function cleanupMalformedDashboardOrders(db, { force = false } = {}) {
+  if (cleanupInflight) return cleanupInflight;
+  if (!force && Date.now() - cleanupLastRunAt < CLEANUP_THROTTLE_MS) return 0;
 
-  return cleaned;
+  cleanupInflight = (async () => {
+    // Remove POS-linked orders that have placeholder or missing customer/product
+    // CAST is on the constant side (o.id → text) so isl.local_id stays bare
+    // and idx_isl_orders_lookup (local_table, entity_type, provider, local_id) can be used.
+    const result = await db.prepare(`
+      DELETE FROM orders
+      WHERE id IN (
+        SELECT o.id
+        FROM orders o
+        INNER JOIN integration_source_links isl
+          ON isl.provider = 'pancake_pos'
+         AND isl.entity_type = 'orders'
+         AND isl.local_table = 'orders'
+         AND isl.local_id = CAST(o.id AS TEXT)
+        WHERE o.customer = 'Pancake POS Customer'
+           OR o.customer IS NULL
+           OR TRIM(o.customer) = ''
+           OR o.product = 'Pancake POS Order'
+           OR o.product IS NULL
+           OR TRIM(o.product) = ''
+      )
+    `).run();
+    const cleaned = result.changes || 0;
+
+    // Clean up source links pointing to deleted orders.
+    // CAST moved to the subquery side so the index on local_id can still be used.
+    await db.prepare(`
+      DELETE FROM integration_source_links
+      WHERE provider = 'pancake_pos'
+        AND entity_type = 'orders'
+        AND local_table = 'orders'
+        AND local_id NOT IN (SELECT CAST(id AS TEXT) FROM orders)
+    `).run();
+
+    cleanupLastRunAt = Date.now();
+    return cleaned;
+  })().finally(() => { cleanupInflight = null; });
+
+  return cleanupInflight;
 }
 
 async function normalizeSourceSheets(db) {
