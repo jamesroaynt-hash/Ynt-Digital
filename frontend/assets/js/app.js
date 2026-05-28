@@ -450,7 +450,7 @@ let posOrdersLastVersion = null;
 // the user returns, so the slower cadence has no UX cost on active tabs and
 // trims background egress ~3x for idle/backgrounded sessions.
 const POS_ORDERS_AUTO_REFRESH_MS = 180 * 1000;
-const POS_ORDERS_LIVE_PAGES = ['home', 'sales', 'data-report', 'rts-rate', 'view-records', 'marketing-center'];
+const POS_ORDERS_LIVE_PAGES = ['sales', 'data-report', 'rts-rate', 'view-records', 'marketing-center'];
 
 async function checkAndRefreshPosOrders() {
   if (!App.user || !getAuthToken()) return;
