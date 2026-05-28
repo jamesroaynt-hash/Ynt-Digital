@@ -3293,11 +3293,40 @@ function applyCsrSalesFilter() {
   }, 50);
 }
 
+function computePresetRange(preset) {
+  const today = new Date();
+  const fmt = (d) => normalizeDateString(d);
+  if (preset === 'all') return { from: '2020-01-01', to: fmt(today) };
+  if (preset === 'weekly') return { from: fmt(getDateDaysAgo(6)), to: fmt(today) };
+  if (preset === 'monthly') {
+    return {
+      from: fmt(new Date(today.getFullYear(), today.getMonth(), 1)),
+      to: fmt(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+    };
+  }
+  return null;
+}
+
+function setMarketingPreset(preset) {
+  const currentPage = window.mktFilter?.page || '';
+  if (preset === 'custom') {
+    window.mktFilter = { ...(window.mktFilter || {}), preset, page: currentPage };
+  } else {
+    const range = computePresetRange(preset);
+    window.mktFilter = { preset, from: range.from, to: range.to, page: currentPage };
+  }
+  navigateTo('marketing-center');
+}
+
 function applyMarketingFilter() {
   const from = document.getElementById('mkt-filter-from')?.value || '';
   const to = document.getElementById('mkt-filter-to')?.value || '';
   const page = document.getElementById('mkt-filter-page')?.value || '';
-  if (from) window.mktFilter = { ...(window.mktFilter || {}), from, to: to || from, page };
+  if (from) {
+    window.mktFilter = { ...(window.mktFilter || {}), preset: 'custom', from, to: to || from, page };
+  } else {
+    window.mktFilter = { ...(window.mktFilter || {}), page };
+  }
   navigateTo('marketing-center');
 }
 
@@ -3327,6 +3356,7 @@ function autoFillMarketingSalesFromOrders() {
 // ─── AD SPEND ROAS SUMMARY ─────────────────────────────────
 let adspendDateFrom = '';
 let adspendDateTo = '';
+let adspendDatePreset = 'weekly';
 let adspendPageFilter = 'all';
 let adspendStatusFilters = new Set();
 
@@ -3341,9 +3371,23 @@ const ADSPEND_STATUS_MAP = [
 
 const ADSPEND_ALLOWED_STATUSES = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned']);
 
+function setAdspendPreset(preset) {
+  adspendDatePreset = preset;
+  if (preset !== 'custom') {
+    const range = computePresetRange(preset);
+    if (range) { adspendDateFrom = range.from; adspendDateTo = range.to; }
+  }
+  navigateTo('adspend-roas');
+}
+
 function applyAdspendFilter() {
-  adspendDateFrom = document.getElementById('adspend-from')?.value || adspendDateFrom;
-  adspendDateTo   = document.getElementById('adspend-to')?.value   || adspendDateTo;
+  const from = document.getElementById('adspend-from')?.value || '';
+  const to = document.getElementById('adspend-to')?.value || '';
+  if (from) {
+    adspendDateFrom = from;
+    adspendDateTo = to || from;
+    adspendDatePreset = 'custom';
+  }
   adspendPageFilter = document.getElementById('adspend-page')?.value || 'all';
   adspendStatusFilters.clear();
   ADSPEND_STATUS_MAP.forEach(([status, id]) => {
@@ -3456,23 +3500,28 @@ function renderAdspendRoas() {
   </div>
 
   <div class="card" style="margin-bottom:16px;padding:16px 20px;">
-    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;">
-      <div class="form-group" style="margin:0;">
-        <label class="form-label">Date Range</label>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <input type="date" class="form-control" id="adspend-from" value="${adspendDateFrom}" style="width:148px;">
-          <span style="color:var(--text-muted);">–</span>
-          <input type="date" class="form-control" id="adspend-to" value="${adspendDateTo}" style="width:148px;">
+    <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
+      <div>
+        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
+            .map(([key,label]) => `<button type="button" class="filter-pill${adspendDatePreset===key?' active':''}" onclick="setAdspendPreset('${key}')">${label}</button>`)
+            .join('')}
         </div>
+        ${adspendDatePreset === 'custom' ? `<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <input type="date" class="form-control" id="adspend-from" value="${adspendDateFrom}" style="width:148px;height:34px;">
+          <span style="color:var(--text-muted);">–</span>
+          <input type="date" class="form-control" id="adspend-to" value="${adspendDateTo}" style="width:148px;height:34px;">
+          <button class="btn btn-primary btn-sm" onclick="applyAdspendFilter()">Apply</button>
+        </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
       </div>
-      <div class="form-group" style="margin:0;">
-        <label class="form-label">Filter By</label>
-        <select class="form-control" id="adspend-page" style="min-width:160px;">
-          <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Summary</option>
+      <div>
+        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
+        <select class="form-control" id="adspend-page" style="height:38px;font-size:13px;min-width:220px;" onchange="applyAdspendFilter()">
+          <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Pages</option>
           ${allPages.map((name) => `<option value="${escapeHtml(name)}"${adspendPageFilter === name ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
         </select>
       </div>
-      <button class="btn btn-primary" onclick="applyAdspendFilter()">Submit</button>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;">
       ${statusOptions.map(([status, id, label]) => `
@@ -3583,11 +3632,11 @@ function renderAdspendRoas() {
 function renderMarketingCenter() {
   const now = new Date();
   if (!window.mktFilter) {
-    window.mktFilter = {
-      from: normalizeDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
-      to: normalizeDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
-    };
+    const range = computePresetRange('monthly');
+    window.mktFilter = { preset: 'monthly', from: range.from, to: range.to, page: '' };
   }
+  if (!window.mktFilter.preset) window.mktFilter.preset = 'custom';
+  const filterPreset = window.mktFilter.preset;
   const filterFrom = window.mktFilter.from;
   const filterTo = window.mktFilter.to;
   const filterPage = window.mktFilter.page || '';
@@ -3650,21 +3699,29 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div class="mkt-filter-bar card" style="margin-bottom:16px;padding:12px 16px;">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span style="font-weight:700;font-size:13px;color:var(--text-primary);white-space:nowrap;">Filters</span>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <input type="date" id="mkt-filter-from" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterFrom}">
-        <span style="color:var(--text-muted);font-size:13px;">to</span>
-        <input type="date" id="mkt-filter-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterTo}">
-        <select id="mkt-filter-page" class="form-control" style="height:34px;font-size:13px;min-width:160px;">
+  <div class="mkt-filter-bar card" style="margin-bottom:16px;padding:16px 20px;">
+    <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
+      <div>
+        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
+            .map(([key,label]) => `<button type="button" class="filter-pill${filterPreset===key?' active':''}" onclick="setMarketingPreset('${key}')">${label}</button>`)
+            .join('')}
+        </div>
+        ${filterPreset === 'custom' ? `<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <input type="date" id="mkt-filter-from" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterFrom}">
+          <span style="color:var(--text-muted);font-size:13px;">to</span>
+          <input type="date" id="mkt-filter-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterTo}">
+          <button class="btn btn-primary btn-sm" onclick="applyMarketingFilter()">Apply</button>
+        </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${filterFrom} — ${filterTo}</div>`}
+      </div>
+      <div>
+        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
+        <select id="mkt-filter-page" class="form-control" style="height:38px;font-size:13px;min-width:220px;" onchange="applyMarketingFilter()">
           <option value="">All Pages</option>
           ${getPosSourceOptions().map((p) => `<option value="${escapeHtml(p)}"${filterPage === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
         </select>
-        <button class="btn btn-primary btn-sm" onclick="applyMarketingFilter()">Apply</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.mktFilter=null;navigateTo('marketing-center')">Reset</button>
       </div>
-      ${filterPage ? `<span style="margin-left:auto;font-size:12px;color:var(--erp-orange);font-weight:600;">${escapeHtml(filterPage)} · ${filterFrom} — ${filterTo}</span>` : `<span style="margin-left:auto;font-size:12px;color:var(--text-muted);">${filterFrom} — ${filterTo}</span>`}
     </div>
   </div>
 
