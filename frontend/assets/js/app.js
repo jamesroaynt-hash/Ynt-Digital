@@ -1153,6 +1153,61 @@ async function hydrateIntegrationStateFromBackend() {
   } catch (error) {
     console.warn('[integrations] Could not load saved backend settings:', error.message || error);
   }
+
+  loadGoogleSheetsTabsStatus().catch(() => {});
+}
+
+async function loadGoogleSheetsTabsStatus() {
+  const host = document.getElementById('google-sheets-tabs-status');
+  if (!host) return;
+  host.innerHTML = '<div class="loading-spinner" style="margin:24px auto;"></div>';
+  try {
+    const data = await authorizedJsonRequest('/integrations/google-sheets/tabs-status');
+    const tabs = Array.isArray(data?.tabs) ? data.tabs : [];
+    if (!tabs.length) {
+      host.innerHTML = '<div class="empty-state" style="padding:24px 0;"><p>No tabs synced yet. Click <strong>Sync Now</strong> after saving config.</p></div>';
+      return;
+    }
+    const now = Date.now();
+    const STALE_MS = 24 * 60 * 60 * 1000;
+    const fmt = (s) => {
+      if (!s) return '—';
+      try { return new Date(s).toLocaleString(); } catch { return s; }
+    };
+    const badge = (tab) => {
+      if (tab.missing) return '<span class="badge badge-danger">missing</span>';
+      if (!tab.last_updated_at) return '<span class="badge badge-gray">no data</span>';
+      const ageMs = now - new Date(tab.last_updated_at).getTime();
+      if (ageMs > STALE_MS) return '<span class="badge badge-warning">stale</span>';
+      return '<span class="badge badge-success">synced</span>';
+    };
+    const configuredHint = data.auto_discover
+      ? '<span class="badge badge-info" style="margin-left:8px;">auto-discover all tabs</span>'
+      : `<span class="badge badge-info" style="margin-left:8px;">${data.configured.length} configured</span>`;
+    host.innerHTML = `
+      <div style="margin-bottom:10px;font-size:12px;color:var(--text-muted);">
+        Mode: ${data.auto_discover ? 'Auto (every visible tab in the spreadsheet)' : 'Manual list'}
+        ${configuredHint}
+      </div>
+      <table class="data-table">
+        <thead><tr>
+          <th>Status</th><th>Tab Name</th><th>Rows</th><th>Delivered</th><th>Last Synced</th><th>Latest Day</th><th>Configured?</th>
+        </tr></thead>
+        <tbody>
+          ${tabs.map((tab) => `<tr>
+            <td>${badge(tab)}</td>
+            <td><strong>${escapeHtml(tab.name)}</strong></td>
+            <td>${Number(tab.rows || 0).toLocaleString()}</td>
+            <td>${Number(tab.delivered || 0).toLocaleString()}</td>
+            <td>${escapeHtml(fmt(tab.last_updated_at))}</td>
+            <td>${escapeHtml((tab.last_day || '').slice(0, 10) || '—')}</td>
+            <td>${tab.configured ? '<span class="badge badge-success">yes</span>' : '<span class="badge badge-gray">auto-discovered</span>'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (error) {
+    host.innerHTML = `<div class="alert alert-danger">Failed to load tab status: ${escapeHtml(error.message || error)}</div>`;
+  }
 }
 
 function getPancakePosPublicApiBase() {
@@ -1593,6 +1648,21 @@ function renderApiConnections() {
         <div class="integration-actions">
           <button class="btn btn-primary" type="button" onclick="saveGoogleSheetsConnection()">Save Google Sheets</button>
           <button class="btn btn-secondary" type="button" onclick="collectGoogleSheetsData()">Sync Now</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card integration-card" style="margin-top:16px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Connected Sheet Tabs</div>
+          <div class="card-subtitle">One row per tab in <code>google_orders</code>. Every sync run iterates every configured tab — no partial / incremental — so adding a new tab does a full pass next sync.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="loadGoogleSheetsTabsStatus()">Refresh</button>
+      </div>
+      <div class="card-body">
+        <div id="google-sheets-tabs-status">
+          <div class="loading-spinner" style="margin:24px auto;"></div>
         </div>
       </div>
     </section>

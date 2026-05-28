@@ -274,6 +274,58 @@ module.exports = function integrationRoutes(db) {
     res.json(await googleSheetsSync.getStatus(db));
   });
 
+  router.get('/google-sheets/tabs-status', async (req, res) => {
+    try {
+      const status = await googleSheetsSync.getStatus(db);
+      const configuredRaw = String(status.sheet_name || status.page_id || '').trim();
+      const configured = configuredRaw && configuredRaw !== '*'
+        ? configuredRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+      const autoDiscover = !configuredRaw || configuredRaw === '*' || configured.includes('*');
+
+      const rows = await db.prepare(`
+        SELECT
+          COALESCE(NULLIF(TRIM(source_sheet), ''), '(unknown)') AS name,
+          COUNT(*) AS rows,
+          SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(status_normalized), ''), TRIM(status))) = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          MAX(updated_at) AS last_updated_at,
+          MAX(day_created) AS last_day
+        FROM google_orders
+        GROUP BY name
+        ORDER BY rows DESC
+      `).all();
+
+      const presentNames = new Set(rows.map((r) => r.name));
+      const tabs = rows.map((r) => ({
+        name: r.name,
+        rows: Number(r.rows || 0),
+        delivered: Number(r.delivered || 0),
+        last_updated_at: r.last_updated_at || null,
+        last_day: r.last_day || null,
+        configured: configured.length === 0 ? autoDiscover : configured.includes(r.name),
+      }));
+
+      // Configured tab in settings but no rows pulled yet — flag it as missing.
+      for (const name of configured) {
+        if (!presentNames.has(name)) {
+          tabs.push({
+            name,
+            rows: 0,
+            delivered: 0,
+            last_updated_at: null,
+            last_day: null,
+            configured: true,
+            missing: true,
+          });
+        }
+      }
+
+      res.json({ configured, auto_discover: autoDiscover, tabs });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/pancake-pos/config', async (req, res) => {
     const config = await posSync.saveSetting(db, req.body || {});
     res.json(config);
