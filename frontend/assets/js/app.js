@@ -3916,6 +3916,7 @@ function renderCreatives() {
       <table>
         <thead><tr style="background:var(--surface-2);">
           <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Creative</th>
+          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Page</th>
           <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Platform</th>
           <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Spend</th>
           <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Revenue</th>
@@ -3931,6 +3932,7 @@ function renderCreatives() {
             const cpp = c.conversions ? c.spend / c.conversions : 0;
             return `<tr>
               <td><strong>${escapeHtml(c.name)}</strong>${c.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.notes)}</div>` : ''}${c.date ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.date)}</div>` : ''}</td>
+              <td>${c.page ? escapeHtml(c.page) : '<span style="color:var(--text-muted);">—</span>'}</td>
               <td>${escapeHtml(c.platform)}</td>
               <td style="text-align:right;">${peso(c.spend)}</td>
               <td style="text-align:right;">${peso(c.revenue)}</td>
@@ -3942,7 +3944,7 @@ function renderCreatives() {
               </select>` : `<span class="badge ${CREATIVE_STATUS_BADGE[c.status]}">${c.status}</span>`}</td>
               ${marketingManager ? `<td><button class="btn btn-ghost btn-sm" onclick="editCreative(${c._index})">Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteCreativeAt(${c._index})">×</button></td>` : ''}
             </tr>`;
-          }).join('') : `<tr><td colspan="${marketingManager ? 9 : 8}" style="text-align:center;padding:32px;color:var(--text-muted);">No creatives in range.</td></tr>`}
+          }).join('') : `<tr><td colspan="${marketingManager ? 10 : 9}" style="text-align:center;padding:32px;color:var(--text-muted);">No creatives in range.</td></tr>`}
         </tbody>
       </table>
     </div>
