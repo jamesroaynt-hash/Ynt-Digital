@@ -849,6 +849,23 @@ function getMarketingMonthEntries(state) {
   return state.entries.filter((entry) => String(entry.date || '').startsWith(month));
 }
 
+function getMemberPages(member) {
+  if (Array.isArray(member?.pages) && member.pages.length) return member.pages.filter(Boolean);
+  if (member?.page) return [member.page];
+  return [];
+}
+
+function memberPageMatchesSheet(memberPages, sourceSheet) {
+  if (!memberPages.length) return false;
+  const sheet = String(sourceSheet || '').toLowerCase();
+  if (!sheet) return false;
+  return memberPages.some((p) => {
+    const pl = String(p || '').toLowerCase();
+    if (!pl) return false;
+    return sheet === pl || sheet.includes(pl) || pl.includes(sheet);
+  });
+}
+
 function aggregateMarketing(entries) {
   const totals = entries.reduce((acc, entry) => {
     acc.orders += Number(entry.orders || 0);
@@ -3681,8 +3698,31 @@ function renderMarketingCenter() {
   const survivalRate = creativeMonth.length ? survived / creativeMonth.length : 0;
   const marketingManager = canManageMarketing();
   const ownerTotals = state.team.map((member) => {
-    const memberRows = entries.filter((entry) => entry.owner === member.name);
-    return { ...member, ...aggregateMarketing(memberRows) };
+    const memberPages = getMemberPages(member);
+    const memberRows = entries.filter((entry) => {
+      if (entry.owner === member.name) return true;
+      if (memberPages.length && entry.page && memberPages.includes(entry.page)) return true;
+      return false;
+    });
+    const agg = aggregateMarketing(memberRows);
+    // When a team member has assigned pages, attribute delivered sales/orders
+    // from sheet records (not the manual entries' sales fields) so spend logged
+    // for a page rolls up against actual page revenue.
+    if (memberPages.length) {
+      let memberSales = 0;
+      let memberOrders = 0;
+      sheetOrdersInRange.forEach((o) => {
+        if (getOrderStatusKey(o.status) !== 'delivered') return;
+        if (!memberPageMatchesSheet(memberPages, o.sourceSheet)) return;
+        memberSales += Number(o.cod || 0);
+        memberOrders += 1;
+      });
+      agg.sales = memberSales;
+      agg.orders = memberOrders;
+      agg.roas = agg.spend ? memberSales / agg.spend : 0;
+      agg.cpp = memberOrders ? agg.spend / memberOrders : 0;
+    }
+    return { ...member, pages: memberPages, ...agg };
   });
   const latestStandups = (state.standups || []).slice().reverse().slice(0, 8);
 
@@ -3831,11 +3871,14 @@ function renderMarketingCenter() {
           <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-control" id="mkt-team-name" placeholder="e.g. Mark"></div>
           <div class="form-group"><label class="form-label">Role</label><input type="text" class="form-control" id="mkt-team-role" placeholder="e.g. Ads + Creatives"></div>
           <div class="form-group">
-            <label class="form-label">Page (assigned)</label>
-            <select class="form-control" id="mkt-team-page">
-              <option value="">— No page —</option>
-              ${getPosSourceOptions().map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
-            </select>
+            <label class="form-label">Pages (assigned)</label>
+            <div id="mkt-team-pages" style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--surface);">
+              ${getPosSourceOptions().map((p) => `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                <input type="checkbox" class="mkt-team-page-cb" value="${escapeHtml(p)}" style="margin:0;">
+                <span>${escapeHtml(p)}</span>
+              </label>`).join('') || '<span style="font-size:12px;color:var(--text-muted);">No pages available yet. Sync POS first.</span>'}
+            </div>
+            <div class="field-help">Pumili ng isa o higit pang pages na hawak ng team member. Ad spend at sales doon ila-lump sa kanya.</div>
           </div>
           <div class="form-group"><label class="form-label">Primary Focus</label><input type="text" class="form-control" id="mkt-team-primary" placeholder="e.g. Dragon pages"></div>
           <div style="display:flex;gap:8px;">
@@ -3854,7 +3897,7 @@ function renderMarketingCenter() {
             </div>` : ''}
             <div class="stat-label" style="padding-right:${marketingManager ? '64px' : '0'}">${escapeHtml(member.role)}</div>
             <div class="stat-value" style="font-size:18px;overflow-wrap:break-word;">${escapeHtml(member.name)}</div>
-            ${member.page ? `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:4px 0;overflow-wrap:break-word;">📍 ${escapeHtml(member.page)}</div>` : ''}
+            ${member.pages && member.pages.length ? `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:4px 0;overflow-wrap:break-word;">📍 ${member.pages.map(p => escapeHtml(p)).join(', ')}</div>` : ''}
             <div class="stat-meta" style="overflow-wrap:break-word;">${escapeHtml(member.primary)}</div>
             <div style="margin-top:12px; display:grid; gap:4px; font-size:12px;">
               <div style="display:flex;justify-content:space-between;"><span>Sales</span><strong>${marketingMoney(member.sales)}</strong></div>
@@ -7721,16 +7764,19 @@ function saveMarketingTeamMember() {
   }
   const name = document.getElementById('mkt-team-name')?.value.trim() || '';
   const role = document.getElementById('mkt-team-role')?.value.trim() || '';
-  const page = document.getElementById('mkt-team-page')?.value.trim() || '';
+  const pages = Array.from(document.querySelectorAll('.mkt-team-page-cb:checked'))
+    .map((el) => el.value.trim())
+    .filter(Boolean);
   const primary = document.getElementById('mkt-team-primary')?.value.trim() || '';
   if (!name) { showToast('error', 'Name required', 'Please enter a team member name.'); return; }
   const state = getMarketingState();
   const editVal = document.getElementById('mkt-team-edit-index')?.value;
   const editIndex = editVal === '' ? -1 : Number(editVal);
+  const payload = { name, role, pages, primary };
   if (editIndex >= 0) {
-    state.team[editIndex] = { name, role, page, primary };
+    state.team[editIndex] = payload;
   } else {
-    state.team.push({ name, role, page, primary });
+    state.team.push(payload);
   }
   saveMarketingState(state);
   showToast('success', editIndex >= 0 ? 'Team member updated' : 'Team member added', name);
@@ -7742,8 +7788,12 @@ function editMarketingTeamMember(index) {
   const state = getMarketingState();
   const member = state.team[index];
   if (!member) return;
-  const fields = { 'mkt-team-name': member.name, 'mkt-team-role': member.role, 'mkt-team-page': member.page || '', 'mkt-team-primary': member.primary, 'mkt-team-edit-index': index };
+  const fields = { 'mkt-team-name': member.name, 'mkt-team-role': member.role, 'mkt-team-primary': member.primary, 'mkt-team-edit-index': index };
   Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
+  const memberPages = getMemberPages(member);
+  document.querySelectorAll('.mkt-team-page-cb').forEach((el) => {
+    el.checked = memberPages.includes(el.value);
+  });
   document.getElementById('mkt-team-name')?.focus();
   showToast('success', 'Editing member', 'Update fields and click Save Member.');
 }
@@ -7763,7 +7813,8 @@ function deleteMarketingTeamMember(index) {
 }
 
 function cancelMarketingTeamEdit() {
-  ['mkt-team-name', 'mkt-team-role', 'mkt-team-page', 'mkt-team-primary'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['mkt-team-name', 'mkt-team-role', 'mkt-team-primary'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.querySelectorAll('.mkt-team-page-cb').forEach((el) => { el.checked = false; });
   const idx = document.getElementById('mkt-team-edit-index'); if (idx) idx.value = '';
 }
 
