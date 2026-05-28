@@ -3790,10 +3790,13 @@ function renderMarketingCenter() {
   })()}
 
   <div id="mkt-entries" class="tab-content${lastMarketingTab === 'mkt-entries' ? ' active' : ''}">
-    <div style="display:grid; grid-template-columns:minmax(380px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
-      <div class="card">
-        <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">${marketingManager ? 'Log ad spend per product/page. Add as many products as you need.' : 'View only — TL access required to add entries.'}</div></div></div>
-        ${marketingManager ? `<div class="card-body">
+    ${marketingManager ? `<div class="modal-overlay" id="mkt-entry-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" id="mkt-entry-modal-title">Log Daily Entry</div>
+          <button class="modal-close" onclick="closeMarketingEntryModal()">×</button>
+        </div>
+        <div class="modal-body">
           <input type="hidden" id="mkt-entry-edit-index" value="">
           <div class="form-group" style="max-width:240px;">
             <label class="form-label">Date</label>
@@ -3814,21 +3817,25 @@ function renderMarketingCenter() {
             <span style="font-size:12px;font-weight:700;letter-spacing:.6px;color:#1e3a8a;text-transform:uppercase;">Total Adspend</span>
             <span id="mkt-total-adspend" style="font-size:20px;font-weight:700;color:#1e3a8a;">0.00</span>
           </div>
-
-          <button class="btn btn-primary" onclick="submitMarketingEntries()" style="margin-top:14px;width:100%;">Add Entry</button>
-        </div>` : `<div class="card-body"><div style="padding:24px;text-align:center;color:var(--text-muted);font-size:14px;">Only <strong>Sales & Marketing TL</strong> can add or edit entries.</div></div>`}
-      </div>
-
-      <div class="card">
-        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-          <div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest ad spend logs by product.</div></div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <input type="date" class="form-control" id="mkt-recent-from" value="${window.mktRecentFilter?.from || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
-            <span style="font-size:12px;color:var(--text-muted);">—</span>
-            <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
-            <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 10px;">All</button>
-          </div>
         </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeMarketingEntryModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitMarketingEntries()">Save Entry</button>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <div class="card">
+      <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+        <div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest ad spend logs by product.${marketingManager ? '' : ' Only Sales & Marketing TL can add or edit entries.'}</div></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input type="date" class="form-control" id="mkt-recent-from" value="${window.mktRecentFilter?.from || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
+          <span style="font-size:12px;color:var(--text-muted);">—</span>
+          <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
+          <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 10px;">All</button>
+          ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingEntryModal()" style="height:30px;font-size:12px;padding:0 14px;">+ Log Entry</button>' : ''}
+        </div>
+      </div>
         <div class="table-container">
           <table>
             <thead><tr><th>Date</th><th>Product</th><th>Owner</th><th style="text-align:right;">Ad Spend</th><th></th></tr></thead>
@@ -3859,7 +3866,6 @@ function renderMarketingCenter() {
           </table>
         </div>
       </div>
-    </div>
   </div>
 
   <div id="mkt-team" class="tab-content${lastMarketingTab === 'mkt-team' ? ' active' : ''}">
@@ -3987,42 +3993,50 @@ function renderMarketingCenter() {
   </div>
 
   <div id="mkt-adaccounts" class="tab-content${lastMarketingTab === 'mkt-adaccounts' ? ' active' : ''}">
-    ${marketingManager ? `<div class="card erp-card" style="margin-bottom:16px;">
-      <div class="card-header"><div><div class="card-title">Add Ad Account</div><div class="card-subtitle">Register a Business Manager account with its assigned page and product.</div></div></div>
-      <div class="card-body">
-        <input type="hidden" id="mkt-adaccount-edit-index" value="">
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label">Status</label>
-            <select class="form-control" id="mkt-adaccount-status">
-              <option value="RUNNING">RUNNING</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="PAUSED">PAUSED</option>
-              <option value="DISABLED">DISABLED</option>
-              <option value="REVIEW">REVIEW</option>
-            </select>
-          </div>
-          <div class="form-group"><label class="form-label">BM</label><input type="text" class="form-control" id="mkt-adaccount-bm" placeholder="e.g. BM01"></div>
-          <div class="form-group"><label class="form-label">Account</label><input type="text" class="form-control" id="mkt-adaccount-acc" placeholder="Account ID or name"></div>
-          <div class="form-group">
-            <label class="form-label">Page</label>
-            <select class="form-control" id="mkt-adaccount-page">
-              <option value="">— Select page —</option>
-              ${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="mkt-adaccount-product" placeholder="Product being advertised"></div>
-          <div class="form-group"><label class="form-label">Advertiser</label><input type="text" class="form-control" id="mkt-adaccount-advertiser" placeholder="Person responsible"></div>
-          <div class="form-group" style="grid-column:1 / -1;"><label class="form-label">Payment Reference</label><input type="text" class="form-control" id="mkt-adaccount-payment" placeholder="Card / billing ref"></div>
+    ${marketingManager ? `<div class="modal-overlay" id="mkt-adaccount-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" id="mkt-adaccount-modal-title">Add Ad Account</div>
+          <button class="modal-close" onclick="closeMarketingAdAccountModal()">×</button>
         </div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
+        <div class="modal-body">
+          <input type="hidden" id="mkt-adaccount-edit-index" value="">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select class="form-control" id="mkt-adaccount-status">
+                <option value="RUNNING">RUNNING</option>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="PAUSED">PAUSED</option>
+                <option value="DISABLED">DISABLED</option>
+                <option value="REVIEW">REVIEW</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">BM</label><input type="text" class="form-control" id="mkt-adaccount-bm" placeholder="e.g. BM01"></div>
+            <div class="form-group"><label class="form-label">Account</label><input type="text" class="form-control" id="mkt-adaccount-acc" placeholder="Account ID or name"></div>
+            <div class="form-group">
+              <label class="form-label">Page</label>
+              <select class="form-control" id="mkt-adaccount-page">
+                <option value="">— Select page —</option>
+                ${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="mkt-adaccount-product" placeholder="Product being advertised"></div>
+            <div class="form-group"><label class="form-label">Advertiser</label><input type="text" class="form-control" id="mkt-adaccount-advertiser" placeholder="Person responsible"></div>
+            <div class="form-group" style="grid-column:1 / -1;"><label class="form-label">Payment Reference</label><input type="text" class="form-control" id="mkt-adaccount-payment" placeholder="Card / billing ref"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeMarketingAdAccountModal()">Cancel</button>
           <button class="btn btn-primary" onclick="saveMarketingAdAccount()">Save Account</button>
-          <button class="btn btn-secondary" onclick="cancelMarketingAdAccountEdit()">Cancel</button>
         </div>
       </div>
     </div>` : ''}
     <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Ad Accounts Registry</div><div class="card-subtitle">Status, BM, account, page, product, advertiser, and payment reference.</div></div></div>
+      <div class="card-header">
+        <div><div class="card-title">Ad Accounts Registry</div><div class="card-subtitle">Status, BM, account, page, product, advertiser, and payment reference.</div></div>
+        ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingAdAccountModal()">+ Add Account</button>' : ''}
+      </div>
       <div class="table-container">
         <table>
           <thead><tr><th>Status</th><th>BM</th><th>Account</th><th>Page</th><th>Product</th><th>Advertiser</th><th>Payment</th><th></th></tr></thead>
@@ -7591,7 +7605,7 @@ async function submitMarketingEntries() {
     const spend = Number(row.querySelector('.mkt-row-spend')?.value || 0);
     if (!pageName || spend <= 0) return null;
     const configured = state.pages.find((p) => p.name === pageName);
-    const teamMember = (state.team || []).find((t) => t.page === pageName);
+    const teamMember = (state.team || []).find((t) => getMemberPages(t).includes(pageName));
     const owner = configured?.owner || teamMember?.name || '';
     const product = configured?.product || '';
     return { date, page: pageName, product, owner, spend, sales: 0, orders: 0, rts: 0 };
@@ -7620,7 +7634,32 @@ async function submitMarketingEntries() {
 
   await loadMarketingEntries();
   showToast('success', editId > 0 ? 'Entry updated' : `${collected.length} entr${collected.length === 1 ? 'y' : 'ies'} saved`, collected.map((e) => e.page).join(', '));
+  closeModal('mkt-entry-modal');
   navigateTo('marketing-center');
+}
+
+function openMarketingEntryModal() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can add entries.');
+    return;
+  }
+  // Reset fields to a blank entry
+  const editInput = document.getElementById('mkt-entry-edit-index');
+  if (editInput) editInput.value = '';
+  const dateInput = document.getElementById('mkt-date');
+  if (dateInput) dateInput.value = normalizeDateString(new Date());
+  const container = document.getElementById('mkt-product-rows');
+  if (container) {
+    container.innerHTML = marketingProductRowHtml(getMarketingState());
+    recalcMarketingTotal();
+  }
+  const titleEl = document.getElementById('mkt-entry-modal-title');
+  if (titleEl) titleEl.textContent = 'Log Daily Entry';
+  openModal('mkt-entry-modal');
+}
+
+function closeMarketingEntryModal() {
+  closeModal('mkt-entry-modal');
 }
 
 function editMarketingEntry(id) {
@@ -7640,7 +7679,9 @@ function editMarketingEntry(id) {
     container.innerHTML = marketingProductRowHtml(state, entry.page, entry.spend);
     recalcMarketingTotal();
   }
-  showToast('success', 'Editing entry', 'Update the row and click Add Entry to save.');
+  const titleEl = document.getElementById('mkt-entry-modal-title');
+  if (titleEl) titleEl.textContent = 'Edit Daily Entry';
+  openModal('mkt-entry-modal');
 }
 
 async function updateMarketingEntrySpend(id, value) {
@@ -7818,6 +7859,30 @@ function cancelMarketingTeamEdit() {
   const idx = document.getElementById('mkt-team-edit-index'); if (idx) idx.value = '';
 }
 
+function clearMarketingAdAccountForm() {
+  ['mkt-adaccount-bm', 'mkt-adaccount-acc', 'mkt-adaccount-page', 'mkt-adaccount-product', 'mkt-adaccount-advertiser', 'mkt-adaccount-payment']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const statusEl = document.getElementById('mkt-adaccount-status'); if (statusEl) statusEl.value = 'RUNNING';
+  const idx = document.getElementById('mkt-adaccount-edit-index'); if (idx) idx.value = '';
+}
+
+function openMarketingAdAccountModal() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage ad accounts.');
+    return;
+  }
+  clearMarketingAdAccountForm();
+  const titleEl = document.getElementById('mkt-adaccount-modal-title');
+  if (titleEl) titleEl.textContent = 'Add Ad Account';
+  openModal('mkt-adaccount-modal');
+  document.getElementById('mkt-adaccount-bm')?.focus();
+}
+
+function closeMarketingAdAccountModal() {
+  closeModal('mkt-adaccount-modal');
+  clearMarketingAdAccountForm();
+}
+
 function saveMarketingAdAccount() {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage ad accounts.');
@@ -7844,6 +7909,7 @@ function saveMarketingAdAccount() {
   saveMarketingState(state);
   showToast('success', editIndex >= 0 ? 'Ad account updated' : 'Ad account added', acc || 'Account registry was updated.');
   lastMarketingTab = 'mkt-adaccounts';
+  closeModal('mkt-adaccount-modal');
   navigateTo('marketing-center');
 }
 
@@ -7864,15 +7930,14 @@ function editMarketingAdAccount(index) {
     'mkt-adaccount-edit-index': String(index),
   };
   Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
+  const titleEl = document.getElementById('mkt-adaccount-modal-title');
+  if (titleEl) titleEl.textContent = 'Edit Ad Account';
+  openModal('mkt-adaccount-modal');
   document.getElementById('mkt-adaccount-acc')?.focus();
-  showToast('success', 'Editing account', 'Update fields and click Save Account.');
 }
 
 function cancelMarketingAdAccountEdit() {
-  ['mkt-adaccount-bm', 'mkt-adaccount-acc', 'mkt-adaccount-page', 'mkt-adaccount-product', 'mkt-adaccount-advertiser', 'mkt-adaccount-payment']
-    .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
-  const statusEl = document.getElementById('mkt-adaccount-status'); if (statusEl) statusEl.value = 'RUNNING';
-  const idx = document.getElementById('mkt-adaccount-edit-index'); if (idx) idx.value = '';
+  closeMarketingAdAccountModal();
 }
 
 function deleteMarketingAdAccount(index) {
