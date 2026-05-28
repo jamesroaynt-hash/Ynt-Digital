@@ -3594,17 +3594,24 @@ function renderMarketingCenter() {
     <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingPct(posRtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
   </div>
 
-  <div class="tabs erp-tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'mkt-entries')">Daily Entry</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-team')">Team</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-creatives')">Creatives</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-standup')">Daily Standup</button>
-    <button class="tab-btn" onclick="switchTab(this,'mkt-adaccounts')">Ad Accounts</button>
-    ${marketingManager ? "<button class=\"tab-btn\" onclick=\"switchTab(this,'mkt-csr-sales')\">CSR Sales</button>" : ''}
-    ${marketingManager ? "<button class=\"tab-btn\" onclick=\"switchTab(this,'mkt-targets')\">Settings</button>" : ''}
-  </div>
+  ${(() => {
+    const mktTabs = [
+      ['mkt-entries', 'Daily Entry', true],
+      ['mkt-team', 'Team', true],
+      ['mkt-creatives', 'Creatives', true],
+      ['mkt-standup', 'Daily Standup', true],
+      ['mkt-adaccounts', 'Ad Accounts', true],
+      ['mkt-csr-sales', 'CSR Sales', marketingManager],
+      ['mkt-targets', 'Settings', marketingManager],
+    ];
+    const validIds = mktTabs.filter(([, , show]) => show).map(([id]) => id);
+    if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-entries';
+    return `<div class="tabs erp-tabs">${mktTabs.map(([id, label, show]) =>
+      show ? `<button class="tab-btn${lastMarketingTab === id ? ' active' : ''}" onclick="switchTab(this,'${id}')">${label}</button>` : ''
+    ).join('')}</div>`;
+  })()}
 
-  <div id="mkt-entries" class="tab-content active">
+  <div id="mkt-entries" class="tab-content${lastMarketingTab === 'mkt-entries' ? ' active' : ''}">
     <div style="display:grid; grid-template-columns:minmax(380px, .9fr) minmax(420px, 1.1fr); gap:20px; align-items:start;">
       <div class="card">
         <div class="card-header"><div><div class="card-title">Daily Entry</div><div class="card-subtitle">${marketingManager ? 'Log ad spend per product/page. Add as many products as you need.' : 'View only — TL access required to add entries.'}</div></div></div>
@@ -3677,7 +3684,7 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-team" class="tab-content">
+  <div id="mkt-team" class="tab-content${lastMarketingTab === 'mkt-team' ? ' active' : ''}">
     <div style="display:grid; grid-template-columns:${marketingManager ? 'minmax(280px,.7fr) minmax(400px,1.3fr)' : '1fr'}; gap:20px; align-items:start;">
       ${marketingManager ? `<div class="card">
         <div class="card-header"><div><div class="card-title">Add Team Member</div><div class="card-subtitle">TL access required.</div></div></div>
@@ -3723,7 +3730,7 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-creatives" class="tab-content">
+  <div id="mkt-creatives" class="tab-content${lastMarketingTab === 'mkt-creatives' ? ' active' : ''}">
     <div style="display:grid; grid-template-columns:minmax(360px,.85fr) minmax(420px,1.15fr); gap:20px; align-items:start;">
       <div class="card">
         <div class="card-header"><div><div class="card-title">Creative Output</div><div class="card-subtitle">Track hooks, winners, and survival rate.</div></div></div>
@@ -3769,7 +3776,7 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-standup" class="tab-content">
+  <div id="mkt-standup" class="tab-content${lastMarketingTab === 'mkt-standup' ? ' active' : ''}">
     <div style="display:grid; grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr); gap:20px; align-items:start;">
       <div class="card erp-card">
         <div class="card-header"><div><div class="card-title">Daily Standup Log</div><div class="card-subtitle">Yesterday score, today priority, blockers.</div></div></div>
@@ -3798,9 +3805,43 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-adaccounts" class="tab-content">
+  <div id="mkt-adaccounts" class="tab-content${lastMarketingTab === 'mkt-adaccounts' ? ' active' : ''}">
+    ${marketingManager ? `<div class="card erp-card" style="margin-bottom:16px;">
+      <div class="card-header"><div><div class="card-title">Add Ad Account</div><div class="card-subtitle">Register a Business Manager account with its assigned page and product.</div></div></div>
+      <div class="card-body">
+        <input type="hidden" id="mkt-adaccount-edit-index" value="">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select class="form-control" id="mkt-adaccount-status">
+              <option value="RUNNING">RUNNING</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="PAUSED">PAUSED</option>
+              <option value="DISABLED">DISABLED</option>
+              <option value="REVIEW">REVIEW</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">BM</label><input type="text" class="form-control" id="mkt-adaccount-bm" placeholder="e.g. BM01"></div>
+          <div class="form-group"><label class="form-label">Account</label><input type="text" class="form-control" id="mkt-adaccount-acc" placeholder="Account ID or name"></div>
+          <div class="form-group">
+            <label class="form-label">Page</label>
+            <select class="form-control" id="mkt-adaccount-page">
+              <option value="">— Select page —</option>
+              ${state.pages.map((page) => `<option value="${escapeHtml(page.name)}">${escapeHtml(page.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="mkt-adaccount-product" placeholder="Product being advertised"></div>
+          <div class="form-group"><label class="form-label">Advertiser</label><input type="text" class="form-control" id="mkt-adaccount-advertiser" placeholder="Person responsible"></div>
+          <div class="form-group" style="grid-column:1 / -1;"><label class="form-label">Payment Reference</label><input type="text" class="form-control" id="mkt-adaccount-payment" placeholder="Card / billing ref"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-primary" onclick="saveMarketingAdAccount()">Save Account</button>
+          <button class="btn btn-secondary" onclick="cancelMarketingAdAccountEdit()">Cancel</button>
+        </div>
+      </div>
+    </div>` : ''}
     <div class="card erp-card">
-      <div class="card-header"><div><div class="card-title">Ad Accounts Registry</div><div class="card-subtitle">Status, BM, account, page, product, advertiser, and payment reference.</div></div><button class="btn btn-orange" onclick="addMarketingAdAccount()">Add Account</button></div>
+      <div class="card-header"><div><div class="card-title">Ad Accounts Registry</div><div class="card-subtitle">Status, BM, account, page, product, advertiser, and payment reference.</div></div></div>
       <div class="table-container">
         <table>
           <thead><tr><th>Status</th><th>BM</th><th>Account</th><th>Page</th><th>Product</th><th>Advertiser</th><th>Payment</th><th></th></tr></thead>
@@ -3813,7 +3854,8 @@ function renderMarketingCenter() {
               <td>${escapeHtml(account.product)}</td>
               <td>${escapeHtml(account.advertiser)}</td>
               <td>${escapeHtml(account.payment)}</td>
-              <td><button class="btn btn-ghost btn-sm" onclick="deleteMarketingAdAccount(${index})">Delete</button></td>
+              <td>${marketingManager ? `<button class="btn btn-ghost btn-sm" onclick="editMarketingAdAccount(${index})">Edit</button>
+                <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteMarketingAdAccount(${index})">Delete</button>` : ''}</td>
             </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">No accounts.</td></tr>'}
           </tbody>
         </table>
@@ -3821,7 +3863,7 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-targets" class="tab-content">
+  <div id="mkt-targets" class="tab-content${lastMarketingTab === 'mkt-targets' ? ' active' : ''}">
     <div class="card">
       <div class="card-header"><div><div class="card-title">Targets</div><div class="card-subtitle">Used for pacing and dashboard status.</div></div></div>
       <div class="form-grid-2">
@@ -3858,7 +3900,7 @@ function renderMarketingCenter() {
     const statusCounts = {};
     csrData.forEach((r) => { statusCounts[r.status] = (statusCounts[r.status] || 0) + 1; });
     const statusBadgeMap = { DELIVERED:'badge-success', INTRANSIT:'badge-info', RETURNED:'badge-danger', 'FOR RETURN':'badge-warning', DELIVERING:'badge-purple', 'FOR MONITORING':'badge-warning', 'DASHBOARD CANCELLED':'badge-gray', CANCELLED:'badge-gray' };
-    return `<div id="mkt-csr-sales" class="tab-content">
+    return `<div id="mkt-csr-sales" class="tab-content${lastMarketingTab === 'mkt-csr-sales' ? ' active' : ''}">
     <div class="card erp-card" style="margin-bottom:16px;padding:12px 16px;">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <span style="font-weight:700;font-size:13px;white-space:nowrap;">CSR Filter</span>
@@ -7587,24 +7629,61 @@ function cancelMarketingTeamEdit() {
   const idx = document.getElementById('mkt-team-edit-index'); if (idx) idx.value = '';
 }
 
-function addMarketingAdAccount() {
+function saveMarketingAdAccount() {
   if (!canManageMarketing()) {
     showToast('warning', 'TL only', 'Only Sales and Marketing TL can manage ad accounts.');
     return;
   }
+  const status = document.getElementById('mkt-adaccount-status')?.value || 'RUNNING';
+  const bm = document.getElementById('mkt-adaccount-bm')?.value.trim() || '';
+  const acc = document.getElementById('mkt-adaccount-acc')?.value.trim() || '';
+  const page = document.getElementById('mkt-adaccount-page')?.value.trim() || '';
+  const product = document.getElementById('mkt-adaccount-product')?.value.trim() || '';
+  const advertiser = document.getElementById('mkt-adaccount-advertiser')?.value.trim() || '';
+  const payment = document.getElementById('mkt-adaccount-payment')?.value.trim() || '';
+  if (!acc) { showToast('error', 'Account required', 'Please enter the account name or ID.'); return; }
+
   const state = getMarketingState();
-  state.adAccounts.push({
-    status: window.prompt('Status', 'RUNNING') || 'RUNNING',
-    bm: window.prompt('BM', '') || '',
-    acc: window.prompt('Account', '') || '',
-    page: window.prompt('Page', '') || '',
-    product: window.prompt('Product', '') || '',
-    advertiser: window.prompt('Advertiser', '') || '',
-    payment: window.prompt('Payment reference', '') || '',
-  });
+  const editVal = document.getElementById('mkt-adaccount-edit-index')?.value;
+  const editIndex = editVal === '' ? -1 : Number(editVal);
+  const payload = { status, bm, acc, page, product, advertiser, payment };
+  if (editIndex >= 0 && editIndex < state.adAccounts.length) {
+    state.adAccounts[editIndex] = payload;
+  } else {
+    state.adAccounts.push(payload);
+  }
   saveMarketingState(state);
-  showToast('success', 'Ad account added', 'Account registry was updated.');
+  showToast('success', editIndex >= 0 ? 'Ad account updated' : 'Ad account added', acc || 'Account registry was updated.');
+  lastMarketingTab = 'mkt-adaccounts';
   navigateTo('marketing-center');
+}
+
+function editMarketingAdAccount(index) {
+  if (!canManageMarketing()) return;
+  const state = getMarketingState();
+  const account = state.adAccounts[index];
+  if (!account) return;
+  lastMarketingTab = 'mkt-adaccounts';
+  const fields = {
+    'mkt-adaccount-status': account.status || 'RUNNING',
+    'mkt-adaccount-bm': account.bm || '',
+    'mkt-adaccount-acc': account.acc || '',
+    'mkt-adaccount-page': account.page || '',
+    'mkt-adaccount-product': account.product || '',
+    'mkt-adaccount-advertiser': account.advertiser || '',
+    'mkt-adaccount-payment': account.payment || '',
+    'mkt-adaccount-edit-index': String(index),
+  };
+  Object.entries(fields).forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
+  document.getElementById('mkt-adaccount-acc')?.focus();
+  showToast('success', 'Editing account', 'Update fields and click Save Account.');
+}
+
+function cancelMarketingAdAccountEdit() {
+  ['mkt-adaccount-bm', 'mkt-adaccount-acc', 'mkt-adaccount-page', 'mkt-adaccount-product', 'mkt-adaccount-advertiser', 'mkt-adaccount-payment']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const statusEl = document.getElementById('mkt-adaccount-status'); if (statusEl) statusEl.value = 'RUNNING';
+  const idx = document.getElementById('mkt-adaccount-edit-index'); if (idx) idx.value = '';
 }
 
 function deleteMarketingAdAccount(index) {
@@ -7616,6 +7695,7 @@ function deleteMarketingAdAccount(index) {
   if (index < 0 || index >= state.adAccounts.length) return;
   state.adAccounts.splice(index, 1);
   saveMarketingState(state);
+  lastMarketingTab = 'mkt-adaccounts';
   navigateTo('marketing-center');
 }
 
@@ -9871,7 +9951,15 @@ function switchTab(btn, contentId) {
   contentParent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   const target = document.getElementById(contentId);
   if (target) target.classList.add('active');
+
+  // Remember marketing sub-tab so re-renders after save/edit don't snap back
+  // to Daily Entry. Other pages don't share this prefix so they're untouched.
+  if (typeof contentId === 'string' && contentId.startsWith('mkt-')) {
+    lastMarketingTab = contentId;
+  }
 }
+
+let lastMarketingTab = 'mkt-entries';
 
 function openViewRecordsTab(tabId) {
   navigateTo('view-records');
