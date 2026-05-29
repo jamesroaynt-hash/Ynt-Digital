@@ -5014,12 +5014,7 @@ function renderScanPage(pageId, pageTitle, scanType) {
 }
 
 function renderScannerBody(pageId, scanType) {
-  return `
-  <div style="display:grid; grid-template-columns: minmax(0, 700px) minmax(260px, 1fr); gap:16px; align-items:start;">
-    <div>
-      ${renderScannerCard(pageId, scanType)}
-      ${renderScanPreviewCard(pageId, scanType)}
-    </div>
+  const perPageCard = `
     <div class="card">
       <div class="card-header"><div><div class="card-title">Per Page</div><div class="card-subtitle">Today's scans grouped by page · pcs from leading number in product</div></div></div>
       <div style="overflow-x:auto;">
@@ -5031,7 +5026,23 @@ function renderScannerBody(pageId, scanType) {
           <tfoot id="scan-page-summary-foot-${pageId}"></tfoot>
         </table>
       </div>
+    </div>`;
+
+  if (scanType === 'RTS') {
+    return `
+  <div style="max-width:700px;">
+    ${renderScannerCard(pageId, scanType)}
+    ${perPageCard}
+  </div>`;
+  }
+
+  return `
+  <div style="display:grid; grid-template-columns: minmax(0, 700px) minmax(260px, 1fr); gap:16px; align-items:start;">
+    <div>
+      ${renderScannerCard(pageId, scanType)}
+      ${renderScanPreviewCard(pageId, scanType)}
     </div>
+    ${perPageCard}
   </div>`;
 }
 
