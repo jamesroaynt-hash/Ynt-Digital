@@ -5016,13 +5016,13 @@ function renderScannerBody(pageId, scanType) {
   const perPageCard = `
     <div class="card">
       <div class="card-header" style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-        <div><div class="card-title">Per Page</div><div class="card-subtitle">Scans grouped by page · pcs from leading number in product</div></div>
+        <div><div class="card-title">Scan Page</div><div class="card-subtitle">Scans grouped by page · pcs from leading number in product</div></div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div style="display:inline-flex;gap:6px;">
             <button class="btn btn-primary btn-sm" data-scan-range="${pageId}" data-range="today" onclick="setScanPageRange('${pageId}','${scanType}','today')">Today</button>
             <button class="btn btn-secondary btn-sm" data-scan-range="${pageId}" data-range="yesterday" onclick="setScanPageRange('${pageId}','${scanType}','yesterday')">Yesterday</button>
           </div>
-          <input type="text" class="form-control" id="scan-page-customer-${pageId}" placeholder="Filter customer..." style="width:180px;" oninput="clearTimeout(window._scanPageCustTimer); window._scanPageCustTimer=setTimeout(()=>loadScanPageSummary('${pageId}','${scanType}'),400)">
+          <input type="date" class="form-control" id="scan-page-date-${pageId}" style="width:170px;" onchange="setScanPageDate('${pageId}','${scanType}')">
         </div>
       </div>
       <div style="overflow-x:auto;">
@@ -5207,27 +5207,33 @@ async function loadScanToday(pageId, scanType) {
 }
 
 // Per-page scan summary table. Honours the Today/Yesterday toggle and the
-// customer filter rendered in the Per Page card (defaults to today / no
-// customer when those controls aren't present, e.g. standard scan pages).
+// custom date picker in the Scan Page card (defaults to today when those
+// controls aren't present, e.g. standard scan pages).
 async function loadScanPageSummary(pageId, scanType) {
   const bodyEl = document.getElementById(`scan-page-summary-${pageId}`);
   const footEl = document.getElementById(`scan-page-summary-foot-${pageId}`);
   if (!bodyEl) return;
   try {
     const range = (window._scanPageRange && window._scanPageRange[pageId]) || 'today';
-    const d = new Date();
-    if (range === 'yesterday') d.setDate(d.getDate() - 1);
-    const dateStr = normalizeDateString(d);
+    let dateStr;
+    let emptyMsg;
+    if (range === 'custom') {
+      dateStr = document.getElementById(`scan-page-date-${pageId}`)?.value;
+      emptyMsg = 'No scans on this date.';
+    } else {
+      const d = new Date();
+      if (range === 'yesterday') d.setDate(d.getDate() - 1);
+      dateStr = normalizeDateString(d);
+      emptyMsg = range === 'yesterday' ? 'No scans yesterday.' : 'No scans today.';
+    }
+    if (!dateStr) { dateStr = normalizeDateString(new Date()); }
     const params = new URLSearchParams({ per_page: '10', page: '1', date_from: dateStr, date_to: dateStr });
     if (scanType) params.set('type', scanType);
-    const customer = document.getElementById(`scan-page-customer-${pageId}`)?.value.trim();
-    if (customer) params.set('search', customer);
 
     const data = await authorizedJsonRequest(`/scans?${params}`);
     const total = Number(data?.total || 0);
     const byPage = Array.isArray(data?.summary?.by_page) ? data.summary.by_page : [];
     const totalPcs = Number(data?.summary?.total_pcs || 0);
-    const emptyMsg = range === 'yesterday' ? 'No scans yesterday.' : 'No scans today.';
 
     bodyEl.innerHTML = byPage.length
       ? byPage.map((p) => `<tr>
@@ -5254,10 +5260,26 @@ async function loadScanPageSummary(pageId, scanType) {
 function setScanPageRange(pageId, scanType, range) {
   window._scanPageRange = window._scanPageRange || {};
   window._scanPageRange[pageId] = range;
+  const dateEl = document.getElementById(`scan-page-date-${pageId}`);
+  if (dateEl) dateEl.value = '';
   document.querySelectorAll(`button[data-scan-range="${pageId}"]`).forEach((b) => {
     const on = b.dataset.range === range;
     b.classList.toggle('btn-primary', on);
     b.classList.toggle('btn-secondary', !on);
+  });
+  loadScanPageSummary(pageId, scanType).catch(() => {});
+}
+
+// Picking a custom date overrides the Today/Yesterday toggle; clearing it
+// falls back to Today.
+function setScanPageDate(pageId, scanType) {
+  const val = document.getElementById(`scan-page-date-${pageId}`)?.value;
+  if (!val) { setScanPageRange(pageId, scanType, 'today'); return; }
+  window._scanPageRange = window._scanPageRange || {};
+  window._scanPageRange[pageId] = 'custom';
+  document.querySelectorAll(`button[data-scan-range="${pageId}"]`).forEach((b) => {
+    b.classList.remove('btn-primary');
+    b.classList.add('btn-secondary');
   });
   loadScanPageSummary(pageId, scanType).catch(() => {});
 }
