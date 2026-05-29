@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -116,7 +116,6 @@ function loadPage(page) {
     'data-report': renderDataReport,
     scanning: renderScanning,
     'view-records': renderViewRecords,
-    'damage-sheets': renderDamageSheets,
     'manage-users': renderManageUsers,
     'api-connections': renderApiConnections,
     profile: renderProfilePage,
@@ -148,7 +147,6 @@ const pageNames = {
   'data-report': 'Data Report',
   scanning: 'Scan Orders',
   'view-records': 'Records',
-  'damage-sheets': 'Damage Reports',
   'manage-users': 'Users',
   'api-connections': 'Integrations',
   profile: 'My Profile',
@@ -4978,20 +4976,67 @@ function renderScanning() {
 }
 
 function renderRTSScanning() {
-  return renderScanPage('rts-scanning', 'RTS Scanning', 'RTS');
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>RTS Scanning</h1><p>Scan tracking numbers, review scan records, and file damage reports.</p></div>
+  </div>
+
+  <div class="tabs" style="margin-bottom:16px;">
+    <button class="tab-btn active" onclick="switchTab(this,'rts-tab-scanner')">Scanner</button>
+    <button class="tab-btn" onclick="switchTab(this,'rts-tab-records'); loadScanRecords(1)">Scan Records</button>
+    <button class="tab-btn" onclick="switchTab(this,'rts-tab-damage')">Damage Report</button>
+  </div>
+
+  <div id="rts-tab-scanner" class="tab-content active">
+    ${renderScanStatBar('rts-scanning', 'RTS')}
+    <div style="max-width:700px;">
+      ${renderScannerCard('rts-scanning', 'RTS')}
+      ${renderScanPreviewCard('rts-scanning', 'RTS')}
+    </div>
+  </div>
+
+  <div id="rts-tab-records" class="tab-content">
+    ${renderScanRecordsPanel()}
+  </div>
+
+  <div id="rts-tab-damage" class="tab-content">
+    ${renderDamageReportTab()}
+  </div>
+
+  ${renderDamageReportModal()}`;
 }
 
 function renderScanPage(pageId, pageTitle, scanType) {
   return `
   <div class="page-header">
     <div class="page-title"><h1>${pageTitle}</h1><p>Scan tracking numbers to retrieve order information.</p></div>
-    <div class="page-actions">
-      <button class="btn btn-secondary" onclick="navigateTo('damage-sheets')">📋 Damage Sheets</button>
-      <button class="btn btn-ghost" onclick="openViewRecordsTab('rec-scans')">View All Records →</button>
-    </div>
   </div>
 
+  ${renderScanStatBar(pageId, scanType)}
   <div style="max-width:700px;">
+    ${renderScannerCard(pageId, scanType)}
+    ${renderScanPreviewCard(pageId, scanType)}
+  </div>`;
+}
+
+function renderScanStatBar(pageId, scanType) {
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Total Scans Today</div>
+        <div style="font-size:28px;font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
+      </div>
+      <button class="btn btn-secondary" onclick="exportScans('${scanType}')">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;"><path d="M8 2v8M5 7l3 3 3-3M3 13.5h10"/></svg>
+        Export CSV
+      </button>
+    </div>
+  </div>`;
+}
+
+function renderScannerCard(pageId, scanType) {
+  return `
     <div class="card" style="margin-bottom:16px;">
       <div class="card-header"><div class="card-title">Scan Tracking Number</div></div>
       <div class="card-body">
@@ -5005,12 +5050,14 @@ function renderScanPage(pageId, pageTitle, scanType) {
         <p class="form-hint">Press Enter or click Scan to look up tracking details</p>
         <div id="scan-result-${pageId}"></div>
       </div>
-    </div>
+    </div>`;
+}
 
+function renderScanPreviewCard(pageId, scanType) {
+  return `
     <div class="card">
       <div class="card-header">
         <div><div class="card-title">${scanType === 'RTS' ? 'RTS' : 'Scan'} Records</div><div class="card-subtitle" id="scan-preview-subtitle-${pageId}">Loading...</div></div>
-        <button class="btn btn-ghost btn-sm" onclick="openViewRecordsTab('rec-scans')">View All →</button>
       </div>
       <div style="overflow-x:auto;">
         <table>
@@ -5020,8 +5067,114 @@ function renderScanPage(pageId, pageTitle, scanType) {
           </tbody>
         </table>
       </div>
-    </div>
-  </div>`;
+    </div>`;
+}
+
+function renderScanRecordsPanel() {
+  return `
+    <div class="table-container">
+      <div class="records-filter-panel">
+        <div class="records-filter-row records-filter-primary">
+          <div class="records-filter-field records-search-field">
+            <label class="records-filter-label">Search</label>
+            <div class="table-search">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+              <input type="text" id="scan-records-search" placeholder="Tracking, customer, phone, product, province..." oninput="clearTimeout(window._scanSearchTimer); window._scanSearchTimer = setTimeout(() => loadScanRecords(1), 400)">
+            </div>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Type</label>
+            <select class="form-control" id="scan-records-type" onchange="loadScanRecords(1)">
+              <option value="">All</option>
+              <option value="Standard">Standard</option>
+              <option value="RTS">RTS</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Status</label>
+            <select class="form-control" id="scan-records-status" onchange="loadScanRecords(1)">
+              <option value="">All</option>
+              <option value="New">New</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Waiting for pickup">Waiting for pickup</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Returning">Returning</option>
+              <option value="Returned">Returned</option>
+              <option value="Canceled">Canceled</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">From</label>
+            <input type="date" class="form-control" id="scan-records-date-from" onchange="loadScanRecords(1)">
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">To</label>
+            <input type="date" class="form-control" id="scan-records-date-to" onchange="loadScanRecords(1)">
+          </div>
+          <div class="records-filter-field" style="align-self:flex-end;">
+            <button class="btn btn-secondary btn-sm" onclick="clearScanRecordsFilters()">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div id="scan-records-list"><div class="loading-spinner" style="margin:24px auto;"></div></div>
+      <div id="scan-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
+    </div>`;
+}
+
+async function loadScanToday(pageId, scanType) {
+  const el = document.getElementById(`scan-today-${pageId}`);
+  if (!el) return;
+  try {
+    const today = normalizeDateString(new Date());
+    const params = new URLSearchParams({ per_page: '10', page: '1', date_from: today, date_to: today });
+    if (scanType) params.set('type', scanType);
+    const data = await authorizedJsonRequest(`/scans?${params}`);
+    el.textContent = Number(data?.total || 0).toLocaleString();
+  } catch {
+    el.textContent = '0';
+  }
+}
+
+async function exportScans(scanType) {
+  try {
+    const all = [];
+    let page = 1;
+    let pages = 1;
+    do {
+      const params = new URLSearchParams({ page: String(page), per_page: '200' });
+      if (scanType) params.set('type', scanType);
+      const data = await authorizedJsonRequest(`/scans?${params}`);
+      (Array.isArray(data?.data) ? data.data : []).forEach((r) => all.push(r));
+      pages = Number(data?.pages || 1);
+      page += 1;
+    } while (page <= pages && page <= 100);
+
+    if (!all.length) { showToast('warning', 'No data', 'No scan records to export.'); return; }
+
+    const cols = [
+      ['tracking_no', 'Tracking No'], ['customer', 'Customer'], ['phone', 'Phone'],
+      ['product_name', 'Product'], ['chat_page', 'Page'], ['province_city', 'Province/City'],
+      ['scan_date', 'Date'], ['status', 'Status'], ['courier', 'Courier'], ['scan_type', 'Type'],
+    ];
+    const esc = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const header = cols.map((c) => c[1]).join(',');
+    const rows = all.map((r) => cols.map((c) => esc(c[0] === 'scan_date' ? String(r[c[0]] || '').slice(0, 10) : r[c[0]])).join(','));
+    const csv = [header, ...rows].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scans-${(scanType || 'all').toLowerCase()}-${normalizeDateString(new Date())}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('success', 'Exported', `${all.length.toLocaleString()} scan record(s) exported.`);
+  } catch (err) {
+    showToast('error', 'Export failed', err.message || 'Could not export scans.');
+  }
 }
 
 async function loadScanPreviewForPage(pageId, scanType) {
@@ -5099,7 +5252,6 @@ function renderViewRecords() {
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-scans'); loadScanRecords()">Scan Records</button>
   </div>
 
   <div id="rec-pos-orders" class="tab-content active">
@@ -5214,57 +5366,6 @@ function renderViewRecords() {
     </div>
   </div>
 
-  <div id="rec-scans" class="tab-content">
-    <div class="table-container">
-      <div class="records-filter-panel">
-        <div class="records-filter-row records-filter-primary">
-          <div class="records-filter-field records-search-field">
-            <label class="records-filter-label">Search</label>
-            <div class="table-search">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-              <input type="text" id="scan-records-search" placeholder="Tracking, customer, phone, product, province..." oninput="clearTimeout(window._scanSearchTimer); window._scanSearchTimer = setTimeout(() => loadScanRecords(1), 400)">
-            </div>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">Type</label>
-            <select class="form-control" id="scan-records-type" onchange="loadScanRecords(1)">
-              <option value="">All</option>
-              <option value="Standard">Standard</option>
-              <option value="RTS">RTS</option>
-            </select>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">Status</label>
-            <select class="form-control" id="scan-records-status" onchange="loadScanRecords(1)">
-              <option value="">All</option>
-              <option value="New">New</option>
-              <option value="Confirmed">Confirmed</option>
-              <option value="Waiting for pickup">Waiting for pickup</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Returning">Returning</option>
-              <option value="Returned">Returned</option>
-              <option value="Canceled">Canceled</option>
-            </select>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">From</label>
-            <input type="date" class="form-control" id="scan-records-date-from" onchange="loadScanRecords(1)">
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">To</label>
-            <input type="date" class="form-control" id="scan-records-date-to" onchange="loadScanRecords(1)">
-          </div>
-          <div class="records-filter-field" style="align-self:flex-end;">
-            <button class="btn btn-secondary btn-sm" onclick="clearScanRecordsFilters()">Clear</button>
-          </div>
-        </div>
-      </div>
-      <div id="scan-records-list"><div class="loading-spinner" style="margin:24px auto;"></div></div>
-      <div id="scan-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
-    </div>
-  </div>
-
   <div id="rec-sheets" class="tab-content">
     <section class="card integration-card">
       <div class="card-header">
@@ -5339,53 +5440,68 @@ function renderViewRecords() {
 }
 
 // ─── RENDER: DAMAGE SHEETS ─────────────────────────────────
-function renderDamageSheets() {
-  const damaged = DB.damageReports;
-  const today = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
-
+function renderDamageReportTab() {
   return `
-  <div class="page-header">
-    <div class="page-title"><h1>Damage Sheets</h1><p>Create manual damage and return reports.</p></div>
-    <div class="page-actions">
-      <button class="btn btn-secondary" onclick="window.print()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="6" width="10" height="8" rx="1"/><path d="M3 6V4a1 1 0 011-1h8a1 1 0 011 1v2M6 10h4M6 12h2"/><circle cx="11" cy="8" r="0.5" fill="currentColor"/></svg>
-        Print Sheet
-      </button>
-    </div>
+  <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:16px;">
+    <button class="btn btn-primary" onclick="openDamageReportModal()">+ Add Damage Report</button>
+    <button class="btn btn-secondary" onclick="window.print()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;"><rect x="3" y="6" width="10" height="8" rx="1"/><path d="M3 6V4a1 1 0 011-1h8a1 1 0 011 1v2M6 10h4M6 12h2"/></svg>
+      Print Sheet
+    </button>
   </div>
+  <div id="damage-saved-wrap">${renderDamageSheet()}</div>`;
+}
 
-  <section class="card">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Damage Report Form</div>
-        <div class="card-subtitle">Records appear only after you save them here.</div>
+function renderDamageReportModal() {
+  return `
+  <div class="modal-overlay" id="damage-report-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Damage Report Form</div>
+        <button class="modal-close" onclick="closeModal('damage-report-modal')">×</button>
       </div>
-    </div>
-    <div class="card-body">
-      <div class="form-grid two-col">
-        <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="damage-date" value="${normalizeDateString(new Date())}"></div>
-        <div class="form-group"><label class="form-label">Page Name</label><input type="text" class="form-control" id="damage-page-name" placeholder="Page name"></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="damage-product" placeholder="Product name"></div>
-        <div class="form-group"><label class="form-label">Tracking</label><input type="text" class="form-control" id="damage-tracking" placeholder="Tracking number"></div>
-        <div class="form-group"><label class="form-label">COD Amount</label><input type="number" class="form-control" id="damage-cod" min="0" step="0.01" placeholder="0"></div>
-        <div class="form-group">
-          <label class="form-label">Damage Reason</label>
-          <select class="form-control" id="damage-reason">
-            <option value="">Select reason...</option>
-            <option value="Missing">Missing</option>
-            <option value="Switch Item">Switch Item</option>
-            <option value="Damage Item">Damage Item</option>
-            <option value="Repack Pouch">Repack Pouch</option>
-          </select>
+      <div class="modal-body">
+        <div class="form-grid two-col">
+          <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="damage-date" value="${normalizeDateString(new Date())}"></div>
+          <div class="form-group"><label class="form-label">Page Name</label><input type="text" class="form-control" id="damage-page-name" placeholder="Page name"></div>
+          <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-control" id="damage-product" placeholder="Product name"></div>
+          <div class="form-group"><label class="form-label">Tracking</label><input type="text" class="form-control" id="damage-tracking" placeholder="Tracking number"></div>
+          <div class="form-group"><label class="form-label">COD Amount</label><input type="number" class="form-control" id="damage-cod" min="0" step="0.01" placeholder="0"></div>
+          <div class="form-group">
+            <label class="form-label">Damage Reason</label>
+            <select class="form-control" id="damage-reason">
+              <option value="">Select reason...</option>
+              <option value="Missing">Missing</option>
+              <option value="Switch Item">Switch Item</option>
+              <option value="Damage Item">Damage Item</option>
+              <option value="Repack Pouch">Repack Pouch</option>
+            </select>
+          </div>
         </div>
       </div>
-      <div class="integration-actions">
-        <button class="btn btn-primary" onclick="saveDamageReport()">Save Damage Report</button>
+      <div class="modal-footer">
         <button class="btn btn-secondary" onclick="clearDamageReportForm()">Clear Form</button>
+        <button class="btn btn-primary" onclick="saveDamageReport()">Save Damage Report</button>
       </div>
     </div>
-  </section>
+  </div>`;
+}
 
+function openDamageReportModal() {
+  const dateInput = document.getElementById('damage-date');
+  if (dateInput && !dateInput.value) dateInput.value = normalizeDateString(new Date());
+  openModal('damage-report-modal');
+}
+
+function refreshDamageSaved() {
+  const wrap = document.getElementById('damage-saved-wrap');
+  if (wrap) wrap.innerHTML = renderDamageSheet();
+}
+
+function renderDamageSheet() {
+  const damaged = DB.damageReports;
+  const today = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
+  return `
   <div class="damage-sheet" id="damage-sheet-print">
     <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; padding-bottom:20px; border-bottom:2px solid var(--primary);">
       <div>
@@ -5478,7 +5594,8 @@ function saveDamageReport() {
   saveDamageReports();
   showToast('success', 'Damage report saved', record.tracking);
   clearDamageReportForm();
-  loadPage('damage-sheets');
+  closeModal('damage-report-modal');
+  refreshDamageSaved();
 }
 
 const chartRefs = {};
@@ -5558,7 +5675,7 @@ function refreshSidebarAccess() {
 
   const hasSales = ['sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
-  const hasReports = ['data-report', 'view-records', 'damage-sheets'].some((page) => accessiblePages.has(page));
+  const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
   const salesLabel = document.getElementById('nav-section-sales');
@@ -6704,6 +6821,7 @@ function initPage(page) {
       el.focus();
     }
     loadScanPreviewForPage(page, page === 'rts-scanning' ? 'RTS' : 'Standard').catch(() => {});
+    loadScanToday(page, page === 'rts-scanning' ? 'RTS' : 'Standard').catch(() => {});
   }
 }
 
@@ -9088,6 +9206,7 @@ async function performScan(pageId, scanType) {
   input.value = '';
   input.focus();
   loadScanPreviewForPage(pageId, scanType).catch(() => {});
+  loadScanToday(pageId, scanType).catch(() => {});
 }
 
 // ─── EXPENSE HELPERS ───────────────────────────────────────
