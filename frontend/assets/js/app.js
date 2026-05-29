@@ -4989,10 +4989,7 @@ function renderRTSScanning() {
 
   <div id="rts-tab-scanner" class="tab-content active">
     ${renderScanStatBar('rts-scanning', 'RTS')}
-    <div style="max-width:700px;">
-      ${renderScannerCard('rts-scanning', 'RTS')}
-      ${renderScanPreviewCard('rts-scanning', 'RTS')}
-    </div>
+    ${renderScannerBody('rts-scanning', 'RTS')}
   </div>
 
   <div id="rts-tab-records" class="tab-content">
@@ -5013,9 +5010,28 @@ function renderScanPage(pageId, pageTitle, scanType) {
   </div>
 
   ${renderScanStatBar(pageId, scanType)}
-  <div style="max-width:700px;">
-    ${renderScannerCard(pageId, scanType)}
-    ${renderScanPreviewCard(pageId, scanType)}
+  ${renderScannerBody(pageId, scanType)}`;
+}
+
+function renderScannerBody(pageId, scanType) {
+  return `
+  <div style="display:grid; grid-template-columns: minmax(0, 700px) minmax(260px, 1fr); gap:16px; align-items:start;">
+    <div>
+      ${renderScannerCard(pageId, scanType)}
+      ${renderScanPreviewCard(pageId, scanType)}
+    </div>
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Per Page</div><div class="card-subtitle">Today's scans grouped by page · pcs from leading number in product</div></div></div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Page</th><th style="text-align:right;">Total Scan</th><th style="text-align:right;">Pcs</th></tr></thead>
+          <tbody id="scan-page-summary-${pageId}">
+            <tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</td></tr>
+          </tbody>
+          <tfoot id="scan-page-summary-foot-${pageId}"></tfoot>
+        </table>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -5123,16 +5139,41 @@ function renderScanRecordsPanel() {
 }
 
 async function loadScanToday(pageId, scanType) {
-  const el = document.getElementById(`scan-today-${pageId}`);
-  if (!el) return;
+  const counterEl = document.getElementById(`scan-today-${pageId}`);
+  const bodyEl = document.getElementById(`scan-page-summary-${pageId}`);
+  const footEl = document.getElementById(`scan-page-summary-foot-${pageId}`);
+  if (!counterEl && !bodyEl) return;
   try {
     const today = normalizeDateString(new Date());
     const params = new URLSearchParams({ per_page: '10', page: '1', date_from: today, date_to: today });
     if (scanType) params.set('type', scanType);
     const data = await authorizedJsonRequest(`/scans?${params}`);
-    el.textContent = Number(data?.total || 0).toLocaleString();
+    const total = Number(data?.total || 0);
+    const byPage = Array.isArray(data?.summary?.by_page) ? data.summary.by_page : [];
+    const totalPcs = Number(data?.summary?.total_pcs || 0);
+
+    if (counterEl) counterEl.textContent = total.toLocaleString();
+    if (bodyEl) {
+      bodyEl.innerHTML = byPage.length
+        ? byPage.map((p) => `<tr>
+            <td>${escapeHtml(p.page || 'Unknown')}</td>
+            <td style="text-align:right;">${Number(p.scans || 0).toLocaleString()}</td>
+            <td style="text-align:right;">${Number(p.pcs || 0).toLocaleString()}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">No scans today.</td></tr>';
+    }
+    if (footEl) {
+      footEl.innerHTML = byPage.length
+        ? `<tr style="font-weight:700;border-top:2px solid var(--border,#e5e7eb);">
+            <td>TOTAL</td>
+            <td style="text-align:right;">${total.toLocaleString()}</td>
+            <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
+          </tr>`
+        : '';
+    }
   } catch {
-    el.textContent = '0';
+    if (counterEl) counterEl.textContent = '0';
+    if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load.</td></tr>';
   }
 }
 
