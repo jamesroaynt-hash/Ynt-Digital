@@ -5030,7 +5030,7 @@ function renderScannerBody(pageId, scanType) {
 
   if (scanType === 'RTS') {
     return `
-  <div style="max-width:700px;">
+  <div style="display:flex;flex-direction:column;gap:16px;">
     ${renderScannerCard(pageId, scanType)}
     ${perPageCard}
   </div>`;
@@ -5050,14 +5050,14 @@ function renderScanStatBar(pageId, scanType) {
   return `
   <div class="card" style="margin-bottom:16px;">
     <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Total Scans Today</div>
-        <div style="font-size:28px;font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
-      </div>
       <button class="btn btn-secondary" onclick="exportScans('${scanType}')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;"><path d="M8 2v8M5 7l3 3 3-3M3 13.5h10"/></svg>
         Export CSV
       </button>
+      <div style="text-align:right;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Total Scans Today</div>
+        <div style="font-size:28px;font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
+      </div>
     </div>
   </div>`;
 }

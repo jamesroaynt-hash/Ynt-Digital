@@ -1710,14 +1710,13 @@ tbody td {
 
 /* ─── SCAN INPUT ──────────────────────────────────────────── */
 .scan-input-wrapper {
-  display: flex;
-  gap: 10px;
+  position: relative;
   margin-bottom: 20px;
 }
 
 .scan-input {
-  flex: 1;
-  padding: 12px 16px;
+  width: 100%;
+  padding: 14px 132px 14px 16px;
   background: var(--surface);
   border: 2px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -1726,6 +1725,14 @@ tbody td {
   color: var(--text-primary);
   outline: none;
   transition: border-color var(--transition);
+}
+
+.scan-input-wrapper .btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  bottom: 6px;
+  padding: 0 18px;
 }
 
 .scan-input:focus {
