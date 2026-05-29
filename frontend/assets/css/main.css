@@ -1370,6 +1370,13 @@ tbody td {
   vertical-align: middle;
 }
 
+tfoot td {
+  padding: 13px 16px;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
 .table-pagination {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 18px;
