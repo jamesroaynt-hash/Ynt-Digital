@@ -6,6 +6,40 @@ module.exports = function integrationRoutes(db) {
   const router = express.Router();
   const publicRouter = express.Router();
 
+  // Cheap fingerprint of google_orders: MAX(updated_at) catches upserts, MAX(id)
+  // catches inserts. Both are instant index-backward scans (~0.3ms). google_orders
+  // is never DELETEd, so this never misses a change.
+  async function getGoogleOrdersVersion() {
+    const row = await db.prepare(
+      `SELECT MAX(updated_at) AS max_updated, MAX(id) AS max_id FROM google_orders`
+    ).get();
+    return `${row?.max_updated || ''}:${row?.max_id || 0}`;
+  }
+
+  // Backend cache of the full unfiltered data-report dataset, keyed by the
+  // google_orders fingerprint. The report loader walks every page on each visit
+  // across every open session; without this, each walk re-pulls all ~33k rows
+  // from Postgres (the #1 Supabase egress source). Here the first request after a
+  // sync does ONE full pull to fill the cache; every later request — any session —
+  // is served from RAM until the next sync bumps the fingerprint.
+  let reportCache = { version: null, records: null, loading: null, loadingVersion: null };
+
+  // Narrow projection the data report consumes. Shared by the cached full-table
+  // pull below and the filtered report path further down so they can't drift.
+  const reportSelectCols = `g.id,
+               g.external_id   AS order_ref,
+               g.tracking_no,
+               g.customer_name AS customer,
+               g.customer_phone AS phone,
+               g.product_name  AS product,
+               g.cod           AS cod_amount,
+               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
+               g.chat_page,
+               g.confirmed_by,
+               g.delivery_attempts AS attempts,
+               g.province_city,
+               g.day_created   AS order_date`;
+
   function requireAdmin(req, res, next) {
     if (String(req.user?.role || '').trim() !== 'Administrator') {
       return res.status(403).json({ error: 'Administrator access required' });
@@ -109,23 +143,51 @@ module.exports = function integrationRoutes(db) {
       const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
+      // The data-report walk is always unfiltered. Serve it from the version-keyed
+      // backend cache: one full Postgres pull per sync, then RAM for every page and
+      // every session until the fingerprint changes. (Filtered report calls, if any,
+      // fall through to the normal per-page query below.)
+      const hasFilters = (sheet && sheet !== 'all') || (status && status !== 'all')
+        || (tag && tag !== 'all') || search || date_from || date_to;
+      if (reportView && !hasFilters) {
+        const version = await getGoogleOrdersVersion();
+        if (reportCache.version !== version || !reportCache.records) {
+          // Coalesce concurrent misses (e.g. several sessions reloading right
+          // after a sync) onto a single in-flight pull rather than N full walks.
+          if (!reportCache.loading || reportCache.loadingVersion !== version) {
+            reportCache.loadingVersion = version;
+            reportCache.loading = db.prepare(`
+              SELECT ${reportSelectCols}
+              ${baseFrom}
+              ORDER BY g.day_created DESC, g.id DESC
+            `).all().then((rows) => {
+              reportCache.records = rows;
+              reportCache.version = version;
+              reportCache.loading = null;
+              return rows;
+            }).catch((err) => {
+              reportCache.loading = null;
+              throw err;
+            });
+          }
+          await reportCache.loading;
+        }
+        const all = reportCache.records;
+        res.json({
+          records: all.slice(offset, offset + perPage),
+          total: all.length,
+          page: pageNum,
+          per_page: perPage,
+          pages: Math.ceil(all.length / perPage),
+        });
+        return;
+      }
+
       const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
       const total = countRow?.total || 0;
 
       const selectCols = reportView
-        ? `g.id,
-               g.external_id   AS order_ref,
-               g.tracking_no,
-               g.customer_name AS customer,
-               g.customer_phone AS phone,
-               g.product_name  AS product,
-               g.cod           AS cod_amount,
-               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
-               g.chat_page,
-               g.confirmed_by,
-               g.delivery_attempts AS attempts,
-               g.province_city,
-               g.day_created   AS order_date`
+        ? reportSelectCols
         : `g.id,
                g.external_id   AS order_ref,
                g.tracking_no,
@@ -225,10 +287,7 @@ module.exports = function integrationRoutes(db) {
   // a change. (COUNT(*) would be exact but costs a ~1s full index scan.)
   router.get('/google-sheets/version', async (req, res) => {
     try {
-      const row = await db.prepare(
-        `SELECT MAX(updated_at) AS max_updated, MAX(id) AS max_id FROM google_orders`
-      ).get();
-      res.json({ version: `${row?.max_updated || ''}:${row?.max_id || 0}` });
+      res.json({ version: await getGoogleOrdersVersion() });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
