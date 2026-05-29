@@ -9,8 +9,8 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'damage-sheets', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -108,6 +108,7 @@ function loadPage(page) {
     inventory: renderInventory,
     expenses: renderExpenses,
     hr: renderHR,
+    'attendance-log': renderAttendanceLog,
     training: renderTraining,
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
@@ -139,6 +140,7 @@ const pageNames = {
   inventory: 'Stock',
   expenses: 'Expenses',
   hr: 'HR & Payroll',
+  'attendance-log': 'Attendance Log',
   training: 'Training',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
@@ -2233,13 +2235,6 @@ function renderHR() {
           <button type="submit" class="btn btn-primary" style="width:100%;">Save Cash Advance</button>
         </form>
       </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">View daily time records. Edit holiday % to adjust pay. Days under 4 hrs do not count toward salary.</div></div></div>
-    <div class="card-body" id="hr-attendance-table-wrap">
-      <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
     </div>
   </div>
 
@@ -6696,6 +6691,10 @@ function initPage(page) {
     initHRPage();
   }
 
+  if (page === 'attendance-log') {
+    initAttendanceLogPage();
+  }
+
   if (page === 'scanning' || page === 'rts-scanning') {
     const inputId = `scan-input-${page}`;
     const el = document.getElementById(inputId);
@@ -6839,6 +6838,179 @@ async function initHRPage() {
   loadHRPendingOT().catch(() => {});
 }
 
+// Attendance edits live on both the HR/Payroll page and the Attendance Log page.
+// Refresh whichever view is currently open so the table + summary stay in sync.
+function refreshHRViews() {
+  if (App.currentPage === 'attendance-log') return loadAttendanceLogDashboard();
+  return loadHRDashboard();
+}
+
+// ─── ATTENDANCE LOG PAGE (summary + daily log, own nav button) ──────
+function renderAttendanceLog() {
+  const today = normalizeDateString(new Date());
+  const monthStart = today.slice(0, 8) + '01';
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Attendance Log</h1>
+      <p>All-user salary summary and the daily time records for a custom date range.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadAttendanceLogDashboard()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-body">
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label class="form-label">From</label>
+          <input type="date" id="al-date-from" class="form-control" value="${monthStart}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">To</label>
+          <input type="date" id="al-date-to" class="form-control" value="${today}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">User</label>
+          <select id="al-user-filter" class="form-control">
+            <option value="">All users</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="btn btn-primary" onclick="loadAttendanceLogDashboard()">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs" style="margin-bottom:16px;">
+    <button class="tab-btn active" onclick="switchTab(this,'al-tab-summary')">Summary</button>
+    <button class="tab-btn" onclick="switchTab(this,'al-tab-log')">Attendance Log</button>
+  </div>
+
+  <div id="al-tab-summary" class="tab-content active">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Salary Summary</div><div class="card-subtitle">Total salary per user for the selected date range. Total Salary = base + OT + holiday − cash advance.</div></div></div>
+      <div class="card-body" id="al-summary-wrap">
+        <div class="empty-state"><h3>Loading summary</h3><p>Preparing salary totals.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="al-tab-log" class="tab-content">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Daily time records. Edit holiday % to adjust pay. Days under 4 hrs do not count toward salary.</div></div></div>
+      <div class="card-body" id="al-attendance-wrap">
+        <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function getAttendanceLogFilters() {
+  const today = normalizeDateString(new Date());
+  return {
+    from: document.getElementById('al-date-from')?.value || today,
+    to: document.getElementById('al-date-to')?.value || today,
+    userId: document.getElementById('al-user-filter')?.value || '',
+  };
+}
+
+async function initAttendanceLogPage() {
+  if (!canManageHR()) {
+    const wrap = document.getElementById('al-summary-wrap');
+    if (wrap) wrap.innerHTML = '<div class="empty-state"><h3>HR access required</h3><p>Your account cannot view the attendance log.</p></div>';
+    return;
+  }
+  try {
+    if (!hrState.users.length) {
+      const data = await authorizedJsonRequest('/auth/users');
+      hrState.users = Array.isArray(data?.users) ? data.users : [];
+    }
+    const filter = document.getElementById('al-user-filter');
+    if (filter && !filter.dataset.ready) {
+      filter.innerHTML = [
+        '<option value="">All users</option>',
+        ...hrState.users.map((u) => `<option value="${u.id}">${escapeHtml(u.full_name)} (${escapeHtml(formatRoleLabel(u.role))})</option>`),
+      ].join('');
+      filter.dataset.ready = '1';
+    }
+  } catch (error) {
+    showToast('error', 'Users unavailable', error.message || 'Could not load users.');
+  }
+  await loadAttendanceLogDashboard();
+}
+
+async function loadAttendanceLogDashboard() {
+  if (!canManageHR()) return;
+  const { from, to, userId } = getAttendanceLogFilters();
+  const query = new URLSearchParams({ from, to, _: Date.now().toString() });
+  if (userId) query.set('user_id', userId);
+
+  try {
+    const [summaryData, attendanceData] = await Promise.all([
+      authorizedJsonRequest(`/hr/summary?${query.toString()}`),
+      authorizedJsonRequest(`/hr/attendance?${query.toString()}`),
+    ]);
+    hrState.summary = Array.isArray(summaryData?.summary) ? summaryData.summary : [];
+    hrState.attendance = Array.isArray(attendanceData?.records) ? attendanceData.records : [];
+    renderAttendanceLogSummary();
+    renderHRAttendanceTable('al-attendance-wrap');
+  } catch (error) {
+    showToast('error', 'Attendance log failed', error.message || 'Could not load attendance log.');
+  }
+}
+
+function renderAttendanceLogSummary() {
+  const wrap = document.getElementById('al-summary-wrap');
+  if (!wrap) return;
+  if (!hrState.summary.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No records</h3><p>No attendance in this period yet.</p></div>';
+    return;
+  }
+
+  const totals = hrState.summary.reduce((acc, item) => {
+    acc.days += Number(item.days_worked || 0);
+    acc.ot += Number(item.ot_minutes || 0);
+    acc.holiday += Number(item.holiday_pay || 0);
+    acc.cash += Number(item.cash_advances || 0);
+    acc.net += Number(item.net_pay || 0);
+    return acc;
+  }, { days: 0, ot: 0, holiday: 0, cash: 0, net: 0 });
+
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Total Work Days</th><th>OT</th><th>Holiday</th><th>Cash Advance</th><th>Total Salary</th></tr></thead>
+        <tbody>
+          ${hrState.summary.map((item) => {
+            const user = item.user || {};
+            return `
+              <tr>
+                <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
+                <td>${Number(item.days_worked || 0)}</td>
+                <td>${formatMinutes(item.ot_minutes)}</td>
+                <td>${formatPHP(item.holiday_pay)}</td>
+                <td>${formatPHP(item.cash_advances)}</td>
+                <td><strong>${formatPHP(item.net_pay)}</strong></td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--border, #e5e7eb);font-weight:700;">
+            <td>TOTAL</td>
+            <td>${totals.days}</td>
+            <td>${formatMinutes(totals.ot)}</td>
+            <td>${formatPHP(totals.holiday)}</td>
+            <td>${formatPHP(totals.cash)}</td>
+            <td>${formatPHP(totals.net)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
 async function loadHRDashboard() {
   if (!canManageHR()) return;
   const { from, to, userId } = getHRFilters();
@@ -6917,8 +7089,8 @@ function renderHRPayrollTable() {
     </div>`;
 }
 
-function renderHRAttendanceTable() {
-  const wrap = document.getElementById('hr-attendance-table-wrap');
+function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
+  const wrap = document.getElementById(containerId);
   if (!wrap) return;
   if (!hrState.attendance.length) {
     wrap.innerHTML = '<div class="empty-state"><h3>No attendance logs</h3><p>Users can create records from the Home time clock.</p></div>';
@@ -7009,7 +7181,7 @@ async function saveAttendanceAdjustments(recordId) {
       }),
     });
     showToast('success', 'Attendance saved', 'Attendance record was updated.');
-    await loadHRDashboard();
+    await refreshHRViews();
   } catch (error) {
     showToast('error', 'Attendance failed', error.message || 'Could not save attendance.');
   }
@@ -7022,7 +7194,7 @@ async function deleteAttendance(recordId) {
   try {
     await authorizedJsonRequest(`/hr/attendance/${recordId}`, { method: 'DELETE' });
     showToast('success', 'Attendance deleted', 'The attendance record was removed.');
-    await loadHRDashboard();
+    await refreshHRViews();
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete attendance.');
   }
