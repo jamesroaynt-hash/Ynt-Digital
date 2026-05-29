@@ -3061,7 +3061,6 @@ function getDataReportMetrics() {
 
 function renderDataReport() {
   const quickLinks = [
-    ['api-connections', 'Connect Pancake'],
     ['sales', 'Sales Dashboard'],
     ['rts-rate', 'RTS Rate'],
     ['view-records', 'Order Records'],
