@@ -5804,7 +5804,7 @@ function canManageMarketing() {
 }
 
 function getDefaultPageForCurrentUser() {
-  if (isSalesMarketingUser()) return 'marketing-center';
+  // All users land on the home page after login.
   return 'home';
 }
 
