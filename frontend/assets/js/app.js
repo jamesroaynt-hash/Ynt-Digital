@@ -4988,7 +4988,6 @@ function renderRTSScanning() {
   </div>
 
   <div id="rts-tab-scanner" class="tab-content active">
-    ${renderScanStatBar('rts-scanning', 'RTS')}
     ${renderScannerBody('rts-scanning', 'RTS')}
   </div>
 
@@ -5016,7 +5015,16 @@ function renderScanPage(pageId, pageTitle, scanType) {
 function renderScannerBody(pageId, scanType) {
   const perPageCard = `
     <div class="card">
-      <div class="card-header"><div><div class="card-title">Per Page</div><div class="card-subtitle">Today's scans grouped by page · pcs from leading number in product</div></div></div>
+      <div class="card-header" style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div><div class="card-title">Per Page</div><div class="card-subtitle">Scans grouped by page · pcs from leading number in product</div></div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="display:inline-flex;gap:6px;">
+            <button class="btn btn-primary btn-sm" data-scan-range="${pageId}" data-range="today" onclick="setScanPageRange('${pageId}','${scanType}','today')">Today</button>
+            <button class="btn btn-secondary btn-sm" data-scan-range="${pageId}" data-range="yesterday" onclick="setScanPageRange('${pageId}','${scanType}','yesterday')">Yesterday</button>
+          </div>
+          <input type="text" class="form-control" id="scan-page-customer-${pageId}" placeholder="Filter customer..." style="width:180px;" oninput="clearTimeout(window._scanPageCustTimer); window._scanPageCustTimer=setTimeout(()=>loadScanPageSummary('${pageId}','${scanType}'),400)">
+        </div>
+      </div>
       <div style="overflow-x:auto;">
         <table>
           <thead><tr><th>Page</th><th style="text-align:right;">Total Scan</th><th style="text-align:right;">Pcs</th></tr></thead>
@@ -5031,7 +5039,7 @@ function renderScannerBody(pageId, scanType) {
   if (scanType === 'RTS') {
     return `
   <div style="display:flex;flex-direction:column;gap:16px;">
-    ${renderScannerCard(pageId, scanType)}
+    ${renderScanComboCard(pageId, scanType)}
     ${perPageCard}
   </div>`;
   }
@@ -5075,6 +5083,41 @@ function renderScannerCard(pageId, scanType) {
           </button>
         </div>
         <p class="form-hint">Press Enter or click Scan to look up tracking details</p>
+        <div id="scan-result-${pageId}"></div>
+      </div>
+    </div>`;
+}
+
+// Merged scanner + stats card (reference design): title and Export CSV in the
+// header, the inline-button tracking input on the left, Total Scan Today on
+// the right.
+function renderScanComboCard(pageId, scanType) {
+  return `
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+        <div class="card-title">Scan Tracking Number</div>
+        <button class="btn btn-secondary btn-sm" onclick="exportScans('${scanType}')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;"><path d="M8 2v8M5 7l3 3 3-3M3 13.5h10"/></svg>
+          Export CSV
+        </button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="flex:1;min-width:280px;">
+            <div class="scan-input-wrapper">
+              <input type="text" class="scan-input" id="scan-input-${pageId}" placeholder="Scan or type tracking number..." autocomplete="off">
+              <button class="btn btn-primary" onclick="performScan('${pageId}','${scanType}')">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM11 10h2v4h-2z"/></svg>
+                Scan
+              </button>
+            </div>
+            <p class="form-hint" style="margin-bottom:0;">Press Enter or click Scan to look up tracking details</p>
+          </div>
+          <div style="text-align:right;padding-left:24px;border-left:1px solid var(--border);align-self:stretch;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);white-space:nowrap;">Total Scan Today</div>
+            <div style="font-size:32px;font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
+          </div>
+        </div>
         <div id="scan-result-${pageId}"></div>
       </div>
     </div>`;
@@ -5151,28 +5194,48 @@ function renderScanRecordsPanel() {
 
 async function loadScanToday(pageId, scanType) {
   const counterEl = document.getElementById(`scan-today-${pageId}`);
-  const bodyEl = document.getElementById(`scan-page-summary-${pageId}`);
-  const footEl = document.getElementById(`scan-page-summary-foot-${pageId}`);
-  if (!counterEl && !bodyEl) return;
+  if (!counterEl) return;
   try {
     const today = normalizeDateString(new Date());
     const params = new URLSearchParams({ per_page: '10', page: '1', date_from: today, date_to: today });
     if (scanType) params.set('type', scanType);
     const data = await authorizedJsonRequest(`/scans?${params}`);
+    counterEl.textContent = Number(data?.total || 0).toLocaleString();
+  } catch {
+    counterEl.textContent = '0';
+  }
+}
+
+// Per-page scan summary table. Honours the Today/Yesterday toggle and the
+// customer filter rendered in the Per Page card (defaults to today / no
+// customer when those controls aren't present, e.g. standard scan pages).
+async function loadScanPageSummary(pageId, scanType) {
+  const bodyEl = document.getElementById(`scan-page-summary-${pageId}`);
+  const footEl = document.getElementById(`scan-page-summary-foot-${pageId}`);
+  if (!bodyEl) return;
+  try {
+    const range = (window._scanPageRange && window._scanPageRange[pageId]) || 'today';
+    const d = new Date();
+    if (range === 'yesterday') d.setDate(d.getDate() - 1);
+    const dateStr = normalizeDateString(d);
+    const params = new URLSearchParams({ per_page: '10', page: '1', date_from: dateStr, date_to: dateStr });
+    if (scanType) params.set('type', scanType);
+    const customer = document.getElementById(`scan-page-customer-${pageId}`)?.value.trim();
+    if (customer) params.set('search', customer);
+
+    const data = await authorizedJsonRequest(`/scans?${params}`);
     const total = Number(data?.total || 0);
     const byPage = Array.isArray(data?.summary?.by_page) ? data.summary.by_page : [];
     const totalPcs = Number(data?.summary?.total_pcs || 0);
+    const emptyMsg = range === 'yesterday' ? 'No scans yesterday.' : 'No scans today.';
 
-    if (counterEl) counterEl.textContent = total.toLocaleString();
-    if (bodyEl) {
-      bodyEl.innerHTML = byPage.length
-        ? byPage.map((p) => `<tr>
-            <td>${escapeHtml(p.page || 'Unknown')}</td>
-            <td style="text-align:right;">${Number(p.scans || 0).toLocaleString()}</td>
-            <td style="text-align:right;">${Number(p.pcs || 0).toLocaleString()}</td>
-          </tr>`).join('')
-        : '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">No scans today.</td></tr>';
-    }
+    bodyEl.innerHTML = byPage.length
+      ? byPage.map((p) => `<tr>
+          <td>${escapeHtml(p.page || 'Unknown')}</td>
+          <td style="text-align:right;">${Number(p.scans || 0).toLocaleString()}</td>
+          <td style="text-align:right;">${Number(p.pcs || 0).toLocaleString()}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">${emptyMsg}</td></tr>`;
     if (footEl) {
       footEl.innerHTML = byPage.length
         ? `<tr style="font-weight:700;border-top:2px solid var(--border,#e5e7eb);">
@@ -5183,9 +5246,20 @@ async function loadScanToday(pageId, scanType) {
         : '';
     }
   } catch {
-    if (counterEl) counterEl.textContent = '0';
-    if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load.</td></tr>';
+    if (footEl) footEl.innerHTML = '';
   }
+}
+
+function setScanPageRange(pageId, scanType, range) {
+  window._scanPageRange = window._scanPageRange || {};
+  window._scanPageRange[pageId] = range;
+  document.querySelectorAll(`button[data-scan-range="${pageId}"]`).forEach((b) => {
+    const on = b.dataset.range === range;
+    b.classList.toggle('btn-primary', on);
+    b.classList.toggle('btn-secondary', !on);
+  });
+  loadScanPageSummary(pageId, scanType).catch(() => {});
 }
 
 async function exportScans(scanType) {
@@ -6874,6 +6948,7 @@ function initPage(page) {
     }
     loadScanPreviewForPage(page, page === 'rts-scanning' ? 'RTS' : 'Standard').catch(() => {});
     loadScanToday(page, page === 'rts-scanning' ? 'RTS' : 'Standard').catch(() => {});
+    loadScanPageSummary(page, page === 'rts-scanning' ? 'RTS' : 'Standard').catch(() => {});
   }
 }
 
@@ -9259,6 +9334,7 @@ async function performScan(pageId, scanType) {
   input.focus();
   loadScanPreviewForPage(pageId, scanType).catch(() => {});
   loadScanToday(pageId, scanType).catch(() => {});
+  loadScanPageSummary(pageId, scanType).catch(() => {});
 }
 
 // ─── EXPENSE HELPERS ───────────────────────────────────────
