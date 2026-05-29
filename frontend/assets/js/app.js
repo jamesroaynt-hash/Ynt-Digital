@@ -16,7 +16,7 @@ const NAV_ACCESS = {
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
