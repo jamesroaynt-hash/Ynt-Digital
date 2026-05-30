@@ -955,6 +955,17 @@ function getCurrentCsrName() {
   return 'CSR Member';
 }
 
+// Page Name options come from the live chat pages in Google Orders; fall back to
+// the static list until the synced records have loaded.
+function getCSRPageOptions() {
+  const fromOrders = Array.from(new Set(
+    (DB.sheetRecordsForReport || [])
+      .map((record) => String(record.sourceSheet || record.source_sheet || '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+  return fromOrders.length ? fromOrders : CSR_PAGE_OPTIONS;
+}
+
 function generateCsrRecords() {
   const customerNames = ['Aira Santos', 'Paolo Reyes', 'Mica Dela Cruz', 'Jessa Lim', 'Carlo Ramos', 'Nina Flores', 'Janine Ong', 'Rodel Cruz'];
   const csrNames = ['Admin User', 'Trainee User', 'Mark Lim', 'Joy Castro'];
@@ -4327,10 +4338,11 @@ function renderMarketingCenter() {
 function renderCSR() {
   const today = new Date().toISOString().split('T')[0];
   const adminDashboardOnly = isAdminUser();
+  const pageOptions = getCSRPageOptions();
   const inputPanel = adminDashboardOnly ? '' : `
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">CSR name follows the current login automatically.</div></div>
+        <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">Pick a page, enter the Order ID, then the details auto-fill from Google Orders.</div></div>
       </div>
       <div class="card-body">
         <div class="form-grid-2">
@@ -4345,26 +4357,14 @@ function renderCSR() {
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Page Name <span class="required">*</span></label>
-          <select class="form-control" id="csr-page-name">
-            <option value="">Select page...</option>
-            ${CSR_PAGE_OPTIONS.map((page) => `<option value="${page}">${page}</option>`).join('')}
-          </select>
-        </div>
-
         <div class="form-grid-2">
           <div class="form-group">
-            <label class="form-label">Customer Name <span class="required">*</span></label>
-            <input type="text" class="form-control" id="csr-customer-name" placeholder="Enter customer name">
+            <label class="form-label">Page Name <span class="required">*</span></label>
+            <select class="form-control" id="csr-page-name">
+              <option value="">Select page...</option>
+              ${pageOptions.map((page) => `<option value="${escapeHtml(page)}">${escapeHtml(page)}</option>`).join('')}
+            </select>
           </div>
-          <div class="form-group">
-            <label class="form-label">Cellphone Number <span class="required">*</span></label>
-            <input type="text" class="form-control font-mono" id="csr-cellphone-number" placeholder="09XXXXXXXXX">
-          </div>
-        </div>
-
-        <div class="form-grid-2">
           <div class="form-group">
             <label class="form-label">Type of Sales <span class="required">*</span></label>
             <select class="form-control" id="csr-sales-type">
@@ -4372,27 +4372,46 @@ function renderCSR() {
               ${CSR_SALES_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')}
             </select>
           </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Order ID <span class="required">*</span></label>
+          <div class="input-group">
+            <input type="text" class="form-control font-mono" id="csr-order-id" placeholder="Enter Order ID" onkeydown="if(event.key==='Enter'){event.preventDefault();lookupCSROrder();}">
+            <button class="btn btn-primary" type="button" onclick="lookupCSROrder()">Search</button>
+          </div>
+          <div class="field-help" id="csr-lookup-help">Search the chat page by Order ID to auto-fill the details below.</div>
+        </div>
+
+        <div class="form-grid-2">
           <div class="form-group">
-            <label class="form-label">Status <span class="required">*</span></label>
-            <select class="form-control" id="csr-status">
-              <option value="">Select status...</option>
-              ${CSR_STATUS_OPTIONS.map((status) => `<option value="${status}">${status}</option>`).join('')}
-            </select>
+            <label class="form-label">Customer Name</label>
+            <input type="text" class="form-control readonly-field" id="csr-customer-name" placeholder="Auto-filled" readonly>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cellphone Number</label>
+            <input type="text" class="form-control readonly-field font-mono" id="csr-cellphone-number" placeholder="Auto-filled" readonly>
           </div>
         </div>
 
         <div class="form-grid-2">
           <div class="form-group">
-            <label class="form-label">Price <span class="required">*</span></label>
+            <label class="form-label">Price</label>
             <div class="input-group">
               <span class="input-addon">₱</span>
-              <input type="number" class="form-control" id="csr-price" placeholder="0.00" min="0" step="0.01">
+              <input type="number" class="form-control readonly-field" id="csr-price" placeholder="0.00" readonly>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Tracking Number</label>
-            <input type="text" class="form-control font-mono" id="csr-tracking-number" placeholder="Tracking number">
+            <input type="text" class="form-control readonly-field font-mono" id="csr-tracking-number" placeholder="Auto-filled if available" readonly>
           </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <input type="text" class="form-control readonly-field" id="csr-status" placeholder="Auto-filled from latest order status" readonly>
+          <div class="field-help">Reflects the latest status from the linked order record.</div>
         </div>
 
         <div class="flex gap-3">
@@ -4415,79 +4434,6 @@ function renderCSR() {
 
   <div class="${adminDashboardOnly ? '' : 'split-layout'}" style="margin-bottom:20px;">
     ${inputPanel}
-    ${false ? `<div class="card">
-      <div class="card-header">
-        <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">CSR name follows the current login automatically.</div></div>
-      </div>
-      <div class="card-body">
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label">Record Date <span class="required">*</span></label>
-            <input type="date" class="form-control" id="csr-date" value="${today}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Name CSR</label>
-            <input type="text" class="form-control readonly-field" id="csr-name" value="${escapeHtml(getCurrentCsrName())}" readonly>
-            <div class="field-help">Auto-filled from the logged-in member.</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Page Name <span class="required">*</span></label>
-          <select class="form-control" id="csr-page-name">
-            <option value="">Select page...</option>
-            ${CSR_PAGE_OPTIONS.map((page) => `<option value="${page}">${page}</option>`).join('')}
-          </select>
-        </div>
-
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label">Customer Name <span class="required">*</span></label>
-            <input type="text" class="form-control" id="csr-customer-name" placeholder="Enter customer name">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Cellphone Number <span class="required">*</span></label>
-            <input type="text" class="form-control font-mono" id="csr-cellphone-number" placeholder="09XXXXXXXXX">
-          </div>
-        </div>
-
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label">Type of Sales <span class="required">*</span></label>
-            <select class="form-control" id="csr-sales-type">
-              <option value="">Select sales type...</option>
-              ${CSR_SALES_TYPES.map((type) => `<option value="${type}">${type}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Status <span class="required">*</span></label>
-            <select class="form-control" id="csr-status">
-              <option value="">Select status...</option>
-              ${CSR_STATUS_OPTIONS.map((status) => `<option value="${status}">${status}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label">Price <span class="required">*</span></label>
-            <div class="input-group">
-              <span class="input-addon">₱</span>
-              <input type="number" class="form-control" id="csr-price" placeholder="0.00" min="0" step="0.01">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Tracking Number</label>
-            <input type="text" class="form-control font-mono" id="csr-tracking-number" placeholder="Tracking number">
-          </div>
-        </div>
-
-        <div class="flex gap-3">
-          <button class="btn btn-primary" id="csr-save-btn" onclick="saveCSRRecord()">${getCSRPrimaryButtonLabel()}</button>
-          <button class="btn btn-secondary" id="csr-reset-btn" onclick="resetCSRForm()">Reset</button>
-        </div>
-      </div>
-    </div>` : ''}
 
     <div class="summary-stack">
       <div id="csr-summary"></div>
@@ -4515,7 +4461,7 @@ function renderCSR() {
     <div style="overflow-x:auto;">
       <table id="csr-records-table">
         <thead><tr>
-          <th>Date</th><th>Name CSR</th><th>Page Name</th><th>Customer</th><th>Cellphone</th>
+          <th>Date</th><th>Name CSR</th><th>Page Name</th><th>Order ID</th><th>Customer</th><th>Cellphone</th>
           <th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th><th>Actions</th>
         </tr></thead>
         <tbody id="csr-tbody"></tbody>
@@ -5962,6 +5908,7 @@ function getFilteredCSRRecords() {
     data = data.filter((record) =>
       record.csrName.toLowerCase().includes(query)
       || record.pageName.toLowerCase().includes(query)
+      || String(record.orderId || '').toLowerCase().includes(query)
       || record.customerName.toLowerCase().includes(query)
       || record.cellphoneNumber.toLowerCase().includes(query)
       || record.salesType.toLowerCase().includes(query)
@@ -6043,6 +5990,7 @@ function renderCSRTable() {
     <td>${record.date}</td>
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
+    <td class="font-mono text-xs">${record.orderId || ''}</td>
     <td>${record.customerName}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
@@ -6050,7 +5998,7 @@ function renderCSRTable() {
     <td>₱${Number(record.price || 0).toLocaleString()}</td>
     <td class="font-mono text-xs">${record.trackingNumber}</td>
     <td>${canManageCSRRecord(record) ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editCSRRecord('${record.id}')">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteCSRRecord('${record.id}')">Delete</button></div>` : ''}</td>
-  </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records found for the selected range.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records found for the selected range.</td></tr>';
 
   const pagination = document.getElementById('csr-pagination');
   if (pagination) {
@@ -6102,6 +6050,59 @@ function filterCSRTable() {
   renderCSRTable();
 }
 
+function setCSRFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value ?? '';
+}
+
+// Search Google Orders by Order ID and auto-fill the customer, contact, price,
+// tracking, and latest status, then link the record to the order's chat page.
+function lookupCSROrder() {
+  const orderId = (document.getElementById('csr-order-id')?.value || '').trim();
+  const help = document.getElementById('csr-lookup-help');
+  const autoFilled = ['csr-customer-name', 'csr-cellphone-number', 'csr-price', 'csr-tracking-number', 'csr-status'];
+
+  if (!orderId) {
+    showToast('warning', 'Order ID required', 'Enter an Order ID to search the chat page.');
+    return;
+  }
+
+  const records = DB.sheetRecordsForReport || [];
+  if (!records.length) {
+    showToast('warning', 'Orders still loading', 'Google Orders are still loading — please try again in a moment.');
+    loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') loadPage('csr'); }).catch(() => {});
+    return;
+  }
+
+  const match = records.find((record) => String(record.id || '').trim().toLowerCase() === orderId.toLowerCase());
+  if (!match) {
+    autoFilled.forEach((id) => setCSRFieldValue(id, ''));
+    if (help) help.textContent = `No order found for "${orderId}". Check the Order ID and try again.`;
+    showToast('error', 'Order not found', `No Google Orders record matches Order ID ${orderId}.`);
+    return;
+  }
+
+  setCSRFieldValue('csr-customer-name', match.customer || '');
+  setCSRFieldValue('csr-cellphone-number', match.phone || '');
+  setCSRFieldValue('csr-price', match.cod != null && match.cod !== '' ? match.cod : '');
+  setCSRFieldValue('csr-tracking-number', match.tracking || '');
+  setCSRFieldValue('csr-status', match.status || '');
+
+  // Link the record to the order's chat page when available.
+  const pageSelect = document.getElementById('csr-page-name');
+  const orderPage = String(match.sourceSheet || match.source_sheet || '').trim();
+  if (pageSelect && orderPage) {
+    const hasOption = Array.from(pageSelect.options).some((opt) => opt.value === orderPage);
+    if (!hasOption) pageSelect.add(new Option(orderPage, orderPage));
+    pageSelect.value = orderPage;
+  }
+
+  if (help) {
+    help.textContent = `Linked to ${match.customer || 'customer'} • ${orderPage || 'page'} • status ${match.status || 'n/a'}.`;
+  }
+  showToast('success', 'Order found', `${match.customer || 'Customer'} • ₱${Number(match.cod || 0).toLocaleString()}`);
+}
+
 function resetCSRForm() {
   editingCSRRecordId = '';
   const today = new Date().toISOString().split('T')[0];
@@ -6109,6 +6110,7 @@ function resetCSRForm() {
     'csr-date': today,
     'csr-name': getCurrentCsrName(),
     'csr-page-name': '',
+    'csr-order-id': '',
     'csr-customer-name': '',
     'csr-cellphone-number': '',
     'csr-sales-type': '',
@@ -6121,6 +6123,9 @@ function resetCSRForm() {
     const input = document.getElementById(id);
     if (input) input.value = value;
   });
+
+  const help = document.getElementById('csr-lookup-help');
+  if (help) help.textContent = 'Search the chat page by Order ID to auto-fill the details below.';
 
   refreshCSRFormActions();
 }
@@ -6148,6 +6153,7 @@ function editCSRRecord(recordId) {
     'csr-date': record.date,
     'csr-name': record.csrName,
     'csr-page-name': record.pageName,
+    'csr-order-id': record.orderId,
     'csr-customer-name': record.customerName,
     'csr-cellphone-number': record.cellphoneNumber,
     'csr-sales-type': record.salesType,
@@ -6155,6 +6161,13 @@ function editCSRRecord(recordId) {
     'csr-price': record.price,
     'csr-tracking-number': record.trackingNumber,
   };
+
+  // Make sure the stored page is selectable even if it isn't in the live list.
+  const pageSelect = document.getElementById('csr-page-name');
+  if (pageSelect && record.pageName
+      && !Array.from(pageSelect.options).some((opt) => opt.value === record.pageName)) {
+    pageSelect.add(new Option(record.pageName, record.pageName));
+  }
 
   Object.entries(fieldMap).forEach(([id, value]) => {
     const input = document.getElementById(id);
@@ -6224,6 +6237,7 @@ function saveCSRRecord() {
     date: document.getElementById('csr-date')?.value || '',
     csrName: (document.getElementById('csr-name')?.value || getCurrentCsrName()).trim(),
     pageName: (document.getElementById('csr-page-name')?.value || '').trim(),
+    orderId: (document.getElementById('csr-order-id')?.value || '').trim(),
     customerName: (document.getElementById('csr-customer-name')?.value || '').trim(),
     cellphoneNumber: (document.getElementById('csr-cellphone-number')?.value || '').trim(),
     salesType: (document.getElementById('csr-sales-type')?.value || '').trim(),
@@ -6232,8 +6246,13 @@ function saveCSRRecord() {
     trackingNumber: (document.getElementById('csr-tracking-number')?.value || '').trim(),
   };
 
-  if (!record.date || !record.pageName || !record.customerName || !record.cellphoneNumber || !record.salesType || !record.status || record.price <= 0) {
-    showToast('error', 'Incomplete CSR record', 'Please fill in all required CSR daily record fields.');
+  if (!record.date || !record.pageName || !record.orderId || !record.salesType) {
+    showToast('error', 'Incomplete CSR record', 'Select a page, enter an Order ID, and choose a type of sales.');
+    return;
+  }
+
+  if (!record.customerName || !record.cellphoneNumber) {
+    showToast('error', 'Order not linked', 'Search the Order ID first so the customer details auto-fill before saving.');
     return;
   }
 
@@ -6932,6 +6951,10 @@ function initPage(page) {
     if (dateToInput && !dateToInput.value) dateToInput.value = today;
     csrPage = 1;
     renderCSRTable();
+    // Google Orders power the Page Name dropdown and the Order ID auto-fill.
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') loadPage('csr'); }).catch(() => {});
+    }
   }
 
   if (page === 'expenses') {
