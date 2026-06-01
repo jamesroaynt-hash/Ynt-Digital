@@ -444,6 +444,7 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
     province: r.province_city || '',
     assigning_seller_name: r.confirmed_by || '',
     confirmed_by: r.confirmed_by || '',
+    tags: r.tag || '',
     date: (r.order_date || '').slice(0, 10),
     source_sheet: r.chat_page || '',
     sourceSheet: r.chat_page || '',
@@ -2800,6 +2801,16 @@ function renderRTSRate() {
   </div>`;
 }
 
+// google_orders.tag is a comma-joined list ("2nd Attemp, Undeliverable"); returns
+// true when the order carries the given tag (case/space-insensitive).
+function orderHasTag(order, target) {
+  const want = String(target || '').trim().toLowerCase();
+  if (!want) return false;
+  return String(order?.tags || '')
+    .split(',')
+    .some((t) => t.trim().toLowerCase() === want);
+}
+
 function getOrderStatusKey(status) {
   const value = String(status || '').trim().toLowerCase();
   if (['delivered', 'completed'].includes(value)) return 'delivered';
@@ -3086,11 +3097,13 @@ function renderDataReportTable(rows, firstColumn, emptyText) {
 
 function getDataReportMetrics() {
   const orders = getDataReportOrders();
-  const counts = { delivered: 0, returned: 0, returning: 0, shipped: 0 };
+  const counts = { delivered: 0, returned: 0, returning: 0, shipped: 0, undeliverable: 0 };
   let cod = 0;
   orders.forEach((order) => {
     const key = getOrderStatusKey(order.status);
     if (counts[key] !== undefined) counts[key] += 1;
+    // Undeliverable is driven by the order's tag (google_orders.tag), not status.
+    if (orderHasTag(order, 'undeliverable')) counts.undeliverable += 1;
     cod += Number(order.cod || 0);
   });
   const base = counts.delivered + counts.returned + counts.returning;
@@ -3163,7 +3176,9 @@ function renderDataReportDashboard() {
     <div class="data-report-kpis">
       ${renderRTSMetricCard('Total Orders', metrics.orders.length, 'blue', metrics.orders.length)}
       ${renderRTSMetricCard('Delivered', metrics.counts.delivered, 'green', metrics.orders.length)}
+      ${renderRTSMetricCard('Shipped', metrics.counts.shipped, 'purple', metrics.orders.length)}
       ${renderRTSMetricCard('Returned', metrics.counts.returned + metrics.counts.returning, 'red', metrics.orders.length)}
+      ${renderRTSMetricCard('Undeliverable', metrics.counts.undeliverable, 'amber', metrics.orders.length)}
       <div class="rts-metric-card yellow">
         <div class="stat-label">RTS Rate</div>
         <div class="rts-metric-value">${formatPercent(metrics.rtsRate)}</div>
@@ -5460,18 +5475,8 @@ function renderViewRecords() {
 
   <div id="rec-csr" class="tab-content">
     <div class="table-container">
-      <table><thead><tr><th>Date</th><th>Name CSR</th><th>Page Name</th><th>Customer</th><th>Cellphone</th><th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th></tr></thead>
-        <tbody>${DB.csrRecords.map((record) => `<tr>
-          <td>${record.date}</td>
-          <td style="font-weight:500">${record.csrName}</td>
-          <td>${record.pageName}</td>
-          <td>${record.customerName}</td>
-          <td class="font-mono text-xs">${record.cellphoneNumber}</td>
-          <td><span class="badge badge-info">${record.salesType}</span></td>
-          <td>${statusBadge(record.status)}</td>
-          <td>₱${Number(record.price || 0).toLocaleString()}</td>
-          <td class="font-mono text-xs">${record.trackingNumber}</td>
-        </tr>`).join('')}</tbody>
+      <table><thead><tr><th>Date</th><th>Name CSR</th><th>Page Name</th><th>Order ID</th><th>Customer</th><th>Cellphone</th><th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th></tr></thead>
+        <tbody id="rec-csr-tbody">${renderRecCsrRows()}</tbody>
       </table>
     </div>
   </div>
@@ -6018,6 +6023,52 @@ function renderCSRChart(records) {
   });
 }
 
+// Locate the live Google Orders (sheet) record a CSR row is linked to, by Order ID.
+function getCsrLinkedOrder(record) {
+  const id = String(record?.orderId || '').trim().toLowerCase();
+  if (!id) return null;
+  return (DB.sheetRecordsForReport || []).find(
+    (order) => String(order.id || '').trim().toLowerCase() === id
+  ) || null;
+}
+
+// Status/tracking shown for a CSR record always reflect the latest Google Orders
+// values (looked up by Order ID), falling back to the stored snapshot.
+function csrLiveStatus(record) {
+  const linked = getCsrLinkedOrder(record);
+  return (linked && linked.status) ? linked.status : (record.status || '');
+}
+
+function csrLiveTracking(record) {
+  const linked = getCsrLinkedOrder(record);
+  return (linked && linked.tracking) ? linked.tracking : (record.trackingNumber || '');
+}
+
+// Rows for the CSR Records tab on the View Records page (includes Order ID and
+// pulls live status/tracking from the linked Google Orders record).
+function renderRecCsrRows() {
+  if (!DB.csrRecords.length) {
+    return '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records yet.</td></tr>';
+  }
+  return DB.csrRecords.map((record) => `<tr>
+    <td>${record.date}</td>
+    <td style="font-weight:500">${record.csrName}</td>
+    <td>${record.pageName}</td>
+    <td class="font-mono text-xs">${record.orderId || ''}</td>
+    <td>${record.customerName}</td>
+    <td class="font-mono text-xs">${record.cellphoneNumber}</td>
+    <td><span class="badge badge-info">${record.salesType}</span></td>
+    <td>${statusBadge(csrLiveStatus(record))}</td>
+    <td>₱${Number(record.price || 0).toLocaleString()}</td>
+    <td class="font-mono text-xs">${csrLiveTracking(record)}</td>
+  </tr>`).join('');
+}
+
+function refreshRecCsrTable() {
+  const tbody = document.getElementById('rec-csr-tbody');
+  if (tbody) tbody.innerHTML = renderRecCsrRows();
+}
+
 function renderCSRTable() {
   const tbody = document.getElementById('csr-tbody');
   if (!tbody) return;
@@ -6037,9 +6088,9 @@ function renderCSRTable() {
     <td>${record.customerName}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
-    <td>${statusBadge(record.status)}</td>
+    <td>${statusBadge(csrLiveStatus(record))}</td>
     <td>₱${Number(record.price || 0).toLocaleString()}</td>
-    <td class="font-mono text-xs">${record.trackingNumber}</td>
+    <td class="font-mono text-xs">${csrLiveTracking(record)}</td>
     <td>${canManageCSRRecord(record) ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editCSRRecord('${record.id}')">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteCSRRecord('${record.id}')">Delete</button></div>` : ''}</td>
   </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records found for the selected range.</td></tr>';
 
@@ -7011,6 +7062,13 @@ function initPage(page) {
         const tbody = document.getElementById('rec-pos-orders-tbody');
         if (tbody) tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
+    // CSR Records tab shows live status/tracking from Google Orders — ensure they
+    // are loaded, then repaint the rows once available.
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport()
+        .then(() => { if (App.currentPage === 'view-records') refreshRecCsrTable(); })
+        .catch(() => {});
+    }
   }
 
   if (page === 'manage-users') {

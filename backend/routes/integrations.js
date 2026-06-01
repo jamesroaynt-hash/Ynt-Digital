@@ -37,6 +37,7 @@ module.exports = function integrationRoutes(db) {
                g.chat_page,
                g.confirmed_by,
                g.delivery_attempts AS attempts,
+               g.tag,
                g.province_city,
                g.day_created   AS order_date`;
 
