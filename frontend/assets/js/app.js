@@ -16,7 +16,7 @@ const NAV_ACCESS = {
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -4389,7 +4389,9 @@ function renderMarketingCenter() {
 // ─── RENDER: INVENTORY ──────────────────────────────────────
 function renderCSR() {
   const today = new Date().toISOString().split('T')[0];
-  const adminDashboardOnly = isAdminUser();
+  // Admins and view-only roles (Logistics, Sales & Marketing) see the records
+  // dashboard without the Daily Record input form.
+  const adminDashboardOnly = isAdminUser() || isCSRViewOnlyUser();
   const pageOptions = getCSRPageOptions();
   const inputPanel = adminDashboardOnly ? '' : `
     <div class="card">
@@ -5908,8 +5910,14 @@ function canManageCSRRecord(record) {
   return isAdminUser() || isCurrentUserCSRRecord(record);
 }
 
+// Roles that can see the CSR Records page but only to view — no Daily Record
+// input form and no edit/delete (Logistics, Sales and Marketing, S&M TL).
+function isCSRViewOnlyUser() {
+  return isLogisticsUser() || isSalesMarketingUser();
+}
+
 function canViewAllCSRRecords() {
-  return isAdminUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
+  return isAdminUser() || isCSRViewOnlyUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
 }
 
 function getCSRPrimaryButtonLabel() {
