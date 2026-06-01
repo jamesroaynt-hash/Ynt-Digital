@@ -5137,9 +5137,9 @@ function renderScanPreviewCard(pageId, scanType) {
       </div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr><th>Tracking No.</th><th>Customer</th><th>Phone Number</th><th>Product</th><th>Province/City</th><th>Date</th><th>Status</th><th>Courier</th></tr></thead>
+          <thead><tr><th>Tracking No.</th><th>Customer</th><th>Phone Number</th><th>Product</th><th style="text-align:right;">Pcs</th><th>Province/City</th><th>Date</th><th>Status</th><th>Courier</th></tr></thead>
           <tbody id="scan-preview-tbody-${pageId}">
-            <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Loading recent scans...</td></tr>
+            <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">Loading recent scans...</td></tr>
           </tbody>
         </table>
       </div>
@@ -5342,7 +5342,7 @@ async function loadScanPreviewForPage(pageId, scanType) {
     const records = Array.isArray(data?.data) ? data.data : [];
     if (subtitle) subtitle.textContent = `${Number(data?.total || 0).toLocaleString()} record${data?.total === 1 ? '' : 's'}`;
     if (!records.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No scans yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">No scans yet.</td></tr>';
       return;
     }
     tbody.innerHTML = records.map((r) => `<tr>
@@ -5350,14 +5350,24 @@ async function loadScanPreviewForPage(pageId, scanType) {
       <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
       <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
       <td>${escapeHtml(r.product_name || '-')}</td>
+      <td style="text-align:right;font-weight:600;">${scanPcs(r.product_name)}</td>
       <td>${escapeHtml(r.province_city || '-')}</td>
       <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
       <td>${statusBadge(r.status)}</td>
       <td class="text-secondary">${escapeHtml(r.courier || '-')}</td>
     </tr>`).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Failed to load scans: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">Failed to load scans: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+// Pieces for a scan row = the leading number on the product name ("2 Niacinamide"
+// → 2); products with no leading number count as 1. Never returns NaN.
+function scanPcs(productName) {
+  const match = String(productName || '').match(/^\s*(\d+)/);
+  if (!match) return 1;
+  const n = parseInt(match[1], 10);
+  return Number.isFinite(n) ? Math.min(10000, n) : 1;
 }
 
 function statusBadge(status) {
@@ -10372,7 +10382,7 @@ async function loadScanRecords(page) {
       <table>
         <thead><tr>
           <th>Tracking No.</th><th>Customer</th><th>Phone</th>
-          <th>Product</th><th>Page</th><th>Province/City</th>
+          <th>Product</th><th style="text-align:right;">Pcs</th><th>Page</th><th>Province/City</th>
           <th>Date</th><th>Status</th><th>Courier</th><th>Type</th>
         </tr></thead>
         <tbody>
@@ -10381,6 +10391,7 @@ async function loadScanRecords(page) {
             <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
             <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
             <td>${escapeHtml(r.product_name || '-')}</td>
+            <td style="text-align:right;font-weight:600;">${scanPcs(r.product_name)}</td>
             <td>${escapeHtml(r.chat_page || '-')}</td>
             <td>${escapeHtml(r.province_city || '-')}</td>
             <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
