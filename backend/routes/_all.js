@@ -698,9 +698,10 @@ function inventoryRoutes(db, { dispatch } = {}) {
   const r = express.Router();
   const allowedTypes = new Set(['Product', 'Supply']);
 
-  function requireAdmin(req, res, next) {
-    if (String(req.user?.role || '').trim() !== 'Administrator') {
-      return res.status(403).json({ error: 'Administrator access required' });
+  const INVENTORY_WRITE_ROLES = new Set(['Administrator', 'Logistics']);
+  function requireInventoryWrite(req, res, next) {
+    if (!INVENTORY_WRITE_ROLES.has(String(req.user?.role || '').trim())) {
+      return res.status(403).json({ error: 'Administrator or Logistics access required' });
     }
     return next();
   }
@@ -759,14 +760,14 @@ function inventoryRoutes(db, { dispatch } = {}) {
     res.json(await db.prepare('SELECT * FROM inventory WHERE stock < reorder_pt').all());
   });
 
-  r.post('/', requireAdmin, async (req, res) => {
+  r.post('/', requireInventoryWrite, async (req, res) => {
     const { name, sku, type, unit, stock, reorder_pt, cost_price, sell_price } = req.body;
     const item_id = `${type === 'Product' ? 'P' : 'S'}${String(Date.now()).slice(-4)}`;
     await db.prepare(`INSERT INTO inventory (item_id,name,sku,type,unit,stock,reorder_pt,cost_price,sell_price) VALUES (?,?,?,?,?,?,?,?,?)`).run(item_id, name, sku||null, type||'Product', unit||'pcs', stock||0, reorder_pt||(type==='Product'?200:15), cost_price||0, sell_price||null);
     res.status(201).json({ item_id });
   });
 
-  r.post('/import', requireAdmin, async (req, res) => {
+  r.post('/import', requireInventoryWrite, async (req, res) => {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: 'No rows to import' });
 
@@ -787,7 +788,7 @@ function inventoryRoutes(db, { dispatch } = {}) {
     res.status(201).json({ imported, failed_rows });
   });
 
-  r.patch('/:item_id/stock', requireAdmin, async (req, res) => {
+  r.patch('/:item_id/stock', requireInventoryWrite, async (req, res) => {
     const { action, qty, notes } = req.body;
     const item = await db.prepare('SELECT * FROM inventory WHERE item_id=?').get(req.params.item_id);
     if (!item) return res.status(404).json({ error: 'Item not found' });
@@ -952,17 +953,23 @@ function scansRoutes(db) {
       const m = String(name || '').match(/^\s*(\d+)/);
       return m ? Math.min(10000, parseInt(m[1], 10)) : 1;
     };
+    // Product name with the leading pcs count stripped ("2 Niacinamide" → "niacinamide"),
+    // used to roll pcs up per product so the inventory page can match by item name.
+    const productKey = (name) => String(name || '').replace(/^\s*\d+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
     const pcsByStatus = new Map();
     const pcsByPage = new Map();
     const scansByPage = new Map();
+    const pcsByProduct = new Map();
     let totalPcs = 0;
     for (const r of summaryRows) {
       const pcs = extractLeadingPcs(r.product_name);
       const status = r.status || 'Unknown';
       const chatPage = r.chat_page || 'Unknown';
+      const product = productKey(r.product_name);
       pcsByStatus.set(status, (pcsByStatus.get(status) || 0) + pcs);
       pcsByPage.set(chatPage, (pcsByPage.get(chatPage) || 0) + pcs);
       scansByPage.set(chatPage, (scansByPage.get(chatPage) || 0) + 1);
+      if (product) pcsByProduct.set(product, (pcsByProduct.get(product) || 0) + pcs);
       totalPcs += pcs;
     }
     const by_status = Array.from(pcsByStatus, ([status, pcs]) => ({ status, pcs }))
@@ -972,6 +979,8 @@ function scansRoutes(db) {
       pcs,
       scans: scansByPage.get(page) || 0,
     })).sort((a, b) => b.scans - a.scans);
+    const by_product = Array.from(pcsByProduct, ([product, pcs]) => ({ product, pcs }))
+      .sort((a, b) => b.pcs - a.pcs);
 
     res.json({
       data,
@@ -979,7 +988,7 @@ function scansRoutes(db) {
       page: pageNum,
       per_page: perPage,
       pages: Math.ceil(total / perPage),
-      summary: { by_status, by_page, total_pcs: totalPcs },
+      summary: { by_status, by_page, by_product, total_pcs: totalPcs },
     });
   });
 

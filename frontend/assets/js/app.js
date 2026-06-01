@@ -337,6 +337,42 @@ async function refreshInventoryFromBackend() {
   return true;
 }
 
+// Normalize an item/product name for matching RTS scan totals to inventory rows:
+// strip a leading pcs count ("2 Niacinamide"), collapse spaces, lowercase.
+function normalizeProductKey(name) {
+  return String(name || '').replace(/^\s*\d+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// Total pcs scanned in RTS, keyed by normalized product name. Populated from the
+// /scans summary so the Inventory Products table can show scanned pcs per item.
+async function refreshRtsPcsByProduct() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+
+  const result = await authorizedJsonRequest(`/scans?type=RTS&per_page=10&page=1&_=${Date.now()}`);
+  const byProduct = result?.summary?.by_product;
+  if (!Array.isArray(byProduct)) return false;
+
+  const map = {};
+  byProduct.forEach((row) => {
+    const key = normalizeProductKey(row.product);
+    if (key) map[key] = Number(row.pcs || 0);
+  });
+  DB.rtsPcsByProduct = map;
+  return true;
+}
+
+function rerenderInventoryTables() {
+  const tabs = {
+    'tab-products': DB.inventory.filter(i => i.type === 'Product'),
+    'tab-supplies': DB.inventory.filter(i => i.type === 'Supply'),
+    'tab-all': DB.inventory,
+  };
+  Object.entries(tabs).forEach(([id, items]) => {
+    const container = document.querySelector(`#${id} .table-container`);
+    if (container) container.innerHTML = renderInventoryTable(items);
+  });
+}
+
 async function loadPosOrdersDashboard() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
   const result = await authorizedJsonRequest(`/orders/pos-orders/dashboard?_=${Date.now()}`);
@@ -620,6 +656,7 @@ const DB = {
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: loadCsrRecords(),
   inventory: [],
+  rtsPcsByProduct: {},
   expenses: [],
   dailyPickups: [],
   scanRecords: [],
@@ -4584,18 +4621,20 @@ function renderInventory() {
 function renderInventoryTable(items) {
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th>Level</th><th>Reorder Pt.</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th title="Total pcs scanned in RTS for this product">RTS Pcs</th><th>Level</th><th>Reorder Pt.</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const pct = Math.min(100, (item.stock / (item.reorder * 1.5)) * 100);
           const statusClass = item.stock >= item.reorder ? 'stock-ok' : item.stock >= item.reorder * 0.5 ? 'stock-low' : 'stock-crit';
           const badge = item.stock >= item.reorder ? 'badge-success' : item.stock >= item.reorder * 0.5 ? 'badge-warning' : 'badge-danger';
           const badgeText = item.stock >= item.reorder ? 'OK' : item.stock >= item.reorder * 0.5 ? 'Low' : 'Critical';
+          const rtsPcs = Number((DB.rtsPcsByProduct || {})[normalizeProductKey(item.name)] || 0);
           return `<tr>
             <td><span class="font-mono text-xs text-muted">${item.sku}</span></td>
             <td><div style="font-weight:500">${item.name}</div></td>
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
             <td><strong>${item.stock}</strong> ${item.unit}</td>
+            <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
             <td>
               <div class="stock-indicator ${statusClass}" style="min-width:100px">
                 <div class="stock-bar"><div class="stock-bar-fill" style="width:${pct}%"></div></div>
@@ -4611,14 +4650,14 @@ function renderInventoryTable(items) {
               </div>
             </td>
           </tr>`;
-        }).join('') : '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
+        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
     </table>`;
 }
 
 function openStockModal(itemId = '') {
   if (!canManageInventoryStock()) {
-    showToast('warning', 'Admin only', 'Only administrators can edit inventory stock.');
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit inventory stock.');
     return;
   }
   openModal('stocks-modal');
@@ -5736,8 +5775,12 @@ function canManageHR() {
   return isAdminUser() || isHRUser();
 }
 
+function isLogisticsUser() {
+  return normalizeText(normalizeRoleName(App.user?.role)) === 'logistics';
+}
+
 function canManageInventoryStock() {
-  return isAdminUser();
+  return isAdminUser() || isLogisticsUser();
 }
 
 function isSalesMarketingUser(role = App.user?.role) {
@@ -6984,6 +7027,12 @@ function initPage(page) {
 
   if (page === 'attendance-log') {
     initAttendanceLogPage();
+  }
+
+  if (page === 'inventory') {
+    refreshRtsPcsByProduct()
+      .then((ok) => { if (ok && App.currentPage === 'inventory') rerenderInventoryTables(); })
+      .catch(() => {});
   }
 
   if (page === 'scanning' || page === 'rts-scanning') {
@@ -9501,7 +9550,7 @@ function savePickup() {
 // ─── INVENTORY HELPERS ─────────────────────────────────────
 async function saveInventoryItem() {
   if (!canManageInventoryStock()) {
-    showToast('warning', 'Admin only', 'Only administrators can add inventory items.');
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can add inventory items.');
     return;
   }
   const name = document.getElementById('inv-name')?.value;
@@ -9547,7 +9596,7 @@ async function saveInventoryItem() {
 
 async function updateStock() {
   if (!canManageInventoryStock()) {
-    showToast('warning', 'Admin only', 'Only administrators can edit inventory stock.');
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit inventory stock.');
     return;
   }
   const itemId = document.getElementById('stocks-item')?.value;
