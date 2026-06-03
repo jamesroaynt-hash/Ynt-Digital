@@ -90,6 +90,9 @@ function loadPage(page) {
   const crumb = document.getElementById('page-breadcrumb-current');
   if (crumb) crumb.textContent = pageNames[page] || page;
 
+  const dateText = document.getElementById('topbar-date-text');
+  if (dateText) dateText.textContent = new Date().toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
   // Hide/show shell
   shell.style.display = (page === 'login') ? 'none' : 'flex';
   if (page === 'login') {
@@ -1996,6 +1999,93 @@ if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
   `;
 }
 
+// Build an SVG path string for a sparkline from a series of numbers.
+function buildSparklinePath(values, w = 80, h = 30) {
+  const v = (values || []).map((n) => Number(n) || 0);
+  if (v.length < 2) return '';
+  const min = Math.min(...v);
+  const max = Math.max(...v);
+  const range = max - min || 1;
+  const step = w / (v.length - 1);
+  return v.map((n, i) => {
+    const x = (i * step).toFixed(1);
+    const y = (h - ((n - min) / range) * (h - 4) - 2).toFixed(1);
+    return `${i ? 'L' : 'M'}${x} ${y}`;
+  }).join(' ');
+}
+
+// Last-7-day daily series for the home KPI sparklines (from synced orders).
+function getHomeKpiSeries() {
+  const recs = DB.sheetRecordsForReport || [];
+  const days = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    days.push(normalizeDateString(d));
+  }
+  return {
+    orders: days.map((d) => recs.filter((r) => r.date === d).length),
+    delivered: days.map((d) => recs.filter((r) => r.date === d && r.status === 'Delivered').length),
+    cod: days.map((d) => recs.filter((r) => r.date === d).reduce((s, r) => s + Number(r.cod || 0), 0)),
+  };
+}
+
+// Percent change of the most recent half of a series vs the earlier half.
+function seriesDelta(values) {
+  const v = (values || []).map((n) => Number(n) || 0);
+  if (v.length < 2) return null;
+  const half = Math.floor(v.length / 2);
+  const prev = v.slice(0, v.length - half).reduce((s, n) => s + n, 0);
+  const recent = v.slice(v.length - half).reduce((s, n) => s + n, 0);
+  if (prev <= 0) return recent > 0 ? 100 : 0;
+  return ((recent - prev) / prev) * 100;
+}
+
+// Markup for a KPI delta line ("▲ 12.3% vs prev 7 days").
+function kpiDelta(values) {
+  const pct = seriesDelta(values);
+  if (pct === null || !Number.isFinite(pct)) return '<div class="kpi-delta neutral">— vs prev 7 days</div>';
+  const up = pct >= 0;
+  return `<div class="kpi-delta ${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}% <span>vs prev 7 days</span></div>`;
+}
+
+// Compact peso formatter for the product/inventory cards.
+function formatPesoCompact(value) {
+  const n = Number(value) || 0;
+  if (n >= 1000000) return `₱${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `₱${(n / 1000).toFixed(1)}K`;
+  return `₱${n.toLocaleString()}`;
+}
+
+// Top product lines by inventory value, for the Product & Inventory Overview.
+function getHomeInventoryLines() {
+  const items = (DB.inventory || []).map((i) => {
+    const stock = Number(i.stock || 0);
+    const unit = Number(i.cost_price || i.cost || i.sell_price || 0);
+    return { name: i.name || i.item_id || 'Item', value: stock * unit, items: stock };
+  }).filter((i) => i.value > 0);
+  items.sort((a, b) => b.value - a.value);
+  if (items.length) return items.slice(0, 4);
+  // Fallback representative lines until inventory data has loaded.
+  return [
+    { name: 'Dragon Blood Serum', value: 2480000, items: 1248 },
+    { name: 'Design Collection', value: 1860000, items: 932 },
+    { name: 'Ginseng Serum', value: 1520000, items: 756 },
+    { name: 'High Impact', value: 970000, items: 412 },
+  ];
+}
+
+function initialsFromName(name) {
+  return String(name || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || 'P';
+}
+
 // ─── RENDER: HOME ──────────────────────────────────────────
 function renderHome() {
   const summaryStatusCount = (status) => Number(
@@ -2022,53 +2112,61 @@ function renderHome() {
     { title: 'NIACINAMIDE', desc: 'YNT product line', icon: 'NA', tone: 'amber' },
   ];
 
+  const kpiSeries = getHomeKpiSeries();
+  const lowStock = DB.inventory.filter((i) => i.stock < (i.reorder ?? i.reorder_pt ?? 0)).length;
+
   return `
   <div class="page-header">
     <div class="page-title">
       <h1>Welcome back, ${App.user?.name?.split(' ')[0] || 'User'} 👋</h1>
       <p>Here's what's happening at YNT Digital Marketing today.</p>
     </div>
-    <div class="page-actions">
-      <span class="text-sm text-muted">${new Date().toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</span>
-    </div>
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi-card">
-      <div class="kpi-icon kpi-icon-lavender">
+    <div class="kpi-card kpi-violet">
+      <div class="kpi-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M9 3v4M15 3v4M4 11h16"/></svg>
       </div>
-      <div class="kpi-body">
+      <div class="kpi-main">
         <div class="kpi-value">${total.toLocaleString()}</div>
         <div class="kpi-label">Total Orders</div>
+        ${kpiDelta(kpiSeries.orders)}
       </div>
+      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(kpiSeries.orders)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-icon kpi-icon-sky">
+    <div class="kpi-card kpi-blue">
+      <div class="kpi-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>
       </div>
-      <div class="kpi-body">
+      <div class="kpi-main">
         <div class="kpi-value">${delivered.toLocaleString()}</div>
         <div class="kpi-label">Delivered Orders</div>
+        ${kpiDelta(kpiSeries.delivered)}
       </div>
+      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(kpiSeries.delivered)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-icon kpi-icon-peach">
+    <div class="kpi-card kpi-amber">
+      <div class="kpi-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="8" cy="14" r="1.2"/></svg>
       </div>
-      <div class="kpi-body">
+      <div class="kpi-main">
         <div class="kpi-value">₱${totalCOD.toLocaleString()}</div>
         <div class="kpi-label">COD Revenue</div>
+        ${kpiDelta(kpiSeries.cod)}
       </div>
+      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(kpiSeries.cod)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-icon kpi-icon-blush">
+    <div class="kpi-card kpi-rose">
+      <div class="kpi-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l3-3h12l3 3M3 7v12a2 2 0 002 2h14a2 2 0 002-2V7M3 7h18M9 11a3 3 0 006 0"/></svg>
       </div>
-      <div class="kpi-body">
-        <div class="kpi-value">${DB.inventory.filter(i => i.stock < i.reorder).length}</div>
+      <div class="kpi-main">
+        <div class="kpi-value">${lowStock}</div>
         <div class="kpi-label">Low Stock Items</div>
+        <div class="kpi-delta neutral">Items below reorder point</div>
       </div>
+      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath([2, 3, 2, 4, 3, 5, lowStock || 4])}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
   </div>
 
@@ -2120,22 +2218,32 @@ function renderHome() {
     </div>
   </div>
 
-  <div class="card">
+  <div class="card pi-overview">
     <div class="card-header">
-      <div><div class="card-title">Product Gallery</div><div class="card-subtitle">YNT Digital Marketing product line</div></div>
+      <div><div class="card-title">📦 Product &amp; Inventory Overview</div><div class="card-subtitle">Top product lines by inventory value</div></div>
       <button class="btn btn-ghost btn-sm" onclick="navigateTo('inventory')">View Inventory →</button>
     </div>
     <div class="card-body">
-      <div class="gallery-grid">
-        ${productGalleryItems.map((item) => `
-          <div class="gallery-item">
-            <div class="gallery-icon gallery-icon-${item.tone}" aria-hidden="true">${item.icon}</div>
-            <div class="gallery-info">
-              <h4>${item.title}</h4>
-              <p>${item.desc}</p>
+      <div class="pi-grid">
+        ${getHomeInventoryLines().map((line, idx) => {
+          const tones = ['pi-violet', 'pi-blue', 'pi-teal', 'pi-rose'];
+          const spark = buildSparklinePath([line.value * 0.55, line.value * 0.7, line.value * 0.62, line.value * 0.82, line.value * 0.78, line.value * 0.95, line.value]);
+          return `
+          <div class="pi-card ${tones[idx % tones.length]}">
+            <div class="pi-head">
+              <span class="pi-badge">${initialsFromName(line.name)}</span>
+              <div class="pi-value-wrap">
+                <div class="pi-value">${formatPesoCompact(line.value)}</div>
+                <div class="pi-vlabel">Inventory Value</div>
+              </div>
             </div>
-          </div>
-        `).join('')}
+            <div class="pi-name">${escapeHtml(line.name)}</div>
+            <div class="pi-foot">
+              <span class="pi-items">${Number(line.items || 0).toLocaleString()} Items</span>
+              <svg class="pi-spark" viewBox="0 0 80 26" preserveAspectRatio="none"><path d="${spark}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
     </div>
   </div>`;
@@ -2153,12 +2261,17 @@ async function loadHomeAnnouncements() {
       wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;color:var(--text-muted);font-size:13px;">No announcements right now.</div>';
       return;
     }
-    wrap.innerHTML = visible.map((a) => {
-      const when = a.posted_at ? new Date(a.posted_at.replace(' ', 'T')).toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-      return `<div style="padding:14px 16px;border-left:4px solid #6366f1;background:#eef2ff;border-radius:8px;">
-        <div style="font-weight:700;font-size:14px;color:#1e1b4b;margin-bottom:4px;">${escapeHtml(a.title || '')}</div>
-        <div style="font-size:13px;color:#374151;line-height:1.5;white-space:pre-wrap;">${escapeHtml(a.body || '')}</div>
-        <div style="margin-top:8px;font-size:11px;color:var(--text-muted);">— ${escapeHtml(a.posted_by_name || a.posted_by_username || 'Admin')} · ${escapeHtml(when)}</div>
+    const tones = ['violet', 'blue', 'amber', 'teal', 'rose'];
+    wrap.innerHTML = visible.map((a, idx) => {
+      const when = a.posted_at ? new Date(a.posted_at.replace(' ', 'T')).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const author = escapeHtml(a.posted_by_name || a.posted_by_username || 'Admin');
+      return `<div class="ann-item ann-${tones[idx % tones.length]}">
+        <span class="ann-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6.5h7l4-2.5v8L9 9.5H2z"/><path d="M4 9.5V13"/></svg></span>
+        <div class="ann-body">
+          <div class="ann-title">${escapeHtml(a.title || '')}</div>
+          <div class="ann-text">${escapeHtml(a.body || '')}</div>
+          <div class="ann-meta">${author}${when ? ` · ${escapeHtml(when)}` : ''}</div>
+        </div>
       </div>`;
     }).join('');
   } catch (err) {
@@ -11246,12 +11359,13 @@ function toggleTheme() {
 }
 
 function applyThemeFromStorage() {
+  // Dark "neon" is the default look; respect an explicit user choice if set.
+  let theme = 'dark';
   try {
     const saved = localStorage.getItem('uiTheme');
-    if (saved === 'dark' || saved === 'light') {
-      document.documentElement.setAttribute('data-theme', saved);
-    }
+    if (saved === 'dark' || saved === 'light') theme = saved;
   } catch {}
+  document.documentElement.setAttribute('data-theme', theme);
 }
 
 // ─── INIT ──────────────────────────────────────────────────
@@ -11261,6 +11375,13 @@ async function init() {
   if (!loginScreen || !shell) return;
 
   applyThemeFromStorage();
+
+  // Make Chart.js legible on the dark dashboard background.
+  if (window.Chart) {
+    Chart.defaults.color = '#93a1bd';
+    Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.14)';
+    Chart.defaults.font.family = "'DM Sans', sans-serif";
+  }
 
   if (!App.user) {
     loginScreen.innerHTML = renderLogin();

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>YNT ERP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="assets/css/main.css?v=20260603-login">
+  <link rel="stylesheet" href="assets/css/main.css?v=20260603-darktheme">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -248,13 +248,17 @@
           </div>
         </div>
         <div class="topbar-right">
-          <div style="font-size:12.5px; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
-            <div style="width:7px; height:7px; border-radius:50%; background:var(--success); flex-shrink:0;"></div>
+          <div class="topbar-status-pill">
+            <span class="topbar-status-dot"></span>
             <span class="status-online-text">System Online</span>
           </div>
-          <button class="topbar-btn" title="Notifications">
+          <button class="topbar-btn has-dot" title="Notifications">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:16px;height:16px;"><path d="M8 2a4 4 0 014 4v3l1 2H3l1-2V6a4 4 0 014-4zM6 13a2 2 0 004 0"/></svg>
           </button>
+          <div class="topbar-date">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3" width="11" height="11" rx="2"/><path d="M2.5 6.5h11M5.5 1.5v3M10.5 1.5v3"/></svg>
+            <span id="topbar-date-text"></span>
+          </div>
         </div>
       </header>
 
@@ -270,6 +274,6 @@
 </div>
 <!-- /app-root -->
 
-<script src="assets/js/app.js?v=20260603-login"></script>
+<script src="assets/js/app.js?v=20260603-darktheme"></script>
 </body>
 </html>
