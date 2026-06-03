@@ -601,6 +601,12 @@ async function handleLogin(e) {
     return;
   }
 
+  if (document.getElementById('login-remember')?.checked) {
+    localStorage.setItem('ynt_remember_user', username);
+  } else {
+    localStorage.removeItem('ynt_remember_user');
+  }
+
   const apiBase = getAuthApiBase();
   if (apiBase) {
     try {
@@ -1384,45 +1390,151 @@ function getOrderById(orderId) {
 
 // ─── RENDER: LOGIN ─────────────────────────────────────────
 function renderLogin() {
+  const rememberedUser = localStorage.getItem('ynt_remember_user') || '';
+  const year = new Date().getFullYear();
   return `
   <div class="login-page" id="login-page">
-    <div class="login-card">
-      <div class="login-visual">
-        <div class="login-visual-shapes">
-          <span class="ls-shape ls-shape-1"></span>
-          <span class="ls-shape ls-shape-2"></span>
-          <span class="ls-shape ls-shape-3"></span>
-          <span class="ls-shape ls-shape-4"></span>
-          <span class="ls-shape ls-shape-5"></span>
-        </div>
-        <div class="login-visual-content">
-          <div class="login-eyebrow">Welcome to</div>
-          <h2 class="login-headline">YNT Digital Marketing Services</h2>
-          <p class="login-subhead">Your all-in-one workspace for sales, marketing, and operations — built for the YNT team.</p>
-        </div>
-      </div>
-      <div class="login-panel">
-        <img class="login-brand-logo" src="/Images/yntlogo.png" alt="YNT">
-        <div class="login-form-title">USER LOGIN</div>
-        <form onsubmit="handleAuthSubmit(event)">
-          <div class="login-field">
-            <span class="login-field-icon">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="6" r="3"/><path d="M2.5 13.5c.8-2.5 2.9-4 5.5-4s4.7 1.5 5.5 4"/></svg>
+    <div class="login-main">
+      <div class="login-shell">
+        <!-- LEFT: sign-in -->
+        <div class="login-left">
+          <div class="login-brand">
+            <span class="login-brand-badge">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M3 17l5-6 4 4 5-7 4 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </span>
-            <input type="text" id="username" placeholder="Username" autocomplete="username">
-          </div>
-          <div class="login-field">
-            <span class="login-field-icon">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 116 0v2"/></svg>
+            <span class="login-brand-text">
+              <span class="login-brand-name">YNT ERP</span>
+              <span class="login-brand-sub">DIGITAL MARKETING</span>
             </span>
-            <input type="password" id="password" placeholder="Password" autocomplete="current-password">
           </div>
-          <div id="auth-helper-copy" class="login-helper">Sign in with your registered username and password. Only admin can create new accounts.</div>
-          <button type="submit" class="login-submit-btn"><span id="auth-submit-label">LOGIN</span></button>
-        </form>
+
+          <div class="login-box">
+            <h1 class="login-title">Welcome back</h1>
+            <p class="login-desc">Sign in to continue to your YNT ERP dashboard.</p>
+
+            <form onsubmit="handleAuthSubmit(event)">
+              <div class="login-group">
+                <label class="login-label" for="username">Username</label>
+                <div class="login-input-wrap">
+                  <span class="login-input-icon">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M3 6l7 5 7-5"/></svg>
+                  </span>
+                  <input type="text" id="username" placeholder="Enter your username" autocomplete="username" value="${escapeHtml(rememberedUser)}">
+                </div>
+              </div>
+
+              <div class="login-group">
+                <label class="login-label" for="password">Password</label>
+                <div class="login-input-wrap">
+                  <span class="login-input-icon">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="9" width="12" height="8" rx="2"/><path d="M6.5 9V6.5a3.5 3.5 0 117 0V9"/></svg>
+                  </span>
+                  <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password">
+                  <button type="button" class="login-eye" onclick="toggleLoginPassword(this)" aria-label="Show password">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path class="eye-open" d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle class="eye-open" cx="10" cy="10" r="2.5"/><path class="eye-off" d="M3 3l14 14M8 8a2.5 2.5 0 003.5 3.5M5 6.5C3 8 1.5 10 1.5 10S4.5 15.5 10 15.5c1.3 0 2.5-.3 3.5-.8M9 4.6a8 8 0 011 0c5.5 0 8.5 5.4 8.5 5.4s-.7 1.3-2 2.6" style="display:none"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="login-row">
+                <label class="login-remember">
+                  <input type="checkbox" id="login-remember" ${rememberedUser ? 'checked' : ''}>
+                  <span>Remember me</span>
+                </label>
+                <a href="#" class="login-forgot" onclick="loginForgotPassword(event)">Forgot password?</a>
+              </div>
+
+              <button type="submit" class="login-signin">
+                Sign In
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h11M11 6l4 4-4 4"/></svg>
+              </button>
+            </form>
+          </div>
+
+          <div class="login-secure">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2l6 2.5V10c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8V4.5L10 2z"/><path d="M7.5 10l1.8 1.8L13 8.5"/></svg>
+            Secure access to your business dashboard
+          </div>
+        </div>
+
+        <!-- RIGHT: showcase -->
+        <div class="login-right">
+          <div class="login-preview">
+            <div class="lp-head">
+              <span class="lp-dot"></span><span class="lp-dot"></span><span class="lp-dot"></span>
+              <span class="lp-head-title">Dashboard</span>
+              <span class="lp-online">System Online</span>
+            </div>
+            <div class="lp-stats">
+              <div class="lp-stat"><span class="lp-stat-ico blue"></span><b>1,248</b><i>Total Orders</i></div>
+              <div class="lp-stat"><span class="lp-stat-ico violet"></span><b>1,082</b><i>Delivered</i></div>
+              <div class="lp-stat"><span class="lp-stat-ico amber"></span><b>₱8,94,320</b><i>COD Revenue</i></div>
+              <div class="lp-stat"><span class="lp-stat-ico rose"></span><b>28</b><i>Low Stock</i></div>
+            </div>
+            <div class="lp-charts">
+              <div class="lp-card lp-area">
+                <span class="lp-card-title">Order Status Overview</span>
+                <svg viewBox="0 0 240 90" preserveAspectRatio="none" class="lp-spark">
+                  <defs><linearGradient id="lpFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3b6cff" stop-opacity="0.45"/><stop offset="100%" stop-color="#3b6cff" stop-opacity="0"/></linearGradient></defs>
+                  <path d="M0 70 L34 60 L68 64 L102 44 L136 50 L170 30 L204 36 L240 18" fill="none" stroke="#5b8bff" stroke-width="2.5"/>
+                  <path d="M0 70 L34 60 L68 64 L102 44 L136 50 L170 30 L204 36 L240 18 L240 90 L0 90 Z" fill="url(#lpFill)"/>
+                </svg>
+              </div>
+              <div class="lp-card lp-donut">
+                <span class="lp-card-title">RTS Percentage</span>
+                <svg viewBox="0 0 80 80" class="lp-donut-svg">
+                  <circle cx="40" cy="40" r="30" fill="none" stroke="#1e2a45" stroke-width="10"/>
+                  <circle cx="40" cy="40" r="30" fill="none" stroke="#3b6cff" stroke-width="10" stroke-dasharray="14 174" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 40 40)"/>
+                  <text x="40" y="44" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">7.69%</text>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="login-pitch">
+            <h2>Built for clarity. Designed for growth.</h2>
+            <p>Track performance, manage operations, and grow your business with real-time insights — all in one place.</p>
+            <div class="login-features">
+              <div class="login-feature">
+                <span class="lf-icon"><svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.7"><path d="M3 15l4-5 3 3 4-6 3 4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="lf-text"><b>Real-time</b>Analytics</span>
+              </div>
+              <div class="login-feature">
+                <span class="lf-icon"><svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.7"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M7 12v2M10 8v6M13 10v4" stroke-linecap="round"/></svg></span>
+                <span class="lf-text"><b>Smart</b>Reporting</span>
+              </div>
+              <div class="login-feature">
+                <span class="lf-icon"><svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.7"><path d="M10 2l6 2.5V10c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8V4.5L10 2z"/></svg></span>
+                <span class="lf-text"><b>Secure</b>&amp; Reliable</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+
+    <footer class="login-footer">
+      <span>© ${year} YNT Digital Marketing. All rights reserved.</span>
+      <span class="login-footer-links"><a href="#" onclick="event.preventDefault()">Privacy Policy</a><a href="#" onclick="event.preventDefault()">Terms of Service</a></span>
+    </footer>
   </div>`;
+}
+
+function toggleLoginPassword(btn) {
+  const input = document.getElementById('password');
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.classList.toggle('is-visible', show);
+  const open = btn.querySelectorAll('.eye-open');
+  const off = btn.querySelectorAll('.eye-off');
+  open.forEach((el) => { el.style.display = show ? 'none' : ''; });
+  off.forEach((el) => { el.style.display = show ? '' : 'none'; });
+}
+
+function loginForgotPassword(e) {
+  e && e.preventDefault();
+  showToast('info', 'Password reset', 'Contact your administrator to reset your password.');
 }
 
 function renderApiConnections() {
