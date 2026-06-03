@@ -11244,6 +11244,7 @@ async function loadSheetRecords(page) {
             <th>Product</th><th>COD</th><th>Tracking</th>
             <th style="text-align:center;">Attempts</th><th>Status</th>
             <th>Notes</th><th>Courier</th><th>Tag</th>
+            <th>Ad ID</th><th>Shipping Info</th>
             <th>Confirmed By</th><th>Date</th>
           </tr></thead>
           <tbody>
@@ -11260,6 +11261,8 @@ async function loadSheetRecords(page) {
               <td ${tdClip} title="${escapeHtml(r.internal_notes || '')}">${clip(r.internal_notes || '-', 30)}</td>
               <td ${tdClip} title="${escapeHtml(r.courier || '')}">${clip(r.courier || '-', 20)}</td>
               <td ${tdClip} title="${escapeHtml(r.tag || '')}">${clip(r.tag || '-', 24)}</td>
+              <td ${tdClip} title="${escapeHtml(r.ad_id || '')}"><span class="mono-text" style="font-size:12px;">${clip(r.ad_id || '-', 20)}</span></td>
+              <td ${tdClip} title="${escapeHtml(r.shipping_info || '')}">${clip(r.shipping_info || '-', 30)}</td>
               <td ${tdClip} title="${escapeHtml(r.confirmed_by || '')}">${clip(r.confirmed_by || '-', 20)}</td>
               <td style="white-space:nowrap;">${escapeHtml((r.order_date || '').slice(0, 10))}</td>
             </tr>`).join('')}

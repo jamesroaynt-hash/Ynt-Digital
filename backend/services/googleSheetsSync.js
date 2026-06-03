@@ -606,6 +606,13 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     'shipping_state', 'shipping state', 'bill_province', 'bill province',
     'shipping_province', 'shipping province',
   ]));
+  const shippingInfo = stringOrNull(getFirstValue(rawRow, [
+    'shipping_info', 'shipping info', 'shippinginfo',
+    'shipping_information', 'shipping information', 'ship_info', 'ship info',
+  ]));
+  const adId = stringOrNull(getFirstValue(rawRow, [
+    'ad_id', 'ad id', 'adid', 'ads_id', 'ads id', 'ad_id_number', 'ad_id_number_',
+  ]));
 
   await db.prepare(`
     INSERT INTO google_orders (
@@ -613,9 +620,10 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       quantity, cod, status, status_normalized, courier, day_created, chat_page,
       confirmed_by, delivery_attempts, tag, pancake_tags,
       internal_notes, address, province_city,
-      spreadsheet_id, source_sheet, sheet_row_number, raw_row, updated_at
+      spreadsheet_id, source_sheet, sheet_row_number, raw_row,
+      shipping_info, ad_id, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(external_id) DO UPDATE SET
       tracking_no = excluded.tracking_no,
       customer_name = excluded.customer_name,
@@ -639,6 +647,8 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       source_sheet = excluded.source_sheet,
       sheet_row_number = excluded.sheet_row_number,
       raw_row = excluded.raw_row,
+      shipping_info = excluded.shipping_info,
+      ad_id = excluded.ad_id,
       updated_at = datetime('now')
     WHERE
          google_orders.tracking_no       IS DISTINCT FROM excluded.tracking_no
@@ -664,6 +674,8 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
       OR google_orders.source_sheet       IS DISTINCT FROM excluded.source_sheet
       OR google_orders.sheet_row_number   IS DISTINCT FROM excluded.sheet_row_number
       OR google_orders.raw_row            IS DISTINCT FROM excluded.raw_row
+      OR google_orders.shipping_info      IS DISTINCT FROM excluded.shipping_info
+      OR google_orders.ad_id              IS DISTINCT FROM excluded.ad_id
   `).run(
     externalId,
     normalized.tracking_no,
@@ -687,7 +699,9 @@ async function upsertGoogleOrder(db, normalized, rawRow, spreadsheetId, sheetNam
     spreadsheetId,
     sheetName,
     rowNumber,
-    safeJson(rawRow)
+    safeJson(rawRow),
+    shippingInfo,
+    adId
   );
   return externalId;
 }

@@ -208,6 +208,8 @@ module.exports = function integrationRoutes(db) {
                g.internal_notes,
                g.address,
                g.province_city,
+               g.shipping_info,
+               g.ad_id,
                g.day_created   AS order_date,
                g.updated_at`;
 
