@@ -45,6 +45,8 @@ function normalizeConnection(value = {}, fallback = {}) {
     // Pancake messaging API — for users list and staff statistics
     messaging_page_id: stringOrNull(value.messaging_page_id || value.messagingPageId || fallback.messaging_page_id) || null,
     page_access_token: stringOrNull(value.page_access_token || value.pageAccessToken || fallback.page_access_token) || null,
+    owner: stringOrNull(value.owner || fallback.owner) || null,
+    botcake_token: stringOrNull(value.botcake_token || value.botcakeToken || fallback.botcake_token) || null,
     notes: stringOrNull(value.notes || fallback.notes) || '',
   };
 }
@@ -60,6 +62,8 @@ function rowToConnection(row) {
     shop_id: stringOrNull(row.page_id),
     messaging_page_id: stringOrNull(row.user_access_token),
     page_access_token: stringOrNull(row.page_access_token),
+    owner: stringOrNull(row.owner),
+    botcake_token: stringOrNull(row.botcake_token),
     notes: stringOrNull(row.notes) || '',
     webhook_secret: stringOrNull(row.webhook_secret),
   };
@@ -76,6 +80,8 @@ function publicConnection(connection) {
     has_api_key: Boolean(connection.api_key),
     has_page_token: Boolean(connection.page_access_token),
     messaging_page_id: connection.messaging_page_id || null,
+    owner: connection.owner || null,
+    botcake_token: connection.botcake_token || null,
     notes: connection.notes || '',
   };
 }
@@ -167,8 +173,8 @@ async function saveSetting(db, payload) {
       const conn = normalizeConnection(connPayload, existing || { name: `POS ${index + 1}` });
       await db.prepare(`
         INSERT INTO integration_settings
-          (provider, connection_id, name, enabled, base_url, api_key, page_id, page_access_token, user_access_token, sync_mode, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (provider, connection_id, name, enabled, base_url, api_key, page_id, page_access_token, user_access_token, owner, botcake_token, sync_mode, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(provider, connection_id) DO UPDATE SET
           name = excluded.name,
           enabled = excluded.enabled,
@@ -177,13 +183,15 @@ async function saveSetting(db, payload) {
           page_id = excluded.page_id,
           page_access_token = COALESCE(excluded.page_access_token, integration_settings.page_access_token),
           user_access_token = excluded.user_access_token,
+          owner = excluded.owner,
+          botcake_token = COALESCE(excluded.botcake_token, integration_settings.botcake_token),
           sync_mode = excluded.sync_mode,
           notes = excluded.notes,
           updated_at = datetime('now')
       `).run(
         PROVIDER, conn.id, conn.name, boolToInt(conn.enabled), conn.base_url,
         conn.api_key, conn.shop_id, conn.page_access_token, conn.messaging_page_id,
-        conn.sync_mode, conn.notes
+        conn.owner, conn.botcake_token, conn.sync_mode, conn.notes
       );
     }
   }
@@ -1415,11 +1423,12 @@ async function transferPosProductToInventory(db, shopId, item) {
   return result.lastInsertRowid;
 }
 
-// Throttle the two-scan cleanup so high-frequency callers (per-batch storeItems,
-// per-webhook handler) don't fire it every few seconds. Without this the pair
-// burned ~5h of DB CPU across 207k calls over 18 days. 5 min staleness is fine —
-// the placeholders are cosmetic, not correctness-critical.
-const CLEANUP_THROTTLE_MS = 5 * 60 * 1000;
+// Auto-triggers removed from storeItems / webhook / replay paths — current
+// inserts no longer create the 'Pancake POS Customer' / 'Pancake POS Order'
+// placeholders, so cleanup is unnecessary at sync time. The 24h throttle is a
+// defensive cap in case a callsite is re-added; the manual /pos-raw/incomplete
+// endpoint and the POS_CLEAN_MALFORMED_ORDERS startup flag still work.
+const CLEANUP_THROTTLE_MS = 24 * 60 * 60 * 1000;
 let cleanupLastRunAt = 0;
 let cleanupInflight = null;
 
@@ -1517,9 +1526,6 @@ async function storeItems(db, resource, shopId, items, connectionName = null) {
     if (resource === 'orders') await transferPosOrderToDashboard(db, shopId, item);
     if (resource === 'products') await transferPosProductToInventory(db, shopId, item);
     if (localId) localIds.push(localId);
-  }
-  if (resource === 'orders' && items.length > 0) {
-    await cleanupMalformedDashboardOrders(db);
   }
   return localIds;
 }
@@ -1636,8 +1642,6 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
     await processRows(rows);
   }
 
-  const cleaned = await cleanupMalformedDashboardOrders(db);
-
   return {
     provider: PROVIDER,
     mode: 'pos_replay',
@@ -1645,7 +1649,7 @@ async function replayStoredOrdersToDashboard(db, payload = {}) {
     scanned,
     transferred,
     skipped,
-    cleaned,
+    cleaned: 0,
     skip_reasons,
     tag_filter: tagFilter,
     limit: allRows ? 'all' : limit,
@@ -2109,10 +2113,6 @@ async function receiveWebhook(db, payload = {}) {
     const localId = await upsertOrder(db, shopId, item);
     if (localId) localIds.push(localId);
     await transferPosOrderToDashboard(db, shopId, item);
-  }
-
-  if (orders.length > 0) {
-    await cleanupMalformedDashboardOrders(db);
   }
 
   return {

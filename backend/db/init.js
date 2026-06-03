@@ -226,6 +226,8 @@ function runMigrations(db) {
   ensureColumn(db, 'integration_settings', 'user_access_token', 'TEXT');
   ensureColumn(db, 'integration_settings', 'page_id', 'TEXT');
   ensureColumn(db, 'integration_settings', 'page_access_token', 'TEXT');
+  ensureColumn(db, 'integration_settings', 'owner', 'TEXT');
+  ensureColumn(db, 'integration_settings', 'botcake_token', 'TEXT');
   ensureColumn(db, 'users', 'birthday', 'TEXT');
   ensureColumn(db, 'users', 'address', 'TEXT');
   ensureColumn(db, 'users', 'phone_number', 'TEXT');
@@ -491,6 +493,8 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'integration_settings', 'user_access_token', 'TEXT');
   await ensureColumnAsync(db, 'integration_settings', 'page_id', 'TEXT');
   await ensureColumnAsync(db, 'integration_settings', 'page_access_token', 'TEXT');
+  await ensureColumnAsync(db, 'integration_settings', 'owner', 'TEXT');
+  await ensureColumnAsync(db, 'integration_settings', 'botcake_token', 'TEXT');
   await ensureColumnAsync(db, 'users', 'birthday', 'TEXT');
   await ensureColumnAsync(db, 'users', 'address', 'TEXT');
   await ensureColumnAsync(db, 'users', 'phone_number', 'TEXT');

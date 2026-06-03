@@ -1202,6 +1202,10 @@ function mapBackendPosStatusToState(status = {}, previous = {}) {
       baseUrl: connection.base_url || saved.baseUrl || saved.base_url || status.base_url || 'https://pos.pages.fm/api/v1',
       apiKey: saved.apiKey || saved.api_key || '',
       shopId: connection.shop_id || saved.shopId || saved.shop_id || '',
+      messagingPageId: connection.messaging_page_id || saved.messagingPageId || saved.messaging_page_id || '',
+      pageAccessToken: saved.pageAccessToken || saved.page_access_token || '',
+      owner: connection.owner || saved.owner || '',
+      botcakeToken: connection.botcake_token || saved.botcakeToken || saved.botcake_token || '',
       notes: connection.notes || saved.notes || '',
     };
   });
@@ -10170,6 +10174,8 @@ async function syncPancakePosConfigToBackend(settings) {
       shop_id: connection.shopId || connection.shop_id,
       messaging_page_id: connection.messagingPageId || connection.messaging_page_id || undefined,
       page_access_token: connection.pageAccessToken || connection.page_access_token || undefined,
+      owner: connection.owner || undefined,
+      botcake_token: connection.botcakeToken || connection.botcake_token || undefined,
       notes: connection.notes || '',
     }));
   const payload = {
