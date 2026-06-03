@@ -26,6 +26,9 @@ let attendanceState = { today: null, date: '', advances: [], leaves: [], activeT
 let posUsersState = { users: [], total: 0, page: 1, perPage: 50, search: '', loading: false };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
+// Flag set once any legacy localStorage CSR records have been pushed to the
+// server, so the one-time migration never re-imports them.
+const CSR_MIGRATED_KEY = 'ynt_csr_migrated';
 const COURIER_STORAGE_KEY = 'ynt_courier_options';
 const MARKETING_STORAGE_KEY = 'ynt_marketing_center';
 const DAMAGE_REPORT_STORAGE_KEY = 'ynt_damage_reports';
@@ -655,7 +658,7 @@ const DB = {
   posRawStatusCounts: [],
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
-  csrRecords: loadCsrRecords(),
+  csrRecords: [],
   inventory: [],
   rtsPcsByProduct: {},
   expenses: [],
@@ -1031,16 +1034,47 @@ function generateCsrRecords() {
   });
 }
 
-function loadCsrRecords() {
+let csrRecordsLoaded = false;
+
+// CSR daily records live on the server so every authorized user sees the same
+// data. Pull them into DB.csrRecords; the per-role visibility (own vs all) is
+// enforced server-side, and the page still filters/sorts client-side.
+async function loadCsrRecordsFromBackend({ force = false } = {}) {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (csrRecordsLoaded && !force) return true;
   try {
-    const saved = JSON.parse(localStorage.getItem(CSR_STORAGE_KEY) || '[]');
-    if (Array.isArray(saved) && saved.length) return saved;
-  } catch {}
-  return [];
+    const result = await authorizedJsonRequest('/csr');
+    DB.csrRecords = Array.isArray(result?.data) ? result.data : [];
+    csrRecordsLoaded = true;
+    await migrateLocalCsrRecords();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function saveCsrRecords() {
-  localStorage.setItem(CSR_STORAGE_KEY, JSON.stringify(DB.csrRecords));
+// One-time push of any CSR records that were stranded in this browser's
+// localStorage (from before records were stored server-side) up to the server.
+async function migrateLocalCsrRecords() {
+  if (localStorage.getItem(CSR_MIGRATED_KEY) === '1') return;
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem(CSR_STORAGE_KEY) || '[]'); } catch {}
+  if (!Array.isArray(local) || !local.length) {
+    localStorage.setItem(CSR_MIGRATED_KEY, '1');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/csr/import', {
+      method: 'POST',
+      body: JSON.stringify({ rows: local }),
+    });
+    localStorage.setItem(CSR_MIGRATED_KEY, '1');
+    localStorage.removeItem(CSR_STORAGE_KEY);
+    const result = await authorizedJsonRequest('/csr');
+    DB.csrRecords = Array.isArray(result?.data) ? result.data : DB.csrRecords;
+  } catch {
+    // Leave the flag unset so the migration retries on the next load.
+  }
 }
 
 function loadDamageReports() {
@@ -5413,7 +5447,7 @@ function renderViewRecords() {
   <div class="tabs" id="records-tabs">
     <button class="tab-btn active" onclick="switchTab(this,'rec-pos-orders')">POS Orders (${DB.posRawTotal})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-sheets'); loadSheetRecords()">Sheet Records</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (${DB.csrRecords.length})</button>
+    <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (<span id="rec-csr-count">${DB.csrRecords.length}</span>)</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
   </div>
@@ -6085,6 +6119,8 @@ function renderRecCsrRows() {
 function refreshRecCsrTable() {
   const tbody = document.getElementById('rec-csr-tbody');
   if (tbody) tbody.innerHTML = renderRecCsrRows();
+  const count = document.getElementById('rec-csr-count');
+  if (count) count.textContent = DB.csrRecords.length;
 }
 
 function renderCSRTable() {
@@ -6290,7 +6326,7 @@ function editCSRRecord(recordId) {
   document.getElementById('csr-date')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function editCSRRecordInline(record) {
+async function editCSRRecordInline(record) {
   const next = {
     ...record,
     date: window.prompt('Date', record.date) || record.date,
@@ -6309,22 +6345,29 @@ function editCSRRecordInline(record) {
     return;
   }
 
-  const index = DB.csrRecords.findIndex((item) => item.id === record.id);
-  if (index === -1) return;
-  DB.csrRecords[index] = next;
-  saveCsrRecords();
+  try {
+    const updated = await authorizedJsonRequest(`/csr/${encodeURIComponent(record.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(next),
+    });
+    const index = DB.csrRecords.findIndex((item) => item.id === record.id);
+    if (index !== -1) DB.csrRecords[index] = updated;
+  } catch (error) {
+    showToast('error', 'Update failed', error.message || 'Could not update the CSR record.');
+    return;
+  }
+
   renderCSRTable();
   showToast('success', 'CSR record updated', `${next.customerName} • ${next.pageName}`);
 }
 
-function deleteCSRRecord(recordId) {
-  const recordIndex = DB.csrRecords.findIndex((item) => item.id === recordId);
-  if (recordIndex === -1) {
+async function deleteCSRRecord(recordId) {
+  const record = DB.csrRecords.find((item) => item.id === recordId);
+  if (!record) {
     showToast('error', 'Record not found', 'The selected CSR record could not be found.');
     return;
   }
 
-  const record = DB.csrRecords[recordIndex];
   if (!canManageCSRRecord(record)) {
     showToast('error', 'Access denied', 'You can only delete your own CSR daily records.');
     return;
@@ -6332,8 +6375,15 @@ function deleteCSRRecord(recordId) {
 
   if (!confirm(`Delete CSR record for ${record.customerName}?`)) return;
 
-  DB.csrRecords.splice(recordIndex, 1);
-  saveCsrRecords();
+  try {
+    await authorizedJsonRequest(`/csr/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete the CSR record.');
+    return;
+  }
+
+  const index = DB.csrRecords.findIndex((item) => item.id === recordId);
+  if (index !== -1) DB.csrRecords.splice(index, 1);
 
   if (editingCSRRecordId === recordId) {
     resetCSRForm();
@@ -6343,9 +6393,8 @@ function deleteCSRRecord(recordId) {
   showToast('success', 'CSR record deleted', `${record.customerName} • ${record.pageName}`);
 }
 
-function saveCSRRecord() {
+async function saveCSRRecord() {
   const record = {
-    id: editingCSRRecordId || `CSR-${String(DB.csrRecords.length + 1).padStart(4, '0')}`,
     date: document.getElementById('csr-date')?.value || '',
     csrName: (document.getElementById('csr-name')?.value || getCurrentCsrName()).trim(),
     pageName: (document.getElementById('csr-page-name')?.value || '').trim(),
@@ -6372,31 +6421,35 @@ function saveCSRRecord() {
     record.csrName = getCurrentCsrName();
   }
 
-  if (editingCSRRecordId) {
-    const existingIndex = DB.csrRecords.findIndex((item) => item.id === editingCSRRecordId);
-    if (existingIndex === -1) {
-      showToast('error', 'Record not found', 'The selected CSR record no longer exists.');
-      resetCSRForm();
-      renderCSRTable();
-      return;
+  try {
+    if (editingCSRRecordId) {
+      const existing = DB.csrRecords.find((item) => item.id === editingCSRRecordId);
+      if (existing && !canManageCSRRecord(existing)) {
+        showToast('error', 'Access denied', 'You can only edit your own CSR daily records.');
+        return;
+      }
+      const updated = await authorizedJsonRequest(`/csr/${encodeURIComponent(editingCSRRecordId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(record),
+      });
+      const index = DB.csrRecords.findIndex((item) => item.id === editingCSRRecordId);
+      if (index !== -1) DB.csrRecords[index] = updated;
+    } else {
+      const created = await authorizedJsonRequest('/csr', {
+        method: 'POST',
+        body: JSON.stringify(record),
+      });
+      DB.csrRecords.unshift(created);
     }
-
-    if (!canManageCSRRecord(DB.csrRecords[existingIndex])) {
-      showToast('error', 'Access denied', 'You can only edit your own CSR daily records.');
-      return;
-    }
-
-    DB.csrRecords[existingIndex] = { ...DB.csrRecords[existingIndex], ...record };
-  } else {
-    DB.csrRecords.unshift(record);
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save the CSR record.');
+    return;
   }
-  saveCsrRecords();
+
   const successMessage = editingCSRRecordId ? 'CSR record updated' : 'CSR record saved';
   resetCSRForm();
   renderCSRTable();
   showToast('success', successMessage, `${record.customerName} • ${record.pageName} • ₱${record.price.toLocaleString()}`);
-  return;
-  showToast('success', 'CSR record saved', `${record.customerName} • ${record.pageName} • ₱${record.price.toLocaleString()}`);
 }
 
 function formatClockValue(value) {
@@ -7063,6 +7116,11 @@ function initPage(page) {
     if (dateToInput && !dateToInput.value) dateToInput.value = today;
     csrPage = 1;
     renderCSRTable();
+    // CSR records are stored server-side so every authorized user sees the same
+    // entries — refresh on each visit to pick up other members' new records.
+    loadCsrRecordsFromBackend({ force: true })
+      .then(() => { if (App.currentPage === 'csr') renderCSRTable(); })
+      .catch(() => {});
     // Google Orders power the Page Name dropdown and the Order ID auto-fill.
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') loadPage('csr'); }).catch(() => {});
@@ -7080,6 +7138,10 @@ function initPage(page) {
         const tbody = document.getElementById('rec-pos-orders-tbody');
         if (tbody) tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
+    // CSR Records tab is server-backed; pull the latest entries, then repaint.
+    loadCsrRecordsFromBackend({ force: true })
+      .then(() => { if (App.currentPage === 'view-records') refreshRecCsrTable(); })
+      .catch(() => {});
     // CSR Records tab shows live status/tracking from Google Orders — ensure they
     // are loaded, then repaint the rows once available.
     if (!DB.sheetRecordsForReport.length) {

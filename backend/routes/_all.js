@@ -1031,9 +1031,154 @@ function scansRoutes(db) {
   return r;
 }
 
+/* ─── CSR DAILY RECORDS ───────────────────────────────────── */
+function csrRoutes(db) {
+  const r = express.Router();
+
+  // Roles allowed to see every CSR entry. Everyone else only sees their own.
+  const VIEW_ALL_ROLES = new Set([
+    'Administrator', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL',
+  ]);
+  const role = (req) => String(req.user?.role || '').trim();
+  const canViewAll = (req) => VIEW_ALL_ROLES.has(role(req));
+  const isAdmin = (req) => role(req) === 'Administrator';
+  const userId = (req) => req.user?.id || 0;
+
+  function mapRow(row) {
+    return {
+      id: row.record_ref,
+      date: row.record_date,
+      csrName: row.csr_name || '',
+      pageName: row.page_name || '',
+      orderId: row.order_id || '',
+      customerName: row.customer_name || '',
+      cellphoneNumber: row.cellphone_number || '',
+      salesType: row.sales_type || '',
+      status: row.status || '',
+      price: Number(row.price || 0),
+      trackingNumber: row.tracking_number || '',
+    };
+  }
+
+  function cleanInput(body = {}) {
+    return {
+      record_date: String(body.date || '').slice(0, 10),
+      csr_name: String(body.csrName || '').trim(),
+      page_name: String(body.pageName || '').trim(),
+      order_id: String(body.orderId || '').trim(),
+      customer_name: String(body.customerName || '').trim(),
+      cellphone_number: String(body.cellphoneNumber || '').trim(),
+      sales_type: String(body.salesType || '').trim(),
+      status: String(body.status || '').trim(),
+      price: Number.parseFloat(body.price) || 0,
+      tracking_number: String(body.trackingNumber || '').trim() || null,
+    };
+  }
+
+  function isValid(input) {
+    return Boolean(input.record_date && input.page_name && input.order_id && input.sales_type);
+  }
+
+  let refCounter = 0;
+  function newRef() {
+    refCounter = (refCounter + 1) % 100000;
+    return `CSR-${Date.now()}${String(refCounter).padStart(5, '0')}`;
+  }
+
+  async function insertRecord(input, createdBy) {
+    const ref = newRef();
+    await db.prepare(`
+      INSERT INTO csr_records (
+        record_ref, record_date, csr_name, page_name, order_id, customer_name,
+        cellphone_number, sales_type, status, price, tracking_number, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      ref, input.record_date, input.csr_name, input.page_name, input.order_id,
+      input.customer_name, input.cellphone_number, input.sales_type, input.status,
+      input.price, input.tracking_number, createdBy
+    );
+    return ref;
+  }
+
+  r.get('/', async (req, res) => {
+    const where = [];
+    const params = [];
+    if (!canViewAll(req)) { where.push('created_by = ?'); params.push(userId(req)); }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = await db.prepare(
+      `SELECT * FROM csr_records ${whereSql} ORDER BY record_date DESC, id DESC`
+    ).all(...params);
+    res.json({ data: rows.map(mapRow) });
+  });
+
+  r.post('/', async (req, res) => {
+    const input = cleanInput(req.body);
+    if (!isValid(input)) {
+      return res.status(400).json({ error: 'date, pageName, orderId, and salesType are required' });
+    }
+    const ref = await insertRecord(input, userId(req));
+    const row = await db.prepare('SELECT * FROM csr_records WHERE record_ref = ?').get(ref);
+    res.status(201).json(mapRow(row));
+  });
+
+  r.put('/:ref', async (req, res) => {
+    const row = await db.prepare('SELECT * FROM csr_records WHERE record_ref = ?').get(req.params.ref);
+    if (!row) return res.status(404).json({ error: 'Record not found' });
+    if (!isAdmin(req) && row.created_by !== userId(req)) {
+      return res.status(403).json({ error: 'You can only edit your own CSR records' });
+    }
+    const input = cleanInput(req.body);
+    if (!isValid(input)) {
+      return res.status(400).json({ error: 'date, pageName, orderId, and salesType are required' });
+    }
+    await db.prepare(`
+      UPDATE csr_records
+      SET record_date = ?, csr_name = ?, page_name = ?, order_id = ?, customer_name = ?,
+          cellphone_number = ?, sales_type = ?, status = ?, price = ?, tracking_number = ?,
+          updated_at = datetime('now')
+      WHERE record_ref = ?
+    `).run(
+      input.record_date, input.csr_name, input.page_name, input.order_id, input.customer_name,
+      input.cellphone_number, input.sales_type, input.status, input.price, input.tracking_number,
+      req.params.ref
+    );
+    const updated = await db.prepare('SELECT * FROM csr_records WHERE record_ref = ?').get(req.params.ref);
+    res.json(mapRow(updated));
+  });
+
+  r.delete('/:ref', async (req, res) => {
+    const row = await db.prepare('SELECT * FROM csr_records WHERE record_ref = ?').get(req.params.ref);
+    if (!row) return res.status(404).json({ error: 'Record not found' });
+    if (!isAdmin(req) && row.created_by !== userId(req)) {
+      return res.status(403).json({ error: 'You can only delete your own CSR records' });
+    }
+    await db.prepare('DELETE FROM csr_records WHERE record_ref = ?').run(req.params.ref);
+    res.json({ success: true });
+  });
+
+  // One-time import used to migrate records that were stranded in a user's
+  // browser localStorage before CSR records were stored server-side.
+  r.post('/import', async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    let imported = 0;
+    for (const raw of rows) {
+      const input = cleanInput(raw);
+      // Lenient on purpose: preserve legacy rows even if they predate the
+      // Order ID / sales-type fields. Skip only truly empty entries.
+      if (!input.record_date && !input.customer_name && !input.order_id) continue;
+      await insertRecord(input, userId(req));
+      imported += 1;
+    }
+    res.status(201).json({ imported });
+  });
+
+  return r;
+}
+
 module.exports = ordersRoutes;
 module.exports.ordersRoutes    = ordersRoutes;
 module.exports.inventoryRoutes = inventoryRoutes;
 module.exports.expensesRoutes  = expensesRoutes;
 module.exports.pickupsRoutes   = pickupsRoutes;
 module.exports.scansRoutes     = scansRoutes;
+module.exports.csrRoutes       = csrRoutes;
