@@ -3271,6 +3271,23 @@ let dataReportPreset = 'monthly';
 let dataReportDateFrom = '';
 let dataReportDateTo = '';
 let dataReportPageFilter = 'all';
+let dataReportMonth = ''; // YYYY-MM selected in the Monthly dropdown
+
+// Distinct YYYY-MM months present in the synced orders, newest first.
+function getDataReportMonths() {
+  const set = new Set();
+  (DB.sheetRecordsForReport || []).forEach((o) => {
+    const m = String(o.date || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(m)) set.add(m);
+  });
+  return [...set].sort((a, b) => b.localeCompare(a));
+}
+
+function monthLabel(ym) {
+  const [y, m] = String(ym || '').split('-');
+  if (!y || !m) return ym;
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+}
 
 function getDataReportOrders() {
   let data = [...(DB.sheetRecordsForReport || [])];
@@ -3282,7 +3299,8 @@ function getDataReportOrders() {
     const y = normalizeDateString(getDateDaysAgo(1));
     data = data.filter((o) => o.date === y);
   } else if (dataReportPreset === 'monthly') {
-    data = data.filter((o) => String(o.date || '').startsWith(today.slice(0, 7)));
+    const month = dataReportMonth || today.slice(0, 7);
+    data = data.filter((o) => String(o.date || '').startsWith(month));
   } else if (dataReportPreset === 'custom') {
     if (dataReportDateFrom) data = data.filter((o) => o.date >= dataReportDateFrom);
     if (dataReportDateTo) data = data.filter((o) => o.date <= dataReportDateTo);
@@ -3310,6 +3328,12 @@ function applyDataReportCustomRange() {
 
 function setDataReportPageFilter() {
   dataReportPageFilter = document.getElementById('data-report-page-filter')?.value || 'all';
+  navigateTo('data-report');
+}
+
+function setDataReportMonth() {
+  dataReportMonth = document.getElementById('data-report-month')?.value || '';
+  dataReportPreset = 'monthly';
   navigateTo('data-report');
 }
 
@@ -3402,7 +3426,11 @@ function renderDataReport() {
   ].filter(([page]) => canAccessPage(page));
 
   const pageOptions = getPosSourceOptions();
-  const presets = [['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly']];
+  const presets = [['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']];
+  const months = getDataReportMonths();
+  if (dataReportPreset === 'monthly' && !dataReportMonth) {
+    dataReportMonth = months[0] || normalizeDateString(new Date()).slice(0, 7);
+  }
 
   return `
   <div class="data-report-page">
@@ -3419,12 +3447,26 @@ function renderDataReport() {
             ${presets.map(([v, l]) => `<button class="filter-pill ${dataReportPreset === v ? 'active' : ''}" onclick="setDataReportPreset('${v}')">${l}</button>`).join('')}
           </div>
         </div>
+        <div class="${dataReportPreset === 'monthly' ? '' : 'hidden'}">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Month</div>
+          <select class="form-control" id="data-report-month" onchange="setDataReportMonth()" style="min-width:160px;height:34px;font-size:13px;">
+            ${months.length
+              ? months.map((m) => `<option value="${m}"${dataReportMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
+              : `<option value="${escapeHtml(dataReportMonth)}">${escapeHtml(monthLabel(dataReportMonth))}</option>`}
+          </select>
+        </div>
         <div>
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Page Name</div>
           <select class="form-control" id="data-report-page-filter" onchange="setDataReportPageFilter()" style="min-width:200px;height:34px;font-size:13px;">
             <option value="all">All Pages</option>
             ${pageOptions.map((p) => `<option value="${escapeHtml(p)}"${dataReportPageFilter === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
           </select>
+        </div>
+        <div class="${dataReportPreset === 'custom' ? '' : 'hidden'}" style="display:flex;gap:6px;align-items:center;">
+          <input type="date" class="form-control" id="data-report-date-from" value="${dataReportDateFrom}" style="height:34px;font-size:13px;width:140px;">
+          <span style="font-size:13px;color:var(--text-muted);">—</span>
+          <input type="date" class="form-control" id="data-report-date-to" value="${dataReportDateTo}" style="height:34px;font-size:13px;width:140px;">
+          <button class="btn btn-primary btn-sm" onclick="applyDataReportCustomRange()" style="height:34px;">Apply</button>
         </div>
       </div>
     </div>
