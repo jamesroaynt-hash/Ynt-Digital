@@ -3301,3 +3301,42 @@ tfoot td {
 .modal.modal-lg { max-width: 720px; width: 100%; }
 .modal.modal-lg .int-panel { background: rgba(255, 255, 255, 0.025); }
 .modal.modal-lg .int-tutorial { margin-bottom: 16px; }
+
+/* ── Light-theme borders for the integration + pages UI ──
+   The dark styles above use translucent-white borders that vanish on a white
+   background, so restore visible borders/surfaces when the light theme is on. */
+[data-theme="light"] .int-panel { background: var(--surface); border-color: var(--border); }
+[data-theme="light"] .modal.modal-lg .int-panel { background: var(--surface-2); }
+[data-theme="light"] .int-panel .form-control {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+[data-theme="light"] .int-status-box { background: var(--surface-2); border-color: var(--border); }
+[data-theme="light"] .int-validate {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+[data-theme="light"] .int-validate:hover { background: var(--surface-3); }
+[data-theme="light"] .int-advanced { background: var(--surface-2); border-color: var(--border); }
+[data-theme="light"] .conn-status-popup { background: var(--surface); border-color: var(--border); }
+
+[data-theme="light"] .pages-table-wrap { background: var(--surface); border-color: var(--border); }
+[data-theme="light"] .pages-table thead th { border-bottom-color: var(--border); }
+[data-theme="light"] .pages-table tbody td { border-bottom-color: var(--border); }
+[data-theme="light"] .pages-table tbody tr:hover td { background: var(--surface-2); }
+[data-theme="light"] .pages-search input { background: var(--surface); border-color: var(--border-strong); }
+[data-theme="light"] .pages-rows select { background: var(--surface); border-color: var(--border-strong); }
+[data-theme="light"] .pages-pager .page-btn {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+[data-theme="light"] .pages-pager .page-btn:hover:not(:disabled) { background: var(--surface-2); }
+
+[data-theme="light"] .topbar-date,
+[data-theme="light"] .topbar-btn { background: var(--surface-2); border-color: var(--border); }
+[data-theme="light"] .topbar-status-pill {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+}
