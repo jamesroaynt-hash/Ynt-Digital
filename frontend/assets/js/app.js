@@ -11129,6 +11129,16 @@ async function confirmRenameSource() {
   }
 }
 
+// Sheet "Shipping info" holds the sprinter as e.g. "sprinter 【AR_Josefine
+// Marquez : 639360488957】". Show only the text inside 【…】; if there are no
+// brackets, show the raw value as-is.
+function extractSprinter(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const match = text.match(/【([^】]+)】/);
+  return match ? match[1].trim() : text;
+}
+
 async function loadSheetRecords(page) {
   if (page) sheetRecordsPage = page;
   const tableEl = document.getElementById('sheet-records-table');
@@ -11261,7 +11271,7 @@ async function loadSheetRecords(page) {
               <td ${tdClip} title="${escapeHtml(r.internal_notes || '')}">${clip(r.internal_notes || '-', 30)}</td>
               <td ${tdClip} title="${escapeHtml(r.courier || '')}">${clip(r.courier || '-', 20)}</td>
               <td ${tdClip} title="${escapeHtml(r.tag || '')}">${clip(r.tag || '-', 24)}</td>
-              <td ${tdClip} title="${escapeHtml(r.shipping_info || '')}">${clip(r.shipping_info || '-', 40)}</td>
+              <td ${tdClip} title="${escapeHtml(r.shipping_info || '')}">${clip(extractSprinter(r.shipping_info) || '-', 40)}</td>
               <td ${tdClip} title="${escapeHtml(r.confirmed_by || '')}">${clip(r.confirmed_by || '-', 20)}</td>
               <td style="white-space:nowrap;">${escapeHtml((r.order_date || '').slice(0, 10))}</td>
             </tr>`).join('')}
