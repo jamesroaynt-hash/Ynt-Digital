@@ -5,7 +5,9 @@ module.exports = function marketingRoutes(db) {
 
   function canManage(req) {
     const role = String(req.user?.role || '').trim();
-    return role === 'Administrator' || role === 'Sales and Marketing TL';
+    return role === 'Administrator'
+      || role === 'Sales and Marketing TL'
+      || role === 'Sales and Marketing';
   }
 
   function serializeEntry(row) {

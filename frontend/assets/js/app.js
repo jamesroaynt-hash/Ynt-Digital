@@ -6082,7 +6082,8 @@ function isSalesMarketingUser(role = App.user?.role) {
 }
 
 function canManageMarketing() {
-  return isAdminUser() || normalizeRoleName(App.user?.role) === 'Sales and Marketing TL';
+  // Sales and Marketing (regular) now has the same management access as the TL.
+  return isAdminUser() || isSalesMarketingUser();
 }
 
 function getDefaultPageForCurrentUser() {
