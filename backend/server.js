@@ -213,6 +213,9 @@ async function createApp() {
       res.setHeader('Cache-Control', 'no-store, max-age=0');
     },
   };
+  app.get('/favicon.ico', (req, res) => {
+    res.type('png').sendFile(path.join(__dirname, '../Images/yntlogo.png'));
+  });
   app.use('/Images', express.static(path.join(__dirname, '../Images'), staticCacheHeaders));
   app.use(express.static(path.join(__dirname, '../frontend'), staticCacheHeaders));
 
