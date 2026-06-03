@@ -1136,6 +1136,10 @@ function getDefaultIntegrationState() {
       apiKey: '',
       shopName: '',
       shopId: '',
+      pageId: '',
+      owner: '',
+      pancakeToken: '',
+      botcakeToken: '',
       connections: [],
       notes: '',
       lastSavedAt: null,
@@ -1615,70 +1619,98 @@ function renderApiConnections() {
   </div>
 
   <div id="api-tab-pos" class="tab-content active">
-    <section class="card integration-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Pancake POS Orders to SQL</div>
-          <div class="card-subtitle">Pull POS orders only into SQL and the Sales Dashboard.</div>
-        </div>
-      </div>
+    <a class="int-tutorial" href="#" onclick="event.preventDefault();showToast('info','Setup tutorial','Connect your Pancake POS shop: fill Page ID, Shop ID, the POS token, then Save and Validate.');">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h4.5A1.5 1.5 0 018 5v8a1.5 1.5 0 00-1.5-1.5H2zM14 3.5H9.5A1.5 1.5 0 008 5v8a1.5 1.5 0 011.5-1.5H14z"/></svg>
+      Watch the setup tutorial
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L6.5 9.5M11 9.5V13H3V5h3.5"/></svg>
+    </a>
+
+    <section class="card integration-card int-setup">
       <div class="card-body integration-body">
-        <div class="integration-toggle">
-          <div>
-            <div class="integration-toggle-title">Enable Pancake POS sync</div>
-            <div class="integration-toggle-copy">Turn this on after your Pancake POS API key and shop ID are ready.</div>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="pancake-pos-enabled" ${posSettings.enabled ? 'checked' : ''}>
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">POS API Key</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" placeholder="Pancake POS api_key" value="${escapeHtml(posSettings.apiKey)}">
-            <div class="field-help">Use the key from Pancake POS Webhook - API.</div>
+        <div class="int-panel">
+          <div class="int-section-label">Basic Info</div>
+          <div class="form-grid two-col">
+            <div class="form-group">
+              <label class="form-label req">Page ID</label>
+              <input type="text" class="form-control mono-input" id="pancake-pos-page-id" placeholder="e.g. 123456" value="${escapeHtml(posSettings.pageId || '')}">
+            </div>
+            <div class="form-group">
+              <label class="form-label req">Shop ID</label>
+              <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" placeholder="e.g. 789" value="${escapeHtml(posSettings.shopId || '')}">
+            </div>
           </div>
           <div class="form-group">
-            <label class="form-label">Page Name</label>
-            <input type="text" class="form-control" id="pancake-pos-shop-name" placeholder="Example: Korean Expert" value="${escapeHtml(posSettings.shopName || '')}">
-            <div class="field-help">This name appears in the Page column instead of Primary POS.</div>
-          </div>
-        </div>
-
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">Shop ID</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" placeholder="Pancake POS shop_id" value="${escapeHtml(posSettings.shopId)}">
-            <div class="field-help">Click Get POS Shops to fill this from the API.</div>
+            <label class="form-label req">Page Name</label>
+            <input type="text" class="form-control" id="pancake-pos-shop-name" placeholder="e.g. My Store Page" value="${escapeHtml(posSettings.shopName || '')}">
           </div>
           <div class="form-group">
-            <label class="form-label">POS Base URL</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-base-url" placeholder="https://pos.pages.fm/api/v1" value="${escapeHtml(posSettings.baseUrl)}">
-            <div class="field-help">Default: <code>https://pos.pages.fm/api/v1</code>.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Sync Mode</label>
-            <select class="form-control" id="pancake-pos-sync-mode">
-              <option value="pull_only" ${posSettings.syncMode === 'pull_only' ? 'selected' : ''}>Pull API to SQL</option>
-              <option value="automatic" ${posSettings.syncMode === 'automatic' ? 'selected' : ''}>Automatic every few minutes</option>
-              <option value="manual_backup" ${posSettings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
+            <label class="form-label">Owner</label>
+            <select class="form-control" id="pancake-pos-owner" data-selected="${escapeHtml(posSettings.owner || '')}">
+              <option value="">Select owner…</option>
+              ${posSettings.owner ? `<option value="${escapeHtml(posSettings.owner)}" selected>${escapeHtml(posSettings.owner)}</option>` : ''}
             </select>
-            <div class="field-help">Automatic mode pulls POS orders into SQL and dashboard orders on the server interval.</div>
+          </div>
+          <div class="int-status-box">
+            <div>
+              <div class="int-section-label" style="margin:0 0 3px;">Status</div>
+              <div class="int-status-copy">Page is active and visible</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="pancake-pos-enabled" ${posSettings.enabled ? 'checked' : ''}>
+              <span class="switch-slider"></span>
+            </label>
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Internal Notes</label>
-          <textarea class="form-control" id="pancake-pos-notes" rows="3" placeholder="Example: Main Pancake POS shop.">${escapeHtml(posSettings.notes)}</textarea>
+        <div class="int-panel">
+          <div class="int-section-label">Integration Tokens</div>
+          <div class="form-group">
+            <label class="form-label req">POS Token</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" placeholder="Enter POS token" value="${escapeHtml(posSettings.apiKey || '')}">
+            <button class="btn int-validate" type="button" onclick="validatePosToken()">Validate</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pancake Token</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-pancake-token" placeholder="Enter Pancake token" value="${escapeHtml(posSettings.pancakeToken || '')}">
+            <button class="btn int-validate" type="button" onclick="validateIntegrationToken('pancake')">Validate</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Botcake Token</label>
+            <input type="text" class="form-control mono-input" id="pancake-pos-botcake-token" placeholder="Enter Botcake token" value="${escapeHtml(posSettings.botcakeToken || '')}">
+            <button class="btn int-validate" type="button" onclick="validateIntegrationToken('botcake')">Validate</button>
+          </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Additional POS Accounts</label>
-          <textarea class="form-control mono-input" id="pancake-pos-connections" rows="6" placeholder="Name | API Key | Shop ID | Base URL | Page ID | Page Token&#10;Korean Expert | api_xxx | 123456 | https://pos.pages.fm/api/v1 | 102816772637000 | page_token_xxx">${escapeHtml(formatPancakePosConnections(posSettings.connections || []))}</textarea>
-          <div class="field-help">One POS account per line. Page ID and Page Token (columns 5–6) are optional — required for staff user sync from Pancake messaging API.</div>
-        </div>
+        <details class="int-advanced">
+          <summary>Advanced settings</summary>
+          <div class="int-panel" style="margin-top:14px;">
+            <div class="form-grid two-col">
+              <div class="form-group">
+                <label class="form-label">POS Base URL</label>
+                <input type="text" class="form-control mono-input" id="pancake-pos-base-url" placeholder="https://pos.pages.fm/api/v1" value="${escapeHtml(posSettings.baseUrl)}">
+                <div class="field-help">Default: <code>https://pos.pages.fm/api/v1</code>.</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Sync Mode</label>
+                <select class="form-control" id="pancake-pos-sync-mode">
+                  <option value="pull_only" ${posSettings.syncMode === 'pull_only' ? 'selected' : ''}>Pull API to SQL</option>
+                  <option value="automatic" ${posSettings.syncMode === 'automatic' ? 'selected' : ''}>Automatic every few minutes</option>
+                  <option value="manual_backup" ${posSettings.syncMode === 'manual_backup' ? 'selected' : ''}>Manual backup only</option>
+                </select>
+                <div class="field-help">Automatic mode pulls POS orders into SQL and dashboard orders on the server interval.</div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Internal Notes</label>
+              <textarea class="form-control" id="pancake-pos-notes" rows="3" placeholder="Example: Main Pancake POS shop.">${escapeHtml(posSettings.notes)}</textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Additional POS Accounts</label>
+              <textarea class="form-control mono-input" id="pancake-pos-connections" rows="6" placeholder="Name | API Key | Shop ID | Base URL | Page ID | Page Token&#10;Korean Expert | api_xxx | 123456 | https://pos.pages.fm/api/v1 | 102816772637000 | page_token_xxx">${escapeHtml(formatPancakePosConnections(posSettings.connections || []))}</textarea>
+              <div class="field-help">One POS account per line. Page ID and Page Token (columns 5–6) are optional — required for staff user sync from Pancake messaging API.</div>
+            </div>
+          </div>
+        </details>
 
         ${(() => {
           const allConns = posSettings.connections || [];
@@ -7382,6 +7414,7 @@ function initPage(page) {
 
   if (page === 'api-connections') {
     hydrateIntegrationStateFromBackend();
+    loadPosOwnerOptions();
   }
 
   if (page === 'hr') {
@@ -10099,6 +10132,10 @@ function collectPancakePosFormState() {
   const primaryApiKey = (document.getElementById('pancake-pos-api-key')?.value || '').trim();
   const primaryShopName = (document.getElementById('pancake-pos-shop-name')?.value || '').trim();
   const primaryShopId = (document.getElementById('pancake-pos-shop-id')?.value || '').trim();
+  const pageId = (document.getElementById('pancake-pos-page-id')?.value || '').trim();
+  const owner = (document.getElementById('pancake-pos-owner')?.value || '').trim();
+  const pancakeToken = (document.getElementById('pancake-pos-pancake-token')?.value || '').trim();
+  const botcakeToken = (document.getElementById('pancake-pos-botcake-token')?.value || '').trim();
   const extraConnections = parsePancakePosConnections(
     document.getElementById('pancake-pos-connections')?.value || '',
     baseUrl,
@@ -10113,6 +10150,11 @@ function collectPancakePosFormState() {
     apiKey: primaryApiKey,
     shopName: primaryShopName,
     shopId: primaryShopId,
+    // Page ID drives the Pancake messaging API; Pancake token is the page token.
+    messagingPageId: pageId || undefined,
+    pageAccessToken: pancakeToken || undefined,
+    owner: owner || undefined,
+    botcakeToken: botcakeToken || undefined,
   }] : [];
   return {
     enabled: Boolean(document.getElementById('pancake-pos-enabled')?.checked),
@@ -10120,6 +10162,10 @@ function collectPancakePosFormState() {
     baseUrl,
     apiKey: primaryApiKey,
     shopId: primaryShopId,
+    pageId,
+    owner,
+    pancakeToken,
+    botcakeToken,
     connections: [...primaryConnection, ...extraConnections],
     notes: (document.getElementById('pancake-pos-notes')?.value || '').trim(),
     lastSavedAt: new Date().toISOString(),
@@ -10239,6 +10285,65 @@ async function fetchPancakePosShops() {
     showToast('success', 'POS shops loaded', `Found ${shops.length} shop(s). Filled shop_id with ${firstShop.name || firstShop.id}.`);
   } catch (error) {
     showToast('error', 'Get POS Shops failed', error.message || 'Could not load shops from Pancake POS.');
+  }
+}
+
+// Validate the POS token live against the Pancake POS shops API.
+async function validatePosToken() {
+  const apiKey = (document.getElementById('pancake-pos-api-key')?.value || '').trim();
+  const baseUrl = (document.getElementById('pancake-pos-base-url')?.value || 'https://pos.pages.fm/api/v1').trim();
+  if (!apiKey) {
+    showToast('warning', 'POS token required', 'Enter the POS token before validating.');
+    return;
+  }
+  showToast('info', 'Validating POS token…', 'Checking the token against Pancake POS.');
+  try {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/shops', {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+    });
+    const shops = Array.isArray(data?.shops) ? data.shops : [];
+    showToast('success', 'POS token is valid', shops.length
+      ? `Connected — ${shops.length} shop(s) accessible.`
+      : 'Pancake POS accepted the token.');
+  } catch (error) {
+    showToast('error', 'POS token invalid', error.message || 'Pancake POS rejected this token.');
+  }
+}
+
+// Pancake/Botcake tokens have no live test endpoint — do a format sanity check.
+function validateIntegrationToken(kind) {
+  const map = {
+    pancake: { id: 'pancake-pos-pancake-token', label: 'Pancake token' },
+    botcake: { id: 'pancake-pos-botcake-token', label: 'Botcake token' },
+  };
+  const cfg = map[kind];
+  if (!cfg) return;
+  const value = (document.getElementById(cfg.id)?.value || '').trim();
+  if (!value) {
+    showToast('warning', `${cfg.label} required`, `Enter the ${cfg.label.toLowerCase()} before validating.`);
+    return;
+  }
+  if (value.length < 8) {
+    showToast('error', `${cfg.label} looks too short`, 'Double-check you pasted the full token.');
+    return;
+  }
+  showToast('success', `${cfg.label} looks valid`, 'Saved with the connection and used on the next sync.');
+}
+
+// Populate the Owner dropdown from the dashboard's active users.
+async function loadPosOwnerOptions() {
+  const select = document.getElementById('pancake-pos-owner');
+  if (!select) return;
+  const selected = select.getAttribute('data-selected') || '';
+  try {
+    const result = await authorizedJsonRequest('/auth/users');
+    const users = Array.isArray(result?.users) ? result.users : [];
+    const names = Array.from(new Set(users.map((u) => u.full_name || u.username).filter(Boolean)));
+    select.innerHTML = `<option value="">Select owner…</option>`
+      + names.map((n) => `<option value="${escapeHtml(n)}" ${n === selected ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  } catch {
+    /* Keep the inline fallback option already rendered. */
   }
 }
 
