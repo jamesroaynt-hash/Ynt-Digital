@@ -3267,7 +3267,7 @@ function renderSaleReportBarChart(orders) {
   }
 }
 
-let dataReportPreset = 'all';
+let dataReportPreset = 'monthly';
 let dataReportDateFrom = '';
 let dataReportDateTo = '';
 let dataReportPageFilter = 'all';
@@ -3402,7 +3402,7 @@ function renderDataReport() {
   ].filter(([page]) => canAccessPage(page));
 
   const pageOptions = getPosSourceOptions();
-  const presets = [['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']];
+  const presets = [['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly']];
 
   return `
   <div class="data-report-page">
@@ -3425,12 +3425,6 @@ function renderDataReport() {
             <option value="all">All Pages</option>
             ${pageOptions.map((p) => `<option value="${escapeHtml(p)}"${dataReportPageFilter === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
           </select>
-        </div>
-        <div class="${dataReportPreset === 'custom' ? '' : 'hidden'}" style="display:flex;gap:6px;align-items:center;">
-          <input type="date" class="form-control" id="data-report-date-from" value="${dataReportDateFrom}" style="height:34px;font-size:13px;width:140px;">
-          <span style="font-size:13px;color:var(--text-muted);">—</span>
-          <input type="date" class="form-control" id="data-report-date-to" value="${dataReportDateTo}" style="height:34px;font-size:13px;width:140px;">
-          <button class="btn btn-primary btn-sm" onclick="applyDataReportCustomRange()" style="height:34px;">Apply</button>
         </div>
       </div>
     </div>
