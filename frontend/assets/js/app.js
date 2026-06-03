@@ -1581,14 +1581,76 @@ function renderApiConnections() {
   </div>
 
   <div id="api-tab-pos" class="tab-content active">
-    <a class="int-tutorial" href="#" onclick="event.preventDefault();showToast('info','Setup tutorial','Connect your Pancake POS shop: fill Page ID, Shop ID, the POS token, then Save and Validate.');">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h4.5A1.5 1.5 0 018 5v8a1.5 1.5 0 00-1.5-1.5H2zM14 3.5H9.5A1.5 1.5 0 008 5v8a1.5 1.5 0 011.5-1.5H14z"/></svg>
-      Watch the setup tutorial
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L6.5 9.5M11 9.5V13H3V5h3.5"/></svg>
-    </a>
+    <div class="pages-view">
+      <div class="pages-head">
+        <div>
+          <h2 class="pages-title">Pages</h2>
+          <p class="pages-sub">Manage your shop pages and their connected stores</p>
+        </div>
+        <div class="pages-head-actions">
+          <button class="btn int-add-page" type="button" onclick="openPosPageModal()">+ Add New Page</button>
+          <div class="pages-used" id="pos-pages-used">0/15 PAGES USED</div>
+        </div>
+      </div>
 
-    <section class="card integration-card int-setup">
-      <div class="card-body integration-body">
+      <div class="pages-toolbar">
+        <div class="pages-search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg>
+          <input type="text" id="pos-pages-search" placeholder="Search page name..." oninput="setPosPagesSearch(this.value)">
+        </div>
+        <div class="pages-ops">
+          <button class="btn btn-secondary btn-sm" type="button" onclick="collectPancakePosData()">Sync POS Orders</button>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="replayPancakePosOrders()">Transfer POS SQL</button>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="syncPancakePageUsers()">Sync Staff Users</button>
+        </div>
+      </div>
+
+      <div class="pages-table-wrap">
+        <table class="pages-table">
+          <thead>
+            <tr>
+              <th onclick="setPosPagesSort('name')">Name <span class="pp-sort">⇅</span></th>
+              <th onclick="setPosPagesSort('shop')">Shop <span class="pp-sort">⇅</span></th>
+              <th onclick="setPosPagesSort('owner')">Owner <span class="pp-sort">⇅</span></th>
+              <th onclick="setPosPagesSort('lastSync')">Last Sync <span class="pp-sort">⇅</span></th>
+            </tr>
+          </thead>
+          <tbody id="pos-pages-body"></tbody>
+        </table>
+      </div>
+
+      <div class="pages-foot">
+        <div class="pages-rows">
+          <span>ROWS</span>
+          <select id="pos-pages-perpage" onchange="setPosPagesPerPage(this.value)">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+        <div class="pages-info" id="pos-pages-info"></div>
+        <div class="pages-pager">
+          <button class="page-btn" id="pos-pg-first" onclick="gotoPosPage('first')">«</button>
+          <button class="page-btn" id="pos-pg-prev" onclick="gotoPosPage('prev')">‹ Prev</button>
+          <button class="page-btn active" id="pos-pg-cur">1</button>
+          <button class="page-btn" id="pos-pg-next" onclick="gotoPosPage('next')">Next ›</button>
+          <button class="page-btn" id="pos-pg-last" onclick="gotoPosPage('last')">»</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="pos-page-modal">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <div class="modal-title" id="pos-page-modal-title">Add New Page</div>
+          <button class="modal-close" onclick="closeModal('pos-page-modal')">×</button>
+        </div>
+        <div class="modal-body">
+        <a class="int-tutorial" href="#" onclick="event.preventDefault();showToast('info','Setup tutorial','Fill Page ID, Shop ID, the POS token, then Get POS Shops and Save.');">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h4.5A1.5 1.5 0 018 5v8a1.5 1.5 0 00-1.5-1.5H2zM14 3.5H9.5A1.5 1.5 0 008 5v8a1.5 1.5 0 011.5-1.5H14z"/></svg>
+          Watch the setup tutorial
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L6.5 9.5M11 9.5V13H3V5h3.5"/></svg>
+        </a>
         <div class="int-panel">
           <div class="int-section-label">Basic Info</div>
           <div class="form-grid two-col">
@@ -1666,53 +1728,15 @@ function renderApiConnections() {
               <label class="form-label">Internal Notes</label>
               <textarea class="form-control" id="pancake-pos-notes" rows="3" placeholder="Example: Main Pancake POS shop.">${escapeHtml(posSettings.notes)}</textarea>
             </div>
-            <div class="form-group">
-              <label class="form-label">Additional POS Accounts</label>
-              <textarea class="form-control mono-input" id="pancake-pos-connections" rows="6" placeholder="Name | API Key | Shop ID | Base URL | Page ID | Page Token&#10;Korean Expert | api_xxx | 123456 | https://pos.pages.fm/api/v1 | 102816772637000 | page_token_xxx">${escapeHtml(formatPancakePosConnections(posSettings.connections || []))}</textarea>
-              <div class="field-help">One POS account per line. Page ID and Page Token (columns 5–6) are optional — required for staff user sync from Pancake messaging API.</div>
-            </div>
           </div>
         </details>
-
-        ${(() => {
-          const allConns = posSettings.connections || [];
-          if (!allConns.length && !posSettings.shopId) return '';
-          const rows = [
-            posSettings.shopId ? {
-              id: 'primary',
-              name: posSettings.shopName || `Shop ${posSettings.shopId}`,
-              has_api_key: Boolean(posSettings.apiKey),
-              shop_id: posSettings.shopId,
-            } : null,
-            ...allConns.filter((c) => c.id !== 'primary'),
-          ].filter(Boolean);
-          if (!rows.length) return '';
-          return `<div class="conn-status-wrap">
-            <button class="btn btn-secondary btn-sm" type="button" onclick="toggleConnStatusPopup(this)">Connection Status (${rows.length})</button>
-            <div class="conn-status-popup" hidden>
-              ${rows.map((conn) => {
-                const hasKey = conn.has_api_key ?? Boolean(conn.apiKey || conn.api_key);
-                const hasShop = Boolean(conn.shop_id || conn.shopId);
-                const isReady = hasKey && hasShop;
-                return `<div class="conn-status-row">
-                  <span class="conn-status-dot ${isReady ? 'ok' : 'warn'}"></span>
-                  <span class="conn-status-name">${escapeHtml(conn.name || conn.id || 'Connection')}</span>
-                  <span class="conn-status-badge ${isReady ? 'ok' : 'warn'}">${isReady ? 'Configured' : 'Incomplete'}</span>
-                </div>`;
-              }).join('')}
-            </div>
-          </div>`;
-        })()}
-
-        <div class="integration-actions">
-          <button class="btn btn-primary" type="button" onclick="savePancakePosConnection()">Save POS Connection</button>
-          <button class="btn btn-secondary" type="button" onclick="fetchPancakePosShops()">Get POS Shops</button>
-          <button class="btn btn-secondary" type="button" id="pancake-pos-sync-button" onclick="collectPancakePosData()">Sync POS Orders</button>
-          <button class="btn btn-secondary" type="button" id="pancake-pos-replay-button" onclick="replayPancakePosOrders()">Transfer POS SQL</button>
-          <button class="btn btn-secondary" type="button" id="pancake-pos-sync-users-button" onclick="syncPancakePageUsers()">Sync Staff Users</button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" onclick="fetchShopsForModal()">Get POS Shops</button>
+          <button class="btn btn-primary" type="button" onclick="savePosPageFromModal()">Save Page</button>
         </div>
       </div>
-    </section>
+    </div>
 
     <section class="card integration-card" style="margin-top:20px;">
       <div class="card-header">
@@ -7370,7 +7394,9 @@ function initPage(page) {
   }
 
   if (page === 'api-connections') {
-    hydrateIntegrationStateFromBackend();
+    renderPancakePagesTable();
+    const hydrate = hydrateIntegrationStateFromBackend();
+    if (hydrate && typeof hydrate.then === 'function') hydrate.then(() => renderPancakePagesTable()).catch(() => {});
     loadPosOwnerOptions();
   }
 
@@ -10308,6 +10334,186 @@ async function loadPosOwnerOptions() {
       + names.map((n) => `<option value="${escapeHtml(n)}" ${n === selected ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
   } catch {
     /* Keep the inline fallback option already rendered. */
+  }
+}
+
+// ─── Pancake POS Pages (table + modal) ─────────────────────
+let posPagesSearch = '';
+let posPagesPage = 1;
+let posPagesPerPage = 10;
+let posPagesSort = { key: 'name', dir: 'asc' };
+let editingPosPageId = null;
+
+function getPosPagesRows() {
+  const pos = getIntegrationState().pancakePos;
+  let rows = (pos.connections || []).map((c) => ({
+    id: c.id,
+    name: c.name || c.shopName || (c.shopId || c.shop_id ? `Shop ${c.shopId || c.shop_id}` : 'Untitled Page'),
+    shop: c.shopName || c.name || (c.shopId || c.shop_id ? `Shop ${c.shopId || c.shop_id}` : '—'),
+    owner: c.owner || '—',
+    lastSync: pos.lastCollectedAt || pos.lastSavedAt || null,
+  }));
+  if (posPagesSearch) {
+    const q = posPagesSearch.toLowerCase();
+    rows = rows.filter((r) => r.name.toLowerCase().includes(q)
+      || String(r.shop).toLowerCase().includes(q)
+      || String(r.owner).toLowerCase().includes(q));
+  }
+  const k = posPagesSort.key;
+  rows.sort((a, b) => {
+    const av = String(a[k] || '').toLowerCase();
+    const bv = String(b[k] || '').toLowerCase();
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return posPagesSort.dir === 'asc' ? cmp : -cmp;
+  });
+  return rows;
+}
+
+function renderPancakePagesTable() {
+  const body = document.getElementById('pos-pages-body');
+  if (!body) return;
+  const all = getPosPagesRows();
+  const total = all.length;
+  const pages = Math.max(1, Math.ceil(total / posPagesPerPage));
+  if (posPagesPage > pages) posPagesPage = pages;
+  if (posPagesPage < 1) posPagesPage = 1;
+  const start = (posPagesPage - 1) * posPagesPerPage;
+  const slice = all.slice(start, start + posPagesPerPage);
+
+  body.innerHTML = slice.length
+    ? slice.map((r) => `<tr onclick="openPosPageModal('${r.id}')">
+        <td class="pp-name">${escapeHtml(r.name)}</td>
+        <td>${escapeHtml(r.shop)}</td>
+        <td>${escapeHtml(r.owner)}</td>
+        <td>${r.lastSync ? escapeHtml(new Date(r.lastSync).toLocaleString()) : '—'}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" class="pp-empty">No pages yet. Click “Add New Page” to connect a shop.</td></tr>`;
+
+  const used = document.getElementById('pos-pages-used');
+  if (used) used.textContent = `${total}/15 PAGES USED`;
+  const info = document.getElementById('pos-pages-info');
+  if (info) info.textContent = total
+    ? `Showing ${start + 1} to ${Math.min(start + posPagesPerPage, total)} of ${total} entries`
+    : 'No entries';
+  const cur = document.getElementById('pos-pg-cur');
+  if (cur) cur.textContent = String(posPagesPage);
+  const atFirst = posPagesPage <= 1;
+  const atLast = posPagesPage >= pages;
+  ['pos-pg-first', 'pos-pg-prev'].forEach((id) => { const b = document.getElementById(id); if (b) b.disabled = atFirst; });
+  ['pos-pg-next', 'pos-pg-last'].forEach((id) => { const b = document.getElementById(id); if (b) b.disabled = atLast; });
+}
+
+function setPosPagesSearch(v) { posPagesSearch = v || ''; posPagesPage = 1; renderPancakePagesTable(); }
+function setPosPagesPerPage(v) { posPagesPerPage = Math.max(1, parseInt(v, 10) || 10); posPagesPage = 1; renderPancakePagesTable(); }
+function setPosPagesSort(key) {
+  if (posPagesSort.key === key) posPagesSort.dir = posPagesSort.dir === 'asc' ? 'desc' : 'asc';
+  else posPagesSort = { key, dir: 'asc' };
+  renderPancakePagesTable();
+}
+function gotoPosPage(where) {
+  const total = getPosPagesRows().length;
+  const pages = Math.max(1, Math.ceil(total / posPagesPerPage));
+  if (where === 'first') posPagesPage = 1;
+  else if (where === 'prev') posPagesPage = Math.max(1, posPagesPage - 1);
+  else if (where === 'next') posPagesPage = Math.min(pages, posPagesPage + 1);
+  else if (where === 'last') posPagesPage = pages;
+  renderPancakePagesTable();
+}
+
+function openPosPageModal(id) {
+  editingPosPageId = id || null;
+  const pos = getIntegrationState().pancakePos;
+  const conn = id ? (pos.connections || []).find((c) => c.id === id) : null;
+  const set = (x, v) => { const el = document.getElementById(x); if (el) el.value = v ?? ''; };
+  set('pancake-pos-page-id', conn?.messagingPageId || conn?.messaging_page_id || '');
+  set('pancake-pos-shop-id', conn?.shopId || conn?.shop_id || '');
+  set('pancake-pos-shop-name', conn?.name || conn?.shopName || '');
+  set('pancake-pos-api-key', conn?.apiKey || conn?.api_key || '');
+  set('pancake-pos-pancake-token', conn?.pageAccessToken || conn?.page_access_token || '');
+  set('pancake-pos-botcake-token', conn?.botcakeToken || '');
+  set('pancake-pos-base-url', conn?.baseUrl || conn?.base_url || 'https://pos.pages.fm/api/v1');
+  set('pancake-pos-sync-mode', conn?.syncMode || conn?.sync_mode || 'pull_only');
+  set('pancake-pos-notes', conn?.notes || '');
+  const enabledEl = document.getElementById('pancake-pos-enabled');
+  if (enabledEl) enabledEl.checked = conn ? Boolean(conn.enabled) : true;
+  const ownerEl = document.getElementById('pancake-pos-owner');
+  if (ownerEl) ownerEl.setAttribute('data-selected', conn?.owner || '');
+  loadPosOwnerOptions();
+  const title = document.getElementById('pos-page-modal-title');
+  if (title) title.textContent = id ? 'Edit Page' : 'Add New Page';
+  openModal('pos-page-modal');
+}
+
+function savePosPageFromModal() {
+  const get = (x) => (document.getElementById(x)?.value || '').trim();
+  const name = get('pancake-pos-shop-name');
+  const shopId = get('pancake-pos-shop-id');
+  if (!name || !shopId) {
+    showToast('error', 'Missing details', 'Page Name and Shop ID are required.');
+    return;
+  }
+  const state = getIntegrationState();
+  const pos = state.pancakePos;
+  const conns = Array.isArray(pos.connections) ? [...pos.connections] : [];
+  const id = editingPosPageId || `pos-${Date.now()}`;
+  const page = {
+    id,
+    name,
+    shopName: name,
+    shopId,
+    enabled: Boolean(document.getElementById('pancake-pos-enabled')?.checked),
+    syncMode: get('pancake-pos-sync-mode') || 'pull_only',
+    baseUrl: get('pancake-pos-base-url') || 'https://pos.pages.fm/api/v1',
+    apiKey: get('pancake-pos-api-key'),
+    messagingPageId: get('pancake-pos-page-id') || undefined,
+    pageAccessToken: get('pancake-pos-pancake-token') || undefined,
+    owner: get('pancake-pos-owner') || undefined,
+    botcakeToken: get('pancake-pos-botcake-token') || undefined,
+    notes: get('pancake-pos-notes'),
+  };
+  const idx = conns.findIndex((c) => c.id === id);
+  if (idx >= 0) conns[idx] = { ...conns[idx], ...page };
+  else conns.push(page);
+  pos.connections = conns;
+  // Mirror the first connection into the top-level fields for compatibility.
+  const primary = conns[0];
+  if (primary) {
+    pos.apiKey = primary.apiKey || pos.apiKey;
+    pos.shopId = primary.shopId || pos.shopId;
+    pos.shopName = primary.shopName || pos.shopName;
+    pos.enabled = conns.some((c) => c.enabled);
+  }
+  pos.lastSavedAt = new Date().toISOString();
+  saveIntegrationState(state);
+  closeModal('pos-page-modal');
+  renderPancakePagesTable();
+  const wasEditing = Boolean(editingPosPageId);
+  syncPancakePosConfigToBackend(pos)
+    .then(() => showToast('success', wasEditing ? 'Page updated' : 'Page added', `${name} was saved.`))
+    .catch(() => showToast('warning', 'Saved locally', 'Saved in the dashboard config; backend not reachable.'));
+  editingPosPageId = null;
+}
+
+// Fill the modal's Shop ID from the POS token without touching saved pages.
+async function fetchShopsForModal() {
+  const apiKey = (document.getElementById('pancake-pos-api-key')?.value || '').trim();
+  const baseUrl = (document.getElementById('pancake-pos-base-url')?.value || 'https://pos.pages.fm/api/v1').trim();
+  if (!apiKey) { showToast('warning', 'POS token required', 'Enter the POS token first.'); return; }
+  try {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/shops', {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+    });
+    const shops = Array.isArray(data?.shops) ? data.shops : [];
+    if (!shops.length) { showToast('warning', 'No shops returned', 'The token worked but Pancake POS returned no shops.'); return; }
+    const first = shops[0];
+    const shopInput = document.getElementById('pancake-pos-shop-id');
+    const nameInput = document.getElementById('pancake-pos-shop-name');
+    if (shopInput) shopInput.value = first.id || '';
+    if (nameInput && !nameInput.value && first.name) nameInput.value = first.name;
+    showToast('success', 'POS shops loaded', `Found ${shops.length} shop(s). Filled Shop ID.`);
+  } catch (e) {
+    showToast('error', 'Get POS Shops failed', e.message || 'Could not load shops from Pancake POS.');
   }
 }
 

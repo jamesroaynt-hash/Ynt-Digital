@@ -3180,3 +3180,124 @@ tfoot td {
 .conn-status-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
 .conn-status-badge.ok { color: #4ec98a; background: rgba(78, 201, 138, 0.14); }
 .conn-status-badge.warn { color: #f6b85b; background: rgba(246, 162, 59, 0.16); }
+
+/* ── Pancake POS "Pages" management view ── */
+.pages-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.pages-title { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.4px; }
+.pages-sub { font-size: 13.5px; color: var(--text-secondary); margin-top: 4px; }
+.pages-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.pages-used { font-size: 11px; font-weight: 600; letter-spacing: 0.6px; color: var(--text-muted); }
+
+.int-add-page {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  padding: 9px 18px;
+  border-radius: 9px;
+  box-shadow: 0 10px 24px -10px rgba(34, 197, 94, 0.7);
+}
+.int-add-page:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+.pages-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.pages-search {
+  position: relative;
+  flex: 1;
+  max-width: 360px;
+}
+.pages-search svg {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--text-muted); pointer-events: none;
+}
+.pages-search input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px 0 40px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+}
+.pages-search input:focus { outline: none; border-color: #3b6cff; box-shadow: 0 0 0 3px rgba(59, 108, 255, 0.16); }
+.pages-ops { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.pages-table-wrap {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(165deg, rgba(20, 30, 54, 0.5) 0%, rgba(12, 19, 36, 0.5) 100%);
+}
+.pages-table { width: 100%; border-collapse: collapse; }
+.pages-table thead th {
+  text-align: left;
+  padding: 14px 18px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #6b8afd;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.pages-table thead th:hover { color: #8aa3ff; }
+.pp-sort { opacity: 0.5; margin-left: 4px; }
+.pages-table tbody td {
+  padding: 16px 18px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.pages-table tbody tr { cursor: pointer; transition: background 0.14s; }
+.pages-table tbody tr:hover td { background: rgba(91, 139, 255, 0.06); }
+.pages-table tbody tr:last-child td { border-bottom: none; }
+.pages-table .pp-name { color: #7eaaff; font-weight: 600; }
+.pp-empty { text-align: center; color: var(--text-muted); padding: 36px 16px !important; cursor: default; }
+
+.pages-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.pages-rows { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; color: var(--text-muted); }
+.pages-rows select {
+  height: 34px; padding: 0 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary); font-family: inherit; font-size: 13px;
+}
+.pages-info { font-size: 13px; color: var(--text-secondary); }
+.pages-pager { display: flex; gap: 6px; }
+.pages-pager .page-btn {
+  min-width: 38px; height: 36px; padding: 0 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-size: 13px; cursor: pointer;
+  transition: background 0.14s;
+}
+.pages-pager .page-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); color: var(--text-primary); }
+.pages-pager .page-btn.active {
+  background: rgba(34, 197, 94, 0.16);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+  font-weight: 600;
+}
+.pages-pager .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Wider modal for the Add/Edit Page form. */
+.modal.modal-lg { max-width: 720px; width: 100%; }
+.modal.modal-lg .int-panel { background: rgba(255, 255, 255, 0.025); }
+.modal.modal-lg .int-tutorial { margin-bottom: 16px; }
