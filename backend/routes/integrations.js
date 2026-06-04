@@ -9,20 +9,36 @@ module.exports = function integrationRoutes(db) {
   // Cheap fingerprint of google_orders: MAX(updated_at) catches upserts, MAX(id)
   // catches inserts. Both are instant index-backward scans (~0.3ms). google_orders
   // is never DELETEd, so this never misses a change.
-  async function getGoogleOrdersVersion() {
+  // Returns the raw high-water marks plus the string fingerprint. maxUpdated is
+  // kept RAW (a Date under pg, text under sqlite) so it can be passed straight
+  // back as a query parameter — stringifying a pg Date yields a form Postgres
+  // can't re-parse ("... GMT+0800 ...").
+  async function getGoogleOrdersMarks() {
     const row = await db.prepare(
       `SELECT MAX(updated_at) AS max_updated, MAX(id) AS max_id FROM google_orders`
     ).get();
-    return `${row?.max_updated || ''}:${row?.max_id || 0}`;
+    return {
+      maxUpdated: row?.max_updated ?? null,
+      maxId: Number(row?.max_id || 0),
+      version: `${row?.max_updated || ''}:${row?.max_id || 0}`,
+    };
+  }
+  async function getGoogleOrdersVersion() {
+    return (await getGoogleOrdersMarks()).version;
   }
 
   // Backend cache of the full unfiltered data-report dataset, keyed by the
   // google_orders fingerprint. The report loader walks every page on each visit
   // across every open session; without this, each walk re-pulls all ~33k rows
-  // from Postgres (the #1 Supabase egress source). Here the first request after a
-  // sync does ONE full pull to fill the cache; every later request — any session —
-  // is served from RAM until the next sync bumps the fingerprint.
-  let reportCache = { version: null, records: null, loading: null, loadingVersion: null };
+  // from Postgres (the #1 Supabase egress source).
+  //
+  // The cold cache does ONE full pull; after that each sync triggers a DELTA
+  // refill that pulls only the rows changed since the last fingerprint and
+  // merges them by id (maxUpdated/maxId are the high-water marks; byId is the
+  // merge index). google_orders is upsert/insert-only and every change bumps
+  // updated_at or id, so the delta can't miss a row — and the per-sync Supabase
+  // pull drops from ~34k rows to just the handful that actually changed.
+  let reportCache = { version: null, records: null, byId: null, maxUpdated: '', maxId: 0, loading: null, loadingVersion: null };
 
   // Narrow projection the data report consumes. Shared by the cached full-table
   // pull below and the filtered report path further down so they can't drift.
@@ -40,6 +56,45 @@ module.exports = function integrationRoutes(db) {
                g.tag,
                g.province_city,
                g.day_created   AS order_date`;
+
+  // Refill reportCache to `marks`. Cold cache → one full pull. Warm cache →
+  // pull ONLY rows changed since the last refill and merge them into byId:
+  //   updated_at >= prevMaxUpdated  (catches upserts; >= re-reads the boundary
+  //                                  timestamp batch, deduped by id on merge)
+  //   OR id > prevMaxId             (catches new inserts)
+  // The fetched delta is the entire Supabase read, so a sync that touched N rows
+  // costs N rows, not 34k. prevMax* are raw DB values reused as query params.
+  async function refillReportCache(marks) {
+    try {
+      const warm = Array.isArray(reportCache.records) && reportCache.byId;
+      if (warm) {
+        const changed = await db.prepare(`
+          SELECT ${reportSelectCols}
+          FROM google_orders g
+          WHERE g.updated_at >= ? OR g.id > ?
+        `).all(reportCache.maxUpdated, reportCache.maxId);
+        for (const row of changed) reportCache.byId.set(row.id, row);
+      } else {
+        const rows = await db.prepare(`
+          SELECT ${reportSelectCols}
+          FROM google_orders g
+        `).all();
+        reportCache.byId = new Map(rows.map((row) => [row.id, row]));
+      }
+      // Rebuild the sorted array pagination slices from (day desc, id desc),
+      // matching the original ORDER BY g.day_created DESC, g.id DESC.
+      reportCache.records = [...reportCache.byId.values()].sort((a, b) => {
+        const d = String(b.order_date || '').localeCompare(String(a.order_date || ''));
+        return d !== 0 ? d : (Number(b.id) - Number(a.id));
+      });
+      reportCache.maxUpdated = marks.maxUpdated;
+      reportCache.maxId = marks.maxId;
+      reportCache.version = marks.version;
+      return reportCache.records;
+    } finally {
+      reportCache.loading = null;
+    }
+  }
 
   function requireAdmin(req, res, next) {
     if (String(req.user?.role || '').trim() !== 'Administrator') {
@@ -151,25 +206,14 @@ module.exports = function integrationRoutes(db) {
       const hasFilters = (sheet && sheet !== 'all') || (status && status !== 'all')
         || (tag && tag !== 'all') || search || date_from || date_to;
       if (reportView && !hasFilters) {
-        const version = await getGoogleOrdersVersion();
+        const marks = await getGoogleOrdersMarks();
+        const version = marks.version;
         if (reportCache.version !== version || !reportCache.records) {
-          // Coalesce concurrent misses (e.g. several sessions reloading right
-          // after a sync) onto a single in-flight pull rather than N full walks.
+          // Coalesce concurrent misses (several sessions reloading right after a
+          // sync) onto a single in-flight refill rather than N pulls.
           if (!reportCache.loading || reportCache.loadingVersion !== version) {
             reportCache.loadingVersion = version;
-            reportCache.loading = db.prepare(`
-              SELECT ${reportSelectCols}
-              ${baseFrom}
-              ORDER BY g.day_created DESC, g.id DESC
-            `).all().then((rows) => {
-              reportCache.records = rows;
-              reportCache.version = version;
-              reportCache.loading = null;
-              return rows;
-            }).catch((err) => {
-              reportCache.loading = null;
-              throw err;
-            });
+            reportCache.loading = refillReportCache(marks);
           }
           await reportCache.loading;
         }
@@ -566,6 +610,24 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.post('/pancake-pos/validate-page-token', async (req, res) => {
+    try {
+      const result = await posSync.validatePancakePageToken(db, req.body || {});
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/pancake-pos/validate-botcake-token', async (req, res) => {
+    try {
+      const result = await posSync.validateBotcakeToken(db, req.body || {});
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/pancake-pos/collect', async (req, res) => {
     try {
       const result = await posSync.collectPosData(db, req.body || {});
@@ -650,6 +712,8 @@ module.exports = function integrationRoutes(db) {
     '/pancake-pos/config',
     '/google-sheets/config',
     '/pancake-pos/shops',
+    '/pancake-pos/validate-page-token',
+    '/pancake-pos/validate-botcake-token',
     '/pancake-pos/collect',
     '/pancake-pos/replay',
     '/google-sheets/collect',

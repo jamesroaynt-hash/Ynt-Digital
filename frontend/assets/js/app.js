@@ -1201,11 +1201,14 @@ function mapBackendPosStatusToState(status = {}, previous = {}) {
       syncMode: connection.sync_mode || saved.syncMode || saved.sync_mode || status.sync_mode || 'pull_only',
       baseUrl: connection.base_url || saved.baseUrl || saved.base_url || status.base_url || 'https://pos.pages.fm/api/v1',
       apiKey: saved.apiKey || saved.api_key || '',
+      hasApiKey: Boolean(connection.has_api_key || saved.hasApiKey || saved.has_api_key),
       shopId: connection.shop_id || saved.shopId || saved.shop_id || '',
       messagingPageId: connection.messaging_page_id || saved.messagingPageId || saved.messaging_page_id || '',
       pageAccessToken: saved.pageAccessToken || saved.page_access_token || '',
+      hasPageToken: Boolean(connection.has_page_token || saved.hasPageToken || saved.has_page_token),
       owner: connection.owner || saved.owner || '',
-      botcakeToken: connection.botcake_token || saved.botcakeToken || saved.botcake_token || '',
+      botcakeToken: saved.botcakeToken || saved.botcake_token || '',
+      hasBotcakeToken: Boolean(connection.has_botcake_token || saved.hasBotcakeToken || saved.has_botcake_token),
       notes: connection.notes || saved.notes || '',
     };
   });
@@ -1215,8 +1218,14 @@ function mapBackendPosStatusToState(status = {}, previous = {}) {
     syncMode: status.sync_mode || previous.syncMode || 'pull_only',
     baseUrl: status.base_url || previous.baseUrl || 'https://pos.pages.fm/api/v1',
     apiKey: previous.apiKey || '',
+    hasApiKey: Boolean(connections[0]?.hasApiKey || previous.hasApiKey),
     shopName: connections.find((connection) => connection.id === 'primary')?.name || previous.shopName || '',
     shopId: status.shop_id || previous.shopId || '',
+    pageId: connections[0]?.messagingPageId || previous.pageId || '',
+    pancakeToken: previous.pancakeToken || '',
+    hasPageToken: Boolean(connections[0]?.hasPageToken || previous.hasPageToken),
+    botcakeToken: previous.botcakeToken || '',
+    hasBotcakeToken: Boolean(connections[0]?.hasBotcakeToken || previous.hasBotcakeToken),
     connections: connections.length ? connections : previousConnections,
     notes: status.notes ?? previous.notes ?? '',
     updatedAt: status.updated_at || previous.updatedAt || null,
@@ -1694,17 +1703,17 @@ function renderApiConnections() {
           <div class="int-section-label">Integration Tokens</div>
           <div class="form-group">
             <label class="form-label req">POS Token</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" placeholder="Enter POS token" value="${escapeHtml(posSettings.apiKey || '')}">
+            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" placeholder="${posSettings.hasApiKey ? 'Saved POS token - leave blank to keep it' : 'Enter POS token'}" value="${escapeHtml(posSettings.apiKey || '')}">
             <button class="btn int-validate" type="button" onclick="validatePosToken()">Validate</button>
           </div>
           <div class="form-group">
             <label class="form-label">Pancake Token</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-pancake-token" placeholder="Enter Pancake token" value="${escapeHtml(posSettings.pancakeToken || '')}">
+            <input type="text" class="form-control mono-input" id="pancake-pos-pancake-token" placeholder="${posSettings.hasPageToken ? 'Saved Pancake token - leave blank to keep it' : 'Enter Pancake token'}" value="${escapeHtml(posSettings.pancakeToken || '')}">
             <button class="btn int-validate" type="button" onclick="validateIntegrationToken('pancake')">Validate</button>
           </div>
           <div class="form-group">
             <label class="form-label">Botcake Token</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-botcake-token" placeholder="Enter Botcake token" value="${escapeHtml(posSettings.botcakeToken || '')}">
+            <input type="text" class="form-control mono-input" id="pancake-pos-botcake-token" placeholder="${posSettings.hasBotcakeToken ? 'Saved Botcake token - leave blank to keep it' : 'Enter Botcake token'}" value="${escapeHtml(posSettings.botcakeToken || '')}">
             <button class="btn int-validate" type="button" onclick="validateIntegrationToken('botcake')">Validate</button>
           </div>
         </div>
@@ -10315,24 +10324,61 @@ async function validatePosToken() {
   }
 }
 
-// Pancake/Botcake tokens have no live test endpoint — do a format sanity check.
-function validateIntegrationToken(kind) {
+// Validate Pancake/Botcake tokens through backend endpoints so secrets do not
+// need to be exposed after they are saved.
+async function validateIntegrationToken(kind) {
   const map = {
-    pancake: { id: 'pancake-pos-pancake-token', label: 'Pancake token' },
-    botcake: { id: 'pancake-pos-botcake-token', label: 'Botcake token' },
+    pancake: {
+      id: 'pancake-pos-pancake-token',
+      label: 'Pancake token',
+      endpoint: '/integrations/pancake-pos/validate-page-token',
+    },
+    botcake: {
+      id: 'pancake-pos-botcake-token',
+      label: 'Botcake token',
+      endpoint: '/integrations/pancake-pos/validate-botcake-token',
+    },
   };
   const cfg = map[kind];
   if (!cfg) return;
   const value = (document.getElementById(cfg.id)?.value || '').trim();
-  if (!value) {
+  const pageId = (document.getElementById('pancake-pos-page-id')?.value || '').trim();
+  const state = getIntegrationState();
+  const primary = (state.pancakePos.connections || []).find((connection) => connection.id === 'primary') || state.pancakePos.connections?.[0] || {};
+  const hasSavedToken = kind === 'pancake'
+    ? Boolean(primary.hasPageToken || state.pancakePos.hasPageToken)
+    : Boolean(primary.hasBotcakeToken || state.pancakePos.hasBotcakeToken);
+
+  if (!pageId && !(primary.messagingPageId || primary.messaging_page_id || state.pancakePos.pageId)) {
+    showToast('warning', 'Page ID required', `Enter the Page ID before validating the ${cfg.label.toLowerCase()}.`);
+    return;
+  }
+  if (!value && !hasSavedToken) {
     showToast('warning', `${cfg.label} required`, `Enter the ${cfg.label.toLowerCase()} before validating.`);
     return;
   }
-  if (value.length < 8) {
-    showToast('error', `${cfg.label} looks too short`, 'Double-check you pasted the full token.');
-    return;
+
+  showToast('info', `Validating ${cfg.label}...`, 'Checking the saved connection against Pancake.');
+  try {
+    const data = await authorizedJsonRequest(cfg.endpoint, {
+      method: 'POST',
+      body: JSON.stringify({
+        connection_id: primary.id || 'primary',
+        page_id: pageId || primary.messagingPageId || primary.messaging_page_id || state.pancakePos.pageId,
+        page_access_token: kind === 'pancake' ? value || undefined : undefined,
+        botcake_token: kind === 'botcake' ? value || undefined : undefined,
+      }),
+    });
+
+    if (kind === 'pancake') {
+      const totalUsers = Number(data.active_users || 0) + Number(data.disabled_users || 0);
+      showToast('success', 'Pancake token is valid', `Connected to page ${data.page_id}. Users visible: ${totalUsers}.`);
+      return;
+    }
+    showToast('success', 'Botcake token is valid', `Botcake accepted the token for page ${data.page_id}.`);
+  } catch (error) {
+    showToast('error', `${cfg.label} invalid`, error.message || 'The token could not be validated.');
   }
-  showToast('success', `${cfg.label} looks valid`, 'Saved with the connection and used on the next sync.');
 }
 
 // Toggle the small Connection Status popup (name + status only).

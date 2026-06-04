@@ -208,7 +208,7 @@ async function createApp() {
     },
   }));
   app.use(express.json({ limit: '5mb' }));
-  app.set('etag', false);
+  app.set('etag', 'weak');
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('Pragma', 'no-cache');
@@ -216,12 +216,19 @@ async function createApp() {
   });
   attachDatabaseBackupMiddleware(app, backupScheduler);
   const staticCacheHeaders = {
-    setHeaders(res) {
-      res.setHeader('Cache-Control', 'no-store, max-age=0');
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+        return;
+      }
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
     },
   };
   app.get('/favicon.ico', (req, res) => {
-    res.type('png').sendFile(path.join(__dirname, '../Images/yntlogo.png'));
+    res
+      .type('png')
+      .set('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400')
+      .sendFile(path.join(__dirname, '../Images/yntlogo.png'));
   });
   app.use('/Images', express.static(path.join(__dirname, '../Images'), staticCacheHeaders));
   app.use(express.static(path.join(__dirname, '../frontend'), staticCacheHeaders));
@@ -328,7 +335,9 @@ async function createApp() {
   });
 
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    res
+      .set('Cache-Control', 'no-cache')
+      .sendFile(path.join(__dirname, '../frontend/index.html'));
   });
 
   async function runGoogleSheetsSync(trigger) {

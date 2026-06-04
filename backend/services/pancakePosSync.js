@@ -79,9 +79,9 @@ function publicConnection(connection) {
     shop_id: connection.shop_id,
     has_api_key: Boolean(connection.api_key),
     has_page_token: Boolean(connection.page_access_token),
+    has_botcake_token: Boolean(connection.botcake_token),
     messaging_page_id: connection.messaging_page_id || null,
     owner: connection.owner || null,
-    botcake_token: connection.botcake_token || null,
     notes: connection.notes || '',
   };
 }
@@ -783,6 +783,8 @@ async function upsertInventoryHistory(db, shopId, item) {
 }
 
 function normalizeDateString(value) {
+  const directDate = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directDate) return directDate[1];
   const parsed = value ? new Date(value) : new Date();
   if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
   return parsed.toISOString().slice(0, 10);
@@ -1037,7 +1039,7 @@ function getPosOrderRef(item = {}, externalId) {
     item?.bill_code ||
     item?.invoice_number ||
     item?.shipping_code
-  ) || `POS-${externalId}`;
+  ) || String(externalId);
 }
 
 function getPosSprintorInfo(item = {}) {
@@ -1113,6 +1115,14 @@ function getOrderItemsSummary(item) {
   return {
     product: productNames.length ? productNames.slice(0, 3).join(', ') : null,
     qty: Math.max(1, qty || items.length),
+  };
+}
+
+function getDashboardOrderSummary(item) {
+  const summary = getOrderItemsSummary(item);
+  return {
+    ...summary,
+    product: summary.product || 'Pancake POS Order',
   };
 }
 
@@ -1280,8 +1290,6 @@ function getDashboardTransferSkipReason(item = {}) {
   const customer = getPosCustomerName(item, shippingAddress);
   const phone = getPosCustomerPhone(item, shippingAddress);
   if (!customer && !phone) return 'missing_customer_and_phone';
-  const summary = getOrderItemsSummary(item);
-  if (!summary.product) return 'missing_product';
   return null;
 }
 
@@ -1289,7 +1297,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
 
-  const summary = getOrderItemsSummary(item);
+  const summary = getDashboardOrderSummary(item);
   const partner = item?.partner || {};
   const shippingAddress = item?.shipping_address || {};
   const orderRef = getPosOrderRef(item, externalId);
@@ -1298,7 +1306,6 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const rawCustomer = getPosCustomerName(item, shippingAddress);
   const rawPhone = getPosCustomerPhone(item, shippingAddress);
   if (!rawCustomer && !rawPhone) return null;
-  if (!summary.product) return null;
 
   const courier = stringOrNull(
     item?.courier ||
@@ -1667,6 +1674,100 @@ async function listShopsFromApi(db, payload = {}) {
   const shops = Array.isArray(response?.shops) ? response.shops : [];
   await storeItems(db, 'shops', null, shops);
   return { shops };
+}
+
+async function resolveConnectionForValidation(db, payload = {}) {
+  const connections = await getSavedConnections(db);
+  const connectionId = stringOrNull(payload.connection_id || payload.id);
+  const shopId = stringOrNull(payload.shop_id || payload.shopId);
+  return connections.find((connection) => (
+    (connectionId && connection.id === connectionId)
+    || (shopId && connection.shop_id === shopId)
+  )) || connections[0] || null;
+}
+
+async function validatePancakePageToken(db, payload = {}) {
+  const connection = await resolveConnectionForValidation(db, payload);
+  const pageId = stringOrNull(
+    payload.messaging_page_id
+    || payload.messagingPageId
+    || payload.page_id
+    || payload.pageId
+    || connection?.messaging_page_id
+  );
+  const pageToken = stringOrNull(
+    payload.page_access_token
+    || payload.pageAccessToken
+    || payload.pancake_token
+    || payload.pancakeToken
+    || connection?.page_access_token
+  );
+
+  if (!pageId) throw new Error('Missing Pancake Page ID.');
+  if (!pageToken) throw new Error('Missing Pancake page access token.');
+
+  const url = `https://pages.fm/api/public_api/v1/pages/${encodeURIComponent(pageId)}/users?page_access_token=${encodeURIComponent(pageToken)}`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!response.ok) {
+    const details = typeof data === 'string' ? truncate(data, 180) : truncate(safeJson(data), 180);
+    throw new Error(`Pancake page token failed (${response.status}): ${details}`);
+  }
+
+  const users = Array.isArray(data?.users) ? data.users : [];
+  const disabledUsers = Array.isArray(data?.disabled_users) ? data.disabled_users : [];
+  return {
+    ok: true,
+    page_id: pageId,
+    active_users: users.length,
+    disabled_users: disabledUsers.length,
+  };
+}
+
+async function validateBotcakeToken(db, payload = {}) {
+  const connection = await resolveConnectionForValidation(db, payload);
+  const pageId = stringOrNull(
+    payload.messaging_page_id
+    || payload.messagingPageId
+    || payload.page_id
+    || payload.pageId
+    || connection?.messaging_page_id
+  );
+  const botcakeToken = stringOrNull(
+    payload.botcake_token
+    || payload.botcakeToken
+    || connection?.botcake_token
+  );
+
+  if (!pageId) throw new Error('Missing Page ID for Botcake validation.');
+  if (!botcakeToken) throw new Error('Missing Botcake token.');
+
+  const url = `https://botcake.io/api/public_api/v1/integration_page/list_access_token/${encodeURIComponent(pageId)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${botcakeToken}`,
+      'Content-Type': 'application/json',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!response.ok) {
+    const details = typeof data === 'string' ? truncate(data, 180) : truncate(safeJson(data), 180);
+    throw new Error(`Botcake token failed (${response.status}): ${details}`);
+  }
+
+  return {
+    ok: true,
+    page_id: pageId,
+    response_keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 8) : [],
+  };
 }
 
 function collectSummaryPayload(resources, options) {
@@ -2198,6 +2299,8 @@ module.exports = {
   saveSetting,
   listPosUsers,
   listShopsFromApi,
+  validatePancakePageToken,
+  validateBotcakeToken,
   collectPosData,
   replayStoredOrdersToDashboard,
   receiveWebhook,

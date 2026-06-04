@@ -463,6 +463,26 @@ PANCAKE_POS_SYNC_PAGE_SIZE=100
 PANCAKE_POS_SYNC_MAX_PAGES=2000
 ```
 
+#### Railway egress controls
+
+Use these settings to keep Railway network egress low:
+
+```text
+# Best: use hosted Postgres instead of SQLite + cloud file backup
+DATABASE_URL=postgresql://USER:PASSWORD@PRIVATE-POSTGRES-HOST:5432/railway
+POSTGRES_SSL=false
+
+# If you must keep SQLite on Railway, mount a Railway volume and avoid upload-on-write backups
+SQLITE_PATH=/data/ynt.db
+SQLITE_BACKUP_ON_WRITE=false
+SQLITE_BACKUP_INTERVAL_MS=86400000
+SQLITE_BACKUP_MIN_INTERVAL_MS=900000
+```
+
+Prefer Railway's private/internal database URL when the Postgres database is in the same Railway project. Avoid public database hosts such as `proxy.rlwy.net` for Railway-to-Railway traffic, because that traffic can be counted as egress. If you are using Supabase or another external Postgres provider, the database traffic leaves Railway by design; keep API payloads and sync frequency conservative.
+
+For the lowest egress setup, use Railway Postgres with private networking and do not configure `R2_*` SQLite backup variables. The R2 backup helper uploads the whole SQLite database file whenever it runs, so it should only be used for periodic disaster-recovery snapshots, not every write.
+
 Optional integration variables:
 
 ```text
