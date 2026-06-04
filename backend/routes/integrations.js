@@ -318,6 +318,165 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Server-side Data Report aggregation. The page used to walk every /records
+  // page (~30 MB of rows per visit, the #1 Supabase egress source) just to group
+  // them in the browser. This computes the same grouped metrics in Postgres and
+  // returns a few KB. The SQL below intentionally mirrors the frontend helpers
+  // it replaces — getOrderStatusKey, orderHasTag('undeliverable'),
+  // getPriceRangeLabel and groupDataReportRows — so the numbers stay identical.
+  const dr = {
+    statusExpr: "LOWER(COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)))",
+  };
+  dr.isDelivered = `(${dr.statusExpr} IN ('delivered','completed'))`;
+  dr.isReturned = `(${dr.statusExpr} IN ('returned','return to sender','rts'))`;
+  dr.isReturning = `(${dr.statusExpr} IN ('returning','for return','return in transit'))`;
+  dr.isShipped = `(${dr.statusExpr} IN ('shipped','in transit','out for delivery'))`;
+  // Undeliverable is tag-driven (g.tag is a comma-joined list); matches the
+  // frontend's orderHasTag() and the established tag-filter pattern in /records.
+  dr.isUndeliverable = "(LOWER(',' || REPLACE(COALESCE(g.tag, ''), ', ', ',') || ',') LIKE '%,undeliverable,%')";
+  // Price buckets keyed on COD; COALESCE(...,0) so NULL/blank COD falls in the
+  // lowest band, exactly like getPriceRangeLabel(Number(cod||0)).
+  dr.priceExpr = `CASE
+      WHEN COALESCE(g.cod, 0) <= 500  THEN 'PHP 251 - PHP 500'
+      WHEN COALESCE(g.cod, 0) <= 750  THEN 'PHP 501 - PHP 750'
+      WHEN COALESCE(g.cod, 0) <= 1000 THEN 'PHP 751 - PHP 1,000'
+      WHEN COALESCE(g.cod, 0) <= 1500 THEN 'PHP 1,001 - PHP 1,500'
+      WHEN COALESCE(g.cod, 0) <= 2000 THEN 'PHP 1,501 - PHP 2,000'
+      WHEN COALESCE(g.cod, 0) <= 3000 THEN 'PHP 2,001 - PHP 3,000'
+      WHEN COALESCE(g.cod, 0) <= 5000 THEN 'PHP 3,001 - PHP 5,000'
+      ELSE 'PHP 5,000+'
+    END`;
+  dr.staffExpr = "COALESCE(NULLIF(g.confirmed_by, ''), 'Unassigned')";
+  dr.provinceExpr = "COALESCE(NULLIF(g.province_city, ''), 'Unknown province')";
+  // The Page dropdown mirrors getPosSourceOptions(): blank chat_page shows as
+  // 'Sheets'. Filtering by the same expression keeps option↔rows consistent.
+  dr.pageExpr = "COALESCE(NULLIF(g.chat_page, ''), 'Sheets')";
+
+  // months/pages are the full dropdown domains — independent of the active
+  // filter and only change on sync, so they're cached by the google_orders
+  // version. Per-filter metric results are memoised under the same version.
+  let reportSummaryCache = { version: null, months: null, pages: null, entries: new Map() };
+
+  router.get('/google-sheets/report-summary', async (req, res) => {
+    try {
+      const { month, date_from, date_to, page } = req.query;
+
+      const where = [];
+      const params = [];
+      if (month) {
+        where.push('substr(g.day_created, 1, 7) = ?');
+        params.push(month);
+      } else {
+        if (date_from) { where.push('substr(g.day_created, 1, 10) >= ?'); params.push(date_from); }
+        if (date_to)   { where.push('substr(g.day_created, 1, 10) <= ?'); params.push(date_to); }
+      }
+      if (page && page !== 'all') { where.push(`${dr.pageExpr} = ?`); params.push(page); }
+      const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+      const version = await getGoogleOrdersVersion();
+      if (reportSummaryCache.version !== version) {
+        reportSummaryCache = { version, months: null, pages: null, entries: new Map() };
+      }
+
+      // Dropdown domains: one DISTINCT scan per sync, served from RAM after.
+      if (!reportSummaryCache.months || !reportSummaryCache.pages) {
+        const [monthRows, pageRows] = await Promise.all([
+          db.prepare(
+            `SELECT DISTINCT substr(g.day_created, 1, 7) AS m FROM google_orders g
+             WHERE g.day_created IS NOT NULL AND g.day_created != ''`
+          ).all(),
+          db.prepare(`SELECT DISTINCT ${dr.pageExpr} AS p FROM google_orders g`).all(),
+        ]);
+        reportSummaryCache.months = monthRows
+          .map((r) => r.m)
+          .filter((m) => /^\d{4}-\d{2}$/.test(m))
+          .sort((a, b) => b.localeCompare(a));
+        reportSummaryCache.pages = pageRows
+          .map((r) => r.p)
+          .filter(Boolean)
+          .sort((a, b) => String(a).localeCompare(String(b)));
+      }
+      const months = reportSummaryCache.months;
+      const pages = reportSummaryCache.pages;
+
+      const filterKey = `${month || ''}|${date_from || ''}|${date_to || ''}|${page || ''}`;
+      if (reportSummaryCache.entries.has(filterKey)) {
+        res.json({ ...reportSummaryCache.entries.get(filterKey), months, pages });
+        return;
+      }
+
+      // Mirrors groupDataReportRows(): per-group counts + RTS rate, sorted by
+      // total desc then RTS desc. 'returning' is a Postgres keyword, so the
+      // column is aliased returning_ct.
+      const groupBy = async (keyExpr) => {
+        const rows = await db.prepare(`
+          SELECT ${keyExpr} AS label,
+            COUNT(*) AS total,
+            SUM(CASE WHEN ${dr.isDelivered} THEN 1 ELSE 0 END) AS delivered,
+            SUM(CASE WHEN ${dr.isReturned} THEN 1 ELSE 0 END) AS returned,
+            SUM(CASE WHEN ${dr.isReturning} THEN 1 ELSE 0 END) AS returning_ct
+          FROM google_orders g
+          ${whereSql}
+          GROUP BY ${keyExpr}
+        `).all(...params);
+        return rows.map((r) => {
+          const total = Number(r.total || 0);
+          const delivered = Number(r.delivered || 0);
+          const returned = Number(r.returned || 0);
+          const returning = Number(r.returning_ct || 0);
+          const base = delivered + returned + returning;
+          return { label: r.label, total, delivered, returned, returning, rtsRate: base ? ((returned + returning) / base) * 100 : 0 };
+        }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
+      };
+
+      const [totals, byPrice, byConfirmed, byProvince] = await Promise.all([
+        db.prepare(`
+          SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN ${dr.isDelivered} THEN 1 ELSE 0 END) AS delivered,
+            SUM(CASE WHEN ${dr.isReturned} THEN 1 ELSE 0 END) AS returned,
+            SUM(CASE WHEN ${dr.isReturning} THEN 1 ELSE 0 END) AS returning_ct,
+            SUM(CASE WHEN ${dr.isShipped} THEN 1 ELSE 0 END) AS shipped,
+            SUM(CASE WHEN ${dr.isUndeliverable} THEN 1 ELSE 0 END) AS undeliverable,
+            COALESCE(SUM(g.cod), 0) AS cod
+          FROM google_orders g
+          ${whereSql}
+        `).get(...params),
+        groupBy(dr.priceExpr),
+        groupBy(dr.staffExpr),
+        groupBy(dr.provinceExpr),
+      ]);
+
+      const delivered = Number(totals?.delivered || 0);
+      const returned = Number(totals?.returned || 0);
+      const returning = Number(totals?.returning_ct || 0);
+      const base = delivered + returned + returning;
+      const summary = {
+        counts: {
+          total: Number(totals?.total || 0),
+          delivered,
+          returned,
+          returning,
+          shipped: Number(totals?.shipped || 0),
+          undeliverable: Number(totals?.undeliverable || 0),
+        },
+        cod: Number(totals?.cod || 0),
+        rtsRate: base ? ((returned + returning) / base) * 100 : 0,
+        byPrice,
+        byConfirmed,
+        byProvince,
+      };
+
+      // Bound the per-filter memo so a long-lived process can't grow unbounded.
+      if (reportSummaryCache.entries.size > 60) reportSummaryCache.entries.clear();
+      reportSummaryCache.entries.set(filterKey, summary);
+
+      res.json({ ...summary, months, pages });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
 
   router.get('/pancake-pos/status', async (req, res) => {

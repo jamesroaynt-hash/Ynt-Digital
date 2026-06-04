@@ -540,7 +540,7 @@ async function refreshOrderViewsFromBackend() {
       renderRTSRateDashboard();
     }
     if (App.currentPage === 'data-report') {
-      renderDataReportDashboard();
+      loadDataReportSummary().then(() => renderDataReportDashboard()).catch(() => {});
     }
     if (App.currentPage === 'home') {
       loadPage('home');
@@ -3077,16 +3077,6 @@ function renderRTSRate() {
   </div>`;
 }
 
-// google_orders.tag is a comma-joined list ("2nd Attemp, Undeliverable"); returns
-// true when the order carries the given tag (case/space-insensitive).
-function orderHasTag(order, target) {
-  const want = String(target || '').trim().toLowerCase();
-  if (!want) return false;
-  return String(order?.tags || '')
-    .split(',')
-    .some((t) => t.trim().toLowerCase() === want);
-}
-
 function getOrderStatusKey(status) {
   const value = String(status || '').trim().toLowerCase();
   if (['delivered', 'completed'].includes(value)) return 'delivered';
@@ -3273,8 +3263,64 @@ let dataReportDateTo = '';
 let dataReportPageFilter = 'all';
 let dataReportMonth = ''; // YYYY-MM selected in the Monthly dropdown
 
-// Distinct YYYY-MM months present in the synced orders, newest first.
+// The Data Report is computed server-side (/google-sheets/report-summary) so the
+// page no longer walks every order row into the browser. These hold the last
+// fetched summary plus the dropdown domains (months/pages) the endpoint returns.
+let dataReportSummary = null;
+let dataReportSummaryLoading = false;
+let dataReportMonths = [];
+let dataReportPages = [];
+
+// Translate the active preset/page filter into report-summary query params.
+function getDataReportParams() {
+  const params = new URLSearchParams();
+  const today = normalizeDateString(new Date());
+  if (dataReportPreset === 'today') {
+    params.set('date_from', today);
+    params.set('date_to', today);
+  } else if (dataReportPreset === 'yesterday') {
+    const y = normalizeDateString(getDateDaysAgo(1));
+    params.set('date_from', y);
+    params.set('date_to', y);
+  } else if (dataReportPreset === 'monthly') {
+    params.set('month', dataReportMonth || today.slice(0, 7));
+  } else if (dataReportPreset === 'custom') {
+    if (dataReportDateFrom) params.set('date_from', dataReportDateFrom);
+    if (dataReportDateTo) params.set('date_to', dataReportDateTo);
+  }
+  if (dataReportPageFilter !== 'all') params.set('page', dataReportPageFilter);
+  return params;
+}
+
+async function loadDataReportSummary() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  dataReportSummaryLoading = true;
+  try {
+    const params = getDataReportParams();
+    params.set('_', String(Date.now()));
+    const result = await authorizedJsonRequest(`/integrations/google-sheets/report-summary?${params}`);
+    dataReportSummary = result;
+    if (Array.isArray(result.months)) dataReportMonths = result.months;
+    if (Array.isArray(result.pages)) dataReportPages = result.pages;
+    return true;
+  } finally {
+    dataReportSummaryLoading = false;
+  }
+}
+
+async function refreshDataReport() {
+  try {
+    await loadDataReportSummary();
+  } catch (error) {
+    showToast('warning', 'Data report refresh failed', error.message || 'Could not refresh report.');
+  }
+  if (App.currentPage === 'data-report') renderDataReportDashboard();
+}
+
+// Month dropdown domain — from the summary endpoint, falling back to whatever
+// rows happen to be in memory before the first fetch resolves.
 function getDataReportMonths() {
+  if (dataReportMonths.length) return dataReportMonths;
   const set = new Set();
   (DB.sheetRecordsForReport || []).forEach((o) => {
     const m = String(o.date || '').slice(0, 7);
@@ -3287,30 +3333,6 @@ function monthLabel(ym) {
   const [y, m] = String(ym || '').split('-');
   if (!y || !m) return ym;
   return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
-}
-
-function getDataReportOrders() {
-  let data = [...(DB.sheetRecordsForReport || [])];
-  const today = normalizeDateString(new Date());
-
-  if (dataReportPreset === 'today') {
-    data = data.filter((o) => o.date === today);
-  } else if (dataReportPreset === 'yesterday') {
-    const y = normalizeDateString(getDateDaysAgo(1));
-    data = data.filter((o) => o.date === y);
-  } else if (dataReportPreset === 'monthly') {
-    const month = dataReportMonth || today.slice(0, 7);
-    data = data.filter((o) => String(o.date || '').startsWith(month));
-  } else if (dataReportPreset === 'custom') {
-    if (dataReportDateFrom) data = data.filter((o) => o.date >= dataReportDateFrom);
-    if (dataReportDateTo) data = data.filter((o) => o.date <= dataReportDateTo);
-  }
-
-  if (dataReportPageFilter !== 'all') {
-    data = data.filter((o) => (o.sourceSheet || '') === dataReportPageFilter);
-  }
-
-  return data.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }
 
 function setDataReportPreset(preset) {
@@ -3337,40 +3359,6 @@ function setDataReportMonth() {
   navigateTo('data-report');
 }
 
-function groupDataReportRows(orders, keyFn) {
-  const map = new Map();
-  orders.forEach((order) => {
-    const key = keyFn(order) || 'Unassigned';
-    if (!map.has(key)) map.set(key, { label: key, total: 0, delivered: 0, returned: 0, returning: 0, canceled: 0, cod: 0 });
-    const row = map.get(key);
-    const statusKey = getOrderStatusKey(order.status);
-    row.total += 1;
-    row.cod += Number(order.cod || 0);
-    if (statusKey === 'delivered') row.delivered += 1;
-    else if (statusKey === 'returned') row.returned += 1;
-    else if (statusKey === 'returning') row.returning += 1;
-    else if (statusKey === 'canceled') row.canceled += 1;
-  });
-
-  return [...map.values()].map((row) => {
-    const base = row.delivered + row.returned + row.returning;
-    const active = row.total - row.delivered - row.returned - row.returning - row.canceled;
-    return { ...row, active, rtsRate: base ? ((row.returned + row.returning) / base) * 100 : 0 };
-  }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
-}
-
-function getPriceRangeLabel(amount) {
-  const value = Number(amount || 0);
-  if (value <= 500) return 'PHP 251 - PHP 500';
-  if (value <= 750) return 'PHP 501 - PHP 750';
-  if (value <= 1000) return 'PHP 751 - PHP 1,000';
-  if (value <= 1500) return 'PHP 1,001 - PHP 1,500';
-  if (value <= 2000) return 'PHP 1,501 - PHP 2,000';
-  if (value <= 3000) return 'PHP 2,001 - PHP 3,000';
-  if (value <= 5000) return 'PHP 3,001 - PHP 5,000';
-  return 'PHP 5,000+';
-}
-
 function renderDataReportTable(rows, firstColumn, emptyText) {
   if (!rows.length) {
     return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Google Sheets to populate this report.</p></div>`;
@@ -3395,29 +3383,6 @@ function renderDataReportTable(rows, firstColumn, emptyText) {
     </table>`;
 }
 
-function getDataReportMetrics() {
-  const orders = getDataReportOrders();
-  const counts = { delivered: 0, returned: 0, returning: 0, shipped: 0, undeliverable: 0 };
-  let cod = 0;
-  orders.forEach((order) => {
-    const key = getOrderStatusKey(order.status);
-    if (counts[key] !== undefined) counts[key] += 1;
-    // Undeliverable is driven by the order's tag (google_orders.tag), not status.
-    if (orderHasTag(order, 'undeliverable')) counts.undeliverable += 1;
-    cod += Number(order.cod || 0);
-  });
-  const base = counts.delivered + counts.returned + counts.returning;
-  return {
-    orders,
-    counts,
-    cod,
-    rtsRate: base ? ((counts.returned + counts.returning) / base) * 100 : 0,
-    byPrice: groupDataReportRows(orders, (order) => getPriceRangeLabel(order.cod)),
-    byConfirmed: groupDataReportRows(orders, (order) => order.assigning_seller_name || 'Unassigned'),
-    byProvince: groupDataReportRows(orders, (order) => order.province || 'Unknown province'),
-  };
-}
-
 function renderDataReport() {
   const quickLinks = [
     ['sales', 'Sales Dashboard'],
@@ -3425,7 +3390,7 @@ function renderDataReport() {
     ['view-records', 'Order Records'],
   ].filter(([page]) => canAccessPage(page));
 
-  const pageOptions = getPosSourceOptions();
+  const pageOptions = dataReportPages.length ? dataReportPages : getPosSourceOptions();
   const presets = [['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']];
   const months = getDataReportMonths();
   if (dataReportPreset === 'monthly' && !dataReportMonth) {
@@ -3436,7 +3401,7 @@ function renderDataReport() {
   <div class="data-report-page">
     <div class="page-header data-report-header">
       <div class="page-title"><h1>Data Report</h1><p>RTS analytics from synced Google Sheets records.</p></div>
-      <button class="btn btn-secondary btn-sm" onclick="refreshOrderViewsFromBackend()">Refresh Data</button>
+      <button class="btn btn-secondary btn-sm" onclick="refreshDataReport()">Refresh Data</button>
     </div>
 
     <div class="card" style="margin-bottom:16px;padding:14px 18px;">
@@ -3483,17 +3448,23 @@ function renderDataReportDashboard() {
   const wrapper = document.getElementById('data-report-dashboard');
   if (!wrapper) return;
 
-  const metrics = getDataReportMetrics();
+  if (dataReportSummaryLoading || !dataReportSummary) {
+    wrapper.innerHTML = '<div class="loading-spinner" style="margin:48px auto;"></div>';
+    return;
+  }
+
+  const { counts, rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
+  const total = counts.total;
   wrapper.innerHTML = `
     <div class="data-report-kpis">
-      ${renderRTSMetricCard('Total Orders', metrics.orders.length, 'blue', metrics.orders.length)}
-      ${renderRTSMetricCard('Delivered', metrics.counts.delivered, 'green', metrics.orders.length)}
-      ${renderRTSMetricCard('Shipped', metrics.counts.shipped, 'purple', metrics.orders.length)}
-      ${renderRTSMetricCard('Returned', metrics.counts.returned + metrics.counts.returning, 'red', metrics.orders.length)}
-      ${renderRTSMetricCard('Undeliverable', metrics.counts.undeliverable, 'amber', metrics.orders.length)}
+      ${renderRTSMetricCard('Total Orders', total, 'blue', total)}
+      ${renderRTSMetricCard('Delivered', counts.delivered, 'green', total)}
+      ${renderRTSMetricCard('Shipped', counts.shipped, 'purple', total)}
+      ${renderRTSMetricCard('Returned', counts.returned + counts.returning, 'red', total)}
+      ${renderRTSMetricCard('Undeliverable', counts.undeliverable, 'amber', total)}
       <div class="rts-metric-card yellow">
         <div class="stat-label">RTS Rate</div>
-        <div class="rts-metric-value">${formatPercent(metrics.rtsRate)}</div>
+        <div class="rts-metric-value">${formatPercent(rtsRate)}</div>
         <div class="stat-meta">Delivered vs returned order base</div>
       </div>
     </div>
@@ -3512,18 +3483,18 @@ function renderDataReportDashboard() {
           <div class="card-subtitle">Orders and RTS rate per staff who confirmed the order</div>
         </div>
       </div>
-      ${renderDataReportTable(metrics.byConfirmed, 'Assigned Staff', 'No staff data yet')}
+      ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet')}
     </section>
 
     <section class="data-report-section">
       <div class="card-header">
         <div><div class="card-title">By Province/City</div><div class="card-subtitle">RTS rate grouped by province/city</div></div>
       </div>
-      ${renderDataReportTable(metrics.byProvince, 'Province/City', 'No province data yet')}
+      ${renderDataReportTable(byProvince, 'Province/City', 'No province data yet')}
     </section>
 `;
 
-  renderDataReportPriceChart(metrics.byPrice);
+  renderDataReportPriceChart(byPrice);
 }
 
 async function loadConfirmedByStats() {
@@ -7359,12 +7330,19 @@ function initPage(page) {
   }
 
   if (page === 'data-report') {
+    // First-ever visit has no month/page domains yet; once the summary returns
+    // them, re-enter once so the filter dropdowns populate (the repeat fetch is
+    // a backend cache hit). Subsequent loads just refresh the dashboard.
+    const firstLoad = dataReportMonths.length === 0;
+    loadDataReportSummary().then(() => {
+      if (App.currentPage !== 'data-report') return;
+      if (firstLoad && dataReportMonths.length) loadPage('data-report');
+      else renderDataReportDashboard();
+    }).catch((error) => {
+      showToast('warning', 'Data report load failed', error.message || 'Could not load report.');
+      renderDataReportDashboard();
+    });
     renderDataReportDashboard();
-    if (!DB.sheetRecordsForReport.length) {
-      loadSheetRecordsForDataReport().then(() => renderDataReportDashboard()).catch((error) => {
-        showToast('warning', 'Sheet records load failed', error.message || 'Could not load sheet records.');
-      });
-    }
   }
 
   if (page === 'marketing-center') {
