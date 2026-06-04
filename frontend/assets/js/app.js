@@ -5729,10 +5729,39 @@ function statusBadge(status) {
 
 // ─── RENDER: VIEW RECORDS ──────────────────────────────────
 function getPosOrderFilterOptions() {
-  const posProductOptions = [...new Set(DB.posOrders.map((o) => o.product).filter(Boolean))].sort();
-  const posPageOptions = [...new Set(DB.posOrders.map((o) => o.sourceSheet).filter(Boolean))].sort();
-  const posTagOptions = [...new Set(DB.posOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []).filter(Boolean))].sort();
+  const rawOrders = Array.isArray(DB.posRawOrders) ? DB.posRawOrders : [];
+  const dashboardOrders = Array.isArray(DB.posOrders) ? DB.posOrders : [];
+  const posProductOptions = [...new Set([
+    ...rawOrders.map((o) => o.note_product),
+    ...dashboardOrders.map((o) => o.product),
+  ].filter(Boolean))].sort();
+  const posPageOptions = [...new Set([
+    ...rawOrders.map((o) => o.page_name),
+    ...dashboardOrders.map((o) => o.sourceSheet),
+  ].filter(Boolean))].sort();
+  const posTagOptions = [...new Set([
+    ...rawOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []),
+    ...dashboardOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []),
+  ].map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean))].sort();
   return { posProductOptions, posPageOptions, posTagOptions };
+}
+
+function updatePosFilterSelect(id, allLabel, options, selectedValue) {
+  const select = document.getElementById(id);
+  if (!select) return;
+  const values = [...options];
+  if (selectedValue && selectedValue !== 'all' && !values.includes(selectedValue)) values.unshift(selectedValue);
+  select.innerHTML = `<option value="all">${allLabel}</option>${values.map((value) =>
+    `<option value="${escapeHtml(value)}" ${selectedValue === value ? 'selected' : ''}>${escapeHtml(value)}</option>`
+  ).join('')}`;
+}
+
+function updateRmoFilterOptions() {
+  if (App.currentPage !== 'rmo-management') return;
+  const { posProductOptions, posPageOptions, posTagOptions } = getPosOrderFilterOptions();
+  updatePosFilterSelect('pos-orders-product', 'All Products', posProductOptions, posOrdersProductFilter);
+  updatePosFilterSelect('pos-orders-page', 'All Pages', posPageOptions, posOrdersPageFilter);
+  updatePosFilterSelect('pos-orders-tags', 'All Tags', posTagOptions, posOrdersTagFilter);
 }
 
 function renderRmoManagement() {
@@ -9462,6 +9491,7 @@ function renderPosOrdersTable() {
   const isRmoPage = App.currentPage === 'rmo-management';
 
   if (isRmoPage) {
+    updateRmoFilterOptions();
     const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
     const metricValues = {
       total: Number(DB.posRawTotal || 0),
