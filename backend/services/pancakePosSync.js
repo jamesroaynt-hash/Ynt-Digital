@@ -851,7 +851,12 @@ function dashboardStatusFromPos(item) {
     if (code === 8 || code === 9 || code === 12) return 'Waiting for pickup';
     if (code === 2) return 'Shipped';
     if (code === 1 || code === 20) return 'Confirmed';
-    if (code === 0) return 'New';
+    // Pancake sometimes reports status=0 while status_name is already advanced
+    // (e.g. "submitted"/confirmed). Don't let the zero code mask that — fall
+    // through to the text matching below instead of forcing 'New'.
+    if (code === 0 && !(statusText.includes('submit') || statusText.includes('confirm') || statusText.includes('purchased'))) {
+      return 'New';
+    }
   }
 
   // Status_name text matching
