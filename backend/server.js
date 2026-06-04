@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -191,6 +192,11 @@ async function createApp() {
 
   const backupScheduler = createBackupScheduler(db, dbPath);
 
+  // gzip every compressible response (API JSON + the static frontend bundle).
+  // Biggest egress win on Railway: the data-report/records walks and the ~550KB
+  // app.js shrink ~5-10x on the wire. Registered first so it wraps all routes
+  // and the express.static handlers below.
+  app.use(compression());
   app.use(cors({
     origin(origin, callback) {
       if (isAllowedOrigin(origin)) {
