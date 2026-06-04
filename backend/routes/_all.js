@@ -367,16 +367,15 @@ function ordersRoutes(db, { dispatch } = {}) {
       where.push('o.order_date >= ? AND o.order_date < ?');
       params.push(`${year}-01-01`, `${Number(year) + 1}-01-01`);
     }
-    if (date_filter === 'today')     { where.push("o.order_date = date('now')"); }
-    if (date_filter === 'yesterday') { where.push("o.order_date = date('now','-1 day')"); }
+    // Date filters are Manila-local (UTC+8). SQLite date('now') is UTC, which
+    // mismatched the dashboard's Today and hid early-morning PH orders.
+    if (date_filter === 'today')     { where.push("o.order_date = date('now','+8 hours')"); }
+    if (date_filter === 'yesterday') { where.push("o.order_date = date('now','+8 hours','-1 day')"); }
     if (date_filter === 'month') {
-      const now = new Date();
-      where.push('o.order_date >= ?');
-      params.push(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2,'0')}-01`);
+      where.push("o.order_date >= strftime('%Y-%m-01', date('now','+8 hours'))");
     }
     if (date_filter === 'year') {
-      where.push('o.order_date >= ?');
-      params.push(`${new Date().getUTCFullYear()}-01-01`);
+      where.push("o.order_date >= strftime('%Y-01-01', date('now','+8 hours'))");
     }
     if (date_filter === 'custom') {
       if (date_from) { where.push('o.order_date >= ?'); params.push(String(date_from).slice(0, 10)); }
