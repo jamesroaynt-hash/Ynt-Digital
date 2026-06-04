@@ -783,11 +783,31 @@ async function upsertInventoryHistory(db, shopId, item) {
 }
 
 function normalizeDateString(value) {
-  const directDate = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
-  if (directDate) return directDate[1];
-  const parsed = value ? new Date(value) : new Date();
-  if (Number.isNaN(parsed.getTime())) return new Date().toISOString().slice(0, 10);
-  return parsed.toISOString().slice(0, 10);
+  const str = String(value || '');
+  // A bare calendar date (e.g. Google Sheets "2026-06-04") is already local —
+  // trust it as-is. Only strings WITH a time component need TZ conversion.
+  const bareDate = str.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (bareDate) return bareDate[1];
+
+  // Resolve to an epoch (handles ISO strings and Unix second/ms integers).
+  let ms;
+  const num = Number(str);
+  if (str && !Number.isNaN(num) && num > 1_000_000_000) {
+    ms = num > 9_999_999_999 ? num : num * 1000;
+  } else {
+    const parsed = str ? new Date(str) : new Date();
+    ms = Number.isNaN(parsed.getTime()) ? Date.now() : parsed.getTime();
+  }
+
+  // Express the calendar date in Manila time. POS timestamps are UTC, so a plain
+  // UTC slice rolled PH early-morning orders back a day and hid them from the
+  // (Manila-local) "Today" filter.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(ms);
 }
 
 // Converts a POS timestamp (ISO string or Unix ms/s integer) to "YYYY-MM-DD HH:MM:SS" for storage.
@@ -1934,7 +1954,12 @@ async function collectPosData(db, payload = {}) {
           });
           return Array.isArray(response?.data) ? response.data : [];
         }, { startPage: 1, pageSize: options.page_size });
-      } catch { /* API may not support updated_at filter — ignore */ }
+      } catch (err) {
+        // This pass is what catches status changes (e.g. New -> Confirmed) on
+        // already-created orders. If it fails, confirmations never sync — so
+        // surface it instead of hiding it.
+        console.warn(`[pancake_pos] updated_at order fetch failed; status changes on existing orders may be missed: ${err.message}`);
+      }
 
       // Merge: deduplicate by external_id, prefer fresher record
       const seen = new Map();
@@ -1946,6 +1971,7 @@ async function collectPosData(db, payload = {}) {
           seen.set(id, item);
         }
       }
+      console.log(`[pancake_pos] orders fetched: created=${createdItems.length}, updated=${updatedItems.length}, merged=${seen.size} (updatedSince=${updatedSince})`);
       return [...seen.values()];
     },
     products: async () => {
