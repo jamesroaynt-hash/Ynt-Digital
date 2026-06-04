@@ -132,7 +132,26 @@ async function restoreDatabaseFromBlob(filename) {
 function createBackupScheduler(db, filename) {
   let timer = null;
   let running = false;
-  let pending = false;
+  let dirty = false;   // writes happened since the last successful upload
+  let lastRunAt = 0;   // ms timestamp of the last upload attempt
+
+  // The whole SQLite file ships to R2/Blob on every backup, so backing up
+  // per-write (the old 750ms debounce) re-uploaded the multi-MB DB back-to-back
+  // under the Pancake webhook flood — the dominant Railway egress source. Cap it
+  // to at most once per interval, and only when something actually changed.
+  const MIN_INTERVAL_MS = Math.max(
+    30 * 1000,
+    Number(process.env.SQLITE_BACKUP_MIN_INTERVAL_MS || 15 * 60 * 1000)
+  );
+
+  function armTimer() {
+    if (timer || running) return;
+    const delay = Math.max(0, MIN_INTERVAL_MS - (Date.now() - lastRunAt));
+    timer = setTimeout(() => {
+      timer = null;
+      uploadBackup();
+    }, delay);
+  }
 
   async function uploadBackupToR2(body) {
     const { PutObjectCommand } = require('@aws-sdk/client-s3');
@@ -158,15 +177,15 @@ function createBackupScheduler(db, filename) {
     console.log(`[sqlite] Backed up database to Vercel Blob: ${getBlobPath()}`);
   }
 
-  async function uploadBackup() {
+  async function uploadBackup({ force = false } = {}) {
     if (!isEnabled()) return;
     if (db.type !== 'sqlite') return;
-    if (running) {
-      pending = true;
-      return;
-    }
+    if (running) return;
+    if (!dirty && !force) return;
 
     running = true;
+    dirty = false;
+    lastRunAt = Date.now();
     try {
       db.pragma('wal_checkpoint(FULL)');
       const body = fs.readFileSync(filename);
@@ -178,20 +197,20 @@ function createBackupScheduler(db, filename) {
         await uploadBackupToVercelBlob(body);
       }
     } catch (error) {
+      dirty = true; // failed — retry on the next interval
       console.error(`[sqlite] Cloud backup failed: ${error.message}`);
     } finally {
       running = false;
-      if (pending) {
-        pending = false;
-        schedule();
-      }
+      if (dirty) armTimer();
     }
   }
 
-  function schedule(delayMs = 750) {
+  // Mark the DB dirty and ensure a throttled upload is scheduled. Callers fire
+  // this on every mutating request; the interval gate keeps egress bounded.
+  function schedule() {
     if (!isEnabled()) return;
-    clearTimeout(timer);
-    timer = setTimeout(uploadBackup, delayMs);
+    dirty = true;
+    armTimer();
   }
 
   return { schedule, uploadBackup };

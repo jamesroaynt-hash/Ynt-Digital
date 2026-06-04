@@ -442,7 +442,7 @@ async function createApp() {
   }
 
   app.locals.db = db;
-  app.locals.backupDatabase = () => backupScheduler.uploadBackup();
+  app.locals.backupDatabase = () => backupScheduler.uploadBackup({ force: true });
   app.locals.runGoogleSheetsSync = runGoogleSheetsSync;
   app.locals.scheduleGoogleSheetsSync = scheduleGoogleSheetsSync;
   app.locals.runPancakePosSync = runPancakePosSync;
@@ -494,6 +494,24 @@ if (require.main === module) {
 
         app.locals.schedulePancakePosSync();
       }
+
+      // Backups are now throttled (see createBackupScheduler), so flush a final
+      // backup on shutdown to avoid losing writes since the last interval upload
+      // — Railway's filesystem is ephemeral and SIGTERMs are frequent.
+      let shuttingDown = false;
+      const flushAndExit = async (signal) => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        console.log(`[server] ${signal} received; flushing final database backup.`);
+        try {
+          await app.locals.backupDatabase();
+        } catch (error) {
+          console.error(`[server] Shutdown backup failed: ${error.message}`);
+        }
+        process.exit(0);
+      };
+      process.on('SIGTERM', () => flushAndExit('SIGTERM'));
+      process.on('SIGINT', () => flushAndExit('SIGINT'));
     })
     .catch((error) => {
       console.error(`[server] Failed to start: ${error.stack || error.message}`);
