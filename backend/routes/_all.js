@@ -540,17 +540,40 @@ function ordersRoutes(db, { dispatch } = {}) {
       params.push(`%${String(tags).toLowerCase()}%`);
     }
 
-    if (period === 'today') {
-      where += ` AND DATE(inserted_at_remote) = DATE('now')`;
+    const addDateFrom = (value) => {
+      where += ` AND substr(COALESCE(inserted_at_remote,''), 1, 10) >= ?`;
+      params.push(String(value).slice(0, 10));
+    };
+    const addDateTo = (value) => {
+      where += ` AND substr(COALESCE(inserted_at_remote,''), 1, 10) <= ?`;
+      params.push(String(value).slice(0, 10));
+    };
+    const padDate = (value) => String(value).padStart(2, '0');
+    const formatDate = (date) => `${date.getFullYear()}-${padDate(date.getMonth() + 1)}-${padDate(date.getDate())}`;
+    const addDays = (date, days) => {
+      const next = new Date(date);
+      next.setDate(next.getDate() + days);
+      return next;
+    };
+    const addDateRange = (from, to) => {
+      addDateFrom(from);
+      addDateTo(to);
+    };
+
+    if (date_from || date_to) {
+      if (date_from) addDateFrom(date_from);
+      if (date_to) addDateTo(date_to);
+    } else if (period === 'today') {
+      addDateRange(formatDate(new Date()), formatDate(new Date()));
     } else if (period === 'yesterday') {
-      where += ` AND DATE(inserted_at_remote) = DATE('now','-1 day')`;
+      const yesterday = addDays(new Date(), -1);
+      addDateRange(formatDate(yesterday), formatDate(yesterday));
     } else if (period === 'month') {
-      where += ` AND strftime('%Y-%m', inserted_at_remote) = strftime('%Y-%m', 'now')`;
+      const now = new Date();
+      addDateRange(formatDate(new Date(now.getFullYear(), now.getMonth(), 1)), formatDate(now));
     } else if (period === 'year') {
-      where += ` AND strftime('%Y', inserted_at_remote) = strftime('%Y', 'now')`;
-    } else if (period === 'custom') {
-      if (date_from) { where += ` AND DATE(inserted_at_remote) >= ?`; params.push(String(date_from).slice(0, 10)); }
-      if (date_to)   { where += ` AND DATE(inserted_at_remote) <= ?`; params.push(String(date_to).slice(0, 10)); }
+      const now = new Date();
+      addDateRange(formatDate(new Date(now.getFullYear(), 0, 1)), formatDate(now));
     }
 
     const statusCountRows = await db.prepare(`

@@ -1894,6 +1894,25 @@ tfoot td {
   .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
   .main-content { margin-left: 0; }
   .page-content { padding: 16px; }
+  .rmo-management-page {
+    margin: -16px;
+    padding: 16px;
+  }
+  .rmo-header {
+    flex-direction: column;
+  }
+  .rmo-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .rmo-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rmo-search,
+  .rmo-select {
+    flex: 1 1 100%;
+    width: 100%;
+  }
   .stats-grid,
   #sales-summary-cards,
   .csr-summary-grid { grid-template-columns: 1fr 1fr !important; }
@@ -2011,6 +2030,7 @@ tfoot td {
   .topbar-right { gap: 6px; }
   .topbar-right .status-online-text { display: none; }
   .page-content { padding: 12px; }
+  .rmo-metrics { grid-template-columns: 1fr; }
   .stats-grid,
   #sales-summary-cards,
   .csr-summary-grid { grid-template-columns: 1fr !important; }
@@ -2519,6 +2539,299 @@ tfoot td {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* RMO Management */
+.rmo-management-page {
+  margin: -24px;
+  min-height: calc(100vh - var(--navbar-h));
+  padding: 24px;
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.rmo-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.rmo-header h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.rmo-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.rmo-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rmo-action-btn,
+.rmo-icon-btn {
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rmo-icon-btn {
+  width: 36px;
+  padding: 0;
+}
+
+.rmo-action-btn svg,
+.rmo-icon-btn svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+}
+
+.rmo-action-btn:hover,
+.rmo-icon-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.rmo-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.rmo-metric {
+  min-height: 82px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+
+.rmo-metric span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.rmo-metric strong {
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.rmo-filter-bar,
+.rmo-period-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.rmo-search {
+  position: relative;
+  flex: 1 1 360px;
+}
+
+.rmo-search svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.rmo-search input,
+.rmo-select,
+.rmo-management-page .form-control {
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.rmo-search input {
+  width: 100%;
+  padding: 0 12px 0 36px;
+}
+
+.rmo-select {
+  min-width: 150px;
+  padding: 0 12px;
+}
+
+.rmo-management-page .filter-pill {
+  height: 30px;
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.rmo-management-page .filter-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.rmo-management-page .records-custom-range {
+  padding-top: 0;
+  margin-left: 0;
+}
+
+.rmo-status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 0;
+  margin: 0 0 10px;
+}
+
+.rmo-summary-chip {
+  border: 1px solid var(--border);
+}
+
+.rmo-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.rmo-table {
+  min-width: 1120px;
+  background: var(--surface);
+}
+
+.rmo-table thead th {
+  background: var(--surface-2);
+  border-bottom-color: var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 14px 18px;
+}
+
+.rmo-table tbody tr {
+  border-bottom-color: var(--border);
+}
+
+.rmo-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.rmo-table tbody td {
+  color: var(--text-primary);
+  padding: 18px;
+  font-size: 12px;
+  vertical-align: top;
+}
+
+.rmo-item-main {
+  color: var(--text-primary);
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.rmo-item-sub,
+.rmo-muted {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.rmo-tag-line {
+  margin-top: 8px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.rmo-alert-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.rmo-money {
+  color: var(--text-primary) !important;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.rmo-attempt {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rmo-assign-btn {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.rmo-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.rmo-status.info { background: var(--accent-soft); color: var(--accent); }
+.rmo-status.success { background: var(--success-soft); color: var(--success); }
+.rmo-status.warning { background: var(--warning-soft); color: var(--warning); }
+.rmo-status.danger { background: var(--danger-soft); color: var(--danger); }
+
+.rmo-pagination {
+  background: var(--surface);
+  border-top-color: var(--border);
+  color: var(--text-secondary);
 }
 
 .rts-overview-grid {

@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'sales', 'marketing-center', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'sales', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  RMO: ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'attendance', 'sales', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -108,6 +108,7 @@ function loadPage(page) {
     attendance: renderAttendance,
     sales: renderSales,
     'marketing-center': renderMarketingCenter,
+    'rmo-management': renderRmoManagement,
     creatives: renderCreatives,
     'adspend-roas': renderAdspendRoas,
     csr: renderCSR,
@@ -139,6 +140,7 @@ const pageNames = {
   attendance: 'Time & Attendance',
   sales: 'Sales',
   'marketing-center': 'Marketing',
+  'rmo-management': 'RMO Management',
   creatives: 'Ad Creatives',
   'adspend-roas': 'ROAS Summary',
   csr: 'CSR Records',
@@ -315,7 +317,7 @@ async function ensureOrdersLoadedForPage(page) {
 
 function renderPageOrderData(page) {
   if (page === 'sales') renderSalesTable();
-  if (page === 'view-records') renderPosOrdersTable();
+  if (page === 'rmo-management') renderPosOrdersTable();
   if (page === 'home') renderHomeOrderCharts();
   if (page === 'rts-rate') renderRTSRateDashboard();
   if (page === 'data-report') renderDataReportDashboard();
@@ -469,6 +471,32 @@ async function fetchPosOrdersVersion() {
   }
 }
 
+function formatPosOrdersDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getPosOrdersPeriodRange(period) {
+  const today = new Date();
+  if (period === 'today') {
+    return { from: formatPosOrdersDate(today), to: formatPosOrdersDate(today) };
+  }
+  if (period === 'yesterday') {
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    return { from: formatPosOrdersDate(yesterday), to: formatPosOrdersDate(yesterday) };
+  }
+  if (period === 'month') {
+    return { from: formatPosOrdersDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: formatPosOrdersDate(today) };
+  }
+  if (period === 'year') {
+    return { from: formatPosOrdersDate(new Date(today.getFullYear(), 0, 1)), to: formatPosOrdersDate(today) };
+  }
+  return null;
+}
+
 async function refreshPosRawOrdersFromBackend() {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
@@ -479,8 +507,16 @@ async function refreshPosRawOrdersFromBackend() {
   if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
   if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
-  if (posOrdersPeriod === 'custom' && posOrdersDateFrom) query.set('date_from', posOrdersDateFrom);
-  if (posOrdersPeriod === 'custom' && posOrdersDateTo) query.set('date_to', posOrdersDateTo);
+  if (posOrdersPeriod === 'custom') {
+    if (posOrdersDateFrom) query.set('date_from', posOrdersDateFrom);
+    if (posOrdersDateTo) query.set('date_to', posOrdersDateTo);
+  } else {
+    const range = getPosOrdersPeriodRange(posOrdersPeriod);
+    if (range) {
+      query.set('date_from', range.from);
+      query.set('date_to', range.to);
+    }
+  }
 
   const result = await authorizedJsonRequest(`/orders/pos-orders?${query.toString()}`);
   DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
@@ -495,7 +531,7 @@ let posOrdersLastVersion = null;
 // the user returns, so the slower cadence has no UX cost on active tabs and
 // trims background egress ~3x for idle/backgrounded sessions.
 const POS_ORDERS_AUTO_REFRESH_MS = 180 * 1000;
-const POS_ORDERS_LIVE_PAGES = ['sales', 'data-report', 'rts-rate', 'view-records', 'marketing-center'];
+const POS_ORDERS_LIVE_PAGES = ['sales', 'data-report', 'rts-rate', 'rmo-management', 'marketing-center'];
 
 async function checkAndRefreshPosOrders() {
   if (!App.user || !getAuthToken()) return;
@@ -533,8 +569,8 @@ async function refreshOrderViewsFromBackend() {
       renderSalesTable();
       initCharts('sales');
     }
-    if (App.currentPage === 'view-records') {
-      loadPage('view-records');
+    if (App.currentPage === 'rmo-management') {
+      loadPage('rmo-management');
     }
     if (App.currentPage === 'rts-rate') {
       renderRTSRateDashboard();
@@ -5692,89 +5728,113 @@ function statusBadge(status) {
 }
 
 // ─── RENDER: VIEW RECORDS ──────────────────────────────────
-function renderViewRecords() {
+function getPosOrderFilterOptions() {
   const posProductOptions = [...new Set(DB.posOrders.map((o) => o.product).filter(Boolean))].sort();
   const posPageOptions = [...new Set(DB.posOrders.map((o) => o.sourceSheet).filter(Boolean))].sort();
   const posTagOptions = [...new Set(DB.posOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []).filter(Boolean))].sort();
+  return { posProductOptions, posPageOptions, posTagOptions };
+}
+
+function renderRmoManagement() {
+  const { posProductOptions, posPageOptions, posTagOptions } = getPosOrderFilterOptions();
+  const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
+  const delivered = statusCounts.Delivered || 0;
+  const returning = statusCounts.Returning || 0;
+  const problematic = (statusCounts.Returned || 0) + (statusCounts.Canceled || 0) + (statusCounts.Other || 0);
+  const called = DB.posRawOrders.reduce((sum, order) => sum + Number(order.attempts || 0), 0);
   const posStatusDisplayOptions = ['New', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
+  const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  return `
+  <div class="rmo-management-page">
+    <div class="rmo-header">
+      <div>
+        <h1>RMO Management</h1>
+        <p>Delivery tracking for POS orders on ${escapeHtml(dateLabel)}</p>
+      </div>
+      <div class="rmo-actions">
+        <button class="rmo-icon-btn" title="Refresh POS orders" onclick="refreshPosOrdersNow()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5a5 5 0 1 0 1 3.8"/><path d="M13 2v3h-3"/></svg>
+        </button>
+        <button class="rmo-action-btn" onclick="exportTableCSV('rmo-pos-orders-table','rmo-pos-orders')">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
+          Export
+        </button>
+        <button class="rmo-action-btn" onclick="collectPancakePosData()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12V4"/><path d="M7 12V7"/><path d="M11 12V2"/><path d="M2 13.5h12"/></svg>
+          Sync
+        </button>
+      </div>
+    </div>
+
+    <div class="rmo-metrics">
+      <div class="rmo-metric"><span>Total For Delivery Today</span><strong id="rmo-metric-total">${Number(DB.posRawTotal || 0).toLocaleString()}</strong></div>
+      <div class="rmo-metric"><span>Called</span><strong id="rmo-metric-called">${called.toLocaleString()}</strong></div>
+      <div class="rmo-metric"><span>Delivered</span><strong id="rmo-metric-delivered">${delivered.toLocaleString()}</strong></div>
+      <div class="rmo-metric"><span>Returning</span><strong id="rmo-metric-returning">${returning.toLocaleString()}</strong></div>
+      <div class="rmo-metric"><span>Problematic</span><strong id="rmo-metric-problematic">${problematic.toLocaleString()}</strong></div>
+    </div>
+
+    <div class="rmo-filter-bar">
+      <div class="rmo-search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        <input type="text" placeholder="Search by order #, tracking code, customer, or phone" id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
+      </div>
+      <select class="rmo-select" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
+        <option value="all">All Statuses</option>
+        ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+      </select>
+      <select class="rmo-select" id="pos-orders-tags" onchange="applyPosOrdersDropdown()">
+        <option value="all">All Tags</option>
+        ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+      </select>
+      <select class="rmo-select" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
+        <option value="all">All Products</option>
+        ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+      </select>
+      <select class="rmo-select" id="pos-orders-page" onchange="applyPosOrdersDropdown()">
+        <option value="all">All Pages</option>
+        ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+      </select>
+    </div>
+
+    <div class="rmo-period-bar">
+      <div class="table-filters">
+        ${[['all','All'],['today','Today'],['yesterday','Yesterday'],['month','Month'],['year','Year'],['custom','Custom']].map(([v, l]) =>
+          `<button class="filter-pill ${posOrdersPeriod === v ? 'active' : ''}" onclick="setPosOrdersPeriod('${v}',this)">${l}</button>`
+        ).join('')}
+      </div>
+      <div class="custom-range records-custom-range ${posOrdersPeriod === 'custom' ? '' : 'hidden'}" id="pos-orders-custom-range">
+        <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
+        <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
+        <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
+      </div>
+    </div>
+
+    <div id="pos-orders-status-summary" class="rmo-status-summary"></div>
+    <div class="rmo-table-wrap">
+      <table class="rmo-table" id="rmo-pos-orders-table">
+        <thead><tr><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Assignee</th><th>Status</th></tr></thead>
+        <tbody id="rec-pos-orders-tbody">
+          <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+        </tbody>
+      </table>
+      <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
+    </div>
+  </div>`;
+}
+
+function renderViewRecords() {
   return `
   <div class="page-header">
     <div class="page-title"><h1>View Records</h1><p>Unified records from all modules.</p></div>
   </div>
 
   <div class="tabs" id="records-tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'rec-pos-orders')">POS Orders (${DB.posRawTotal})</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-sheets'); loadSheetRecords()">Sheet Records</button>
+    <button class="tab-btn active" onclick="switchTab(this,'rec-sheets'); loadSheetRecords()">Sheet Records</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (<span id="rec-csr-count">${DB.csrRecords.length}</span>)</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
-  </div>
-
-  <div id="rec-pos-orders" class="tab-content active">
-    <div class="table-container">
-      <div class="records-filter-panel">
-        <div class="records-filter-row records-filter-primary">
-          <div class="records-filter-field records-search-field">
-            <label class="records-filter-label">Search</label>
-            <div class="table-search">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-              <input type="text" placeholder="Order ID, tracking, phone..." id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
-            </div>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">Product</label>
-            <select class="form-control records-product-filter" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
-              <option value="all">All Products</option>
-              ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">Page</label>
-            <select class="form-control records-product-filter" id="pos-orders-page" onchange="applyPosOrdersDropdown()">
-              <option value="all">All Pages</option>
-              ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">Status</label>
-            <select class="form-control records-product-filter" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
-              <option value="all">All Statuses</option>
-              ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-            </select>
-          </div>
-          <div class="records-filter-field">
-            <label class="records-filter-label">Tags</label>
-            <select class="form-control records-product-filter" id="pos-orders-tags" onchange="applyPosOrdersDropdown()">
-              <option value="all">All Tags</option>
-              ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="records-filter-row records-chip-row">
-          <div class="records-chip-group">
-            <div class="records-filter-label">Period</div>
-            <div class="table-filters">
-              ${[['all','All'],['today','Today'],['yesterday','Yesterday'],['month','Month'],['year','Year'],['custom','Custom']].map(([v, l]) =>
-                `<button class="filter-pill ${posOrdersPeriod === v ? 'active' : ''}" onclick="setPosOrdersPeriod('${v}',this)">${l}</button>`
-              ).join('')}
-            </div>
-          </div>
-          <div class="custom-range records-custom-range ${posOrdersPeriod === 'custom' ? '' : 'hidden'}" id="pos-orders-custom-range">
-            <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
-            <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
-            <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
-          </div>
-        </div>
-      </div>
-      <div id="pos-orders-status-summary" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;"></div>
-      <table>
-        <thead><tr><th>Order ID</th><th>Tracking No.</th><th>Page</th><th>Date</th><th>Customer</th><th>Phone</th><th>Product</th><th>Tag</th><th>Attempts</th><th>COD</th><th>Assigned</th><th>Status</th><th>Rider</th><th>Rider Phone</th></tr></thead>
-        <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
-        </tbody>
-      </table>
-      <div class="table-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
-    </div>
   </div>
 
   <div id="rec-csr" class="tab-content">
@@ -5812,7 +5872,7 @@ function renderViewRecords() {
     </div>
   </div>
 
-  <div id="rec-sheets" class="tab-content">
+  <div id="rec-sheets" class="tab-content active">
     <section class="card integration-card">
       <div class="card-header">
         <div>
@@ -6124,7 +6184,7 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasSales = ['sales', 'marketing-center', 'rmo-management', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
@@ -7397,13 +7457,17 @@ function initPage(page) {
     loadExpenseCredits().catch(() => {});
   }
 
-  if (page === 'view-records') {
+  if (page === 'rmo-management') {
     refreshPosRawOrdersFromBackend()
       .then(renderPosOrdersTable)
       .catch((error) => {
         const tbody = document.getElementById('rec-pos-orders-tbody');
-        if (tbody) tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
+  }
+
+  if (page === 'view-records') {
+    loadSheetRecords();
     // CSR Records tab is server-backed; pull the latest entries, then repaint.
     loadCsrRecordsFromBackend({ force: true })
       .then(() => { if (App.currentPage === 'view-records') refreshRecCsrTable(); })
@@ -9393,6 +9457,22 @@ function changeRecordsPage(page) {
 function renderPosOrdersTable() {
   const tbody = document.getElementById('rec-pos-orders-tbody');
   if (!tbody) return;
+  const isRmoPage = App.currentPage === 'rmo-management';
+
+  if (isRmoPage) {
+    const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
+    const metricValues = {
+      total: Number(DB.posRawTotal || 0),
+      called: DB.posRawOrders.reduce((sum, order) => sum + Number(order.attempts || 0), 0),
+      delivered: statusCounts.Delivered || 0,
+      returning: statusCounts.Returning || 0,
+      problematic: (statusCounts.Returned || 0) + (statusCounts.Canceled || 0) + (statusCounts.Other || 0),
+    };
+    Object.entries(metricValues).forEach(([key, value]) => {
+      const el = document.getElementById(`rmo-metric-${key}`);
+      if (el) el.textContent = Number(value || 0).toLocaleString();
+    });
+  }
 
   const summaryEl = document.getElementById('pos-orders-status-summary');
   if (summaryEl) {
@@ -9410,11 +9490,11 @@ function renderPosOrdersTable() {
       ORDER.indexOf(a.display_status) - ORDER.indexOf(b.display_status)
     );
     summaryEl.innerHTML = sorted.map(({ display_status: s, count: c }) =>
-      `<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;${statusStyleMap[s] || statusStyleMap.Other}">
+      `<span class="${isRmoPage ? 'rmo-summary-chip' : ''}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;${statusStyleMap[s] || statusStyleMap.Other}">
         ${escapeHtml(s)} <span style="opacity:0.85">${Number(c).toLocaleString()}</span>
       </span>`
     ).join('') + (DB.posRawTotal
-      ? `<span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)">Total ${DB.posRawTotal.toLocaleString()}</span>`
+      ? `<span class="${isRmoPage ? 'rmo-summary-chip' : ''}" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)">Total ${DB.posRawTotal.toLocaleString()}</span>`
       : '');
   }
 
@@ -9441,6 +9521,36 @@ function renderPosOrdersTable() {
     const statusLabel = statusText
       ? `<span class="badge ${statusClass}">${escapeHtml(statusText)}</span>`
       : dash;
+    if (isRmoPage) {
+      const product = order.note_product || 'POS order';
+      const tagHtml = tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('');
+      const statusTone = ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
+        : order.status_name === 'delivered' ? 'success'
+        : ['pending', 'wait_print'].includes(order.status_name) ? 'warning'
+        : 'info';
+      return `<tr>
+        <td>
+          <div class="rmo-item-main">${escapeHtml(product)}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - ${escapeHtml(order.tracking_no)}` : ''}</div>
+          <div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}</div>
+        </td>
+        <td>
+          <div class="rmo-item-main">${escapeHtml(order.sprinter_name || 'Unassigned rider')}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.sprinter_tel || 'No rider phone')}</div>
+        </td>
+        <td>
+          <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.customer_phone || 'No phone')}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.page_name || '')}</div>
+        </td>
+        <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
+        <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
+        <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : '&#8369;0'}</td>
+        <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
+        <td><button class="rmo-assign-btn" type="button">Assign to me</button></td>
+        <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
+      </tr>`;
+    }
     return `<tr>
       <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}</td>
       <td class="font-mono text-xs">${escapeHtml(order.tracking_no || '') || dash}</td>
@@ -9457,7 +9567,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? 9 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   const pagination = document.getElementById('pos-orders-pagination');
   if (pagination) {
@@ -9508,7 +9618,7 @@ function applyPosOrdersDropdown() {
 
 function setPosOrdersPeriod(period, btn) {
   posOrdersPeriod = period;
-  document.querySelectorAll('#rec-pos-orders .filter-pill').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.rmo-period-bar .filter-pill, #rec-pos-orders .filter-pill').forEach((b) => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const customRange = document.getElementById('pos-orders-custom-range');
   if (customRange) customRange.classList.toggle('hidden', period !== 'custom');
@@ -9527,6 +9637,17 @@ function applyPosOrdersCustomRange() {
   refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
     showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
   });
+}
+
+function refreshPosOrdersNow() {
+  refreshPosRawOrdersFromBackend()
+    .then(() => {
+      renderPosOrdersTable();
+      showToast('success', 'POS Orders refreshed', 'Latest POS order data loaded.');
+    })
+    .catch((error) => {
+      showToast('warning', 'POS Orders refresh failed', error.message || 'Could not load POS orders.');
+    });
 }
 
 async function deletePosRawNoContact() {
