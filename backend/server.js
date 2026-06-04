@@ -191,6 +191,7 @@ async function createApp() {
   }
 
   const backupScheduler = createBackupScheduler(db, dbPath);
+  backupScheduler.startPeriodicBackups();
 
   // gzip every compressible response (API JSON + the static frontend bundle).
   // Biggest egress win on Railway: the data-report/records walks and the ~550KB

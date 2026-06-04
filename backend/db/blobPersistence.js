@@ -144,6 +144,14 @@ function createBackupScheduler(db, filename) {
     Number(process.env.SQLITE_BACKUP_MIN_INTERVAL_MS || 15 * 60 * 1000)
   );
 
+  // Volume mode: when the DB lives on a Railway persistent volume it survives
+  // restarts on its own, so per-write uploads are pure egress waste. Set
+  // SQLITE_BACKUP_ON_WRITE=false to retire the write-triggered path and rely
+  // only on a periodic disaster-recovery snapshot (SQLITE_BACKUP_INTERVAL_MS,
+  // e.g. 86400000 for daily).
+  const BACKUP_ON_WRITE = process.env.SQLITE_BACKUP_ON_WRITE !== 'false';
+  const PERIODIC_INTERVAL_MS = Number(process.env.SQLITE_BACKUP_INTERVAL_MS || 0);
+
   function armTimer() {
     if (timer || running) return;
     const delay = Math.max(0, MIN_INTERVAL_MS - (Date.now() - lastRunAt));
@@ -207,13 +215,25 @@ function createBackupScheduler(db, filename) {
 
   // Mark the DB dirty and ensure a throttled upload is scheduled. Callers fire
   // this on every mutating request; the interval gate keeps egress bounded.
+  // In volume mode (BACKUP_ON_WRITE=false) this is a no-op — periodic snapshots
+  // handle durability instead.
   function schedule() {
     if (!isEnabled()) return;
+    if (!BACKUP_ON_WRITE) return;
     dirty = true;
     armTimer();
   }
 
-  return { schedule, uploadBackup };
+  // Fixed-cadence disaster-recovery snapshot, independent of write activity.
+  // Returns the timer (unref'd) or null when not configured.
+  function startPeriodicBackups() {
+    if (!isEnabled() || !PERIODIC_INTERVAL_MS) return null;
+    const intervalMs = Math.max(60 * 1000, PERIODIC_INTERVAL_MS);
+    console.log(`[sqlite] Periodic R2/Blob snapshot every ${Math.round(intervalMs / 1000)}s.`);
+    return setInterval(() => { uploadBackup({ force: true }); }, intervalMs).unref();
+  }
+
+  return { schedule, uploadBackup, startPeriodicBackups };
 }
 
 module.exports = {
