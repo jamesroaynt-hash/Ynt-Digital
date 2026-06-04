@@ -5764,12 +5764,16 @@ function updateRmoFilterOptions() {
   updatePosFilterSelect('pos-orders-tags', 'All Tags', posTagOptions, posOrdersTagFilter);
 }
 
+function getRmoProblematicCount() {
+  return DB.posRawOrders.filter((order) => normalizeText(order?.partner?.note) === 'problematic').length;
+}
+
 function renderRmoManagement() {
   const { posProductOptions, posPageOptions, posTagOptions } = getPosOrderFilterOptions();
   const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
   const delivered = statusCounts.Delivered || 0;
   const returning = statusCounts.Returning || 0;
-  const problematic = (statusCounts.Returned || 0) + (statusCounts.Canceled || 0) + (statusCounts.Other || 0);
+  const problematic = getRmoProblematicCount();
   const called = DB.posRawOrders.reduce((sum, order) => sum + Number(order.attempts || 0), 0);
   const posStatusDisplayOptions = ['New', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -9498,7 +9502,7 @@ function renderPosOrdersTable() {
       called: DB.posRawOrders.reduce((sum, order) => sum + Number(order.attempts || 0), 0),
       delivered: statusCounts.Delivered || 0,
       returning: statusCounts.Returning || 0,
-      problematic: (statusCounts.Returned || 0) + (statusCounts.Canceled || 0) + (statusCounts.Other || 0),
+      problematic: getRmoProblematicCount(),
     };
     Object.entries(metricValues).forEach(([key, value]) => {
       const el = document.getElementById(`rmo-metric-${key}`);

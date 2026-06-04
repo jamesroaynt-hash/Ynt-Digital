@@ -596,7 +596,8 @@ function ordersRoutes(db, { dispatch } = {}) {
 
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote, customer_name, customer_phone,
-             note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel
+             note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
+             partner_json
       FROM pos_orders ${where}
       ORDER BY inserted_at_remote DESC, id DESC
       LIMIT ? OFFSET ?
@@ -618,6 +619,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         status_name: row.status_name,
         sprinter_name: row.sprinter_name,
         sprinter_tel: row.sprinter_tel,
+        partner: parseJsonObject(row.partner_json, null),
       })),
       status_counts: statusCountRows,
       total,
