@@ -204,11 +204,25 @@ async function copyTable(pool, source, table, targetColumns) {
   }
 
   const columnList = columns.map(quoteIdent).join(', ');
-  const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
-  const sql = `INSERT INTO ${quoteIdent(table)} (${columnList}) VALUES (${placeholders})`;
 
-  for (const row of rows) {
-    await pool.query(sql, columns.map((column) => row[column]));
+  // Batch into multi-row INSERTs instead of one query per row. The old per-row
+  // loop made the backup transaction hold for tens of thousands of round-trips,
+  // spiking load on the (small) Postgres target and causing connection/schema
+  // churn. Postgres caps bind params at 65535, so size chunks by column count.
+  const maxRowsPerInsert = Math.max(1, Math.min(1000, Math.floor(65535 / columns.length)));
+
+  for (let start = 0; start < rows.length; start += maxRowsPerInsert) {
+    const chunk = rows.slice(start, start + maxRowsPerInsert);
+    const params = [];
+    const tuples = chunk.map((row, rowIndex) => {
+      const placeholders = columns.map((column, colIndex) => {
+        params.push(row[column]);
+        return `$${rowIndex * columns.length + colIndex + 1}`;
+      });
+      return `(${placeholders.join(', ')})`;
+    });
+    const sql = `INSERT INTO ${quoteIdent(table)} (${columnList}) VALUES ${tuples.join(', ')}`;
+    await pool.query(sql, params);
   }
 
   await resetSequence(pool, table);
