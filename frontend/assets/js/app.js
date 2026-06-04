@@ -6125,7 +6125,9 @@ function normalizeText(value) {
 function normalizeRoleName(role) {
   const value = String(role || '').trim();
   if (!value) return '';
-  return normalizeText(value) === 'admin' ? 'Administrator' : value;
+  const normalized = normalizeText(value);
+  if (normalized === 'admin' || normalized === 'administrator') return 'Administrator';
+  return value;
 }
 
 function isAdminUser() {
