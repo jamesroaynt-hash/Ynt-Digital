@@ -603,6 +603,20 @@ function ordersRoutes(db, { dispatch } = {}) {
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset);
 
+    const filterOptionRows = await db.prepare(`
+      SELECT note_product, page_name, tags_json
+      FROM pos_orders ${where}
+    `).all(...params);
+    const filterOptions = filterOptionRows.reduce((acc, row) => {
+      if (row.note_product) acc.products.add(row.note_product);
+      if (row.page_name) acc.pages.add(row.page_name);
+      parseJsonObject(row.tags_json, []).forEach((tag) => {
+        const label = typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '');
+        if (label) acc.tags.add(label);
+      });
+      return acc;
+    }, { products: new Set(), pages: new Set(), tags: new Set() });
+
     res.json({
       data: rows.map((row) => ({
         external_id: row.external_id,
@@ -622,6 +636,11 @@ function ordersRoutes(db, { dispatch } = {}) {
         partner: parseJsonObject(row.partner_json, null),
       })),
       status_counts: statusCountRows,
+      filter_options: {
+        products: [...filterOptions.products].sort(),
+        pages: [...filterOptions.pages].sort(),
+        tags: [...filterOptions.tags].sort(),
+      },
       total,
       page: pageNum,
       per_page: perPage,

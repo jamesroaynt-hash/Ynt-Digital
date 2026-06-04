@@ -522,6 +522,11 @@ async function refreshPosRawOrdersFromBackend() {
   DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
   DB.posRawTotal = Number(result?.total || 0);
   DB.posRawStatusCounts = Array.isArray(result?.status_counts) ? result.status_counts : [];
+  DB.posRawFilterOptions = {
+    products: Array.isArray(result?.filter_options?.products) ? result.filter_options.products : [],
+    pages: Array.isArray(result?.filter_options?.pages) ? result.filter_options.pages : [],
+    tags: Array.isArray(result?.filter_options?.tags) ? result.filter_options.tags : [],
+  };
   return true;
 }
 
@@ -701,6 +706,7 @@ const DB = {
   posRawOrders: [],
   posRawTotal: 0,
   posRawStatusCounts: [],
+  posRawFilterOptions: { products: [], pages: [], tags: [] },
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
@@ -5731,15 +5737,19 @@ function statusBadge(status) {
 function getPosOrderFilterOptions() {
   const rawOrders = Array.isArray(DB.posRawOrders) ? DB.posRawOrders : [];
   const dashboardOrders = Array.isArray(DB.posOrders) ? DB.posOrders : [];
+  const backendOptions = DB.posRawFilterOptions || {};
   const posProductOptions = [...new Set([
+    ...(Array.isArray(backendOptions.products) ? backendOptions.products : []),
     ...rawOrders.map((o) => o.note_product),
     ...dashboardOrders.map((o) => o.product),
   ].filter(Boolean))].sort();
   const posPageOptions = [...new Set([
+    ...(Array.isArray(backendOptions.pages) ? backendOptions.pages : []),
     ...rawOrders.map((o) => o.page_name),
     ...dashboardOrders.map((o) => o.sourceSheet),
   ].filter(Boolean))].sort();
   const posTagOptions = [...new Set([
+    ...(Array.isArray(backendOptions.tags) ? backendOptions.tags : []),
     ...rawOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []),
     ...dashboardOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []),
   ].map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean))].sort();
