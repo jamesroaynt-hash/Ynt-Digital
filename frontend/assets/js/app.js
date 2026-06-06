@@ -2314,6 +2314,7 @@ function renderHome() {
       <div class="home-chart-filters">
         <div class="table-filters" id="home-order-filter-group">
           <button class="filter-pill ${homeOrderFilter === 'all' ? 'active' : ''}" onclick="setHomeOrderFilter('all',this)">All Time</button>
+          <button class="filter-pill ${homeOrderFilter === 'today' ? 'active' : ''}" onclick="setHomeOrderFilter('today',this)">Today</button>
           <button class="filter-pill ${homeOrderFilter === 'weekly' ? 'active' : ''}" onclick="setHomeOrderFilter('weekly',this)">Weekly</button>
           <button class="filter-pill ${homeOrderFilter === 'monthly' ? 'active' : ''}" onclick="setHomeOrderFilter('monthly',this)">Monthly</button>
           <button class="filter-pill ${homeOrderFilter === 'custom' ? 'active' : ''}" onclick="setHomeOrderFilter('custom',this)">Custom</button>
@@ -8702,7 +8703,9 @@ function getFilteredHomeOrders() {
   let data = [...DB.sheetRecordsForReport];
   const today = normalizeDateString(new Date());
 
-  if (homeOrderFilter === 'weekly') {
+  if (homeOrderFilter === 'today') {
+    data = data.filter((order) => String(order.date || '').slice(0, 10) === today);
+  } else if (homeOrderFilter === 'weekly') {
     const week = getDateDaysAgo(6);
     data = data.filter((order) => new Date(order.date) >= week);
   } else if (homeOrderFilter === 'monthly') {
@@ -8722,6 +8725,7 @@ function getFilteredHomeOrders() {
 function getHomeFilterLabel() {
   const filterLabels = {
     all: 'All time',
+    today: 'Today',
     weekly: 'Last 7 days',
     monthly: 'This month',
     custom: homeDateFrom || homeDateTo ? `${homeDateFrom || 'Start'} to ${homeDateTo || 'Today'}` : 'Custom range',
