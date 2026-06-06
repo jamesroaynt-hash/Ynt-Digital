@@ -512,6 +512,12 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const statusName = stringOrNull(item?.status_name || item?.status_text)
     || (statusNum !== null ? (PANCAKE_STATUS_NAME[statusNum] ?? null) : null);
   if (!statusName) return null;
+  if (statusName === 'canceled' || statusName === 'removed') {
+    await db.prepare('DELETE FROM pos_orders WHERE shop_id = ? AND external_id = ?').run(
+      stringOrNull(item?.shop_id || item?.shop?.id || item?.page_id) || shopId, String(item.id)
+    );
+    return null;
+  }
   const customerName = getPosCustomerName(item, item?.shipping_address || {});
   const customerPhone = getPosCustomerPhone(item, item?.shipping_address || {});
   if (!customerName && !customerPhone) return null;

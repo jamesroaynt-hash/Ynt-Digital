@@ -281,7 +281,6 @@ function ordersRoutes(db, { dispatch } = {}) {
     submitted: 'Confirmed', wait_print: 'Confirmed',
     shipped: 'Shipped', delivered: 'Delivered',
     returning: 'Returning', returned: 'Returned',
-    canceled: 'Canceled', removed: 'Canceled',
   };
   function posDisplayStatus(statusName) {
     if (!statusName) return 'New';
@@ -296,7 +295,6 @@ function ordersRoutes(db, { dispatch } = {}) {
     WHEN status_name = 'delivered' THEN 'Delivered'
     WHEN status_name = 'returning' THEN 'Returning'
     WHEN status_name = 'returned'  THEN 'Returned'
-    WHEN status_name IN ('canceled','removed') THEN 'Canceled'
     ELSE 'Confirmed'
   END`;
 
@@ -354,10 +352,11 @@ function ordersRoutes(db, { dispatch } = {}) {
     const params = [];
     let where = "WHERE customer_phone IS NOT NULL AND customer_phone != ''";
     where += ` AND ${manilaDay} >= '2026-01-01'`; // dashboard is 2026+ only
+    where += ` AND status_name NOT IN ('canceled','removed')`; // canceled excluded from all views
 
     const statusVal = q.status;
     if (statusVal && statusVal !== 'All' && statusVal !== 'all') {
-      const map = { New: ['new', 'pending'], Confirmed: ['submitted', 'wait_print'], Shipped: ['shipped'], Delivered: ['delivered'], Returning: ['returning'], Returned: ['returned'], Canceled: ['canceled', 'removed'] };
+      const map = { New: ['new', 'pending'], Confirmed: ['submitted', 'wait_print'], Shipped: ['shipped'], Delivered: ['delivered'], Returning: ['returning'], Returned: ['returned'] };
       const raws = map[statusVal];
       if (raws) { where += ` AND status_name IN (${raws.map(() => '?').join(',')})`; params.push(...raws); }
     }
