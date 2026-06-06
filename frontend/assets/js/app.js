@@ -1722,7 +1722,6 @@ function renderApiConnections() {
         </div>
         <div class="pages-ops">
           <button class="btn btn-secondary btn-sm" type="button" onclick="collectPancakePosData()">Sync POS Orders</button>
-          <button class="btn btn-secondary btn-sm" type="button" onclick="replayPancakePosOrders()">Transfer POS SQL</button>
           <button class="btn btn-secondary btn-sm" type="button" onclick="syncPancakePageUsers()">Sync Staff Users</button>
         </div>
       </div>
