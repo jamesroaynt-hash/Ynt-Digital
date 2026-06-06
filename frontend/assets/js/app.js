@@ -11014,13 +11014,13 @@ function renderPancakePagesTable() {
   const slice = all.slice(start, start + posPagesPerPage);
 
   body.innerHTML = slice.length
-    ? slice.map((r) => `<tr onclick="openPosPageModal(${JSON.stringify(r.id)})">
+    ? slice.map((r) => `<tr onclick="openPosPageModal('${escapeHtml(String(r.id))}')">
         <td class="pp-name">${escapeHtml(r.name)}</td>
         <td>${escapeHtml(r.shop)}</td>
         <td>${escapeHtml(r.owner)}</td>
         <td>${r.lastSync ? escapeHtml(new Date(r.lastSync).toLocaleString()) : '—'}</td>
         <td>
-          <button class="btn btn-secondary btn-sm" type="button" data-pos-sync-id="${escapeHtml(r.id)}" onclick="syncPancakePosPage(event, ${JSON.stringify(r.id)})">Sync</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-pos-sync-id="${escapeHtml(r.id)}" onclick="syncPancakePosPage(event, '${escapeHtml(String(r.id))}')">Sync</button>
           <span class="pos-page-sync-status" data-pos-sync-status="${escapeHtml(r.id)}"></span>
         </td>
       </tr>`).join('')
