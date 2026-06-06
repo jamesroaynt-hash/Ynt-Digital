@@ -440,7 +440,13 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
     page += 1;
     if (page > 200) break;
   } while (page <= totalPages);
-  DB.sheetRecordsForReport = all.map((r) => ({
+  DB.sheetRecordsForReport = all.map(mapGoogleSheetReportRecord);
+  sheetRecordsLastVersion = version;
+  return true;
+}
+
+function mapGoogleSheetReportRecord(r = {}) {
+  return {
     id: r.order_ref || String(r.id || ''),
     tracking: r.tracking_no || '',
     customer: r.customer || '',
@@ -456,9 +462,7 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
     date: (r.order_date || '').slice(0, 10),
     source_sheet: r.chat_page || '',
     sourceSheet: r.chat_page || '',
-  }));
-  sheetRecordsLastVersion = version;
-  return true;
+  };
 }
 
 async function fetchPosOrdersVersion() {
@@ -476,6 +480,19 @@ function formatPosOrdersDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// Render POS API timestamps (stored UTC as "YYYY-MM-DD HH:MM:SS" or ISO) in
+// Manila local time for date columns.
+function formatPosTimestamp(value) {
+  if (!value) return '';
+  const raw = String(value);
+  const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return raw.slice(0, 16);
+  return date.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 function getPosOrdersPeriodRange(period) {
@@ -530,13 +547,54 @@ async function refreshPosRawOrdersFromBackend() {
   return true;
 }
 
+// Load the dashboard users that the RMO assignee dropdown offers. Cached for the
+// session; only refetched if the list is still empty.
+async function loadAssignableUsers({ force = false } = {}) {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!force && DB.assignableUsers.length) return true;
+  const result = await authorizedJsonRequest(`/orders/assignable-users?_=${Date.now()}`);
+  DB.assignableUsers = Array.isArray(result?.users) ? result.users : [];
+  return true;
+}
+
+// Persist the assignee chosen from a row's dropdown, then reflect it locally so
+// it survives the next table repaint without waiting for a full reload.
+async function assignPosOrder(externalId, userId, shopId = '') {
+  const id = userId === '' ? null : Number(userId);
+  try {
+    const result = await authorizedJsonRequest(`/orders/pos-orders/${encodeURIComponent(externalId)}/assignee`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: id, shop_id: shopId || null }),
+    });
+    const order = DB.posRawOrders.find((o) =>
+      String(o.external_id) === String(externalId) && (!shopId || String(o.shop_id || '') === String(shopId))
+    );
+    if (order) {
+      order.assigned_to_user_id = result?.assigned_to_user_id ?? null;
+      order.assigned_to_name = result?.assigned_to_name ?? null;
+    }
+    showToast('success', 'Assignee updated', result?.assigned_to_name ? `Assigned to ${result.assigned_to_name}` : 'Unassigned');
+  } catch (error) {
+    showToast('error', 'Assign failed', error.message || 'Request failed');
+    renderPosOrdersTable();
+  }
+}
+
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
-// 180s interval; the visibilitychange handler triggers an immediate check when
-// the user returns, so the slower cadence has no UX cost on active tabs and
-// trims background egress ~3x for idle/backgrounded sessions.
+// RMO Management is a live order-monitoring dashboard, so it polls every 45s.
+// Other live pages keep the slower 180s cadence to trim background egress; the
+// visibilitychange handler triggers an immediate check when the user returns,
+// so the slower cadence has no UX cost on active tabs. The poll itself only
+// fetches a lightweight version number — a full reload happens only when it
+// actually changed.
 const POS_ORDERS_AUTO_REFRESH_MS = 180 * 1000;
+const POS_ORDERS_RMO_REFRESH_MS = 45 * 1000;
 const POS_ORDERS_LIVE_PAGES = ['sales', 'data-report', 'rts-rate', 'rmo-management', 'marketing-center'];
+
+function getPosOrdersRefreshInterval() {
+  return App.currentPage === 'rmo-management' ? POS_ORDERS_RMO_REFRESH_MS : POS_ORDERS_AUTO_REFRESH_MS;
+}
 
 async function checkAndRefreshPosOrders() {
   if (!App.user || !getAuthToken()) return;
@@ -548,14 +606,21 @@ async function checkAndRefreshPosOrders() {
   refreshOrderViewsFromBackend().catch(() => {});
 }
 
+function scheduleNextPosOrdersRefresh() {
+  posOrdersAutoRefreshTimer = setTimeout(async () => {
+    try { await checkAndRefreshPosOrders(); } catch { /* ignore */ }
+    scheduleNextPosOrdersRefresh();
+  }, getPosOrdersRefreshInterval());
+}
+
 function startPosOrdersAutoRefresh() {
   if (posOrdersAutoRefreshTimer) return;
-  posOrdersAutoRefreshTimer = setInterval(checkAndRefreshPosOrders, POS_ORDERS_AUTO_REFRESH_MS);
+  scheduleNextPosOrdersRefresh();
 }
 
 function stopPosOrdersAutoRefresh() {
   if (posOrdersAutoRefreshTimer) {
-    clearInterval(posOrdersAutoRefreshTimer);
+    clearTimeout(posOrdersAutoRefreshTimer);
     posOrdersAutoRefreshTimer = null;
   }
 }
@@ -707,6 +772,7 @@ const DB = {
   posRawTotal: 0,
   posRawStatusCounts: [],
   posRawFilterOptions: { products: [], pages: [], tags: [] },
+  assignableUsers: [],
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
@@ -1251,6 +1317,7 @@ function mapBackendPosStatusToState(status = {}, previous = {}) {
       owner: connection.owner || saved.owner || '',
       botcakeToken: saved.botcakeToken || saved.botcake_token || '',
       hasBotcakeToken: Boolean(connection.has_botcake_token || saved.hasBotcakeToken || saved.has_botcake_token),
+      lastSyncedAt: connection.last_synced_at || saved.lastSyncedAt || saved.last_synced_at || null,
       notes: connection.notes || saved.notes || '',
     };
   });
@@ -1668,6 +1735,7 @@ function renderApiConnections() {
               <th onclick="setPosPagesSort('shop')">Shop <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('owner')">Owner <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('lastSync')">Last Sync <span class="pp-sort">⇅</span></th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody id="pos-pages-body"></tbody>
@@ -3755,6 +3823,12 @@ let adspendDateTo = '';
 let adspendDatePreset = 'weekly';
 let adspendPageFilter = 'all';
 let adspendStatusFilters = new Set();
+let adspendAdsRequestKey = '';
+let adspendAdsLoading = false;
+let adspendAdsData = null;
+let adspendAdsShopFilter = 'all';
+let adspendAdsStatusFilter = 'all';
+let adspendAdsSearch = '';
 
 const ADSPEND_STATUS_MAP = [
   ['Confirmed',          'adspend-cb-confirmed', 'View Confirmed'],
@@ -3790,6 +3864,181 @@ function applyAdspendFilter() {
     if (document.getElementById(id)?.checked) adspendStatusFilters.add(status);
   });
   navigateTo('adspend-roas');
+}
+
+function adspendApiMoney(value) {
+  return `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function adspendMetricMoney(value) {
+  const parsed = Number(value || 0);
+  return parsed ? `PHP ${parsed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}` : '-';
+}
+
+function getAdspendAdsRequestKey() {
+  return 'ad-sets-v2';
+}
+
+function renderAdspendAdsCardShell(totalAmount) {
+  return `
+    <div class="card adspend-ads-card" id="adspend-ads-card" data-orders-amount="${Number(totalAmount || 0)}">
+      <div class="adspend-ads-head">
+        <div>
+          <div class="adspend-ads-kicker">Pancake Ads Manager</div>
+          <h3>Live Ad Sets</h3>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="loadAdspendAdsSummary({ force: true })">Refresh Ads</button>
+      </div>
+      <div id="adspend-ads-card-body" class="adspend-ads-loading">Loading Pancake ads...</div>
+    </div>`;
+}
+
+function getFilteredAdspendAdsItems(data) {
+  const rawItems = Array.isArray(data?.items) ? data.items : [];
+  const search = normalizeText(adspendAdsSearch);
+  return rawItems.filter((item) => {
+    if (adspendAdsShopFilter !== 'all' && String(item.shop_id || item.shop_name || '') !== adspendAdsShopFilter) return false;
+    if (adspendAdsStatusFilter !== 'all' && String(item.status || '-').toLowerCase() !== adspendAdsStatusFilter.toLowerCase()) return false;
+    if (search) {
+      const haystack = normalizeText(`${item.campaign_name || ''} ${item.name || ''} ${item.shop_name || ''} ${item.status || ''} ${item.id || ''}`);
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+}
+
+function renderAdspendAdsFilters(data) {
+  const rawItems = Array.isArray(data?.items) ? data.items : [];
+  const shopOptions = [...new Map(rawItems.map((item) => [
+    String(item.shop_id || item.shop_name || ''),
+    item.shop_name || item.shop_id || 'Unknown shop',
+  ]).filter(([id]) => id)).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const statusOptions = [...new Set(rawItems.map((item) => String(item.status || '-')).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+
+  return `
+    <div class="adspend-ads-filters">
+      <div class="adspend-ads-search">
+        <input type="text" class="form-control" id="adspend-ads-search" value="${escapeHtml(adspendAdsSearch)}" placeholder="Search campaign, ad set, shop, status" oninput="applyAdspendAdsFilters()">
+      </div>
+      <select class="form-control" id="adspend-ads-shop" onchange="applyAdspendAdsFilters()">
+        <option value="all"${adspendAdsShopFilter === 'all' ? ' selected' : ''}>All Shops</option>
+        ${shopOptions.map(([id, label]) => `<option value="${escapeHtml(id)}"${adspendAdsShopFilter === id ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+      </select>
+      <select class="form-control" id="adspend-ads-status" onchange="applyAdspendAdsFilters()">
+        <option value="all"${adspendAdsStatusFilter === 'all' ? ' selected' : ''}>All Statuses</option>
+        ${statusOptions.map((status) => `<option value="${escapeHtml(status)}"${adspendAdsStatusFilter === status ? ' selected' : ''}>${escapeHtml(status)}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+function applyAdspendAdsFilters() {
+  adspendAdsSearch = document.getElementById('adspend-ads-search')?.value || '';
+  adspendAdsShopFilter = document.getElementById('adspend-ads-shop')?.value || 'all';
+  adspendAdsStatusFilter = document.getElementById('adspend-ads-status')?.value || 'all';
+  const body = document.getElementById('adspend-ads-card-body');
+  const card = document.getElementById('adspend-ads-card');
+  if (body && card) {
+    body.innerHTML = renderAdspendAdsCardBody(adspendAdsData, Number(card.dataset.ordersAmount || 0));
+  }
+}
+
+function renderAdspendAdsCardBody(data, totalAmount) {
+  if (!data) return '<div class="adspend-ads-loading">Loading Pancake ads...</div>';
+  if (data.error) {
+    return `<div class="adspend-ads-empty">Ads API unavailable: ${escapeHtml(data.error)}</div>`;
+  }
+  const rawItems = Array.isArray(data.items) ? data.items : [];
+  const items = getFilteredAdspendAdsItems(data);
+  const spend = items.reduce((sum, item) => sum + Number(item.spend || 0), 0);
+  const impressions = items.reduce((sum, item) => sum + Number(item.impressions || 0), 0);
+  const clicks = items.reduce((sum, item) => sum + Number(item.clicks || 0), 0);
+  const reach = items.reduce((sum, item) => sum + Number(item.reach || 0), 0);
+  const roas = spend > 0 ? Number(totalAmount || 0) / spend : 0;
+  const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+  const tableItems = [...items].sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
+  const failed = Array.isArray(data.failed_shops) ? data.failed_shops : [];
+  const failedHtml = failed.length ? `
+    <div class="adspend-ads-failures">
+      ${failed.map((shop) => `<div><strong>${escapeHtml(shop.name || shop.shop_id || 'Shop')}</strong>: ${escapeHtml(shop.error || 'Ads API failed')}</div>`).join('')}
+    </div>` : '';
+  const emptyMessage = rawItems.length
+    ? 'No ad sets match these filters.'
+    : 'Pancake Ads Manager returned 0 ad sets for the connected shops.';
+
+  return `
+    ${renderAdspendAdsFilters(data)}
+    <div class="adspend-ads-grid">
+      <div class="adspend-ads-metric"><span>API Ad Spend</span><strong>${adspendApiMoney(spend)}</strong></div>
+      <div class="adspend-ads-metric"><span>Ad Sets</span><strong>${items.length.toLocaleString()} <small>/ ${rawItems.length.toLocaleString()}</small></strong></div>
+      <div class="adspend-ads-metric"><span>Clicks</span><strong>${clicks.toLocaleString()}</strong></div>
+      <div class="adspend-ads-metric"><span>Impressions</span><strong>${impressions.toLocaleString()}</strong></div>
+      <div class="adspend-ads-metric"><span>CTR</span><strong>${ctr ? ctr.toFixed(2) + '%' : '-'}</strong></div>
+      <div class="adspend-ads-metric"><span>ROAS vs Orders</span><strong>${spend ? roas.toFixed(2) : '-'}</strong></div>
+    </div>
+    <div class="adspend-ads-subline">
+      Reach ${reach.toLocaleString()} across ${(Array.isArray(data.shops) ? data.shops.length : 0).toLocaleString()} connected shop(s).
+      ${failed.length ? `${failed.length} shop(s) failed.` : ''}
+    </div>
+    ${failedHtml}
+    <div class="adspend-ads-table-wrap">
+      <table class="adspend-ads-table">
+        <thead><tr><th>Campaign Name</th><th>Ad Set</th><th>Shop</th><th>Status</th><th>Budget</th><th>Spend</th><th>Reach</th><th>Impressions</th><th>Clicks</th><th>CPC</th><th>CPP</th><th>CPM</th><th>CTR</th><th>ROAS</th><th>Frequency</th></tr></thead>
+        <tbody>
+          ${tableItems.length ? tableItems.map((item) => `<tr>
+            <td>${escapeHtml(item.campaign_name || 'Untitled campaign')}</td>
+            <td>${escapeHtml(item.name || 'Untitled ad set')}</td>
+            <td>${escapeHtml(item.shop_name || item.shop_id || '-')}</td>
+            <td>${escapeHtml(item.status || '-')}</td>
+            <td>${Number(item.budget || 0) ? adspendApiMoney(item.budget) : '-'}</td>
+            <td>${adspendApiMoney(item.spend)}</td>
+            <td>${Number(item.reach || 0).toLocaleString()}</td>
+            <td>${Number(item.impressions || 0).toLocaleString()}</td>
+            <td>${Number(item.clicks || 0).toLocaleString()}</td>
+            <td>${adspendMetricMoney(item.cpc)}</td>
+            <td>${adspendMetricMoney(item.cpp)}</td>
+            <td>${adspendMetricMoney(item.cpm)}</td>
+            <td>${Number(item.ctr || 0) ? Number(item.ctr || 0).toFixed(2) : '-'}</td>
+            <td>${Number(item.result_roas || 0) ? Number(item.result_roas || 0).toFixed(2) : '-'}</td>
+            <td>${Number(item.frequency || 0) ? Number(item.frequency || 0).toFixed(2) : '-'}</td>
+          </tr>`).join('') : `<tr><td colspan="15">${escapeHtml(emptyMessage)}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function loadAdspendAdsSummary({ force = false } = {}) {
+  const body = document.getElementById('adspend-ads-card-body');
+  const card = document.getElementById('adspend-ads-card');
+  if (!body || !card) return;
+  const key = getAdspendAdsRequestKey();
+  const totalAmount = Number(card.dataset.ordersAmount || 0);
+  if (!force && adspendAdsData && adspendAdsRequestKey === key) {
+    body.innerHTML = renderAdspendAdsCardBody(adspendAdsData, totalAmount);
+    return;
+  }
+  if (adspendAdsLoading) return;
+  adspendAdsLoading = true;
+  body.innerHTML = '<div class="adspend-ads-loading">Loading Pancake ads...</div>';
+  try {
+    const params = new URLSearchParams({
+      page: '1',
+      page_size: '100',
+      max_pages: '10',
+      select_fields: 'ad_performance_session,spend,reach,impressions,clicks,frequency,cpp,cpm,cpc,ctr,cost_per_result,result_roas',
+      _: String(Date.now()),
+    });
+    const data = await authorizedJsonRequest(`/integrations/pancake-pos/ads/ad-sets?${params}`);
+    adspendAdsData = data;
+    adspendAdsRequestKey = key;
+    body.innerHTML = renderAdspendAdsCardBody(data, totalAmount);
+  } catch (error) {
+    adspendAdsData = { error: error.message || 'Request failed' };
+    adspendAdsRequestKey = key;
+    body.innerHTML = renderAdspendAdsCardBody(adspendAdsData, totalAmount);
+  } finally {
+    adspendAdsLoading = false;
+  }
 }
 
 function renderAdspendRoas() {
@@ -3850,10 +4099,10 @@ function renderAdspendRoas() {
   });
 
   function roasCellStyle(roas) {
-    if (roas >= 5) return 'background:#d1fae5;color:#065f46;font-weight:700;';
-    if (roas >= 4) return 'background:#fef9c3;color:#854d0e;font-weight:700;';
-    if (roas >= 3) return 'background:#fffbeb;color:#92400e;font-weight:700;';
-    if (roas > 0) return 'background:#fee2e2;color:#991b1b;font-weight:700;';
+    if (roas >= 5) return 'background:rgba(16,185,129,0.16);color:#34d399;font-weight:700;';
+    if (roas >= 4) return 'background:rgba(245,158,11,0.14);color:#fbbf24;font-weight:700;';
+    if (roas >= 3) return 'background:rgba(245,158,11,0.10);color:#f59e0b;font-weight:700;';
+    if (roas > 0) return 'background:rgba(239,68,68,0.12);color:#f87171;font-weight:700;';
     return 'color:var(--text-muted);';
   }
 
@@ -3964,6 +4213,8 @@ function renderAdspendRoas() {
     </div>
   </div>
 
+  ${renderAdspendAdsCardShell(totalAmount)}
+
   <div class="card" style="padding:0;overflow:hidden;">
     <div class="table-container" style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;min-width:920px;">
@@ -3997,7 +4248,7 @@ function renderAdspendRoas() {
           </tr>`).join('')}
         </tbody>
         <tfoot>
-          <tr style="background:#f59e0b;color:#fff;font-weight:700;">
+          <tr style="background:rgba(245,158,11,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
             <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalOrders.toLocaleString()}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalDelivered.toLocaleString()}</td>
@@ -4008,7 +4259,7 @@ function renderAdspendRoas() {
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalRtsBase > 0 ? totalRtsRate.toFixed(1) + '%' : '—'}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalSpend > 0 ? totalRoas.toFixed(2) : '—'}</td>
           </tr>
-          <tr style="background:#10b981;color:#fff;font-weight:700;">
+          <tr style="background:rgba(16,185,129,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(16,185,129,0.28);">
             <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">AVERAGE</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalOrders / n).toFixed(2)}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalDelivered / n).toFixed(2)}</td>
@@ -5784,8 +6035,7 @@ function renderRmoManagement() {
   const delivered = statusCounts.Delivered || 0;
   const returning = statusCounts.Returning || 0;
   const problematic = getRmoProblematicCount();
-  const called = DB.posRawOrders.reduce((sum, order) => sum + Number(order.attempts || 0), 0);
-  const posStatusDisplayOptions = ['New', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
+  const posStatusDisplayOptions = ['New', 'Confirmed', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return `
@@ -5812,7 +6062,6 @@ function renderRmoManagement() {
 
     <div class="rmo-metrics">
       <div class="rmo-metric"><span>Total For Delivery Today</span><strong id="rmo-metric-total">${Number(DB.posRawTotal || 0).toLocaleString()}</strong></div>
-      <div class="rmo-metric"><span>Called</span><strong id="rmo-metric-called">${called.toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Delivered</span><strong id="rmo-metric-delivered">${delivered.toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Returning</span><strong id="rmo-metric-returning">${returning.toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Problematic</span><strong id="rmo-metric-problematic">${problematic.toLocaleString()}</strong></div>
@@ -5857,9 +6106,9 @@ function renderRmoManagement() {
     <div id="pos-orders-status-summary" class="rmo-status-summary"></div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Assignee</th><th>Status</th></tr></thead>
+        <thead><tr><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Assignee</th><th>Status</th><th>Inserted At</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -6229,27 +6478,33 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['sales', 'marketing-center', 'rmo-management', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasSales = ['sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasRmo = ['rmo-management'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
   const salesLabel = document.getElementById('nav-section-sales');
+  const rmoLabel = document.getElementById('nav-section-rmo');
   const operationsLabel = document.getElementById('nav-section-operations');
   const reportsLabel = document.getElementById('nav-section-reports');
   const systemLabel = document.getElementById('nav-section-system');
 
   if (salesLabel) salesLabel.style.display = hasSales ? 'flex' : 'none';
+  if (rmoLabel) rmoLabel.style.display = hasRmo ? 'flex' : 'none';
   if (operationsLabel) operationsLabel.style.display = hasOperations ? 'flex' : 'none';
   if (reportsLabel) reportsLabel.style.display = hasReports ? 'flex' : 'none';
   if (systemLabel) systemLabel.style.display = hasSystem ? 'flex' : 'none';
 
   const salesBody = document.getElementById('nav-section-body-sales');
+  const rmoBody = document.getElementById('nav-section-body-rmo');
   const operationsBody = document.getElementById('nav-section-body-operations');
   const reportsBody = document.getElementById('nav-section-body-reports');
   const systemBody = document.getElementById('nav-section-body-system');
   if (salesBody && !hasSales) salesBody.style.display = 'none';
   else if (salesBody) salesBody.style.display = '';
+  if (rmoBody && !hasRmo) rmoBody.style.display = 'none';
+  else if (rmoBody) rmoBody.style.display = '';
   if (operationsBody && !hasOperations) operationsBody.style.display = 'none';
   else if (operationsBody) operationsBody.style.display = '';
   if (reportsBody && !hasReports) reportsBody.style.display = 'none';
@@ -6269,7 +6524,7 @@ function toggleNavSection(sectionId) {
 }
 
 function initNavSectionStates() {
-  ['main', 'sales', 'operations', 'reports', 'people', 'system'].forEach((sectionId) => {
+  ['main', 'sales', 'rmo', 'operations', 'reports', 'people', 'system'].forEach((sectionId) => {
     if (localStorage.getItem('nav_collapsed_' + sectionId)) {
       const body = document.getElementById('nav-section-body-' + sectionId);
       const label = document.getElementById('nav-section-' + sectionId);
@@ -7426,9 +7681,6 @@ function initPage(page) {
     if (salesDateFromInput && !salesDateFromInput.value) salesDateFromInput.value = today;
     if (salesDateToInput && !salesDateToInput.value) salesDateToInput.value = today;
     renderSalesTable();
-    if (!DB.sheetRecordsForReport.length) {
-      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'sales') { renderSalesTable(); initCharts('sales'); } }).catch(() => {});
-    }
   }
 
   if (page === 'rts-rate') {
@@ -7464,18 +7716,27 @@ function initPage(page) {
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); }).catch(() => {});
     }
-    if (!DB.marketingEntriesLoaded) {
-      migrateLocalMarketingEntriesIfNeeded()
-        .then(() => loadMarketingEntries())
-        .then(() => { if (App.currentPage === 'marketing-center') loadPage('marketing-center'); })
-        .catch(() => {});
-    }
+    const refreshMarketingCenterEntries = () => loadMarketingEntries()
+      .then(() => {
+        if (App.currentPage !== 'marketing-center') return;
+        document.getElementById('main-page-content').innerHTML = renderMarketingCenter();
+        syncMarketingPageMeta();
+      });
+    const entriesPromise = !DB.marketingEntriesLoaded
+      ? migrateLocalMarketingEntriesIfNeeded().then(refreshMarketingCenterEntries)
+      : refreshMarketingCenterEntries();
+    entriesPromise.catch(() => {});
   }
 
-  if (page === 'adspend-roas' && !DB.marketingEntriesLoaded) {
+  if (page === 'adspend-roas') {
     loadMarketingEntries()
-      .then(() => { if (App.currentPage === 'adspend-roas') loadPage('adspend-roas'); })
+      .then(() => {
+        if (App.currentPage !== 'adspend-roas') return;
+        document.getElementById('main-page-content').innerHTML = renderAdspendRoas();
+        loadAdspendAdsSummary().catch(() => {});
+      })
       .catch(() => {});
+    loadAdspendAdsSummary().catch(() => {});
   }
 
   if (page === 'csr') {
@@ -7503,11 +7764,12 @@ function initPage(page) {
   }
 
   if (page === 'rmo-management') {
+    loadAssignableUsers().catch(() => {});
     refreshPosRawOrdersFromBackend()
       .then(renderPosOrdersTable)
       .catch((error) => {
         const tbody = document.getElementById('rec-pos-orders-tbody');
-        if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
   }
 
@@ -8377,6 +8639,12 @@ let salesDateTo = '';
 let salesSourceFilter = 'all';
 let salesYearFilter = 'all';
 let salesMonthFilter = 'all';
+let salesPagedRows = [];
+let salesPagedTotal = 0;
+let salesPagedPages = 1;
+let salesPagedSummary = { totalCod: 0, statusCounts: [] };
+let salesPagedLoading = false;
+let salesPagedRequestId = 0;
 let rtsRateFilter = 'all';
 let rtsRateSourceFilter = 'all';
 let rtsRateDateFrom = '';
@@ -8584,13 +8852,18 @@ function renderSalesSummaryCards(data) {
   const summary = document.getElementById('sales-summary-cards');
   if (!summary) return;
 
-  const newOrders = data.filter((o) => o.status === 'New').length;
-  const shipped = data.filter((o) => o.status === 'Shipped').length;
-  const delivered = data.filter((o) => o.status === 'Delivered').length;
-  const returned = data.filter((o) => o.status === 'Returned').length;
-  const returning = data.filter((o) => o.status === 'Returning').length;
-  const canceled = data.filter((o) => o.status === 'Canceled').length;
-  const totalCOD = data.reduce((sum, o) => sum + Number(o.cod || 0), 0);
+  const statusCounts = Array.isArray(data?.statusCounts) ? data.statusCounts : null;
+  const sourceRows = Array.isArray(data) ? data : [];
+  const getCount = (status) => statusCounts
+    ? Number((statusCounts.find((row) => String(row.status || '').toLowerCase() === status.toLowerCase()) || {}).count || 0)
+    : sourceRows.filter((o) => o.status === status).length;
+  const newOrders = getCount('New');
+  const shipped = getCount('Shipped');
+  const delivered = getCount('Delivered');
+  const returned = getCount('Returned');
+  const returning = getCount('Returning');
+  const canceled = getCount('Canceled');
+  const totalCOD = statusCounts ? Number(data.totalCod || 0) : sourceRows.reduce((sum, o) => sum + Number(o.cod || 0), 0);
 
   summary.innerHTML = `
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">New</div><div class="stat-value">${newOrders}</div><div class="stat-meta">Pending / Submitted</div></div>
@@ -8600,6 +8873,56 @@ function renderSalesSummaryCards(data) {
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Canceled orders</div></div>
     <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">₱${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
+}
+
+function getSalesDateRange() {
+  const today = normalizeDateString(new Date());
+  if (salesFilter === 'daily') return { from: today, to: today };
+  if (salesFilter === 'weekly') return { from: normalizeDateString(getDateDaysAgo(6)), to: today };
+  if (salesFilter === 'monthly') return { from: `${today.slice(0, 7)}-01`, to: today };
+  if (salesFilter === 'yearly') return { from: `${today.slice(0, 4)}-01-01`, to: today };
+  if (salesFilter === 'custom') return { from: salesDateFrom, to: salesDateTo };
+  if (salesYearFilter !== 'all' && salesMonthFilter !== 'all') {
+    const month = String(salesMonthFilter).padStart(2, '0');
+    const endDate = new Date(Number(salesYearFilter), Number(month), 0);
+    return { from: `${salesYearFilter}-${month}-01`, to: normalizeDateString(endDate) };
+  }
+  if (salesYearFilter !== 'all') return { from: `${salesYearFilter}-01-01`, to: `${salesYearFilter}-12-31` };
+  return { from: '', to: '' };
+}
+
+async function loadSalesPageFromBackend() {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  const perPage = parseInt(document.getElementById('sales-per-page')?.value || '10', 10) || 10;
+  const requestId = ++salesPagedRequestId;
+  salesPagedLoading = true;
+
+  const params = new URLSearchParams({
+    view: 'report',
+    page: String(salesPage),
+    per_page: String(perPage),
+    _: String(Date.now()),
+  });
+  if (salesSearch) params.set('search', salesSearch);
+  if (salesSourceFilter !== 'all') params.set('sheet', salesSourceFilter);
+  const range = getSalesDateRange();
+  if (range.from) params.set('date_from', range.from);
+  if (range.to) params.set('date_to', range.to);
+
+  try {
+    const result = await authorizedJsonRequest(`/integrations/google-sheets/records?${params}`);
+    if (requestId !== salesPagedRequestId) return false;
+    salesPagedRows = (Array.isArray(result?.records) ? result.records : []).map(mapGoogleSheetReportRecord);
+    salesPagedTotal = Number(result?.total || 0);
+    salesPagedPages = Math.max(1, Number(result?.pages || 1));
+    salesPagedSummary = {
+      totalCod: Number(result?.total_cod || 0),
+      statusCounts: Array.isArray(result?.status_counts) ? result.status_counts : [],
+    };
+    return true;
+  } finally {
+    if (requestId === salesPagedRequestId) salesPagedLoading = false;
+  }
 }
 
 function getFilteredSalesOrders() {
@@ -8691,6 +9014,61 @@ function changeSalesPage(p) {
   const total = getFilteredSalesOrders();
   const pages = Math.max(1, Math.ceil(total.length / perPage));
   if (p < 1 || p > pages) return;
+  salesPage = p;
+  renderSalesTable();
+}
+
+async function renderSalesTable() {
+  const perPage = parseInt(document.getElementById('sales-per-page')?.value || '10', 10) || 10;
+  const tbody = document.getElementById('sales-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading sales records...</td></tr>';
+  const pagLoading = document.getElementById('sales-pagination');
+  if (pagLoading) pagLoading.innerHTML = '<span>Loading...</span>';
+
+  try {
+    await loadSalesPageFromBackend();
+  } catch (error) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger)">Sales records failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+    const pag = document.getElementById('sales-pagination');
+    if (pag) pag.innerHTML = '';
+    return;
+  }
+
+  renderSalesSummaryCards(salesPagedSummary);
+
+  const total = salesPagedTotal;
+  const pages = salesPagedPages;
+  const rows = salesPagedRows;
+
+  tbody.innerHTML = rows.map(o => `<tr>
+    <td class="font-mono text-xs text-muted">${escapeHtml(o.id || '')}</td>
+    <td class="font-mono text-xs">${escapeHtml(o.tracking || '')}</td>
+    <td>${escapeHtml(o.sourceSheet || 'POS')}</td>
+    <td>${escapeHtml(o.date || '')}</td>
+    <td style="font-weight:500">${escapeHtml(o.customer || '')}</td>
+    <td>${escapeHtml(o.product || '')}</td>
+    <td>${o.attempts > 1 ? `<span class="badge badge-warning">${o.attempts}</span>` : (o.attempts || '')}</td>
+    <td>&#8369;${Number(o.cod || 0).toLocaleString()}</td>
+    <td>${escapeHtml(o.assigning_seller_name || '')}</td>
+    <td>${statusBadge(o.status)}</td>
+  </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
+
+  const pag = document.getElementById('sales-pagination');
+  if (pag) {
+    pag.innerHTML = `
+      <span>${total ? ((salesPage - 1) * perPage) + 1 : 0}-${Math.min(salesPage * perPage, total)} of ${total} records</span>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="changeSalesPage(${salesPage - 1})" ${salesPage <= 1 ? 'disabled' : ''}>&lsaquo;</button>
+        ${renderPaginationButtons(salesPage, pages, 'changeSalesPage')}
+        <button class="page-btn" onclick="changeSalesPage(${salesPage + 1})" ${salesPage >= pages ? 'disabled' : ''}>&rsaquo;</button>
+      </div>`;
+  }
+}
+
+function changeSalesPage(p) {
+  if (p < 1 || p > salesPagedPages) return;
   salesPage = p;
   renderSalesTable();
 }
@@ -9499,6 +9877,25 @@ function changeRecordsPage(page) {
   renderViewRecordsOrdersTable();
 }
 
+// Per-row Assignee dropdown listing dashboard users; selecting one persists via
+// assignPosOrder(). Falls back to showing the saved assignee even if that user
+// is no longer in the active list, so an existing assignment never disappears.
+function renderAssigneeSelect(order) {
+  const users = Array.isArray(DB.assignableUsers) ? DB.assignableUsers : [];
+  const currentId = order.assigned_to_user_id != null ? String(order.assigned_to_user_id) : '';
+  const inList = users.some((u) => String(u.id) === currentId);
+  const orphan = currentId && !inList && order.assigned_to_name
+    ? `<option value="${escapeHtml(currentId)}" selected>${escapeHtml(order.assigned_to_name)}</option>`
+    : '';
+  const options = users.map((u) =>
+    `<option value="${escapeHtml(String(u.id))}" ${String(u.id) === currentId ? 'selected' : ''}>${escapeHtml(u.name)}</option>`
+  ).join('');
+  return `<select class="rmo-assign-select" aria-label="Assign POS order" onchange="assignPosOrder(${JSON.stringify(String(order.external_id))}, this.value, ${JSON.stringify(String(order.shop_id || ''))})">
+    <option value="" ${currentId ? '' : 'selected'}>Unassigned</option>
+    ${orphan}${options}
+  </select>`;
+}
+
 function renderPosOrdersTable() {
   const tbody = document.getElementById('rec-pos-orders-tbody');
   if (!tbody) return;
@@ -9509,7 +9906,6 @@ function renderPosOrdersTable() {
     const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
     const metricValues = {
       total: Number(DB.posRawTotal || 0),
-      called: DB.posRawOrders.reduce((sum, order) => sum + Number(order.attempts || 0), 0),
       delivered: statusCounts.Delivered || 0,
       returning: statusCounts.Returning || 0,
       problematic: getRmoProblematicCount(),
@@ -9524,6 +9920,7 @@ function renderPosOrdersTable() {
   if (summaryEl) {
     const statusStyleMap = {
       New: 'background:var(--info,#3b82f6);color:#fff',
+      Confirmed: 'background:#0ea5e9;color:#fff',
       Shipped: 'background:var(--primary,#6366f1);color:#fff',
       Delivered: 'background:var(--success,#22c55e);color:#fff',
       Returning: 'background:var(--danger,#ef4444);color:#fff',
@@ -9531,7 +9928,7 @@ function renderPosOrdersTable() {
       Canceled: 'background:var(--warning,#f59e0b);color:#fff',
       Other: 'background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)',
     };
-    const ORDER = ['New','Shipped','Delivered','Returning','Returned','Canceled','Other'];
+    const ORDER = ['New','Confirmed','Shipped','Delivered','Returning','Returned','Canceled','Other'];
     const sorted = [...DB.posRawStatusCounts].sort((a, b) =>
       ORDER.indexOf(a.display_status) - ORDER.indexOf(b.display_status)
     );
@@ -9546,16 +9943,16 @@ function renderPosOrdersTable() {
 
   const dash = '<span style="color:var(--text-muted)">—</span>';
   const posStatusMap = {
-    submitted:  ['New',        'badge-info'],
     new:        ['New',        'badge-info'],
-    pending:    ['Pending',    'badge-warning'],
-    wait_print: ['Wait Print', 'badge-warning'],
+    pending:    ['New',        'badge-info'],
+    submitted:  ['Confirmed',  'badge-primary'],
+    wait_print: ['Confirmed',  'badge-primary'],
     shipped:    ['Shipped',    'badge-primary'],
     delivered:  ['Delivered',  'badge-success'],
     returning:  ['Returning',  'badge-danger'],
     returned:   ['Returned',   'badge-danger'],
     canceled:   ['Canceled',   'badge-warning'],
-    removed:    ['Removed',    'badge-gray'],
+    removed:    ['Canceled',   'badge-warning'],
   };
   tbody.innerHTML = DB.posRawOrders.map((order) => {
     const tags = Array.isArray(order.tags) ? order.tags : [];
@@ -9572,7 +9969,7 @@ function renderPosOrdersTable() {
       const tagHtml = tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('');
       const statusTone = ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
         : order.status_name === 'delivered' ? 'success'
-        : ['pending', 'wait_print'].includes(order.status_name) ? 'warning'
+        : ['shipped', 'submitted', 'wait_print'].includes(order.status_name) ? 'primary'
         : 'info';
       return `<tr>
         <td>
@@ -9593,8 +9990,9 @@ function renderPosOrdersTable() {
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : '&#8369;0'}</td>
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
-        <td><button class="rmo-assign-btn" type="button">Assign to me</button></td>
+        <td>${renderAssigneeSelect(order)}</td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
+        <td class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash}</td>
       </tr>`;
     }
     return `<tr>
@@ -9613,7 +10011,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? 9 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? 10 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   const pagination = document.getElementById('pos-orders-pagination');
   if (pagination) {
@@ -10584,8 +10982,9 @@ function getPosPagesRows() {
     id: c.id,
     name: c.name || c.shopName || (c.shopId || c.shop_id ? `Shop ${c.shopId || c.shop_id}` : 'Untitled Page'),
     shop: c.shopName || c.name || (c.shopId || c.shop_id ? `Shop ${c.shopId || c.shop_id}` : '—'),
+    shopId: c.shopId || c.shop_id || '',
     owner: c.owner || '—',
-    lastSync: pos.lastCollectedAt || pos.lastSavedAt || null,
+    lastSync: c.lastSyncedAt || c.last_synced_at || c.lastSync || pos.lastCollectedAt || pos.lastSavedAt || null,
   }));
   if (posPagesSearch) {
     const q = posPagesSearch.toLowerCase();
@@ -10615,13 +11014,17 @@ function renderPancakePagesTable() {
   const slice = all.slice(start, start + posPagesPerPage);
 
   body.innerHTML = slice.length
-    ? slice.map((r) => `<tr onclick="openPosPageModal('${r.id}')">
+    ? slice.map((r) => `<tr onclick="openPosPageModal(${JSON.stringify(r.id)})">
         <td class="pp-name">${escapeHtml(r.name)}</td>
         <td>${escapeHtml(r.shop)}</td>
         <td>${escapeHtml(r.owner)}</td>
         <td>${r.lastSync ? escapeHtml(new Date(r.lastSync).toLocaleString()) : '—'}</td>
+        <td>
+          <button class="btn btn-secondary btn-sm" type="button" data-pos-sync-id="${escapeHtml(r.id)}" onclick="syncPancakePosPage(event, ${JSON.stringify(r.id)})">Sync</button>
+          <span class="pos-page-sync-status" data-pos-sync-status="${escapeHtml(r.id)}"></span>
+        </td>
       </tr>`).join('')
-    : `<tr><td colspan="4" class="pp-empty">No pages yet. Click “Add New Page” to connect a shop.</td></tr>`;
+    : `<tr><td colspan="5" class="pp-empty">No pages yet. Click “Add New Page” to connect a shop.</td></tr>`;
 
   const used = document.getElementById('pos-pages-used');
   if (used) used.textContent = `${total}/15 PAGES USED`;
@@ -10652,6 +11055,26 @@ function gotoPosPage(where) {
   else if (where === 'next') posPagesPage = Math.min(pages, posPagesPage + 1);
   else if (where === 'last') posPagesPage = pages;
   renderPancakePagesTable();
+}
+
+function findPosPageSyncElement(attribute, connectionId) {
+  return Array.from(document.querySelectorAll(`[${attribute}]`))
+    .find((el) => el.getAttribute(attribute) === String(connectionId)) || null;
+}
+
+function setPosPageSyncStatus(connectionId, text = '', tone = 'muted') {
+  const status = findPosPageSyncElement('data-pos-sync-status', connectionId);
+  if (!status) return;
+  status.textContent = text;
+  status.className = `pos-page-sync-status ${tone ? `is-${tone}` : ''}`;
+}
+
+function setPosPageSyncButton(connectionId, text = 'Sync', disabled = false) {
+  const button = findPosPageSyncElement('data-pos-sync-id', connectionId);
+  if (!button) return null;
+  button.disabled = Boolean(disabled);
+  button.textContent = text;
+  return button;
 }
 
 function openPosPageModal(id) {
@@ -10884,7 +11307,8 @@ async function collectPancakePosData() {
         resources: ['orders'],
         page_size: 100,
         max_pages: 2000,
-        replay_stored_orders: true,
+        replay_stored_orders: false,
+        transfer_dashboard_orders: false,
         startDateTime: currentYearStart,
         endDateTime: Math.floor(Date.now() / 1000),
       }),
@@ -10917,6 +11341,86 @@ async function collectPancakePosData() {
     if (syncButton) {
       syncButton.disabled = false;
       syncButton.textContent = 'Sync POS Orders';
+    }
+  }
+}
+
+async function syncPancakePosPage(event, connectionId) {
+  if (event) event.stopPropagation();
+  const state = getIntegrationState();
+  const connections = Array.isArray(state.pancakePos?.connections) ? state.pancakePos.connections : [];
+  const connection = connections.find((item) => item.id === connectionId);
+  if (!connection) {
+    showToast('error', 'Page not found', 'Refresh API Connections and try again.');
+    return;
+  }
+  const shopId = connection.shopId || connection.shop_id;
+  if (!shopId) {
+    showToast('warning', 'Shop ID required', 'This page needs a POS Shop ID before it can sync.');
+    return;
+  }
+
+  const button = findPosPageSyncElement('data-pos-sync-id', connectionId);
+  const previousText = button?.textContent || 'Sync';
+  let progressToast = null;
+  try {
+    setPosPageSyncButton(connectionId, 'Syncing...', true);
+    setPosPageSyncStatus(connectionId, 'Syncing...', 'info');
+    const pageName = connection.name || connection.shopName || `Shop ${shopId}`;
+    progressToast = showToast('info', 'POS page sync in progress', `Pulling orders for ${pageName}. This may take a moment.`, { durationMs: 0 });
+    const currentYearStart = Math.floor(new Date(new Date().getFullYear(), 0, 1).getTime() / 1000);
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
+      method: 'POST',
+      body: JSON.stringify({
+        connection_id: connection.id,
+        shop_id: shopId,
+        resources: ['orders'],
+        page_size: 100,
+        max_pages: 2000,
+        replay_stored_orders: false,
+        transfer_dashboard_orders: false,
+        startDateTime: currentYearStart,
+        endDateTime: Math.floor(Date.now() / 1000),
+      }),
+    });
+
+    const failedResources = Array.isArray(data.failed_resources) ? data.failed_resources : [];
+    if (failedResources.length) {
+      const details = failedResources.map((item) => `${item.resource || 'resource'}: ${item.error || 'failed'}`).join('; ');
+      throw new Error(details || 'Pancake POS returned a sync error.');
+    }
+
+    const count = Number(data.resources?.orders?.count || data.sql_tables?.orders?.stored || 0);
+    const syncMessage = count > 0
+      ? `${pageName}: ${count.toLocaleString()} POS order(s) synced.`
+      : `${pageName}: already synced. No new POS orders found.`;
+    const refreshed = getIntegrationState();
+    const nextConnections = (refreshed.pancakePos.connections || []).map((item) => (
+      item.id === connectionId ? { ...item, lastSyncedAt: new Date().toISOString() } : item
+    ));
+    refreshed.pancakePos = {
+      ...refreshed.pancakePos,
+      connections: nextConnections,
+      lastCollectedAt: new Date().toISOString(),
+      lastCollectionSummary: syncMessage,
+    };
+    saveIntegrationState(refreshed);
+    renderPancakePagesTable();
+    await refreshPosOrdersNow();
+    if (progressToast) progressToast.remove();
+    setPosPageSyncStatus(connectionId, 'Done', 'success');
+    setPosPageSyncButton(connectionId, count > 0 ? 'Synced' : 'Up to date', false);
+    showToast('success', count > 0 ? 'POS page synced' : 'Already synced', syncMessage, { durationMs: 7000 });
+    setTimeout(() => setPosPageSyncButton(connectionId, previousText, false), 3000);
+  } catch (error) {
+    if (progressToast) progressToast.remove();
+    setPosPageSyncStatus(connectionId, 'Failed', 'error');
+    showToast('error', 'POS page sync failed', error.message || 'Could not sync this POS page.');
+  } finally {
+    const currentButton = findPosPageSyncElement('data-pos-sync-id', connectionId);
+    if (currentButton && currentButton.textContent === 'Syncing...') {
+      currentButton.disabled = false;
+      currentButton.textContent = previousText;
     }
   }
 }
@@ -11826,15 +12330,19 @@ function openViewRecordsTab(tabId) {
 }
 
 // ─── TOAST ─────────────────────────────────────────────────
-function showToast(type, title, body) {
+function showToast(type, title, body, options = {}) {
   const icons = {
     success: '<path d="M13 5L6 12l-3-3" stroke="currentColor" stroke-width="2"/>',
     error:   '<path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="2"/>',
     warning: '<path d="M8 2L14 13H2L8 2z" stroke="currentColor" stroke-width="1.5"/><path d="M8 6v4" stroke="currentColor" stroke-width="1.5"/>',
     info:    '<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 7v4M8 5v1" stroke="currentColor" stroke-width="1.5"/>',
   };
-  const container = document.getElementById('toast-container');
-  if (!container) return;
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
@@ -11842,7 +12350,9 @@ function showToast(type, title, body) {
     <div class="toast-text"><div class="title">${title}</div><div class="body">${body}</div></div>`;
   toast.onclick = () => toast.remove();
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
+  const duration = Number(options.durationMs ?? options.duration ?? 4000);
+  if (duration > 0) setTimeout(() => toast.remove(), duration);
+  return toast;
 }
 
 // ─── SIDEBAR TOGGLE (mobile) ───────────────────────────────

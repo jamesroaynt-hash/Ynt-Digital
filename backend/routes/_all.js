@@ -24,6 +24,20 @@ function ordersRoutes(db, { dispatch } = {}) {
     return text ? text : null;
   }
 
+  // POS timestamps are stored in UTC; the business day is Manila (UTC+8). Convert
+  // before slicing the calendar date so early-morning Manila orders don't display
+  // (or sort) under the previous day.
+  function toManilaDate(ts) {
+    if (!ts) return '';
+    const raw = String(ts);
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return raw.slice(0, 10);
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(d);
+  }
+
   function readNamedValue(source, keys = []) {
     if (!source || typeof source !== 'object') return null;
     const wanted = new Set(keys.map((key) => key.toLowerCase()));
@@ -259,80 +273,153 @@ function ordersRoutes(db, { dispatch } = {}) {
     );
   }
 
-  r.get('/', async (req, res) => {
-    const { status, filter, search, page=1, per_page=10, source_sheet, month, year } = req.query;
-    const perPage = Math.max(1, Math.min(100, parseInt(per_page) || 10));
-    const pageNum = Math.max(1, parseInt(page) || 1);
-    const offset  = (pageNum - 1) * perPage;
+  // ── pos_orders is now the dashboard source of truth (Pancake POS only, 2026+).
+  // The orders-table copy is retired; these helpers project pos_orders rows into
+  // the same shape the frontend's mapBackendOrder() already consumes.
+  const POS_STATUS_DISPLAY = {
+    new: 'New', pending: 'New',
+    submitted: 'Confirmed', wait_print: 'Confirmed',
+    shipped: 'Shipped', delivered: 'Delivered',
+    returning: 'Returning', returned: 'Returned',
+    canceled: 'Canceled', removed: 'Canceled',
+  };
+  function posDisplayStatus(statusName) {
+    if (!statusName) return 'New';
+    return POS_STATUS_DISPLAY[statusName]
+      || (statusName.charAt(0).toUpperCase() + statusName.slice(1));
+  }
+  // SQL CASE producing the same display status, for GROUP BY aggregation.
+  const POS_STATUS_CASE = `CASE
+    WHEN status_name IN ('new','pending') THEN 'New'
+    WHEN status_name IN ('submitted','wait_print') THEN 'Confirmed'
+    WHEN status_name = 'shipped'   THEN 'Shipped'
+    WHEN status_name = 'delivered' THEN 'Delivered'
+    WHEN status_name = 'returning' THEN 'Returning'
+    WHEN status_name = 'returned'  THEN 'Returned'
+    WHEN status_name IN ('canceled','removed') THEN 'Canceled'
+    ELSE 'Confirmed'
+  END`;
 
-    const where  = [];
+  function posRowToOrderShape(row) {
+    const shipping = parseJsonObject(row.shipping_address_json, {});
+    const province = readNamedValue(shipping, ['province', 'province_name', 'state', 'region']);
+    const city = readNamedValue(shipping, ['city', 'city_name', 'district']);
+    const partner = parseJsonObject(row.partner_json, {});
+    const courier = (partner && (partner.partner_name || partner.name)) || row.sprinter_name || '';
+    const items = parseJsonObject(row.items_json, []);
+    let qty = Array.isArray(items)
+      ? items.reduce((s, it) => s + Number(it?.quantity || it?.qty || 0), 0)
+      : 0;
+    if (!qty) qty = 1;
+    const tagList = parseJsonObject(row.tags_json, []).map((t) =>
+      typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')).filter(Boolean);
+    return {
+      id: row.external_id,
+      order_ref: row.external_id,
+      dbId: row.external_id,
+      tracking_no: row.tracking_no || '',
+      customer: row.customer_name || '',
+      phone: row.customer_phone || '',
+      product: row.note_product || '',
+      qty,
+      cod_amount: Number(row.cod || 0),
+      status: posDisplayStatus(row.status_name),
+      courier,
+      source_sheet: row.page_name || 'POS',
+      confirmed_by: row.assigning_seller_name || '',
+      attempts: Number(row.attempts || 1),
+      order_date: toManilaDate(row.inserted_at_effective || row.inserted_at_remote),
+      tags: tagList.join(', '),
+      pos_tags_json: row.tags_json,
+      city: city || '',
+      province: province || '',
+      shop_id: row.shop_id,
+    };
+  }
+
+  // Manila-day expression (UTC+8) reused by every dashboard read, mirroring /pos-orders.
+  function posManilaExprs() {
+    const effectiveInsertedAt = db.type === 'postgres'
+      ? "COALESCE(NULLIF(raw_payload::jsonb ->> 'inserted_at', ''), inserted_at_remote)"
+      : "COALESCE(NULLIF(json_extract(CASE WHEN json_valid(raw_payload) THEN raw_payload ELSE '{}' END, '$.inserted_at'), ''), inserted_at_remote)";
+    const manilaDay = db.type === 'postgres'
+      ? `to_char((${effectiveInsertedAt})::timestamp + interval '8 hours', 'YYYY-MM-DD')`
+      : `date(${effectiveInsertedAt}, '+8 hours')`;
+    return { effectiveInsertedAt, manilaDay };
+  }
+
+  // Single filter builder for all pos_orders-backed dashboard reads.
+  function posDashboardWhere(q = {}) {
+    const { manilaDay } = posManilaExprs();
     const params = [];
+    let where = "WHERE customer_phone IS NOT NULL AND customer_phone != ''";
+    where += ` AND ${manilaDay} >= '2026-01-01'`; // dashboard is 2026+ only
 
-    if (status && status !== 'All') { where.push('o.status = ?'); params.push(status); }
-    if (source_sheet && source_sheet !== 'all') {
-      where.push("(o.source_sheet = ? OR (o.source_sheet IS NULL AND ? = ''))");
-      params.push(source_sheet, source_sheet);
+    const statusVal = q.status;
+    if (statusVal && statusVal !== 'All' && statusVal !== 'all') {
+      const map = { New: ['new', 'pending'], Confirmed: ['submitted', 'wait_print'], Shipped: ['shipped'], Delivered: ['delivered'], Returning: ['returning'], Returned: ['returned'], Canceled: ['canceled', 'removed'] };
+      const raws = map[statusVal];
+      if (raws) { where += ` AND status_name IN (${raws.map(() => '?').join(',')})`; params.push(...raws); }
     }
-    if (month && month !== 'all') {
-      const y = year && year !== 'all' ? Number(year) : new Date().getUTCFullYear();
-      const m = Math.max(1, Math.min(12, Number(month)));
-      const start = `${y}-${String(m).padStart(2,'0')}-01`;
-      const end   = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2,'0')}-01`;
-      where.push('o.order_date >= ? AND o.order_date < ?');
-      params.push(start, end);
-    } else if (year && year !== 'all') {
-      where.push('o.order_date >= ? AND o.order_date < ?');
-      params.push(`${year}-01-01`, `${Number(year) + 1}-01-01`);
-    }
-    if (filter === 'weekly') { where.push("o.order_date >= date('now','-7 days')"); }
-    if (filter === 'monthly') {
-      const now = new Date();
-      where.push('o.order_date >= ?');
-      params.push(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2,'0')}-01`);
-    }
-    if (filter === 'yearly') {
-      where.push('o.order_date >= ?');
-      params.push(`${new Date().getUTCFullYear()}-01-01`);
-    }
-    if (search) {
-      where.push(`(o.customer LIKE ? OR o.order_ref LIKE ? OR o.tracking_no LIKE ?
-                  OR o.courier LIKE ? OR o.source_sheet LIKE ? OR o.tags LIKE ?)`);
-      const q = `%${search}%`;
-      params.push(q, q, q, q, q, q);
+    const sourceVal = q.source_sheet || q.source;
+    if (sourceVal && sourceVal !== 'all') { where += ` AND page_name = ?`; params.push(String(sourceVal)); }
+    if (q.product && q.product !== 'all') { where += ` AND LOWER(COALESCE(note_product,'')) LIKE ?`; params.push(`%${String(q.product).toLowerCase()}%`); }
+    const tagVal = q.pos_tag || q.tags;
+    if (tagVal && tagVal !== 'all') { where += ` AND LOWER(COALESCE(tags_json,'')) LIKE ?`; params.push(`%${String(tagVal).toLowerCase()}%`); }
+
+    if (q.month && q.month !== 'all') {
+      const y = q.year && q.year !== 'all' ? Number(q.year) : new Date().getUTCFullYear();
+      const m = Math.max(1, Math.min(12, Number(q.month)));
+      const start = `${y}-${String(m).padStart(2, '0')}-01`;
+      const end = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      where += ` AND ${manilaDay} >= ? AND ${manilaDay} < ?`; params.push(start, end);
+    } else if (q.year && q.year !== 'all') {
+      where += ` AND ${manilaDay} >= ? AND ${manilaDay} < ?`; params.push(`${q.year}-01-01`, `${Number(q.year) + 1}-01-01`);
     }
 
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    // Manila "now" computed in JS so date filters are DB-portable.
+    const manilaNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const ymd = (d) => d.toISOString().slice(0, 10);
+    if (q.date_filter === 'today') { where += ` AND ${manilaDay} = ?`; params.push(ymd(manilaNow)); }
+    else if (q.date_filter === 'yesterday') { const y = new Date(manilaNow); y.setUTCDate(y.getUTCDate() - 1); where += ` AND ${manilaDay} = ?`; params.push(ymd(y)); }
+    else if (q.date_filter === 'month') { where += ` AND ${manilaDay} >= ?`; params.push(`${ymd(manilaNow).slice(0, 7)}-01`); }
+    else if (q.date_filter === 'year') { where += ` AND ${manilaDay} >= ?`; params.push(`${ymd(manilaNow).slice(0, 4)}-01-01`); }
+    else if (q.date_filter === 'custom') {
+      if (q.date_from) { where += ` AND ${manilaDay} >= ?`; params.push(String(q.date_from).slice(0, 10)); }
+      if (q.date_to) { where += ` AND ${manilaDay} <= ?`; params.push(String(q.date_to).slice(0, 10)); }
+    }
+    if (q.filter === 'weekly') { const w = new Date(manilaNow); w.setUTCDate(w.getUTCDate() - 7); where += ` AND ${manilaDay} >= ?`; params.push(ymd(w)); }
+    if (q.filter === 'monthly') { where += ` AND ${manilaDay} >= ?`; params.push(`${ymd(manilaNow).slice(0, 7)}-01`); }
+    if (q.filter === 'yearly') { where += ` AND ${manilaDay} >= ?`; params.push(`${ymd(manilaNow).slice(0, 4)}-01-01`); }
 
-    // Cheap COUNT: no joins, no subqueries.
-    const total = (await db.prepare(
-      `SELECT COUNT(*) AS c FROM orders o ${whereSql}`
-    ).get(...params)).c;
+    if (q.search) {
+      where += ` AND (LOWER(COALESCE(external_id,'')) LIKE ? OR LOWER(COALESCE(customer_name,'')) LIKE ? OR LOWER(COALESCE(customer_phone,'')) LIKE ? OR LOWER(COALESCE(tracking_no,'')) LIKE ? OR LOWER(COALESCE(note_product,'')) LIKE ? OR LOWER(COALESCE(page_name,'')) LIKE ? OR LOWER(COALESCE(assigning_seller_name,'')) LIKE ?)`;
+      const s = `%${String(q.search).toLowerCase()}%`; params.push(s, s, s, s, s, s, s);
+    }
+    return { where, params };
+  }
 
-    // CAST is on the constant (per-row) side so isl.local_id stays bare and
-    // the idx_isl_orders_lookup composite index can resolve the join.
+  r.get('/', async (req, res) => {
+    const perPage = Math.max(1, Math.min(10000, parseInt(req.query.per_page) || 10));
+    const pageNum = Math.max(1, parseInt(req.query.page) || 1);
+    const offset = (pageNum - 1) * perPage;
+    const { effectiveInsertedAt } = posManilaExprs();
+    const { where, params } = posDashboardWhere(req.query);
+
+    const total = (await db.prepare(`SELECT COUNT(*) AS c FROM pos_orders ${where}`).get(...params)).c;
     const rows = await db.prepare(`
-      SELECT
-        o.id, o.order_ref, o.tracking_no, o.customer, o.phone, o.product,
-        o.tags, o.qty, o.cod_amount, o.status, o.courier, o.source_sheet,
-        o.attempts, o.order_date, o.confirmed_by, o.created_by,
-        o.created_at, o.updated_at,
-        po.tags_json             AS pos_tags_json,
-        po.shipping_address_json AS pos_shipping_address_json,
-        po.raw_payload           AS pos_raw_payload
-      FROM orders o
-      LEFT JOIN integration_source_links isl
-        ON  isl.local_table = 'orders'
-        AND isl.entity_type = 'orders'
-        AND isl.provider    = 'pancake_pos'
-        AND isl.local_id    = CAST(o.id AS TEXT)
-      LEFT JOIN pos_orders po ON po.external_id = isl.external_id
-      ${whereSql}
-      ORDER BY o.order_date DESC, o.id DESC
+      SELECT external_id, shop_id, tracking_no, page_name,
+             inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
+             customer_name, customer_phone, note_product, items_json, tags_json,
+             attempts, cod, assigning_seller_name, status_name,
+             sprinter_name, partner_json, shipping_address_json
+      FROM pos_orders ${where}
+      ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset);
 
     res.json({
-      data: enrichOrderReportMeta(await normalizeOrderPageNames(rows)),
+      data: rows.map(posRowToOrderShape),
       total,
       page: pageNum,
       per_page: perPage,
@@ -340,87 +427,23 @@ function ordersRoutes(db, { dispatch } = {}) {
   });
 
   r.get('/stats', async (req, res) => {
-    const counts = await db.prepare(`SELECT status, COUNT(*) as count, SUM(cod_amount) as total_cod FROM orders GROUP BY status`).all();
-    const total_orders = (await db.prepare(`SELECT COUNT(*) as count FROM orders`).get()).count || 0;
-    const total_cod = (await db.prepare(`SELECT SUM(cod_amount) as total FROM orders`).get()).total || 0;
+    const { where, params } = posDashboardWhere({});
+    const counts = await db.prepare(`
+      SELECT status, COUNT(*) AS count, COALESCE(SUM(cod), 0) AS total_cod
+      FROM (SELECT ${POS_STATUS_CASE} AS status, cod FROM pos_orders ${where}) t
+      GROUP BY status
+    `).all(...params);
+    const total_orders = counts.reduce((s, r) => s + Number(r.count || 0), 0);
+    const total_cod = counts.reduce((s, r) => s + Number(r.total_cod || 0), 0);
     res.json({ status_counts: counts, total_orders, total_cod });
   });
 
   r.get('/summary', async (req, res) => {
-    const { search, source_sheet, product, pos_tag, month, year, date_filter, date_from, date_to } = req.query;
-    const where  = [];
-    const params = [];
-
-    if (source_sheet && source_sheet !== 'all') {
-      where.push("(o.source_sheet = ? OR (o.source_sheet IS NULL AND ? = ''))");
-      params.push(source_sheet, source_sheet);
-    }
-    if (product && product !== 'all') { where.push('o.product = ?'); params.push(product); }
-    if (month && month !== 'all') {
-      const y = year && year !== 'all' ? Number(year) : new Date().getUTCFullYear();
-      const m = Math.max(1, Math.min(12, Number(month)));
-      const start = `${y}-${String(m).padStart(2,'0')}-01`;
-      const end   = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2,'0')}-01`;
-      where.push('o.order_date >= ? AND o.order_date < ?');
-      params.push(start, end);
-    } else if (year && year !== 'all') {
-      where.push('o.order_date >= ? AND o.order_date < ?');
-      params.push(`${year}-01-01`, `${Number(year) + 1}-01-01`);
-    }
-    // Date filters are Manila-local (UTC+8). SQLite date('now') is UTC, which
-    // mismatched the dashboard's Today and hid early-morning PH orders.
-    if (date_filter === 'today')     { where.push("o.order_date = date('now','+8 hours')"); }
-    if (date_filter === 'yesterday') { where.push("o.order_date = date('now','+8 hours','-1 day')"); }
-    if (date_filter === 'month') {
-      where.push("o.order_date >= strftime('%Y-%m-01', date('now','+8 hours'))");
-    }
-    if (date_filter === 'year') {
-      where.push("o.order_date >= strftime('%Y-01-01', date('now','+8 hours'))");
-    }
-    if (date_filter === 'custom') {
-      if (date_from) { where.push('o.order_date >= ?'); params.push(String(date_from).slice(0, 10)); }
-      if (date_to)   { where.push('o.order_date <= ?'); params.push(String(date_to).slice(0, 10)); }
-    }
-    if (search) {
-      where.push(`(
-        LOWER(COALESCE(o.customer, '')) LIKE ?
-        OR LOWER(COALESCE(o.order_ref, '')) LIKE ?
-        OR LOWER(COALESCE(o.tracking_no, '')) LIKE ?
-        OR LOWER(COALESCE(o.phone, '')) LIKE ?
-        OR LOWER(COALESCE(o.product, '')) LIKE ?
-        OR LOWER(COALESCE(o.courier, '')) LIKE ?
-        OR LOWER(COALESCE(o.source_sheet, '')) LIKE ?
-        OR LOWER(COALESCE(o.tags, '')) LIKE ?
-        OR LOWER(COALESCE(o.confirmed_by, '')) LIKE ?
-      )`);
-      const q = `%${String(search).toLowerCase()}%`;
-      params.push(q, q, q, q, q, q, q, q, q);
-    }
-
-    // Only join into pos_orders when the pos_tag filter is actually used.
-    let join = '';
-    if (pos_tag && pos_tag !== 'all') {
-      join = `
-        LEFT JOIN integration_source_links isl
-          ON  isl.local_table = 'orders'
-          AND isl.entity_type = 'orders'
-          AND isl.provider    = 'pancake_pos'
-          AND isl.local_id    = CAST(o.id AS TEXT)
-        LEFT JOIN pos_orders po ON po.external_id = isl.external_id`;
-      where.push("LOWER(COALESCE(po.tags_json, '')) LIKE ?");
-      params.push(`%${String(pos_tag).toLowerCase()}%`);
-    }
-
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
+    const { where, params } = posDashboardWhere(req.query);
     const rows = await db.prepare(`
-      SELECT o.status AS status,
-             COUNT(*) AS count,
-             COALESCE(SUM(o.cod_amount), 0) AS total_cod
-      FROM orders o
-      ${join}
-      ${whereSql}
-      GROUP BY o.status
+      SELECT status, COUNT(*) AS count, COALESCE(SUM(cod), 0) AS total_cod
+      FROM (SELECT ${POS_STATUS_CASE} AS status, cod FROM pos_orders ${where}) t
+      GROUP BY status
       ORDER BY count DESC
     `).all(...params);
     const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
@@ -454,7 +477,8 @@ function ordersRoutes(db, { dispatch } = {}) {
     `).all();
 
     const statusMap = {
-      submitted: 'New', new: 'New', pending: 'New', wait_print: 'New',
+      new: 'New', pending: 'New',
+      submitted: 'Confirmed', wait_print: 'Confirmed',
       shipped: 'Shipped', delivered: 'Delivered',
       returning: 'Returning', returned: 'Returned',
       canceled: 'Canceled', removed: 'Canceled',
@@ -469,7 +493,7 @@ function ordersRoutes(db, { dispatch } = {}) {
           id: row.external_id,
           tracking: row.tracking_no,
           sourceSheet: row.page_name || 'POS',
-          date: (row.inserted_at_remote || '').slice(0, 10),
+          date: toManilaDate(row.inserted_at_remote),
           customer: row.customer_name,
           phone: row.customer_phone,
           product: row.note_product,
@@ -520,7 +544,8 @@ function ordersRoutes(db, { dispatch } = {}) {
 
     if (status && status !== 'all') {
       const statusToRaw = {
-        New: ['submitted', 'new', 'pending', 'wait_print'],
+        New: ['new', 'pending'],
+        Confirmed: ['submitted', 'wait_print'],
         Shipped: ['shipped'],
         Delivered: ['delivered'],
         Returning: ['returning'],
@@ -539,12 +564,28 @@ function ordersRoutes(db, { dispatch } = {}) {
       params.push(`%${String(tags).toLowerCase()}%`);
     }
 
+    // Prefer the original POS payload inserted_at when present. Some older
+    // syncs wrote a bad inserted_at_remote value, so using the raw POS value
+    // keeps the filter/counts aligned with Pancake POS without waiting for a
+    // full re-sync to repair every row.
+    const effectiveInsertedAt = db.type === 'postgres'
+      ? "COALESCE(NULLIF(raw_payload::jsonb ->> 'inserted_at', ''), inserted_at_remote)"
+      : "COALESCE(NULLIF(json_extract(CASE WHEN json_valid(raw_payload) THEN raw_payload ELSE '{}' END, '$.inserted_at'), ''), inserted_at_remote)";
+
+    // POS inserted_at is stored in UTC, but the dashboard's date filters use
+    // the Manila business day. Convert UTC->Manila (+8h) before comparing, so an
+    // order created during Manila 00:00-08:00 (still the previous UTC day) is
+    // counted under the correct local day. Without this, ~a third of the
+    // early-morning orders silently dropped out of "Today".
+    const manilaDay = db.type === 'postgres'
+      ? `to_char((${effectiveInsertedAt})::timestamp + interval '8 hours', 'YYYY-MM-DD')`
+      : `date(${effectiveInsertedAt}, '+8 hours')`;
     const addDateFrom = (value) => {
-      where += ` AND substr(COALESCE(inserted_at_remote,''), 1, 10) >= ?`;
+      where += ` AND ${manilaDay} >= ?`;
       params.push(String(value).slice(0, 10));
     };
     const addDateTo = (value) => {
-      where += ` AND substr(COALESCE(inserted_at_remote,''), 1, 10) <= ?`;
+      where += ` AND ${manilaDay} <= ?`;
       params.push(String(value).slice(0, 10));
     };
     const padDate = (value) => String(value).padStart(2, '0');
@@ -578,7 +619,8 @@ function ordersRoutes(db, { dispatch } = {}) {
     const statusCountRows = await db.prepare(`
       SELECT
         CASE
-          WHEN status_name IN ('submitted','new','pending','wait_print') THEN 'New'
+          WHEN status_name IN ('new','pending') THEN 'New'
+          WHEN status_name IN ('submitted','wait_print') THEN 'Confirmed'
           WHEN status_name = 'shipped'   THEN 'Shipped'
           WHEN status_name = 'delivered' THEN 'Delivered'
           WHEN status_name = 'returning' THEN 'Returning'
@@ -594,11 +636,12 @@ function ordersRoutes(db, { dispatch } = {}) {
     const total = statusCountRows.reduce((s, r) => s + Number(r.count || 0), 0);
 
     const rows = await db.prepare(`
-      SELECT external_id, tracking_no, page_name, inserted_at_remote, customer_name, customer_phone,
+      SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
+             updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json
+             partner_json, assigned_to_user_id, assigned_to_name
       FROM pos_orders ${where}
-      ORDER BY inserted_at_remote DESC, id DESC
+      ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset);
 
@@ -619,9 +662,12 @@ function ordersRoutes(db, { dispatch } = {}) {
     res.json({
       data: rows.map((row) => ({
         external_id: row.external_id,
+        shop_id: row.shop_id,
         tracking_no: row.tracking_no,
         page_name: row.page_name,
-        date: (row.inserted_at_remote || '').slice(0, 10),
+        date: toManilaDate(row.inserted_at_effective || row.inserted_at_remote),
+        inserted_at: row.inserted_at_effective || row.inserted_at_remote || null,
+        updated_at: row.updated_at_remote || null,
         customer_name: row.customer_name,
         customer_phone: row.customer_phone,
         note_product: row.note_product,
@@ -633,6 +679,8 @@ function ordersRoutes(db, { dispatch } = {}) {
         sprinter_name: row.sprinter_name,
         sprinter_tel: row.sprinter_tel,
         partner: parseJsonObject(row.partner_json, null),
+        assigned_to_user_id: row.assigned_to_user_id != null ? Number(row.assigned_to_user_id) : null,
+        assigned_to_name: row.assigned_to_name || null,
       })),
       status_counts: statusCountRows,
       filter_options: {
@@ -644,6 +692,54 @@ function ordersRoutes(db, { dispatch } = {}) {
       page: pageNum,
       per_page: perPage,
     });
+  });
+
+  // Lightweight user list for the RMO assignee dropdown. Unlike /auth/users this
+  // is available to any authenticated user (RMO staff need it, they aren't admins).
+  r.get('/assignable-users', async (req, res) => {
+    const users = await db.prepare(`
+      SELECT id, full_name, username, role
+      FROM users
+      WHERE is_active = 1
+      ORDER BY full_name COLLATE NOCASE ASC
+    `).all();
+    res.json({
+      users: users.map((u) => ({
+        id: u.id,
+        name: u.full_name || u.username,
+        role: u.role || null,
+      })),
+    });
+  });
+
+  // Assign (or clear) the dashboard user responsible for a POS order. Persisted on
+  // pos_orders; the sync upsert never touches these columns, so it survives re-syncs.
+  r.post('/pos-orders/:externalId/assignee', async (req, res) => {
+    const externalId = String(req.params.externalId || '').trim();
+    if (!externalId) return res.status(400).json({ error: 'Missing order id.' });
+    const shopId = stringOrNull(req.body?.shop_id || req.body?.shopId);
+    const rawUserId = req.body?.user_id;
+    let userId = null;
+    let name = null;
+    if (rawUserId !== null && rawUserId !== undefined && String(rawUserId).trim() !== '') {
+      userId = Number(rawUserId);
+      if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Invalid user_id.' });
+      const user = await db.prepare('SELECT id, full_name, username FROM users WHERE id = ? AND is_active = 1').get(userId);
+      if (!user) return res.status(404).json({ error: 'User not found.' });
+      name = user.full_name || user.username;
+    }
+    const updateSql = shopId
+      ? `UPDATE pos_orders
+         SET assigned_to_user_id = ?, assigned_to_name = ?, updated_at = datetime('now')
+         WHERE external_id = ? AND shop_id = ?`
+      : `UPDATE pos_orders
+         SET assigned_to_user_id = ?, assigned_to_name = ?, updated_at = datetime('now')
+         WHERE external_id = ?`;
+    const result = shopId
+      ? await db.prepare(updateSql).run(userId, name, externalId, shopId)
+      : await db.prepare(updateSql).run(userId, name, externalId);
+    if (!result.changes) return res.status(404).json({ error: 'Order not found.' });
+    res.json({ external_id: externalId, shop_id: shopId, assigned_to_user_id: userId, assigned_to_name: name });
   });
 
   r.delete('/pos-orders/no-contact', async (req, res) => {

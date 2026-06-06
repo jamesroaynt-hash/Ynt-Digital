@@ -369,7 +369,7 @@ async function createApp() {
       endDateTime: Math.floor(Date.now() / 1000),
       page_size: PANCAKE_POS_SYNC_PAGE_SIZE,
       resources: ['orders'],
-      replay_stored_orders: true,
+      replay_stored_orders: false,
     };
   }
 
@@ -426,7 +426,7 @@ async function createApp() {
       }
 
       const result = await pancakePosSync.collectPosData(db, trigger === 'manual'
-        ? { resources: ['orders'], replay_stored_orders: true }
+        ? { resources: ['orders'], replay_stored_orders: false }
         : getPancakePosSyncWindow());
       backupScheduler.schedule();
       const imported = Object.entries(result?.resources || {})
@@ -451,12 +451,34 @@ async function createApp() {
     }, PANCAKE_POS_SYNC_INTERVAL_MS);
   }
 
+  // Storage retention: keep ~POS_RETENTION_DAYS (default 30) of POS orders locally
+  // so the database can't fill up again; older rows stay in Pancake. Runs shortly
+  // after boot and then daily.
+  const POS_RETENTION_DAYS = Math.max(1, Number(process.env.POS_RETENTION_DAYS || 30));
+  const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  async function runRetentionCleanup(trigger) {
+    try {
+      const result = await pancakePosSync.pruneOldData(db, { retentionDays: POS_RETENTION_DAYS });
+      console.log(`[retention] ${trigger}: removed pos_orders=${result.deleted_pos_orders}, sync_runs=${result.deleted_sync_runs} (kept last ${result.retention_days}d, cutoff ${result.cutoff_date}).`);
+    } catch (error) {
+      console.warn(`[retention] ${trigger} cleanup failed: ${error.message}`);
+    }
+  }
+  function scheduleRetentionCleanup() {
+    setTimeout(async () => {
+      await runRetentionCleanup('interval');
+      scheduleRetentionCleanup();
+    }, RETENTION_INTERVAL_MS);
+  }
+
   app.locals.db = db;
   app.locals.backupDatabase = () => backupScheduler.uploadBackup({ force: true });
   app.locals.runGoogleSheetsSync = runGoogleSheetsSync;
   app.locals.scheduleGoogleSheetsSync = scheduleGoogleSheetsSync;
   app.locals.runPancakePosSync = runPancakePosSync;
   app.locals.schedulePancakePosSync = schedulePancakePosSync;
+  app.locals.runRetentionCleanup = runRetentionCleanup;
+  app.locals.scheduleRetentionCleanup = scheduleRetentionCleanup;
 
   return app;
 }
@@ -492,17 +514,40 @@ if (require.main === module) {
       });
 
       if (!process.env.VERCEL) {
-        setTimeout(() => {
-          app.locals.runGoogleSheetsSync('startup');
-        }, 5 * 1000);
+        // Google Sheets auto-sync is OFF by default — POS API is the data source.
+        // Hard env guard so a stored DB setting can't silently re-enable the pull.
+        if (process.env.GOOGLE_SHEETS_SYNC_ENABLED === 'true') {
+          setTimeout(() => {
+            app.locals.runGoogleSheetsSync('startup');
+          }, 5 * 1000);
 
-        app.locals.scheduleGoogleSheetsSync();
+          app.locals.scheduleGoogleSheetsSync();
+        } else {
+          console.log('[google_sheets] auto-sync disabled (GOOGLE_SHEETS_SYNC_ENABLED!=true) — using POS API only.');
+        }
 
-        setTimeout(() => {
-          app.locals.runPancakePosSync('startup');
-        }, 10 * 1000);
+        if (process.env.DISABLE_BACKGROUND_SYNC === 'true') {
+          console.log('[pancake_pos] background sync disabled (DISABLE_BACKGROUND_SYNC=true) — manual trigger only.');
+        } else {
+          setTimeout(() => {
+            app.locals.runPancakePosSync('startup');
+          }, 10 * 1000);
 
-        app.locals.schedulePancakePosSync();
+          app.locals.schedulePancakePosSync();
+        }
+
+        // Trim old POS data shortly after boot, then daily, so storage stays bounded.
+        // Disabled via POS_RETENTION_ENABLED=false to KEEP full history (re-syncable
+        // from Pancake); de-bloat with VACUUM instead of deleting rows.
+        if (process.env.POS_RETENTION_ENABLED !== 'false') {
+          setTimeout(() => {
+            app.locals.runRetentionCleanup('startup');
+          }, 30 * 1000);
+
+          app.locals.scheduleRetentionCleanup();
+        } else {
+          console.log('[retention] disabled via POS_RETENTION_ENABLED=false — keeping full history.');
+        }
       }
 
       // Backups are now throttled (see createBackupScheduler), so flush a final

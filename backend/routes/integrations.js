@@ -218,9 +218,16 @@ module.exports = function integrationRoutes(db) {
           await reportCache.loading;
         }
         const all = reportCache.records;
+        const statusCounts = Object.entries(all.reduce((counts, row) => {
+          const status = row.status || 'Unknown';
+          counts[status] = (counts[status] || 0) + 1;
+          return counts;
+        }, {})).map(([status, count]) => ({ status, count }));
         res.json({
           records: all.slice(offset, offset + perPage),
           total: all.length,
+          total_cod: all.reduce((sum, row) => sum + Number(row.cod_amount || 0), 0),
+          status_counts: statusCounts,
           page: pageNum,
           per_page: perPage,
           pages: Math.ceil(all.length / perPage),
@@ -267,7 +274,23 @@ module.exports = function integrationRoutes(db) {
       // Report mode only needs rows + pagination; skip the status GROUP BY and
       // the distinct sheet/tag scans the records UI uses.
       if (reportView) {
-        res.json({ records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage) });
+        const aggregateRows = await db.prepare(`
+          SELECT
+            COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
+            COUNT(*) AS count,
+            SUM(g.cod) AS total_cod
+          ${baseFrom} ${where}
+          GROUP BY COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))
+        `).all(...params);
+        res.json({
+          records,
+          total,
+          total_cod: aggregateRows.reduce((sum, row) => sum + Number(row.total_cod || 0), 0),
+          status_counts: aggregateRows.map((row) => ({ status: row.status, count: row.count })),
+          page: pageNum,
+          per_page: perPage,
+          pages: Math.ceil(total / perPage),
+        });
         return;
       }
 
@@ -357,6 +380,14 @@ module.exports = function integrationRoutes(db) {
         delivered: Number(row?.delivered || 0),
         total_cod: Number(row?.total_cod || 0),
       });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/pancake-pos/ads/ad-sets', async (req, res) => {
+    try {
+      res.json(await posSync.listAdSetsFromApi(db, req.query || {}));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -647,6 +678,18 @@ module.exports = function integrationRoutes(db) {
         message: 'Pancake POS SQL orders transferred to dashboard.',
         ...result,
       });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Storage retention: drop POS orders older than the retention window (default 30
+  // days, or `retention_days` in the body) plus old sync logs, on demand.
+  router.post('/pancake-pos/prune', async (req, res) => {
+    try {
+      const retentionDays = Number(req.body?.retention_days) || 30;
+      const result = await posSync.pruneOldData(db, { retentionDays });
+      res.status(200).json({ message: 'Old POS data pruned.', ...result });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

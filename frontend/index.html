@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/Images/yntlogo.png?v=20260603">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="assets/css/main.css?v=20260604-rmo4">
+<link rel="stylesheet" href="assets/css/main.css?v=20260606-campaign-name">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -92,14 +92,6 @@
             Marketing
           </a>
 
-          <a class="nav-item" data-page="rmo-management" onclick="navigateTo('rmo-management')">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M2.5 4.5h11M4 2.5h8l1.5 2v8.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V4.5l1.5-2z"/>
-              <path d="M5 8h6M5 10.5h4"/>
-            </svg>
-            RMO Management
-          </a>
-
           <a class="nav-item" data-page="creatives" onclick="navigateTo('creatives')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="2" y="3" width="12" height="9" rx="1"/><circle cx="6" cy="6.5" r="1"/><path d="M2 10l3-3 2 2 3-3 4 4"/>
@@ -126,6 +118,22 @@
               <rect x="2" y="2" width="5.5" height="5.5" rx=".5"/><rect x="8.5" y="2" width="5.5" height="5.5" rx=".5"/><rect x="2" y="8.5" width="5.5" height="5.5" rx=".5"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx=".5"/>
             </svg>
             Stock
+          </a>
+
+        </div>
+
+        <div class="nav-section-label" id="nav-section-rmo" onclick="toggleNavSection('rmo')">
+          RMO Management
+          <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
+        </div>
+        <div class="nav-section-body" id="nav-section-body-rmo">
+
+          <a class="nav-item" data-page="rmo-management" onclick="navigateTo('rmo-management')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2.5 4.5h11M4 2.5h8l1.5 2v8.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V4.5l1.5-2z"/>
+              <path d="M5 8h6M5 10.5h4"/>
+            </svg>
+            RMO Management
           </a>
 
         </div>
@@ -285,6 +293,6 @@
 </div>
 <!-- /app-root -->
 
-<script src="assets/js/app.js?v=20260604-rmo4"></script>
+  <script src="assets/js/app.js?v=20260606-campaign-name"></script>
 </body>
 </html>

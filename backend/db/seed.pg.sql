@@ -1,3 +1,4 @@
+
 BEGIN;
 
 INSERT INTO users (username, password, full_name, role)

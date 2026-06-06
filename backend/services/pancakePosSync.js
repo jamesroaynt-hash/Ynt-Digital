@@ -82,6 +82,7 @@ function publicConnection(connection) {
     has_botcake_token: Boolean(connection.botcake_token),
     messaging_page_id: connection.messaging_page_id || null,
     owner: connection.owner || null,
+    last_synced_at: connection.last_synced_at || null,
     notes: connection.notes || '',
   };
 }
@@ -203,6 +204,15 @@ async function saveSetting(db, payload) {
 async function getPublicSetting(db) {
   const setting = await getSetting(db);
   const connections = await getSavedConnections(db);
+  const lastSyncRows = connections.length
+    ? await db.prepare(`
+      SELECT shop_id, MAX(updated_at) AS last_synced_at
+      FROM pos_orders
+      WHERE shop_id IS NOT NULL AND shop_id != ''
+      GROUP BY shop_id
+    `).all()
+    : [];
+  const lastSyncByShop = new Map(lastSyncRows.map((row) => [String(row.shop_id), row.last_synced_at]));
 
   if (!setting && connections.length === 0) {
     return {
@@ -226,7 +236,10 @@ async function getPublicSetting(db) {
     sync_mode: setting?.sync_mode || 'pull_only',
     notes: setting?.notes || null,
     webhook_secret: setting?.webhook_secret || null,
-    connections: connections.map(publicConnection),
+    connections: connections.map((connection) => publicConnection({
+      ...connection,
+      last_synced_at: lastSyncByShop.get(String(connection.shop_id)) || null,
+    })),
     connection_count: connections.length,
     updated_at: setting?.updated_at,
   };
@@ -315,7 +328,9 @@ async function findLinkedLocalId(db, entityType, externalId) {
 }
 
 function buildUrl(baseUrl, path, query = {}) {
-  const url = new URL(path, `${baseUrl}/`);
+  const normalizedBase = `${String(baseUrl || POS_API_BASE).replace(/\/+$/, '')}/`;
+  const normalizedPath = String(path || '').replace(/^\/+/, '');
+  const url = new URL(normalizedPath, normalizedBase);
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === '') continue;
     if (Array.isArray(value)) {
@@ -487,6 +502,12 @@ const PANCAKE_STATUS_NAME = {
 async function upsertOrder(db, shopId, item, connectionName = null) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
+  // Dashboard scope is 2026+. The Pancake "updated_at" fetch pass otherwise
+  // back-hauls years of history (orders with old inserted_at but recent
+  // updates), bloating the DB. Never store orders created before POS_MIN_DATE.
+  const POS_MIN_DATE = process.env.POS_MIN_DATE || '2026-01-01';
+  const insertedAtNorm = normalizePosTimestamp(item?.inserted_at || item?.created_at);
+  if (insertedAtNorm && String(insertedAtNorm).slice(0, 10) < POS_MIN_DATE) return null;
   const statusNum = numberOrNull(item?.status);
   const statusName = stringOrNull(item?.status_name || item?.status_text)
     || (statusNum !== null ? (PANCAKE_STATUS_NAME[statusNum] ?? null) : null);
@@ -501,7 +522,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const attempts = extractAttemptNumber(item, getPosOrderTags(item));
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
-  const resolvedShopId = stringOrNull(shopId || item?.shop_id);
+  const resolvedShopId = stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id || 'unknown');
   const pageName = connectionName || await findSavedConnectionName(db, resolvedShopId);
 
   const rawItems = item?.order_details || item?.items || [];
@@ -527,9 +548,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       items_json, tags_json, partner_json, shipping_address_json, raw_payload
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(external_id) DO UPDATE SET
+    ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
-      inserted_at_remote = COALESCE(pos_orders.inserted_at_remote, excluded.inserted_at_remote),
+      inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
       updated_at_remote = excluded.updated_at_remote,
       status = excluded.status,
       status_name = COALESCE(excluded.status_name, pos_orders.status_name),
@@ -558,11 +579,14 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       updated_at = datetime('now')
   `).run(
     externalId,
-    stringOrNull(shopId || item?.shop_id),
+    resolvedShopId,
     normalizePosTimestamp(item?.inserted_at),
     normalizePosTimestamp(item?.updated_at),
     numberOrNull(item?.status),
-    stringOrNull(item?.status_name || item?.status_text),
+    // Store the resolved status name (with numeric→name fallback) so orders that
+    // arrive with only a numeric status still map to a real status instead of
+    // landing in 'Other' on the RMO dashboard.
+    statusName,
     customerName,
     customerPhone,
     stringOrNull(item?.bill_email || item?.customer?.email || item?.email),
@@ -1351,10 +1375,21 @@ async function transferPosOrderToDashboard(db, shopId, item) {
     const posUser = await db.prepare('SELECT name FROM pos_users WHERE external_id = ? AND name IS NOT NULL LIMIT 1').get(confirmedBy);
     if (posUser?.name) confirmedBy = posUser.name;
   }
-  const linkedId = await findLinkedLocalId(db, 'orders', externalId);
+  // Pancake reuses order ids across shops, so the dashboard link and dedup must be
+  // scoped by shop — otherwise one page's order overwrites another page's order
+  // that happens to share the same Pancake id (and the globally-unique orders.order_ref
+  // collides on insert). Link on a shop-scoped id; fall back to matching an existing
+  // row by (order_ref + same source page) so legacy bare-linked rows are re-keyed
+  // without creating duplicates.
+  const resolvedShopId = stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id) || 'unknown';
+  const linkExternalId = `${resolvedShopId}::${externalId}`;
+  const orderDate = normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at);
+  const status = dashboardStatusFromPos(item);
+
+  const linkedId = await findLinkedLocalId(db, 'orders', linkExternalId);
   const existing = linkedId
     ? await db.prepare('SELECT id FROM orders WHERE id = ?').get(linkedId)
-    : await db.prepare('SELECT id FROM orders WHERE order_ref = ? LIMIT 1').get(orderRef);
+    : await db.prepare("SELECT id FROM orders WHERE order_ref = ? AND COALESCE(source_sheet,'') = COALESCE(?,'') LIMIT 1").get(orderRef, sourceName);
 
   const attemptNum = extractAttemptNumber(item, tags);
 
@@ -1366,46 +1401,30 @@ async function transferPosOrderToDashboard(db, shopId, item) {
           order_date = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
-      orderRef,
-      trackingNo,
-      customer,
-      phone,
-      summary.product,
-      summary.qty,
-      cod,
-      dashboardStatusFromPos(item),
-      courier,
-      sourceName,
-      confirmedBy,
-      tags,
-      attemptNum,
-      normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at),
-      existing.id
+      orderRef, trackingNo, customer, phone, summary.product, summary.qty, cod,
+      status, courier, sourceName, confirmedBy, tags, attemptNum, orderDate, existing.id
     );
-    await upsertSourceLink(db, 'orders', externalId, 'orders', existing.id);
+    await upsertSourceLink(db, 'orders', linkExternalId, 'orders', existing.id);
     return existing.id;
   }
 
-  const result = await db.prepare(`
+  const insertOrder = (ref) => db.prepare(`
     INSERT INTO orders (order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier, source_sheet, confirmed_by, attempts, order_date)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    orderRef,
-    trackingNo,
-    customer,
-    phone,
-    summary.product,
-    tags,
-    summary.qty,
-    cod,
-    dashboardStatusFromPos(item),
-    courier,
-    sourceName,
-    confirmedBy,
-    attemptNum,
-    normalizeDateString(item?.inserted_at || item?.created_at || item?.updated_at)
+    ref, trackingNo, customer, phone, summary.product, tags, summary.qty, cod,
+    status, courier, sourceName, confirmedBy, attemptNum, orderDate
   );
-  await upsertSourceLink(db, 'orders', externalId, 'orders', result.lastInsertRowid);
+
+  let result;
+  try {
+    result = await insertOrder(orderRef);
+  } catch (err) {
+    // order_ref is already taken by a different shop's order — fall back to a
+    // shop-scoped ref so this order still lands instead of crashing the sync.
+    result = await insertOrder(linkExternalId);
+  }
+  await upsertSourceLink(db, 'orders', linkExternalId, 'orders', result.lastInsertRowid);
   return result.lastInsertRowid;
 }
 
@@ -1543,7 +1562,8 @@ async function normalizeSourceSheets(db) {
   return normalized;
 }
 
-async function storeItems(db, resource, shopId, items, connectionName = null) {
+async function storeItems(db, resource, shopId, items, connectionName = null, options = {}) {
+  const transferDashboardOrders = options.transfer_dashboard_orders === true || options.transferDashboardOrders === true;
   const localIds = [];
   for (const item of items) {
     let localId = null;
@@ -1555,7 +1575,7 @@ async function storeItems(db, resource, shopId, items, connectionName = null) {
     if (resource === 'users') localId = await upsertUser(db, shopId, item);
     if (resource === 'transactions') localId = await upsertTransaction(db, shopId, item);
     if (resource === 'inventory_histories') localId = await upsertInventoryHistory(db, shopId, item);
-    if (resource === 'orders') await transferPosOrderToDashboard(db, shopId, item);
+    if (resource === 'orders' && transferDashboardOrders) await transferPosOrderToDashboard(db, shopId, item);
     if (resource === 'products') await transferPosProductToInventory(db, shopId, item);
     if (localId) localIds.push(localId);
   }
@@ -1828,6 +1848,141 @@ async function firstSuccessfulCollection(fetchers) {
   throw new Error(errors.length ? errors.join(' | ') : 'No API endpoints returned data.');
 }
 
+function arrayFromPancakeResponse(response) {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.ad_sets)) return response.ad_sets;
+  if (Array.isArray(response?.items)) return response.items;
+  if (Array.isArray(response?.results)) return response.results;
+  return [];
+}
+
+function readDeepValue(source, path) {
+  return String(path).split('.').reduce((node, key) => (
+    node && typeof node === 'object' ? node[key] : undefined
+  ), source);
+}
+
+function firstNumberFrom(source, paths = []) {
+  for (const path of paths) {
+    const value = readDeepValue(source, path);
+    if (value === undefined || value === null || value === '') continue;
+    const parsed = Number(String(value ?? '').replace(/,/g, ''));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function normalizeAdsBudget(item) {
+  const raw = firstNumberFrom(item, ['budget', 'daily_budget', 'lifetime_budget', 'campaign_budget', 'adset_budget']);
+  return raw >= 1000 ? raw / 100 : raw;
+}
+
+function normalizeAdSet(item, connection) {
+  const insights = item?.insights && typeof item.insights === 'object' ? item.insights : {};
+  const source = { ...item, insights };
+  const spend = firstNumberFrom(source, ['spend', 'insights.spend']);
+  const resultRoas = firstNumberFrom(source, ['result_roas', 'insights.result_roas', 'roas', 'insights.roas']);
+  return {
+    id: stringOrNull(item?.id || item?.adset_id || item?.ad_set_id),
+    campaign_name: stringOrNull(item?.ad_campaign?.name || item?.campaign_name || item?.campaign?.name || item?.campaignName) || 'Untitled campaign',
+    name: stringOrNull(item?.name || item?.adset_name || item?.ad_set_name) || 'Untitled ad set',
+    status: stringOrNull(item?.status || item?.effective_status || item?.configured_status),
+    shop_id: connection.shop_id,
+    shop_name: connection.name,
+    budget: normalizeAdsBudget(item),
+    spend,
+    reach: firstNumberFrom(source, ['reach', 'insights.reach']),
+    impressions: firstNumberFrom(source, ['impressions', 'insights.impressions']),
+    clicks: firstNumberFrom(source, ['clicks', 'insights.clicks']),
+    frequency: firstNumberFrom(source, ['frequency', 'insights.frequency']),
+    cpp: firstNumberFrom(source, ['cpp', 'insights.cpp']),
+    cpm: firstNumberFrom(source, ['cpm', 'insights.cpm']),
+    cpc: firstNumberFrom(source, ['cpc', 'insights.cpc']),
+    ctr: firstNumberFrom(source, ['ctr', 'insights.ctr']),
+    cost_per_result: firstNumberFrom(source, ['cost_per_result', 'insights.cost_per_result']),
+    result_roas: resultRoas,
+    raw_status: stringOrNull(item?.status),
+  };
+}
+
+async function listAdSetsFromApi(db, payload = {}) {
+  const savedConnections = await getSavedConnections(db);
+  const requestedConnectionId = stringOrNull(payload.connection_id || payload.connectionId || payload.id);
+  const requestedShopId = stringOrNull(payload.shop_id || payload.shopId);
+  const enabledConnections = savedConnections.filter((connection) => (
+    connection.enabled !== false
+    && connection.api_key
+    && connection.shop_id
+    && (!requestedConnectionId || connection.id === requestedConnectionId)
+    && (!requestedShopId || connection.shop_id === requestedShopId)
+  ));
+  if (!enabledConnections.length) {
+    throw new Error('No enabled Pancake POS connection with an API key and shop ID was found.');
+  }
+
+  const selectFields = stringOrNull(payload.select_fields || payload.selectFields) || [
+    'ad_performance_session',
+    'spend',
+    'reach',
+    'impressions',
+    'clicks',
+    'frequency',
+    'cpp',
+    'cpm',
+    'cpc',
+    'ctr',
+    'cost_per_result',
+    'result_roas',
+  ].join(',');
+  const pageSize = Math.max(1, Math.min(100, Number(payload.page_size || payload.pageSize || 50)));
+  const maxPages = Math.max(1, Math.min(20, Number(payload.max_pages || payload.maxPages || 3)));
+
+  const result = {
+    provider: PROVIDER,
+    resource: 'ad_sets_v2',
+    select_fields: selectFields,
+    shops: [],
+    items: [],
+    failed_shops: [],
+  };
+
+  for (const connection of enabledConnections) {
+    try {
+      const items = await collectPagedItems(async (page) => {
+        const response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/ads_manager/ad_sets_v2`, connection.api_key, {
+          page,
+          page_size: pageSize,
+          select_fields: selectFields,
+          __timeout_ms: 20000,
+        });
+        return arrayFromPancakeResponse(response);
+      }, { startPage: Math.max(1, Number(payload.page || 1)), pageSize, maxPages });
+      const normalized = items.map((item) => normalizeAdSet(item, connection));
+      result.shops.push({ shop_id: connection.shop_id, name: connection.name, count: normalized.length });
+      result.items.push(...normalized);
+    } catch (error) {
+      result.failed_shops.push({
+        shop_id: connection.shop_id,
+        name: connection.name,
+        error: truncate(error.message, 240),
+      });
+    }
+  }
+
+  result.summary = {
+    ad_sets: result.items.length,
+    spend: result.items.reduce((sum, item) => sum + Number(item.spend || 0), 0),
+    impressions: result.items.reduce((sum, item) => sum + Number(item.impressions || 0), 0),
+    clicks: result.items.reduce((sum, item) => sum + Number(item.clicks || 0), 0),
+    reach: result.items.reduce((sum, item) => sum + Number(item.reach || 0), 0),
+    avg_roas: result.items.length
+      ? result.items.reduce((sum, item) => sum + Number(item.result_roas || 0), 0) / result.items.length
+      : 0,
+  };
+  return result;
+}
+
 async function collectPosData(db, payload = {}) {
   if (Array.isArray(payload.connections) && payload.connections.length) {
     const connections = payload.connections
@@ -1887,7 +2042,13 @@ async function collectPosData(db, payload = {}) {
   }
 
   const savedConnections = await getSavedConnections(db);
-  const firstConn = savedConnections[0];
+  const requestedConnectionId = stringOrNull(payload.connection_id || payload.connectionId || payload.id);
+  const requestedShopId = stringOrNull(payload.shop_id || payload.shopId);
+  const selectedConnection = savedConnections.find((connection) => (
+    (requestedConnectionId && connection.id === requestedConnectionId)
+    || (requestedShopId && connection.shop_id === requestedShopId)
+  ));
+  const firstConn = selectedConnection || savedConnections[0];
   const apiKey = stringOrNull(payload.api_key || firstConn?.api_key);
   const shopId = stringOrNull(payload.shop_id || firstConn?.shop_id);
   const baseUrl = stringOrNull(payload.base_url || firstConn?.base_url) || POS_API_BASE;
@@ -1902,8 +2063,10 @@ async function collectPosData(db, payload = {}) {
     page_number: Math.max(1, Number(payload.page_number || 1)),
     page_size: Math.max(1, Math.min(100, Number(payload.page_size || 100))),
     page: Math.max(1, Number(payload.page || 1)),
+    maxPages: Math.max(1, Number(payload.max_pages || payload.maxPages || Infinity)),
     startDateTime: Number(payload.startDateTime ?? defaultStart),
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
+    updatedSince: payload.updatedSince !== undefined ? Number(payload.updatedSince) : null,
   };
 
   const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
@@ -1941,10 +2104,10 @@ async function collectPosData(db, payload = {}) {
           'extra_fields[]': orderExtraFields,
         });
         return Array.isArray(response?.data) ? response.data : [];
-      }, { startPage: options.page_number, pageSize: options.page_size });
+      }, { startPage: options.page_number, pageSize: options.page_size, maxPages: options.maxPages });
 
       // Also fetch by updated_at range to catch status changes on older orders
-      const updatedSince = options.updatedSince || lastSyncAt || unixSecondsFromDate(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
+      const updatedSince = options.updatedSince || lastSyncAt || options.startDateTime;
       let updatedItems = [];
       try {
         updatedItems = await collectPagedItems(async (pageNumber) => {
@@ -1958,7 +2121,7 @@ async function collectPosData(db, payload = {}) {
             'extra_fields[]': orderExtraFields,
           });
           return Array.isArray(response?.data) ? response.data : [];
-        }, { startPage: 1, pageSize: options.page_size });
+        }, { startPage: 1, pageSize: options.page_size, maxPages: options.maxPages });
       } catch (err) {
         // This pass is what catches status changes (e.g. New -> Confirmed) on
         // already-created orders. If it fails, confirmations never sync — so
@@ -2071,7 +2234,9 @@ async function collectPosData(db, payload = {}) {
 
       try {
         const items = await fetcher();
-        const localIds = await storeItems(db, resource, shopId, items, result.connection_name);
+        const localIds = await storeItems(db, resource, shopId, items, result.connection_name, {
+          transfer_dashboard_orders: payload.transfer_dashboard_orders === true || payload.transferDashboardOrders === true,
+        });
         result.resources[resource] = { count: items.length, items };
         result.sql_tables[resource] = { stored: localIds.length };
       } catch (error) {
@@ -2244,7 +2409,6 @@ async function receiveWebhook(db, payload = {}) {
   for (const item of orders) {
     const localId = await upsertOrder(db, shopId, item);
     if (localId) localIds.push(localId);
-    await transferPosOrderToDashboard(db, shopId, item);
   }
 
   return {
@@ -2320,16 +2484,62 @@ async function listPosUsers(db, payload = {}) {
   };
 }
 
+// Storage retention. pos_orders is by far the largest table, so old orders are
+// dropped from the local DB to keep it from refilling (they remain in Pancake and
+// can be re-synced; RMO is a live dashboard for recent orders). Old sync-run logs
+// are pruned too. Deletes are batched to keep locks short; we rely on autovacuum
+// to reclaim the freed space and NEVER run VACUUM FULL (it can OOM / fill the disk
+// on small instances). Date comparison uses a plain substr(...,1,10) text compare
+// so it works identically on SQLite and Postgres without engine-specific casts.
+async function pruneOldData(db, { retentionDays = 30, batchSize = 5000 } = {}) {
+  const days = Math.max(1, Number(retentionDays) || 30);
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const runCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+  let deletedOrders = 0;
+  for (let i = 0; i < 10000; i += 1) {
+    const sql = db.type === 'postgres'
+      ? `DELETE FROM pos_orders WHERE ctid IN (
+           SELECT ctid FROM pos_orders
+           WHERE inserted_at_remote IS NOT NULL AND inserted_at_remote <> ''
+             AND substr(inserted_at_remote, 1, 10) < ?
+           LIMIT ?)`
+      : `DELETE FROM pos_orders WHERE rowid IN (
+           SELECT rowid FROM pos_orders
+           WHERE inserted_at_remote IS NOT NULL AND inserted_at_remote <> ''
+             AND substr(inserted_at_remote, 1, 10) < ?
+           LIMIT ?)`;
+    const result = await db.prepare(sql).run(cutoff, batchSize);
+    const n = Number(result.changes || 0);
+    deletedOrders += n;
+    if (n < batchSize) break;
+  }
+
+  const runResult = await db.prepare(
+    'DELETE FROM integration_sync_runs WHERE substr(CAST(started_at AS TEXT), 1, 10) < ?'
+  ).run(runCutoff);
+
+  return {
+    provider: PROVIDER,
+    retention_days: days,
+    cutoff_date: cutoff,
+    deleted_pos_orders: deletedOrders,
+    deleted_sync_runs: Number(runResult.changes || 0),
+  };
+}
+
 module.exports = {
   PROVIDER,
   POS_API_BASE,
   unixSecondsFromDate,
+  pruneOldData,
   getStatus,
   getPublicSetting,
   getSavedConnections,
   saveSetting,
   listPosUsers,
   listShopsFromApi,
+  listAdSetsFromApi,
   validatePancakePageToken,
   validateBotcakeToken,
   collectPosData,

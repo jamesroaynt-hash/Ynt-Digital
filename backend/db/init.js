@@ -61,6 +61,95 @@ async function ensureColumnAsync(db, tableName, columnName, definition) {
   await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }
 
+function getSqliteIndexColumns(db, indexName) {
+  return db.prepare(`PRAGMA index_info(${indexName})`).all().map((column) => column.name);
+}
+
+function migratePosOrdersCompositeIdentity(db) {
+  const indexes = db.prepare('PRAGMA index_list(pos_orders)').all();
+  const hasExternalOnlyUnique = indexes.some((index) => {
+    if (!Number(index.unique || 0)) return false;
+    const columns = getSqliteIndexColumns(db, index.name);
+    return columns.length === 1 && columns[0] === 'external_id';
+  });
+
+  if (!hasExternalOnlyUnique) {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_orders_shop_external ON pos_orders(shop_id, external_id)');
+    return;
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('ALTER TABLE pos_orders RENAME TO _pos_orders_external_unique_tmp');
+  db.exec(`
+    CREATE TABLE pos_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      external_id TEXT NOT NULL,
+      shop_id TEXT,
+      inserted_at_remote TEXT,
+      updated_at_remote TEXT,
+      status INTEGER,
+      status_name TEXT,
+      customer_name TEXT,
+      customer_phone TEXT,
+      customer_email TEXT,
+      page_id TEXT,
+      shipping_fee REAL,
+      cod REAL,
+      cash REAL,
+      total_discount REAL,
+      note TEXT,
+      attempts INTEGER,
+      tracking_no TEXT,
+      note_product TEXT,
+      sprinter_name TEXT,
+      sprinter_tel TEXT,
+      page_name TEXT,
+      assigned_user_id TEXT,
+      assigning_seller_name TEXT,
+      assigned_to_user_id INTEGER,
+      assigned_to_name TEXT,
+      items_json TEXT,
+      tags_json TEXT,
+      partner_json TEXT,
+      shipping_address_json TEXT,
+      raw_payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`
+    INSERT INTO pos_orders (
+      id, external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name,
+      customer_name, customer_phone, customer_email, page_id, shipping_fee, cod, cash,
+      total_discount, note, attempts, tracking_no, note_product, sprinter_name, sprinter_tel,
+      page_name, assigned_user_id, assigning_seller_name, assigned_to_user_id, assigned_to_name,
+      items_json, tags_json, partner_json, shipping_address_json, raw_payload, created_at, updated_at
+    )
+    SELECT
+      id, external_id, COALESCE(shop_id, 'unknown'), inserted_at_remote, updated_at_remote, status, status_name,
+      customer_name, customer_phone, customer_email, page_id, shipping_fee, cod, cash,
+      total_discount, note, attempts, tracking_no, note_product, sprinter_name, sprinter_tel,
+      page_name, assigned_user_id, assigning_seller_name, assigned_to_user_id, assigned_to_name,
+      items_json, tags_json, partner_json, shipping_address_json, raw_payload, created_at, updated_at
+    FROM _pos_orders_external_unique_tmp
+  `);
+  db.exec('DROP TABLE _pos_orders_external_unique_tmp');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_shop ON pos_orders(shop_id, updated_at_remote DESC)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_orders_shop_external ON pos_orders(shop_id, external_id)');
+  db.exec('PRAGMA foreign_keys = ON');
+}
+
+async function migratePosOrdersCompositeIdentityAsync(db) {
+  if (db.type !== 'postgres') {
+    migratePosOrdersCompositeIdentity(db);
+    return;
+  }
+  await db.exec("UPDATE pos_orders SET shop_id = 'unknown' WHERE shop_id IS NULL OR shop_id = ''");
+  await db.exec('ALTER TABLE pos_orders DROP CONSTRAINT IF EXISTS pos_orders_external_id_key');
+  await db.exec('DROP INDEX IF EXISTS pos_orders_external_id_key');
+  await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_orders_shop_external ON pos_orders(shop_id, external_id)');
+}
+
 function migrateIntegrationSettingsMultiRow(db) {
   const columns = db.prepare('PRAGMA table_info(integration_settings)').all();
   if (columns.some((c) => c.name === 'connection_id')) return;
@@ -151,6 +240,7 @@ function ensureOrderStatusConstraint(db) {
       status TEXT NOT NULL DEFAULT 'Confirmed' CHECK(status IN (${allowed})),
       courier TEXT,
       source_sheet TEXT,
+      confirmed_by TEXT,
       attempts INTEGER DEFAULT 1,
       order_date TEXT NOT NULL DEFAULT (date('now')),
       created_by INTEGER REFERENCES users(id),
@@ -161,10 +251,10 @@ function ensureOrderStatusConstraint(db) {
   db.exec(`
     INSERT INTO orders (
       id, order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier,
-      source_sheet, attempts, order_date, created_by, created_at, updated_at
+      source_sheet, confirmed_by, attempts, order_date, created_by, created_at, updated_at
     )
     SELECT id, order_ref, tracking_no, customer, phone, product, tags, qty, cod_amount, status, courier,
-      source_sheet, attempts, order_date, created_by, created_at, updated_at
+      source_sheet, confirmed_by, attempts, order_date, created_by, created_at, updated_at
     FROM orders_old_status_migration
   `);
   db.exec('DROP TABLE orders_old_status_migration');
@@ -275,6 +365,9 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'page_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigning_seller_name', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'assigned_to_user_id', 'INTEGER');
+  ensureColumn(db, 'pos_orders', 'assigned_to_name', 'TEXT');
+  migratePosOrdersCompositeIdentity(db);
   migrateIntegrationSettingsMultiRow(db);
   ensureOrderStatusConstraint(db);
   db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
@@ -544,6 +637,9 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'page_name', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigning_seller_name', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'assigned_to_user_id', 'INTEGER');
+  await ensureColumnAsync(db, 'pos_orders', 'assigned_to_name', 'TEXT');
+  await migratePosOrdersCompositeIdentityAsync(db);
   await migrateIntegrationSettingsMultiRowAsync(db);
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");
