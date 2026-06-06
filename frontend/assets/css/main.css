@@ -2987,10 +2987,11 @@ tfoot td {
   text-transform: uppercase;
 }
 
-.rmo-status.info { background: var(--accent-soft); color: var(--accent); }
+.rmo-status.info    { background: var(--accent-soft); color: var(--accent); }
+.rmo-status.primary { background: var(--accent-soft); color: var(--accent); }
 .rmo-status.success { background: var(--success-soft); color: var(--success); }
 .rmo-status.warning { background: var(--warning-soft); color: var(--warning); }
-.rmo-status.danger { background: var(--danger-soft); color: var(--danger); }
+.rmo-status.danger  { background: var(--danger-soft);  color: var(--danger); }
 
 .rmo-pagination {
   background: var(--surface);
