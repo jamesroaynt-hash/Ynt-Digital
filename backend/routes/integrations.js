@@ -339,11 +339,12 @@ module.exports = function integrationRoutes(db) {
         const map = {};
         for (const r of data) {
           const key = keyFn(r) || 'Unknown';
-          if (!map[key]) map[key] = { label: key, total: 0, delivered: 0, returned: 0, returning: 0 };
+          if (!map[key]) map[key] = { label: key, total: 0, delivered: 0, returned: 0, returning: 0, cod: 0 };
           map[key].total++;
           if (r.status === 'Delivered') map[key].delivered++;
           if (r.status === 'Returned')  map[key].returned++;
           if (r.status === 'Returning') map[key].returning++;
+          map[key].cod += Number(r.cod_amount || 0);
         }
         return Object.values(map).map((g) => {
           const base = g.delivered + g.returned + g.returning;

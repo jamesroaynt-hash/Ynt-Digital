@@ -3532,7 +3532,7 @@ function setDataReportMonth() {
   navigateTo('data-report');
 }
 
-function renderDataReportTable(rows, firstColumn, emptyText) {
+function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false } = {}) {
   if (!rows.length) {
     return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Google Sheets to populate this report.</p></div>`;
   }
@@ -3540,7 +3540,7 @@ function renderDataReportTable(rows, firstColumn, emptyText) {
   return `
     <table class="data-report-table">
       <thead><tr>
-        <th>${firstColumn}</th><th>Total Orders</th><th>Delivered</th><th>Returned</th><th>RTS Rate</th>
+        <th>${firstColumn}</th><th>Total Orders</th><th>Delivered</th><th>Returned</th><th>RTS Rate</th>${showCod ? '<th>Sales (COD)</th>' : ''}
       </tr></thead>
       <tbody>
         ${rows.slice(0, 12).map((row) => `
@@ -3550,6 +3550,7 @@ function renderDataReportTable(rows, firstColumn, emptyText) {
             <td class="text-success">${row.delivered.toLocaleString()}</td>
             <td class="text-danger">${(row.returned + row.returning).toLocaleString()}</td>
             <td><span class="data-report-rate ${row.rtsRate >= 30 ? 'bad' : row.rtsRate >= 15 ? 'warn' : 'ok'}">${formatPercent(row.rtsRate)}</span></td>
+            ${showCod ? `<td style="font-weight:600;">₱${Number(row.cod || 0).toLocaleString()}</td>` : ''}
           </tr>
         `).join('')}
       </tbody>
@@ -3656,7 +3657,7 @@ function renderDataReportDashboard() {
           <div class="card-subtitle">Orders and RTS rate per staff who confirmed the order</div>
         </div>
       </div>
-      ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet')}
+      ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet', { showCod: true })}
     </section>
 
     <section class="data-report-section">
