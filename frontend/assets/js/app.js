@@ -434,6 +434,8 @@ async function loadSheetRecordsStats() {
 }
 
 let sheetRecordsLastVersion = null;
+let sheetRecordsLastFetch = 0;
+const SHEET_RECORDS_MIN_REFRESH_MS = 10 * 60 * 1000; // re-fetch at most every 10 min
 
 async function fetchSheetRecordsVersion() {
   if (!App.user || !getAuthToken() || !getApiBase()) return null;
@@ -451,9 +453,10 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
   // Skip the full multi-page walk when google_orders is unchanged since the
   // last load — this is the single biggest egress source on the dashboard.
   const version = await fetchSheetRecordsVersion();
-  if (!force && version !== null && version === sheetRecordsLastVersion
-      && Array.isArray(DB.sheetRecordsForReport)) {
-    return true;
+  const hasData = Array.isArray(DB.sheetRecordsForReport) && DB.sheetRecordsForReport.length > 0;
+  if (!force && hasData) {
+    if (version !== null && version === sheetRecordsLastVersion) return true;
+    if (Date.now() - sheetRecordsLastFetch < SHEET_RECORDS_MIN_REFRESH_MS) return true;
   }
 
   const all = [];
@@ -471,6 +474,7 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
   } while (page <= totalPages);
   DB.sheetRecordsForReport = all.map(mapGoogleSheetReportRecord);
   sheetRecordsLastVersion = version;
+  sheetRecordsLastFetch = Date.now();
   return true;
 }
 
@@ -662,7 +666,16 @@ if (typeof document !== 'undefined') {
 
 async function refreshOrderViewsFromBackend() {
   try {
-    await Promise.all([refreshOrdersFromBackend(true), loadPosOrdersDashboard(), loadSheetRecordsStats(), loadSheetRecordsForDataReport()]);
+    // Only re-download full sheet records when the current page actually renders them.
+    // Home and data-report use lightweight stat/summary endpoints instead.
+    const SHEET_RECORD_PAGES = ['sales', 'rts-rate', 'marketing-center', 'csr', 'view-records', 'adspend-roas'];
+    const needsRecords = SHEET_RECORD_PAGES.includes(App.currentPage);
+    await Promise.all([
+      refreshOrdersFromBackend(true),
+      loadPosOrdersDashboard(),
+      loadSheetRecordsStats(),
+      needsRecords ? loadSheetRecordsForDataReport() : Promise.resolve(),
+    ]);
 
     if (App.currentPage === 'sales') {
       renderSalesTable();
