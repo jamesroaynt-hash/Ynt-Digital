@@ -86,14 +86,20 @@ module.exports = function integrationRoutes(db) {
 
   async function refillReportCache(marks) {
     try {
+      // Cap at 90 days to keep the in-memory footprint bounded regardless of
+      // whether rolling retention is enabled in env. The Data Report shows months
+      // going back ~3 months which is well within this window.
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
       const rows = await db.prepare(`
         SELECT id, external_id, tracking_no, page_name, customer_name, customer_phone,
                note_product, cod, status_name, assigning_seller_name, attempts,
                tags_json, shipping_address_json, inserted_at_remote, updated_at_remote,
                sprinter_name
         FROM pos_orders
+        WHERE inserted_at_remote >= ?
         ORDER BY inserted_at_remote DESC, id DESC
-      `).all();
+      `).all(cutoff);
       reportCache.records = rows.map(posRowToReportShape);
       reportCache.version = marks.version;
       return reportCache.records;

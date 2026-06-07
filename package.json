@@ -4,7 +4,7 @@
   "private": true,
   "description": "YNT Dashboard Vercel deployment wrapper",
   "scripts": {
-    "start": "node --max-old-space-size=400 --experimental-sqlite backend/server.js",
+    "start": "node --max-old-space-size=256 --experimental-sqlite backend/server.js",
     "vercel-build": "node --experimental-sqlite --check backend/server.js",
     "railway-build": "node --experimental-sqlite --check backend/server.js",
     "migrate:railway": "node --experimental-sqlite backend/scripts/migrate-sqlite-to-postgres.js",
