@@ -5182,6 +5182,10 @@ function renderCSR() {
         <input type="date" class="form-control" id="csr-date-to">
         <button class="btn btn-secondary btn-sm" onclick="applyCSRCustomRange()">Apply</button>
       </div>
+      ${canViewAllCSRRecords() ? `<select class="form-control" id="csr-name-filter" onchange="setCSRNameFilter()" style="min-width:160px;height:34px;font-size:13px;padding:6px 10px;">
+        <option value="">All CSR Names</option>
+        ${[...new Set(DB.csrRecords.map((r) => r.csrName).filter(Boolean))].sort().map((n) => `<option value="${escapeHtml(n)}"${csrNameFilter === n ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+      </select>` : ''}
     </div>
     <div style="overflow-x:auto;">
       <table id="csr-records-table">
@@ -6488,6 +6492,7 @@ let csrFilter = 'daily';
 let csrSearch = '';
 let csrDateFrom = '';
 let csrDateTo = '';
+let csrNameFilter = '';
 let editingCSRRecordId = '';
 
 function normalizeDateString(date) {
@@ -6708,6 +6713,10 @@ function getFilteredCSRRecords() {
     if (csrDateTo) data = data.filter((record) => record.date <= csrDateTo);
   }
 
+  if (csrNameFilter) {
+    data = data.filter((record) => record.csrName === csrNameFilter);
+  }
+
   if (csrSearch) {
     const query = csrSearch.toLowerCase();
     data = data.filter((record) =>
@@ -6900,6 +6909,12 @@ function applyCSRCustomRange() {
 
 function filterCSRTable() {
   csrSearch = document.getElementById('csr-search')?.value.trim() || '';
+  csrPage = 1;
+  renderCSRTable();
+}
+
+function setCSRNameFilter() {
+  csrNameFilter = document.getElementById('csr-name-filter')?.value || '';
   csrPage = 1;
   renderCSRTable();
 }
