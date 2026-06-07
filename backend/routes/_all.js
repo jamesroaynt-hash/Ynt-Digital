@@ -1168,15 +1168,36 @@ function scansRoutes(db) {
     `).get(tracking);
     if (found) return res.json(found);
 
-    const order = await db.prepare(`
-      SELECT tracking_no, customer_name AS customer, customer_phone AS phone,
-             status_name AS status, courier, substr(inserted_at_remote, 1, 10) AS scan_date,
-             note_product AS product_name, NULL AS province_city, cod
+    const posRow = await db.prepare(`
+      SELECT tracking_no, customer_name, customer_phone, status_name, cod,
+             note_product, sprinter_name, partner_json, shipping_address_json,
+             substr(inserted_at_remote, 1, 10) AS scan_date
       FROM pos_orders
       WHERE LOWER(tracking_no) = LOWER(?)
       LIMIT 1
     `).get(tracking);
-    if (order) return res.json(order);
+    if (posRow) {
+      const tryJson = (v) => { try { return typeof v === 'string' ? JSON.parse(v) : (v || {}); } catch { return {}; } };
+      const pickKey = (obj, keys) => { for (const k of keys) { const v = obj?.[k]; if (v && String(v).trim()) return String(v).trim(); } return ''; };
+      const POS_STATUS = { new: 'New', submitted: 'Confirmed', pending: 'Waiting for pickup', wait_print: 'Waiting for pickup', waitting: 'Waiting for pickup', shipped: 'Shipped', delivered: 'Delivered', returning: 'Returning', returned: 'Returned', canceled: 'Canceled', removed: 'Canceled' };
+      const partner = tryJson(posRow.partner_json);
+      const shipping = tryJson(posRow.shipping_address_json);
+      const courier = (partner?.partner_name || partner?.name || posRow.sprinter_name || '').trim();
+      const province = pickKey(shipping, ['province', 'province_name', 'state', 'region', 'city', 'city_name']);
+      const statusName = String(posRow.status_name || '').toLowerCase();
+      const status = POS_STATUS[statusName] || (posRow.status_name ? posRow.status_name.charAt(0).toUpperCase() + posRow.status_name.slice(1) : 'New');
+      return res.json({
+        tracking_no: posRow.tracking_no,
+        customer: posRow.customer_name || 'Unknown Customer',
+        phone: posRow.customer_phone || '',
+        status,
+        courier,
+        scan_date: posRow.scan_date,
+        product_name: posRow.note_product || '',
+        province_city: province,
+        cod: posRow.cod,
+      });
+    }
 
     return res.status(404).json({ error: 'Tracking number not found', tracking_no: tracking });
   });
