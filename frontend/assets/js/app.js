@@ -6053,9 +6053,9 @@ function renderRmoManagement() {
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
           Export
         </button>
-        <button class="rmo-action-btn" onclick="collectPancakePosData()">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12V4"/><path d="M7 12V7"/><path d="M11 12V2"/><path d="M2 13.5h12"/></svg>
-          Sync
+        <button class="rmo-action-btn" id="pos-sync-now-btn" onclick="syncPosOrdersNow(this)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5a5 5 0 1 0 1 3.8"/><path d="M13 2v3h-3"/></svg>
+          Sync Now
         </button>
       </div>
     </div>
@@ -11278,6 +11278,29 @@ async function collectPancakePosUsers() {
     showToast('success', 'POS users synced', `${Number(count).toLocaleString()} user record(s) collected.`);
   } catch (error) {
     showToast('error', 'POS user sync failed', error.message || 'Could not collect users from Pancake POS.');
+  }
+}
+
+async function syncPosOrdersNow(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
+  try {
+    showToast('info', 'Syncing POS orders', 'Fetching latest orders from Pancake...');
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/collect', {
+      method: 'POST',
+      body: JSON.stringify({ resources: ['orders'], page_size: 100, max_pages: 5, replay_stored_orders: false }),
+    });
+    const counts = Object.entries(data.resources || {}).map(([k, v]) => `${k}: ${v.count}`).join(', ');
+    const failed = Array.isArray(data.failed_resources) && data.failed_resources.length
+      ? data.failed_resources.map((f) => f.error || f.resource).join('; ')
+      : null;
+    if (failed) { showToast('warning', 'Sync partial', failed); }
+    else { showToast('success', 'Sync complete', counts || 'POS orders up to date'); }
+    await refreshPosRawOrdersFromBackend();
+    renderPosOrdersTable();
+  } catch (error) {
+    showToast('error', 'Sync failed', error.message || 'Could not reach Pancake POS.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5a5 5 0 1 0 1 3.8"/><path d="M13 2v3h-3"/></svg> Sync Now'; }
   }
 }
 
