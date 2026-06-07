@@ -3896,7 +3896,7 @@ function getAdspendAdsRequestKey() {
 
 function renderAdspendAdsCardShell(totalAmount) {
   return `
-    <div class="card adspend-ads-card" id="adspend-ads-card" data-orders-amount="${Number(totalAmount || 0)}">
+    <div class="card adspend-ads-card" id="adspend-ads-card" data-orders-amount="${Number(totalAmount || 0)}" style="margin-top:16px;">
       <div class="adspend-ads-head">
         <div>
           <div class="adspend-ads-kicker">Pancake Ads Manager</div>
@@ -4293,7 +4293,7 @@ function renderAdspendRoas() {
         </tfoot>
       </table>
     </div>
-    <div class="pos-orders-pagination">
+    <div class="table-pagination">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:13px;color:var(--text-muted);">Rows:</span>
         <select onchange="setAdspendRoasPerPage(this.value)" style="height:30px;font-size:13px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
