@@ -6677,8 +6677,8 @@ function getFilteredCSRRecords() {
 
 function renderCSRSummaryCards(records) {
   const totalSales = records.reduce((sum, record) => sum + Number(record.price || 0), 0);
-  const delivered = records.filter((record) => record.status === 'DELIVERED').length;
-  const cancelled = records.filter((record) => record.status.includes('CANCELLED')).length;
+  const delivered = records.filter((record) => csrLiveStatus(record).toUpperCase() === 'DELIVERED').length;
+  const cancelled = records.filter((record) => csrLiveStatus(record).toUpperCase().includes('CANCELLED')).length;
   const pages = new Set(records.map((record) => record.pageName)).size;
   const summary = document.getElementById('csr-summary');
 
