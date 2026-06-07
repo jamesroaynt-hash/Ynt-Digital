@@ -6035,7 +6035,7 @@ function renderRmoManagement() {
   const delivered = statusCounts.Delivered || 0;
   const returning = statusCounts.Returning || 0;
   const problematic = getRmoProblematicCount();
-  const posStatusDisplayOptions = ['New', 'Confirmed', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
+  const posStatusDisplayOptions = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return `

@@ -277,8 +277,9 @@ function ordersRoutes(db, { dispatch } = {}) {
   // The orders-table copy is retired; these helpers project pos_orders rows into
   // the same shape the frontend's mapBackendOrder() already consumes.
   const POS_STATUS_DISPLAY = {
-    new: 'New', pending: 'New',
-    submitted: 'Confirmed', wait_print: 'Confirmed',
+    new: 'New',
+    submitted: 'Confirmed',
+    pending: 'Waiting for pickup', wait_print: 'Waiting for pickup', waitting: 'Waiting for pickup',
     shipped: 'Shipped', delivered: 'Delivered',
     returning: 'Returning', returned: 'Returned',
   };
@@ -289,8 +290,9 @@ function ordersRoutes(db, { dispatch } = {}) {
   }
   // SQL CASE producing the same display status, for GROUP BY aggregation.
   const POS_STATUS_CASE = `CASE
-    WHEN status_name IN ('new','pending') THEN 'New'
-    WHEN status_name IN ('submitted','wait_print') THEN 'Confirmed'
+    WHEN status_name = 'new' THEN 'New'
+    WHEN status_name = 'submitted' THEN 'Confirmed'
+    WHEN status_name IN ('pending','wait_print','waitting') THEN 'Waiting for pickup'
     WHEN status_name = 'shipped'   THEN 'Shipped'
     WHEN status_name = 'delivered' THEN 'Delivered'
     WHEN status_name = 'returning' THEN 'Returning'
@@ -356,7 +358,7 @@ function ordersRoutes(db, { dispatch } = {}) {
 
     const statusVal = q.status;
     if (statusVal && statusVal !== 'All' && statusVal !== 'all') {
-      const map = { New: ['new', 'pending'], Confirmed: ['submitted', 'wait_print'], Shipped: ['shipped'], Delivered: ['delivered'], Returning: ['returning'], Returned: ['returned'] };
+      const map = { New: ['new'], Confirmed: ['submitted'], 'Waiting for pickup': ['pending', 'wait_print', 'waitting'], Shipped: ['shipped'], Delivered: ['delivered'], Returning: ['returning'], Returned: ['returned'] };
       const raws = map[statusVal];
       if (raws) { where += ` AND status_name IN (${raws.map(() => '?').join(',')})`; params.push(...raws); }
     }
@@ -476,8 +478,9 @@ function ordersRoutes(db, { dispatch } = {}) {
     `).all();
 
     const statusMap = {
-      new: 'New', pending: 'New',
-      submitted: 'Confirmed', wait_print: 'Confirmed',
+      new: 'New',
+      submitted: 'Confirmed',
+      pending: 'Waiting for pickup', wait_print: 'Waiting for pickup', waitting: 'Waiting for pickup',
       shipped: 'Shipped', delivered: 'Delivered',
       returning: 'Returning', returned: 'Returned',
       canceled: 'Canceled', removed: 'Canceled',
@@ -543,8 +546,9 @@ function ordersRoutes(db, { dispatch } = {}) {
 
     if (status && status !== 'all') {
       const statusToRaw = {
-        New: ['new', 'pending'],
-        Confirmed: ['submitted', 'wait_print'],
+        New: ['new'],
+        Confirmed: ['submitted'],
+        'Waiting for pickup': ['pending', 'wait_print', 'waitting'],
         Shipped: ['shipped'],
         Delivered: ['delivered'],
         Returning: ['returning'],
@@ -618,8 +622,9 @@ function ordersRoutes(db, { dispatch } = {}) {
     const statusCountRows = await db.prepare(`
       SELECT
         CASE
-          WHEN status_name IN ('new','pending') THEN 'New'
-          WHEN status_name IN ('submitted','wait_print') THEN 'Confirmed'
+          WHEN status_name = 'new' THEN 'New'
+          WHEN status_name = 'submitted' THEN 'Confirmed'
+          WHEN status_name IN ('pending','wait_print','waitting') THEN 'Waiting for pickup'
           WHEN status_name = 'shipped'   THEN 'Shipped'
           WHEN status_name = 'delivered' THEN 'Delivered'
           WHEN status_name = 'returning' THEN 'Returning'
