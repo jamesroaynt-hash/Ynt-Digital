@@ -1050,18 +1050,18 @@ function scansRoutes(db) {
     const where = ['1=1'];
     const params = [];
     if (type) { where.push('s.scan_type = ?'); params.push(type); }
-    if (status) { where.push('LOWER(TRIM(COALESCE(s.status, g.status))) = LOWER(?)'); params.push(status); }
+    if (status) { where.push('LOWER(TRIM(COALESCE(s.status, p.status_name))) = LOWER(?)'); params.push(status); }
     if (date_from) { where.push('s.scan_date >= ?'); params.push(date_from); }
     if (date_to)   { where.push('s.scan_date <= ?'); params.push(date_to); }
     if (search) {
-      where.push('(s.tracking_no LIKE ? OR s.customer LIKE ? OR s.phone LIKE ? OR g.product_name LIKE ? OR g.province_city LIKE ?)');
+      where.push('(s.tracking_no LIKE ? OR s.customer LIKE ? OR s.phone LIKE ? OR p.note_product LIKE ?)');
       const q = `%${search}%`;
-      params.push(q, q, q, q, q);
+      params.push(q, q, q, q);
     }
     const whereSql = `WHERE ${where.join(' AND ')}`;
     const baseFrom = `
       FROM scan_records s
-      LEFT JOIN google_orders g ON LOWER(g.tracking_no) = LOWER(s.tracking_no)
+      LEFT JOIN pos_orders p ON LOWER(p.tracking_no) = LOWER(s.tracking_no)
     `;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -1074,7 +1074,7 @@ function scansRoutes(db) {
     const data = await db.prepare(`
       SELECT s.id, s.scan_ref, s.tracking_no, s.customer, s.phone,
              s.scan_date, s.scan_time, s.status, s.courier, s.scan_type, s.created_at,
-             g.product_name, g.province_city, g.cod, g.chat_page
+             p.note_product AS product_name, NULL AS province_city, p.cod, p.page_name AS chat_page
       ${baseFrom} ${whereSql}
       ORDER BY s.created_at DESC
       LIMIT ? OFFSET ?
@@ -1086,9 +1086,9 @@ function scansRoutes(db) {
     // in JS. Egress stays modest — only status / product_name / chat_page.
     const summaryRows = await db.prepare(`
       SELECT
-        TRIM(COALESCE(NULLIF(TRIM(s.status), ''), g.status_normalized, g.status)) AS status,
-        g.product_name,
-        g.chat_page
+        TRIM(COALESCE(NULLIF(TRIM(s.status), ''), p.status_name)) AS status,
+        p.note_product AS product_name,
+        p.page_name AS chat_page
       ${baseFrom} ${whereSql}
     `).all(...params);
 
@@ -1141,9 +1141,9 @@ function scansRoutes(db) {
 
     const found = await db.prepare(`
       SELECT s.tracking_no, s.customer, s.phone, s.status, s.courier, s.scan_date,
-             g.product_name, g.province_city, g.cod
+             p.note_product AS product_name, NULL AS province_city, p.cod
       FROM scan_records s
-      LEFT JOIN google_orders g ON LOWER(g.tracking_no) = LOWER(s.tracking_no)
+      LEFT JOIN pos_orders p ON LOWER(p.tracking_no) = LOWER(s.tracking_no)
       WHERE LOWER(s.tracking_no) = LOWER(?)
       ORDER BY s.created_at DESC
       LIMIT 1
@@ -1152,9 +1152,9 @@ function scansRoutes(db) {
 
     const order = await db.prepare(`
       SELECT tracking_no, customer_name AS customer, customer_phone AS phone,
-             status, courier, day_created AS scan_date,
-             product_name, province_city, cod
-      FROM google_orders
+             status_name AS status, courier, substr(inserted_at_remote, 1, 10) AS scan_date,
+             note_product AS product_name, NULL AS province_city, cod
+      FROM pos_orders
       WHERE LOWER(tracking_no) = LOWER(?)
       LIMIT 1
     `).get(tracking);

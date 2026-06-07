@@ -6,94 +6,112 @@ module.exports = function integrationRoutes(db) {
   const router = express.Router();
   const publicRouter = express.Router();
 
-  // Cheap fingerprint of google_orders: MAX(updated_at) catches upserts, MAX(id)
-  // catches inserts. Both are instant index-backward scans (~0.3ms). google_orders
-  // is never DELETEd, so this never misses a change.
-  // Returns the raw high-water marks plus the string fingerprint. maxUpdated is
-  // kept RAW (a Date under pg, text under sqlite) so it can be passed straight
-  // back as a query parameter — stringifying a pg Date yields a form Postgres
-  // can't re-parse ("... GMT+0800 ...").
-  async function getGoogleOrdersMarks() {
+  // Fingerprint pos_orders: MAX(id) catches new inserts, MAX(updated_at_remote)
+  // catches status changes synced from Pancake, COUNT(*) catches pruned rows.
+  async function getPosOrdersMarks() {
     const row = await db.prepare(
-      `SELECT MAX(updated_at) AS max_updated, MAX(id) AS max_id FROM google_orders`
+      `SELECT MAX(id) AS max_id, MAX(updated_at_remote) AS max_updated, COUNT(*) AS cnt FROM pos_orders`
     ).get();
     return {
-      maxUpdated: row?.max_updated ?? null,
       maxId: Number(row?.max_id || 0),
-      version: `${row?.max_updated || ''}:${row?.max_id || 0}`,
+      maxUpdated: row?.max_updated ?? null,
+      version: `${row?.max_id || 0}:${row?.max_updated || ''}:${row?.cnt || 0}`,
     };
   }
-  async function getGoogleOrdersVersion() {
-    return (await getGoogleOrdersMarks()).version;
+  async function getPosOrdersVersion() {
+    return (await getPosOrdersMarks()).version;
   }
 
-  // Backend cache of the full unfiltered data-report dataset, keyed by the
-  // google_orders fingerprint. The report loader walks every page on each visit
-  // across every open session; without this, each walk re-pulls all ~33k rows
-  // from Postgres (the #1 Supabase egress source).
-  //
-  // The cold cache does ONE full pull; after that each sync triggers a DELTA
-  // refill that pulls only the rows changed since the last fingerprint and
-  // merges them by id (maxUpdated/maxId are the high-water marks; byId is the
-  // merge index). google_orders is upsert/insert-only and every change bumps
-  // updated_at or id, so the delta can't miss a row — and the per-sync Supabase
-  // pull drops from ~34k rows to just the handful that actually changed.
-  let reportCache = { version: null, records: null, byId: null, maxUpdated: '', maxId: 0, loading: null, loadingVersion: null };
+  // Backend cache of all pos_orders for the data-report and records views.
+  // Full reload on every version change (pos_orders is ~20k rows, ~5 MB raw —
+  // cheaper to reload in full than to track deltas).
+  let reportCache = { version: null, records: null, loading: null, loadingVersion: null };
 
-  // Narrow projection the data report consumes. Shared by the cached full-table
-  // pull below and the filtered report path further down so they can't drift.
-  const reportSelectCols = `g.id,
-               g.external_id   AS order_ref,
-               g.tracking_no,
-               g.customer_name AS customer,
-               g.customer_phone AS phone,
-               g.product_name  AS product,
-               g.cod           AS cod_amount,
-               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
-               g.chat_page,
-               g.confirmed_by,
-               g.delivery_attempts AS attempts,
-               g.tag,
-               g.province_city,
-               g.day_created   AS order_date`;
+  // Parse shipping_address_json → province string (JS, avoids SQL dialect diff)
+  function extractProvince(json) {
+    try {
+      const a = typeof json === 'string' ? JSON.parse(json) : (json || {});
+      return (a.province || a.province_name || a.state || a.region || '').trim();
+    } catch { return ''; }
+  }
 
-  // Refill reportCache to `marks`. Cold cache → one full pull. Warm cache →
-  // pull ONLY rows changed since the last refill and merge them into byId:
-  //   updated_at >= prevMaxUpdated  (catches upserts; >= re-reads the boundary
-  //                                  timestamp batch, deduped by id on merge)
-  //   OR id > prevMaxId             (catches new inserts)
-  // The fetched delta is the entire Supabase read, so a sync that touched N rows
-  // costs N rows, not 34k. prevMax* are raw DB values reused as query params.
+  // Parse tags_json → comma-joined label string
+  function extractTags(json) {
+    try {
+      const tags = typeof json === 'string' ? JSON.parse(json) : (json || []);
+      if (!Array.isArray(tags)) return '';
+      return tags.map((t) => (typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || ''))).filter(Boolean).join(', ');
+    } catch { return ''; }
+  }
+
+  // Map a pos_orders row to the shape mapGoogleSheetReportRecord expects.
+  const POS_STATUS_DISPLAY = {
+    new: 'New', submitted: 'Confirmed',
+    pending: 'Waiting for pickup', wait_print: 'Waiting for pickup', waitting: 'Waiting for pickup',
+    shipped: 'Shipped', delivered: 'Delivered',
+    returning: 'Returning', returned: 'Returned',
+    canceled: 'Canceled', removed: 'Canceled',
+  };
+  function posRowToReportShape(g) {
+    return {
+      id: g.id,
+      order_ref: g.external_id || '',
+      tracking_no: g.tracking_no || '',
+      customer: g.customer_name || '',
+      phone: g.customer_phone || '',
+      product: g.note_product || '',
+      cod_amount: Number(g.cod || 0),
+      status: POS_STATUS_DISPLAY[g.status_name] || (g.status_name ? g.status_name.charAt(0).toUpperCase() + g.status_name.slice(1) : 'Unknown'),
+      chat_page: g.page_name || '',
+      confirmed_by: g.assigning_seller_name || '',
+      attempts: Number(g.attempts || 0),
+      tag: extractTags(g.tags_json),
+      province_city: extractProvince(g.shipping_address_json),
+      order_date: (g.inserted_at_remote || '').slice(0, 10),
+      // sheet records view extras
+      source_sheet: g.page_name || '',
+      courier: g.sprinter_name || '',
+      address: extractAddress(g.shipping_address_json),
+      updated_at: g.updated_at_remote || '',
+    };
+  }
+
+  function extractAddress(json) {
+    try {
+      const a = typeof json === 'string' ? JSON.parse(json) : (json || {});
+      return [a.address, a.street, a.barangay, a.city || a.city_name, a.province || a.province_name]
+        .filter(Boolean).join(', ');
+    } catch { return ''; }
+  }
+
   async function refillReportCache(marks) {
     try {
-      const warm = Array.isArray(reportCache.records) && reportCache.byId;
-      if (warm) {
-        const changed = await db.prepare(`
-          SELECT ${reportSelectCols}
-          FROM google_orders g
-          WHERE g.updated_at >= ? OR g.id > ?
-        `).all(reportCache.maxUpdated, reportCache.maxId);
-        for (const row of changed) reportCache.byId.set(row.id, row);
-      } else {
-        const rows = await db.prepare(`
-          SELECT ${reportSelectCols}
-          FROM google_orders g
-        `).all();
-        reportCache.byId = new Map(rows.map((row) => [row.id, row]));
-      }
-      // Rebuild the sorted array pagination slices from (day desc, id desc),
-      // matching the original ORDER BY g.day_created DESC, g.id DESC.
-      reportCache.records = [...reportCache.byId.values()].sort((a, b) => {
-        const d = String(b.order_date || '').localeCompare(String(a.order_date || ''));
-        return d !== 0 ? d : (Number(b.id) - Number(a.id));
-      });
-      reportCache.maxUpdated = marks.maxUpdated;
-      reportCache.maxId = marks.maxId;
+      const rows = await db.prepare(`
+        SELECT id, external_id, tracking_no, page_name, customer_name, customer_phone,
+               note_product, cod, status_name, assigning_seller_name, attempts,
+               tags_json, shipping_address_json, inserted_at_remote, updated_at_remote,
+               sprinter_name
+        FROM pos_orders
+        ORDER BY inserted_at_remote DESC, id DESC
+      `).all();
+      reportCache.records = rows.map(posRowToReportShape);
       reportCache.version = marks.version;
       return reportCache.records;
     } finally {
       reportCache.loading = null;
     }
+  }
+
+  async function getOrRefreshCache() {
+    const marks = await getPosOrdersMarks();
+    if (reportCache.version !== marks.version || !reportCache.records) {
+      if (!reportCache.loading || reportCache.loadingVersion !== marks.version) {
+        reportCache.loadingVersion = marks.version;
+        reportCache.loading = refillReportCache(marks);
+      }
+      await reportCache.loading;
+    }
+    return { records: reportCache.records, version: marks.version };
   }
 
   function requireAdmin(req, res, next) {
@@ -162,218 +180,109 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  // Read-only Google Sheets records — available to any authenticated user.
+  // Records — served from pos_orders. report view uses the backend cache
+  // (one full pull per sync, then RAM). Regular view queries directly.
   router.get('/google-sheets/records', async (req, res) => {
     try {
       const { sheet, status, tag, search, date_from, date_to, page = 1, per_page = 50, view } = req.query;
-      const params = [];
-
-      // The data-report loader walks every page just to read 12 aggregate
-      // fields, so it requests view=report: a narrow projection that drops the
-      // ~8 columns it discards and skips the per-page status/filter queries.
       const reportView = view === 'report';
-
-      const baseFrom = 'FROM google_orders g';
-
-      let where = 'WHERE 1=1';
-      if (sheet && sheet !== 'all') { where += ' AND g.source_sheet = ?'; params.push(sheet); }
-      // Match the displayed/normalized status so filter agrees with status chips.
-      if (status && status !== 'all') {
-        where += " AND LOWER(COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))) = LOWER(?)";
-        params.push(status);
-      }
-      // g.tag may hold a comma-joined list ("1st Attemp, 2ND ATTEMP"); match any single tag.
-      if (tag && tag !== 'all') {
-        where += " AND ',' || REPLACE(COALESCE(g.tag, ''), ', ', ',') || ',' LIKE '%,' || ? || ',%'";
-        params.push(tag);
-      }
-      if (date_from) { where += ' AND g.day_created >= ?'; params.push(date_from); }
-      if (date_to)   { where += ' AND g.day_created <= ?'; params.push(date_to); }
-      if (search) {
-        where += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
-        const q = `%${search}%`;
-        params.push(q, q, q, q, q, q, q, q);
-      }
-
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
-      // The data-report walk is always unfiltered. Serve it from the version-keyed
-      // backend cache: one full Postgres pull per sync, then RAM for every page and
-      // every session until the fingerprint changes. (Filtered report calls, if any,
-      // fall through to the normal per-page query below.)
-      const hasFilters = (sheet && sheet !== 'all') || (status && status !== 'all')
-        || (tag && tag !== 'all') || search || date_from || date_to;
-      if (reportView && !hasFilters) {
-        const marks = await getGoogleOrdersMarks();
-        const version = marks.version;
-        if (reportCache.version !== version || !reportCache.records) {
-          // Coalesce concurrent misses (several sessions reloading right after a
-          // sync) onto a single in-flight refill rather than N pulls.
-          if (!reportCache.loading || reportCache.loadingVersion !== version) {
-            reportCache.loadingVersion = version;
-            reportCache.loading = refillReportCache(marks);
-          }
-          await reportCache.loading;
-        }
-        const all = reportCache.records;
-        const statusCounts = Object.entries(all.reduce((counts, row) => {
-          const status = row.status || 'Unknown';
-          counts[status] = (counts[status] || 0) + 1;
-          return counts;
-        }, {})).map(([status, count]) => ({ status, count }));
-        res.json({
-          records: all.slice(offset, offset + perPage),
-          total: all.length,
-          total_cod: all.reduce((sum, row) => sum + Number(row.cod_amount || 0), 0),
-          status_counts: statusCounts,
-          page: pageNum,
-          per_page: perPage,
-          pages: Math.ceil(all.length / perPage),
-        });
-        return;
+      const { records: all, version } = await getOrRefreshCache();
+
+      // Apply JS-level filters on cached records
+      const statusRawMap = {
+        new: ['new'], confirmed: ['submitted'],
+        'waiting for pickup': ['pending', 'wait_print', 'waitting'],
+        shipped: ['shipped'], delivered: ['delivered'],
+        returning: ['returning'], returned: ['returned'],
+        canceled: ['canceled', 'removed'],
+      };
+
+      let filtered = all;
+      if (sheet && sheet !== 'all') filtered = filtered.filter((r) => r.source_sheet === sheet);
+      if (status && status !== 'all') {
+        const sl = status.toLowerCase();
+        filtered = filtered.filter((r) => (r.status || '').toLowerCase() === sl);
+      }
+      if (tag && tag !== 'all') {
+        const tl = tag.toLowerCase();
+        filtered = filtered.filter((r) => (r.tag || '').toLowerCase().split(',').map((s) => s.trim()).includes(tl));
+      }
+      if (date_from) filtered = filtered.filter((r) => (r.order_date || '') >= date_from);
+      if (date_to)   filtered = filtered.filter((r) => (r.order_date || '') <= date_to);
+      if (search) {
+        const q = search.toLowerCase();
+        filtered = filtered.filter((r) =>
+          (r.order_ref || '').toLowerCase().includes(q)
+          || (r.tracking_no || '').toLowerCase().includes(q)
+          || (r.customer || '').toLowerCase().includes(q)
+          || (r.phone || '').toLowerCase().includes(q)
+          || (r.source_sheet || '').toLowerCase().includes(q)
+          || (r.tag || '').toLowerCase().includes(q)
+          || (r.province_city || '').toLowerCase().includes(q)
+        );
       }
 
-      const countRow = await db.prepare(`SELECT COUNT(*) AS total ${baseFrom} ${where}`).get(...params);
-      const total = countRow?.total || 0;
+      const statusCounts = Object.entries(
+        filtered.reduce((acc, r) => { acc[r.status || 'Unknown'] = (acc[r.status || 'Unknown'] || 0) + 1; return acc; }, {})
+      ).map(([s, count]) => ({ status: s, count }));
 
-      const selectCols = reportView
-        ? reportSelectCols
-        : `g.id,
-               g.external_id   AS order_ref,
-               g.tracking_no,
-               g.customer_name AS customer,
-               g.customer_phone AS phone,
-               g.product_name  AS product,
-               g.quantity      AS qty,
-               g.cod           AS cod_amount,
-               COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
-               g.courier,
-               g.source_sheet,
-               g.chat_page,
-               g.confirmed_by,
-               g.delivery_attempts AS attempts,
-               g.tag,
-               g.pancake_tags,
-               g.internal_notes,
-               g.address,
-               g.province_city,
-               g.shipping_info,
-               g.ad_id,
-               g.day_created   AS order_date,
-               g.updated_at`;
+      const sliced = filtered.slice(offset, offset + perPage);
 
-      const records = await db.prepare(`
-        SELECT ${selectCols}
-        ${baseFrom} ${where}
-        ORDER BY g.day_created DESC, g.id DESC
-        LIMIT ? OFFSET ?
-      `).all(...params, perPage, offset);
-
-      // Report mode only needs rows + pagination; skip the status GROUP BY and
-      // the distinct sheet/tag scans the records UI uses.
       if (reportView) {
-        const aggregateRows = await db.prepare(`
-          SELECT
-            COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status,
-            COUNT(*) AS count,
-            SUM(g.cod) AS total_cod
-          ${baseFrom} ${where}
-          GROUP BY COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))
-        `).all(...params);
         res.json({
-          records,
-          total,
-          total_cod: aggregateRows.reduce((sum, row) => sum + Number(row.total_cod || 0), 0),
-          status_counts: aggregateRows.map((row) => ({ status: row.status, count: row.count })),
-          page: pageNum,
-          per_page: perPage,
-          pages: Math.ceil(total / perPage),
+          records: sliced,
+          total: filtered.length,
+          total_cod: filtered.reduce((s, r) => s + Number(r.cod_amount || 0), 0),
+          status_counts: statusCounts,
+          page: pageNum, per_page: perPage,
+          pages: Math.ceil(filtered.length / perPage),
         });
         return;
       }
 
-      const whereForCounts = (() => {
-        const cp = [];
-        let w = 'WHERE 1=1';
-        if (sheet && sheet !== 'all') { w += ' AND g.source_sheet = ?'; cp.push(sheet); }
-        if (date_from) { w += ' AND g.day_created >= ?'; cp.push(date_from); }
-        if (date_to)   { w += ' AND g.day_created <= ?'; cp.push(date_to); }
-        if (search) {
-          w += ' AND (g.external_id LIKE ? OR g.customer_name LIKE ? OR g.customer_phone LIKE ? OR g.tracking_no LIKE ? OR g.source_sheet LIKE ? OR g.tag LIKE ? OR g.province_city LIKE ? OR g.address LIKE ?)';
-          const q = `%${search}%`;
-          cp.push(q, q, q, q, q, q, q, q);
-        }
-        return { where: w, params: cp };
-      })();
-      const statusCounts = await db.prepare(
-        `SELECT COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)) AS status, COUNT(*) AS count
-         ${baseFrom} ${whereForCounts.where}
-         GROUP BY COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))
-         ORDER BY count DESC`
-      ).all(...whereForCounts.params);
-
+      // Sheet Records page: include filter option dropdowns on first page
       const includeFilterOptions = pageNum === 1 && !sheet && !status && !tag && !search && !date_from && !date_to;
-      const sheetNames = includeFilterOptions
-        ? (await db.prepare(
-            `SELECT DISTINCT g.source_sheet ${baseFrom}
-             WHERE g.source_sheet IS NOT NULL AND TRIM(g.source_sheet) != ''
-             ORDER BY g.source_sheet`
-          ).all()).map((r) => r.source_sheet)
-        : undefined;
-      // g.tag is a comma-joined list per row — fetch distinct compound strings,
-      // then split + dedupe in JS so the dropdown shows individual tags.
-      let tags;
+      const payload = {
+        records: sliced,
+        total: filtered.length,
+        page: pageNum, per_page: perPage,
+        pages: Math.ceil(filtered.length / perPage),
+        status_counts: statusCounts,
+      };
       if (includeFilterOptions) {
-        const tagRows = await db.prepare(
-          `SELECT DISTINCT TRIM(g.tag) AS tag ${baseFrom}
-           WHERE g.tag IS NOT NULL AND TRIM(g.tag) != ''`
-        ).all();
-        const seen = new Set();
-        for (const row of tagRows) {
-          for (const piece of String(row.tag || '').split(',')) {
-            const t = piece.trim();
-            if (t) seen.add(t);
-          }
-        }
-        tags = Array.from(seen).sort((a, b) => a.localeCompare(b));
+        payload.sheet_names = [...new Set(all.map((r) => r.source_sheet).filter(Boolean))].sort();
+        const tagSet = new Set();
+        all.forEach((r) => (r.tag || '').split(',').forEach((t) => { const s = t.trim(); if (s) tagSet.add(s); }));
+        payload.tags = [...tagSet].sort();
       }
-
-      const payload = { records, total, page: pageNum, per_page: perPage, pages: Math.ceil(total / perPage), status_counts: statusCounts };
-      if (sheetNames) payload.sheet_names = sheetNames;
-      if (tags) payload.tags = tags;
       res.json(payload);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Cheap fingerprint of google_orders (~30 bytes, ~0.3ms). The data-report
-  // loader fetches this first and skips the whole multi-page /records walk when
-  // the fingerprint is unchanged — reloads only when a sync changed data.
-  // MAX(updated_at) catches upserts, MAX(id) catches inserts; both are instant
-  // index-backward scans. google_orders is never DELETEd, so this never misses
-  // a change. (COUNT(*) would be exact but costs a ~1s full index scan.)
+  // Version fingerprint based on pos_orders state.
   router.get('/google-sheets/version', async (req, res) => {
     try {
-      res.json({ version: await getGoogleOrdersVersion() });
+      res.json({ version: await getPosOrdersVersion() });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Lightweight aggregates for home-page tiles. Returns ~50 bytes instead of
-  // ~30 MB the full /records walk costs, and renders before the heavy load
-  // finishes. Mirrors the status normalization used by /records.
+  // Lightweight home-page stats from pos_orders.
   router.get('/google-sheets/stats', async (req, res) => {
     try {
       const row = await db.prepare(`
         SELECT
           COUNT(*) AS total,
-          SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status))) = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-          COALESCE(SUM(g.cod), 0) AS total_cod
-        FROM google_orders g
+          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          COALESCE(SUM(cod), 0) AS total_cod
+        FROM pos_orders
       `).get();
       res.json({
         total: Number(row?.total || 0),
@@ -398,153 +307,75 @@ module.exports = function integrationRoutes(db) {
   // them in the browser. This computes the same grouped metrics in Postgres and
   // returns a few KB. The SQL below intentionally mirrors the frontend helpers
   // it replaces — getOrderStatusKey, orderHasTag('undeliverable'),
-  // getPriceRangeLabel and groupDataReportRows — so the numbers stay identical.
-  const dr = {
-    statusExpr: "LOWER(COALESCE(NULLIF(TRIM(g.status_normalized), ''), TRIM(g.status)))",
-  };
-  dr.isDelivered = `(${dr.statusExpr} IN ('delivered','completed'))`;
-  dr.isReturned = `(${dr.statusExpr} IN ('returned','return to sender','rts'))`;
-  dr.isReturning = `(${dr.statusExpr} IN ('returning','for return','return in transit'))`;
-  dr.isShipped = `(${dr.statusExpr} IN ('shipped','in transit','out for delivery'))`;
-  // Undeliverable is tag-driven (g.tag is a comma-joined list); matches the
-  // frontend's orderHasTag() and the established tag-filter pattern in /records.
-  dr.isUndeliverable = "(LOWER(',' || REPLACE(COALESCE(g.tag, ''), ', ', ',') || ',') LIKE '%,undeliverable,%')";
-  // Price buckets keyed on COD; COALESCE(...,0) so NULL/blank COD falls in the
-  // lowest band, exactly like getPriceRangeLabel(Number(cod||0)).
-  dr.priceExpr = `CASE
-      WHEN COALESCE(g.cod, 0) <= 500  THEN 'PHP 251 - PHP 500'
-      WHEN COALESCE(g.cod, 0) <= 750  THEN 'PHP 501 - PHP 750'
-      WHEN COALESCE(g.cod, 0) <= 1000 THEN 'PHP 751 - PHP 1,000'
-      WHEN COALESCE(g.cod, 0) <= 1500 THEN 'PHP 1,001 - PHP 1,500'
-      WHEN COALESCE(g.cod, 0) <= 2000 THEN 'PHP 1,501 - PHP 2,000'
-      WHEN COALESCE(g.cod, 0) <= 3000 THEN 'PHP 2,001 - PHP 3,000'
-      WHEN COALESCE(g.cod, 0) <= 5000 THEN 'PHP 3,001 - PHP 5,000'
-      ELSE 'PHP 5,000+'
-    END`;
-  dr.staffExpr = "COALESCE(NULLIF(g.confirmed_by, ''), 'Unassigned')";
-  dr.provinceExpr = "COALESCE(NULLIF(g.province_city, ''), 'Unknown province')";
-  // The Page dropdown mirrors getPosSourceOptions(): blank chat_page shows as
-  // 'Sheets'. Filtering by the same expression keeps option↔rows consistent.
-  dr.pageExpr = "COALESCE(NULLIF(g.chat_page, ''), 'Sheets')";
-
-  // months/pages are the full dropdown domains — independent of the active
-  // filter and only change on sync, so they're cached by the google_orders
-  // version. Per-filter metric results are memoised under the same version.
-  let reportSummaryCache = { version: null, months: null, pages: null, entries: new Map() };
-
+  // Data Report summary — JS groupBy on cached pos_orders records.
+  // Avoids SQL JSON-extraction dialect differences (SQLite vs Postgres).
   router.get('/google-sheets/report-summary', async (req, res) => {
     try {
       const { month, date_from, date_to, page } = req.query;
+      const { records: all } = await getOrRefreshCache();
 
-      const where = [];
-      const params = [];
-      if (month) {
-        where.push('substr(g.day_created, 1, 7) = ?');
-        params.push(month);
-      } else {
-        if (date_from) { where.push('substr(g.day_created, 1, 10) >= ?'); params.push(date_from); }
-        if (date_to)   { where.push('substr(g.day_created, 1, 10) <= ?'); params.push(date_to); }
+      // Apply filters
+      let data = all;
+      if (month) data = data.filter((r) => (r.order_date || '').startsWith(month));
+      else {
+        if (date_from) data = data.filter((r) => (r.order_date || '') >= date_from);
+        if (date_to)   data = data.filter((r) => (r.order_date || '') <= date_to);
       }
-      if (page && page !== 'all') { where.push(`${dr.pageExpr} = ?`); params.push(page); }
-      const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+      if (page && page !== 'all') data = data.filter((r) => (r.chat_page || 'Sheets') === page);
 
-      const version = await getGoogleOrdersVersion();
-      if (reportSummaryCache.version !== version) {
-        reportSummaryCache = { version, months: null, pages: null, entries: new Map() };
+      // Helpers
+      function getPriceRange(cod) {
+        const c = Number(cod || 0);
+        if (c <= 500)  return 'PHP 251 - PHP 500';
+        if (c <= 750)  return 'PHP 501 - PHP 750';
+        if (c <= 1000) return 'PHP 751 - PHP 1,000';
+        if (c <= 1500) return 'PHP 1,001 - PHP 1,500';
+        if (c <= 2000) return 'PHP 1,501 - PHP 2,000';
+        if (c <= 3000) return 'PHP 2,001 - PHP 3,000';
+        if (c <= 5000) return 'PHP 3,001 - PHP 5,000';
+        return 'PHP 5,000+';
       }
-
-      // Dropdown domains: one DISTINCT scan per sync, served from RAM after.
-      if (!reportSummaryCache.months || !reportSummaryCache.pages) {
-        const [monthRows, pageRows] = await Promise.all([
-          db.prepare(
-            `SELECT DISTINCT substr(g.day_created, 1, 7) AS m FROM google_orders g
-             WHERE g.day_created IS NOT NULL AND g.day_created != ''`
-          ).all(),
-          db.prepare(`SELECT DISTINCT ${dr.pageExpr} AS p FROM google_orders g`).all(),
-        ]);
-        reportSummaryCache.months = monthRows
-          .map((r) => r.m)
-          .filter((m) => /^\d{4}-\d{2}$/.test(m))
-          .sort((a, b) => b.localeCompare(a));
-        reportSummaryCache.pages = pageRows
-          .map((r) => r.p)
-          .filter(Boolean)
-          .sort((a, b) => String(a).localeCompare(String(b)));
-      }
-      const months = reportSummaryCache.months;
-      const pages = reportSummaryCache.pages;
-
-      const filterKey = `${month || ''}|${date_from || ''}|${date_to || ''}|${page || ''}`;
-      if (reportSummaryCache.entries.has(filterKey)) {
-        res.json({ ...reportSummaryCache.entries.get(filterKey), months, pages });
-        return;
-      }
-
-      // Mirrors groupDataReportRows(): per-group counts + RTS rate, sorted by
-      // total desc then RTS desc. 'returning' is a Postgres keyword, so the
-      // column is aliased returning_ct.
-      const groupBy = async (keyExpr) => {
-        const rows = await db.prepare(`
-          SELECT ${keyExpr} AS label,
-            COUNT(*) AS total,
-            SUM(CASE WHEN ${dr.isDelivered} THEN 1 ELSE 0 END) AS delivered,
-            SUM(CASE WHEN ${dr.isReturned} THEN 1 ELSE 0 END) AS returned,
-            SUM(CASE WHEN ${dr.isReturning} THEN 1 ELSE 0 END) AS returning_ct
-          FROM google_orders g
-          ${whereSql}
-          GROUP BY ${keyExpr}
-        `).all(...params);
-        return rows.map((r) => {
-          const total = Number(r.total || 0);
-          const delivered = Number(r.delivered || 0);
-          const returned = Number(r.returned || 0);
-          const returning = Number(r.returning_ct || 0);
-          const base = delivered + returned + returning;
-          return { label: r.label, total, delivered, returned, returning, rtsRate: base ? ((returned + returning) / base) * 100 : 0 };
+      function jsGroupBy(keyFn) {
+        const map = {};
+        for (const r of data) {
+          const key = keyFn(r) || 'Unknown';
+          if (!map[key]) map[key] = { label: key, total: 0, delivered: 0, returned: 0, returning: 0 };
+          map[key].total++;
+          if (r.status === 'Delivered') map[key].delivered++;
+          if (r.status === 'Returned')  map[key].returned++;
+          if (r.status === 'Returning') map[key].returning++;
+        }
+        return Object.values(map).map((g) => {
+          const base = g.delivered + g.returned + g.returning;
+          return { ...g, rtsRate: base ? ((g.returned + g.returning) / base) * 100 : 0 };
         }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
-      };
+      }
 
-      const [totals, byPrice, byConfirmed, byProvince] = await Promise.all([
-        db.prepare(`
-          SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN ${dr.isDelivered} THEN 1 ELSE 0 END) AS delivered,
-            SUM(CASE WHEN ${dr.isReturned} THEN 1 ELSE 0 END) AS returned,
-            SUM(CASE WHEN ${dr.isReturning} THEN 1 ELSE 0 END) AS returning_ct,
-            SUM(CASE WHEN ${dr.isShipped} THEN 1 ELSE 0 END) AS shipped,
-            SUM(CASE WHEN ${dr.isUndeliverable} THEN 1 ELSE 0 END) AS undeliverable,
-            COALESCE(SUM(g.cod), 0) AS cod
-          FROM google_orders g
-          ${whereSql}
-        `).get(...params),
-        groupBy(dr.priceExpr),
-        groupBy(dr.staffExpr),
-        groupBy(dr.provinceExpr),
-      ]);
-
-      const delivered = Number(totals?.delivered || 0);
-      const returned = Number(totals?.returned || 0);
-      const returning = Number(totals?.returning_ct || 0);
+      // Totals
+      let total = 0, delivered = 0, returned = 0, returning = 0, shipped = 0, undeliverable = 0, cod = 0;
+      for (const r of data) {
+        total++;
+        if (r.status === 'Delivered')            delivered++;
+        if (r.status === 'Returned')             returned++;
+        if (r.status === 'Returning')            returning++;
+        if (r.status === 'Shipped')              shipped++;
+        if ((r.tag || '').toLowerCase().includes('undeliverable')) undeliverable++;
+        cod += Number(r.cod_amount || 0);
+      }
       const base = delivered + returned + returning;
+
       const summary = {
-        counts: {
-          total: Number(totals?.total || 0),
-          delivered,
-          returned,
-          returning,
-          shipped: Number(totals?.shipped || 0),
-          undeliverable: Number(totals?.undeliverable || 0),
-        },
-        cod: Number(totals?.cod || 0),
+        counts: { total, delivered, returned, returning, shipped, undeliverable },
+        cod,
         rtsRate: base ? ((returned + returning) / base) * 100 : 0,
-        byPrice,
-        byConfirmed,
-        byProvince,
+        byPrice:     jsGroupBy((r) => getPriceRange(r.cod_amount)),
+        byConfirmed: jsGroupBy((r) => r.confirmed_by || 'Unassigned'),
+        byProvince:  jsGroupBy((r) => r.province_city || 'Unknown province'),
       };
 
-      // Bound the per-filter memo so a long-lived process can't grow unbounded.
-      if (reportSummaryCache.entries.size > 60) reportSummaryCache.entries.clear();
-      reportSummaryCache.entries.set(filterKey, summary);
+      // Dropdown domains from full (unfiltered) cache
+      const months = [...new Set(all.map((r) => (r.order_date || '').slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)))].sort((a, b) => b.localeCompare(a));
+      const pages = [...new Set(all.map((r) => r.chat_page || 'Sheets').filter(Boolean))].sort();
 
       res.json({ ...summary, months, pages });
     } catch (error) {
@@ -572,51 +403,28 @@ module.exports = function integrationRoutes(db) {
 
   router.get('/google-sheets/tabs-status', async (req, res) => {
     try {
-      const status = await googleSheetsSync.getStatus(db);
-      const configuredRaw = String(status.sheet_name || status.page_id || '').trim();
-      const configured = configuredRaw && configuredRaw !== '*'
-        ? configuredRaw.split(',').map((s) => s.trim()).filter(Boolean)
-        : [];
-      const autoDiscover = !configuredRaw || configuredRaw === '*' || configured.includes('*');
-
       const rows = await db.prepare(`
         SELECT
-          COALESCE(NULLIF(TRIM(source_sheet), ''), '(unknown)') AS name,
+          COALESCE(NULLIF(TRIM(page_name), ''), '(unknown)') AS name,
           COUNT(*) AS rows,
-          SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(status_normalized), ''), TRIM(status))) = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-          MAX(updated_at) AS last_updated_at,
-          MAX(day_created) AS last_day
-        FROM google_orders
+          SUM(CASE WHEN LOWER(status_name) = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          MAX(updated_at_remote) AS last_updated_at,
+          MAX(inserted_at_remote) AS last_day
+        FROM pos_orders
         GROUP BY name
         ORDER BY rows DESC
       `).all();
 
-      const presentNames = new Set(rows.map((r) => r.name));
       const tabs = rows.map((r) => ({
         name: r.name,
         rows: Number(r.rows || 0),
         delivered: Number(r.delivered || 0),
         last_updated_at: r.last_updated_at || null,
         last_day: r.last_day || null,
-        configured: configured.length === 0 ? autoDiscover : configured.includes(r.name),
+        configured: true,
       }));
 
-      // Configured tab in settings but no rows pulled yet — flag it as missing.
-      for (const name of configured) {
-        if (!presentNames.has(name)) {
-          tabs.push({
-            name,
-            rows: 0,
-            delivered: 0,
-            last_updated_at: null,
-            last_day: null,
-            configured: true,
-            missing: true,
-          });
-        }
-      }
-
-      res.json({ configured, auto_discover: autoDiscover, tabs });
+      res.json({ configured: [], auto_discover: true, tabs });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
