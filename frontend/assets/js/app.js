@@ -4213,14 +4213,12 @@ function renderAdspendRoas() {
     </div>
   </div>
 
-  ${renderAdspendAdsCardShell(totalAmount)}
-
   <div class="card" style="padding:0;overflow:hidden;">
     <div class="table-container" style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;min-width:920px;">
         <thead>
           <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">TOTAL</th>
+            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">ROAS SUMMARY</th>
           </tr>
           <tr style="background:var(--primary,#3b82f6);color:#fff;">
             <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
@@ -4273,7 +4271,9 @@ function renderAdspendRoas() {
         </tfoot>
       </table>
     </div>
-  </div>`;
+  </div>
+
+  ${renderAdspendAdsCardShell(totalAmount)}`;
 }
 
 // ─── AD CREATIVES MONITOR ──────────────────────────────────
