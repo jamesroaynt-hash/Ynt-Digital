@@ -3097,6 +3097,10 @@ function renderSales() {
   const sourceOptions = getPosSourceOptions();
   const yearOptions = getPosYearOptions();
   const monthOptions = getPosMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
+  const salesMonths = getDataReportMonths();
+  if (salesFilter === 'monthly' && !salesMonth) {
+    salesMonth = salesMonths[0] || normalizeDateString(new Date()).slice(0, 7);
+  }
   return `
   <div class="page-header">
     <div class="page-title"><h1>Sales Dashboard</h1><p>Track orders, deliveries, and revenue metrics.</p></div>
@@ -3149,6 +3153,13 @@ function renderSales() {
         <button class="filter-pill ${salesFilter === 'yearly' ? 'active' : ''}" onclick="setSalesFilter('yearly',this)">Year</button>
         <button class="filter-pill ${salesFilter === 'custom' ? 'active' : ''}" onclick="setSalesFilter('custom',this)">Custom</button>
       </div>
+      <div id="sales-month-picker" class="${salesFilter === 'monthly' ? '' : 'hidden'}" style="align-items:center;gap:6px;display:flex;">
+        <select class="form-control" id="sales-month-dropdown" onchange="setSalesMonthDropdown()" style="min-width:160px;height:34px;font-size:13px;padding:6px 10px;">
+          ${salesMonths.length
+            ? salesMonths.map((m) => `<option value="${m}"${salesMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
+            : `<option value="${escapeHtml(salesMonth)}">${escapeHtml(monthLabel(salesMonth))}</option>`}
+        </select>
+      </div>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <select class="form-control" style="width:150px; padding:6px 10px; font-size:13px;" id="sales-source-filter" onchange="setSalesSourceFilter()">
           <option value="all">All Pages</option>
@@ -3191,6 +3202,11 @@ function renderSales() {
 
 function renderRTSRate() {
   const sourceOptions = getPosSourceOptions();
+  const months = getDataReportMonths();
+  const today = normalizeDateString(new Date());
+  if (rtsRateFilter === 'monthly' && !rtsRateMonth) {
+    rtsRateMonth = months[0] || today.slice(0, 7);
+  }
   return `
   <div class="rts-rate-page">
     <div class="page-header">
@@ -3206,6 +3222,14 @@ function renderRTSRate() {
           <button class="filter-pill ${rtsRateFilter === 'monthly' ? 'active' : ''}" onclick="setRTSRateFilter('monthly',this)">Monthly</button>
           <button class="filter-pill ${rtsRateFilter === 'custom' ? 'active' : ''}" onclick="setRTSRateFilter('custom',this)">Custom Date Range</button>
         </div>
+      </div>
+      <div class="rts-filter-group ${rtsRateFilter === 'monthly' ? '' : 'hidden'}" id="rts-rate-month-group">
+        <div class="rts-filter-label">Month</div>
+        <select class="form-control" id="rts-rate-month" onchange="setRTSRateMonth()" style="min-width:160px;height:34px;font-size:13px;">
+          ${months.length
+            ? months.map((m) => `<option value="${m}"${rtsRateMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
+            : `<option value="${escapeHtml(rtsRateMonth || today.slice(0,7))}">${escapeHtml(monthLabel(rtsRateMonth || today.slice(0,7)))}</option>`}
+        </select>
       </div>
       <div class="rts-filter-group rts-sheet-filter">
         <label class="rts-filter-label" for="rts-rate-source-filter">Page Filter</label>
@@ -3243,7 +3267,8 @@ function getFilteredRTSRateOrders() {
     const week = getDateDaysAgo(6);
     data = data.filter((order) => new Date(order.date) >= week);
   } else if (rtsRateFilter === 'monthly') {
-    data = data.filter((order) => String(order.date || '').startsWith(today.slice(0, 7)));
+    const month = rtsRateMonth || today.slice(0, 7);
+    data = data.filter((order) => String(order.date || '').startsWith(month));
   } else if (rtsRateFilter === 'custom') {
     if (rtsRateDateFrom) data = data.filter((order) => order.date >= rtsRateDateFrom);
     if (rtsRateDateTo) data = data.filter((order) => order.date <= rtsRateDateTo);
@@ -8710,6 +8735,7 @@ let salesDateTo = '';
 let salesSourceFilter = 'all';
 let salesYearFilter = 'all';
 let salesMonthFilter = 'all';
+let salesMonth = '';
 let salesPagedRows = [];
 let salesPagedTotal = 0;
 let salesPagedPages = 1;
@@ -8720,6 +8746,7 @@ let rtsRateFilter = 'all';
 let rtsRateSourceFilter = 'all';
 let rtsRateDateFrom = '';
 let rtsRateDateTo = '';
+let rtsRateMonth = '';
 let recordsPage = 1;
 let recordsSearch = '';
 let recordsPosStatusFilter = 'All';
@@ -8954,7 +8981,7 @@ function getSalesDateRange() {
   const today = normalizeDateString(new Date());
   if (salesFilter === 'daily') return { from: today, to: today };
   if (salesFilter === 'weekly') return { from: normalizeDateString(getDateDaysAgo(6)), to: today };
-  if (salesFilter === 'monthly') return { from: `${today.slice(0, 7)}-01`, to: today };
+  if (salesFilter === 'monthly') { const ym = salesMonth || today.slice(0, 7); return { from: `${ym}-01`, to: today }; }
   if (salesFilter === 'yearly') return { from: `${today.slice(0, 4)}-01-01`, to: today };
   if (salesFilter === 'custom') return { from: salesDateFrom, to: salesDateTo };
   if (salesYearFilter !== 'all' && salesMonthFilter !== 'all') {
@@ -9011,7 +9038,8 @@ function getFilteredSalesOrders() {
     const week = getDateDaysAgo(6);
     data = data.filter((order) => new Date(order.date) >= week);
   } else if (salesFilter === 'monthly') {
-    data = data.filter((order) => order.date.startsWith(today.slice(0, 7)));
+    const ym = salesMonth || today.slice(0, 7);
+    data = data.filter((order) => String(order.date || '').startsWith(ym));
   } else if (salesFilter === 'yearly') {
     data = data.filter((order) => order.date.startsWith(today.slice(0, 4)));
   } else if (salesFilter === 'custom') {
@@ -9154,7 +9182,19 @@ function setSalesFilter(filter, btn) {
   btn.classList.add('active');
   const customRange = document.getElementById('sales-custom-range');
   if (customRange) customRange.classList.toggle('hidden', filter !== 'custom');
+  const monthPicker = document.getElementById('sales-month-picker');
+  if (monthPicker) monthPicker.classList.toggle('hidden', filter !== 'monthly');
+  if (filter === 'monthly' && !salesMonth) {
+    const months = getDataReportMonths();
+    salesMonth = months[0] || normalizeDateString(new Date()).slice(0, 7);
+  }
   if (filter !== 'custom') renderSalesTable();
+}
+
+function setSalesMonthDropdown() {
+  salesMonth = document.getElementById('sales-month-dropdown')?.value || '';
+  salesPage = 1;
+  renderSalesTable();
 }
 
 function applySalesCustomRange() {
@@ -9200,7 +9240,18 @@ function setRTSRateFilter(filter, btn) {
   btn?.classList.add('active');
   const customRange = document.getElementById('rts-rate-custom-range');
   if (customRange) customRange.classList.toggle('hidden', filter !== 'custom');
+  const monthGroup = document.getElementById('rts-rate-month-group');
+  if (monthGroup) monthGroup.classList.toggle('hidden', filter !== 'monthly');
+  if (filter === 'monthly' && !rtsRateMonth) {
+    const months = getDataReportMonths();
+    rtsRateMonth = months[0] || normalizeDateString(new Date()).slice(0, 7);
+  }
   if (filter !== 'custom') renderRTSRateDashboard();
+}
+
+function setRTSRateMonth() {
+  rtsRateMonth = document.getElementById('rts-rate-month')?.value || '';
+  renderRTSRateDashboard();
 }
 
 function setRTSRateSourceFilter() {
@@ -9279,7 +9330,7 @@ async function submitMarketingEntries() {
     if (!pageName || spend <= 0) return null;
     const configured = state.pages.find((p) => p.name === pageName);
     const teamMember = (state.team || []).find((t) => getMemberPages(t).includes(pageName));
-    const owner = configured?.owner || teamMember?.name || '';
+    const owner = App.user?.name || App.user?.username || configured?.owner || teamMember?.name || '';
     const product = configured?.product || '';
     return { date, page: pageName, product, owner, spend, sales: 0, orders: 0, rts: 0 };
   }).filter(Boolean);
