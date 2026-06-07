@@ -819,6 +819,7 @@ const DB = {
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
   csrPosOrders: {},
+  csrAgentNames: [],
   inventory: [],
   rtsPcsByProduct: {},
   expenses: [],
@@ -1226,6 +1227,15 @@ async function loadCsrLinkedPosOrders() {
     DB.csrPosOrders = map;
   } catch {
     // non-fatal — live status falls back to stored value
+  }
+}
+
+async function loadCsrAgentNames() {
+  try {
+    const result = await authorizedJsonRequest('/csr/agents');
+    DB.csrAgentNames = Array.isArray(result?.names) ? result.names : [];
+  } catch {
+    DB.csrAgentNames = [];
   }
 }
 
@@ -5217,7 +5227,7 @@ function renderCSR() {
       </div>
       ${canViewAllCSRRecords() ? `<select class="form-control" id="csr-name-filter" onchange="setCSRNameFilter()" style="min-width:160px;height:34px;font-size:13px;padding:6px 10px;">
         <option value="">All CSR Names</option>
-        ${[...new Set(DB.csrRecords.map((r) => r.csrName).filter(Boolean))].sort().map((n) => `<option value="${escapeHtml(n)}"${csrNameFilter === n ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+        ${[...new Set([...DB.csrAgentNames, ...DB.csrRecords.map((r) => r.csrName)].filter(Boolean))].sort().map((n) => `<option value="${escapeHtml(n)}"${csrNameFilter === n ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}
       </select>` : ''}
     </div>
     <div style="overflow-x:auto;">
@@ -7888,6 +7898,9 @@ function initPage(page) {
     renderCSRTable();
     // CSR records are stored server-side so every authorized user sees the same
     // entries — refresh on each visit to pick up other members' new records.
+    loadCsrAgentNames()
+      .then(() => { if (App.currentPage === 'csr') renderCSRTable(); })
+      .catch(() => {});
     loadCsrRecordsFromBackend({ force: true })
       .then(() => { if (App.currentPage === 'csr') renderCSRTable(); })
       .catch(() => {});

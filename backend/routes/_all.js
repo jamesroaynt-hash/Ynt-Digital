@@ -1272,6 +1272,18 @@ function csrRoutes(db) {
     res.json({ data: rows.map(mapRow) });
   });
 
+  // Returns all active CSR/Trainee user names — used to populate the Name filter
+  // even for agents who have not yet submitted any records.
+  r.get('/agents', async (req, res) => {
+    const rows = await db.prepare(`
+      SELECT COALESCE(NULLIF(full_name,''), username) AS name
+      FROM users
+      WHERE is_active = 1 AND role IN ('CSR', 'CSR TL', 'Trainee')
+      ORDER BY name COLLATE NOCASE ASC
+    `).all();
+    res.json({ names: rows.map((r) => r.name).filter(Boolean) });
+  });
+
   r.post('/', async (req, res) => {
     const input = cleanInput(req.body);
     if (!isValid(input)) {
