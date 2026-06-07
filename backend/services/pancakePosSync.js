@@ -2069,7 +2069,7 @@ async function collectPosData(db, payload = {}) {
     page_number: Math.max(1, Number(payload.page_number || 1)),
     page_size: Math.max(1, Math.min(100, Number(payload.page_size || 100))),
     page: Math.max(1, Number(payload.page || 1)),
-    maxPages: Math.max(1, Number(payload.max_pages || payload.maxPages || Infinity)),
+    maxPages: Math.max(1, Number(payload.max_pages || payload.maxPages || 200)),
     startDateTime: Number(payload.startDateTime ?? defaultStart),
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
     updatedSince: payload.updatedSince !== undefined ? Number(payload.updatedSince) : null,
@@ -2243,7 +2243,7 @@ async function collectPosData(db, payload = {}) {
         const localIds = await storeItems(db, resource, shopId, items, result.connection_name, {
           transfer_dashboard_orders: payload.transfer_dashboard_orders === true || payload.transferDashboardOrders === true,
         });
-        result.resources[resource] = { count: items.length, items };
+        result.resources[resource] = { count: items.length };
         result.sql_tables[resource] = { stored: localIds.length };
       } catch (error) {
         result.failed_resources.push({ resource, error: truncate(error.message, 240) });
