@@ -537,16 +537,16 @@ if (require.main === module) {
         }
 
         // Trim old POS data shortly after boot, then daily, so storage stays bounded.
-        // Disabled via POS_RETENTION_ENABLED=false to KEEP full history (re-syncable
-        // from Pancake); de-bloat with VACUUM instead of deleting rows.
-        if (process.env.POS_RETENTION_ENABLED !== 'false') {
+        // Requires POS_RETENTION_ENABLED=true to activate — disabled by default so
+        // full history is kept without needing an explicit env var on every deployment.
+        if (process.env.POS_RETENTION_ENABLED === 'true') {
           setTimeout(() => {
             app.locals.runRetentionCleanup('startup');
           }, 30 * 1000);
 
           app.locals.scheduleRetentionCleanup();
         } else {
-          console.log('[retention] disabled via POS_RETENTION_ENABLED=false — keeping full history.');
+          console.log('[retention] disabled (POS_RETENTION_ENABLED!=true) — keeping full history.');
         }
       }
 
