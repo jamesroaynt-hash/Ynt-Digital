@@ -3540,19 +3540,21 @@ function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false }
   return `
     <table class="data-report-table">
       <thead><tr>
-        <th>${firstColumn}</th><th>Total Orders</th><th>Delivered</th><th>Returned</th><th>RTS Rate</th>${showCod ? '<th>Sales Total (COD)</th>' : ''}
+        <th>${firstColumn}</th><th>Total Orders</th><th>Delivered</th><th>Returned</th><th>RTS Rate</th>${showCod ? '<th>Sales Total (COD)</th><th>Avg COD/Order</th>' : ''}
       </tr></thead>
       <tbody>
-        ${rows.slice(0, 12).map((row) => `
-          <tr>
+        ${rows.slice(0, 12).map((row) => {
+          const codTotal = Number(row.cod || 0);
+          const avgCod = row.total ? Math.round(codTotal / row.total) : 0;
+          return `<tr>
             <td>${escapeHtml(row.label)}</td>
             <td>${row.total.toLocaleString()}</td>
             <td class="text-success">${row.delivered.toLocaleString()}</td>
             <td class="text-danger">${(row.returned + row.returning).toLocaleString()}</td>
             <td><span class="data-report-rate ${row.rtsRate >= 30 ? 'bad' : row.rtsRate >= 15 ? 'warn' : 'ok'}">${formatPercent(row.rtsRate)}</span></td>
-            ${showCod ? `<td style="font-weight:600;">₱${Number(row.cod || 0).toLocaleString()}</td>` : ''}
-          </tr>
-        `).join('')}
+            ${showCod ? `<td style="font-weight:600;">₱${codTotal.toLocaleString()}</td><td style="color:var(--text-muted);">₱${avgCod.toLocaleString()}</td>` : ''}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 }
