@@ -3829,6 +3829,8 @@ let adspendAdsData = null;
 let adspendAdsShopFilter = 'all';
 let adspendAdsStatusFilter = 'all';
 let adspendAdsSearch = '';
+let adspendRoasPage = 1;
+let adspendRoasPerPage = 20;
 
 const ADSPEND_STATUS_MAP = [
   ['Confirmed',          'adspend-cb-confirmed', 'View Confirmed'],
@@ -3847,6 +3849,7 @@ function setAdspendPreset(preset) {
     const range = computePresetRange(preset);
     if (range) { adspendDateFrom = range.from; adspendDateTo = range.to; }
   }
+  adspendRoasPage = 1;
   navigateTo('adspend-roas');
 }
 
@@ -3863,6 +3866,18 @@ function applyAdspendFilter() {
   ADSPEND_STATUS_MAP.forEach(([status, id]) => {
     if (document.getElementById(id)?.checked) adspendStatusFilters.add(status);
   });
+  adspendRoasPage = 1;
+  navigateTo('adspend-roas');
+}
+
+function changeAdspendRoasPage(page) {
+  adspendRoasPage = Math.max(1, page);
+  navigateTo('adspend-roas');
+}
+
+function setAdspendRoasPerPage(val) {
+  adspendRoasPerPage = Number(val) || 20;
+  adspendRoasPage = 1;
   navigateTo('adspend-roas');
 }
 
@@ -4128,6 +4143,12 @@ function renderAdspendRoas() {
   const totalRtsRate = totalRtsBase > 0 ? ((totalReturned + totalReturning) / totalRtsBase) * 100 : 0;
   const n = rows.length || 1;
 
+  const totalRoasPages = Math.max(1, Math.ceil(rows.length / adspendRoasPerPage));
+  if (adspendRoasPage > totalRoasPages) adspendRoasPage = totalRoasPages;
+  const roasPageStart = (adspendRoasPage - 1) * adspendRoasPerPage;
+  const pagedRows = rows.slice(roasPageStart, roasPageStart + adspendRoasPerPage);
+  const roasPageEnd = Math.min(roasPageStart + adspendRoasPerPage, rows.length);
+
   const fmt = (v) => Number(v).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const statusOptions = ADSPEND_STATUS_MAP;
@@ -4234,7 +4255,7 @@ function renderAdspendRoas() {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
+          ${pagedRows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
             <td style="padding:10px 14px;font-weight:500;font-size:13px;">${row.date}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders.toLocaleString()}</td>
             <td style="padding:10px 14px;text-align:right;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
@@ -4271,6 +4292,20 @@ function renderAdspendRoas() {
           </tr>
         </tfoot>
       </table>
+    </div>
+    <div class="pos-orders-pagination">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:13px;color:var(--text-muted);">Rows:</span>
+        <select onchange="setAdspendRoasPerPage(this.value)" style="height:30px;font-size:13px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
+          ${[10,20,50].map((v) => `<option value="${v}"${adspendRoasPerPage===v?' selected':''}>${v}</option>`).join('')}
+        </select>
+        <span>${rows.length ? roasPageStart + 1 : 0}–${roasPageEnd} of ${rows.length} rows</span>
+      </div>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="changeAdspendRoasPage(${adspendRoasPage - 1})" ${adspendRoasPage <= 1 ? 'disabled' : ''}>‹</button>
+        ${renderPaginationButtons(adspendRoasPage, totalRoasPages, 'changeAdspendRoasPage')}
+        <button class="page-btn" onclick="changeAdspendRoasPage(${adspendRoasPage + 1})" ${adspendRoasPage >= totalRoasPages ? 'disabled' : ''}>›</button>
+      </div>
     </div>
   </div>
 
