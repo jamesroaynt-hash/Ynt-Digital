@@ -1184,8 +1184,14 @@ function scansRoutes(db) {
   r.post('/', async (req, res) => {
     const { tracking_no, customer, phone, status, courier, scan_type, scan_date } = req.body;
     if (!tracking_no) return res.status(400).json({ error: 'Tracking number required' });
+    const today = scan_date || new Date().toISOString().split('T')[0];
+    const type = scan_type || 'Standard';
+    const duplicate = await db.prepare(
+      `SELECT id FROM scan_records WHERE LOWER(tracking_no) = LOWER(?) AND scan_type = ? AND scan_date = ? LIMIT 1`
+    ).get(tracking_no, type, today);
+    if (duplicate) return res.status(409).json({ error: 'Already scanned', message: `${tracking_no} was already scanned today.` });
     const ref = `SCN-${String(Date.now()).slice(-6)}`;
-    await db.prepare(`INSERT INTO scan_records (scan_ref,tracking_no,customer,phone,scan_date,status,courier,scan_type,scanned_by) VALUES (?,?,?,?,?,?,?,?,?)`).run(ref, tracking_no, customer||null, phone||null, scan_date||new Date().toISOString().split('T')[0], status||null, courier||null, scan_type||'Standard', req.user?.id||1);
+    await db.prepare(`INSERT INTO scan_records (scan_ref,tracking_no,customer,phone,scan_date,status,courier,scan_type,scanned_by) VALUES (?,?,?,?,?,?,?,?,?)`).run(ref, tracking_no, customer||null, phone||null, today, status||null, courier||null, type, req.user?.id||1);
     res.status(201).json({ scan_ref: ref });
   });
 

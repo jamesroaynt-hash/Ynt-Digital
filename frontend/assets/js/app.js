@@ -10533,14 +10533,26 @@ async function performScan(pageId, scanType) {
     };
   }
 
+  // Fast local pre-check: block if this tracking was already scanned today in this session
+  const today = new Date().toISOString().split('T')[0];
+  const alreadyLocal = DB.scanRecords.some(
+    (r) => r.tracking.toLowerCase() === tracking.toLowerCase() && r.type === scanType && r.date === today
+  );
+  if (alreadyLocal) {
+    showToast('warning', 'Already scanned', `${tracking} was already scanned today.`);
+    resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">Already Scanned Today</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">This tracking number was already scanned today and will not be counted again.</div></div></div></div>`;
+    input.value = '';
+    input.focus();
+    return;
+  }
+
   // Add to scan records
   const newRecord = {
     id: `SCN-${String(DB.scanRecords.length + 1).padStart(4, '0')}`,
     ...found,
     type: scanType,
-    date: new Date().toISOString().split('T')[0],
+    date: today,
   };
-  DB.scanRecords.unshift(newRecord);
 
   if (getApiBase() && getAuthToken()) {
     try {
@@ -10556,9 +10568,21 @@ async function performScan(pageId, scanType) {
           scan_date: newRecord.date,
         }),
       });
+      DB.scanRecords.unshift(newRecord);
     } catch (error) {
+      // 409 = already scanned (caught by server); surface as a warning, not a success
+      if (error?.status === 409 || String(error?.message || '').toLowerCase().includes('already scanned')) {
+        showToast('warning', 'Already scanned', `${tracking} was already scanned today.`);
+        resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">Already Scanned Today</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">This tracking number was already scanned today and will not be counted again.</div></div></div></div>`;
+        input.value = '';
+        input.focus();
+        return;
+      }
+      DB.scanRecords.unshift(newRecord);
       showToast('warning', 'Saved locally', error.message || 'The scan could not be saved to the server.');
     }
+  } else {
+    DB.scanRecords.unshift(newRecord);
   }
 
   resultEl.innerHTML = `
