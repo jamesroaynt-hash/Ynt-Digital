@@ -11306,8 +11306,13 @@ async function syncPosOrdersNow(btn) {
 
 async function collectPancakePosData() {
   const state = getIntegrationState();
-  state.pancakePos = collectPancakePosFormState();
-  saveIntegrationState(state);
+  // Only collect form state when the Integrations form is actually rendered —
+  // calling this from another page (e.g. RMO) returns empty fields and wipes
+  // saved API keys from localStorage.
+  if (document.getElementById('pancake-pos-api-key')) {
+    state.pancakePos = collectPancakePosFormState();
+    saveIntegrationState(state);
+  }
   const syncButton = document.getElementById('pancake-pos-sync-button');
 
   if (!state.pancakePos.connections.length) {
