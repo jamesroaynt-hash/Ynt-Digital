@@ -2157,12 +2157,21 @@ tfoot td {
   }
   .overlay-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99; display: none; }
   .overlay-bg.open { display: block; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi-card { padding: 14px 14px; gap: 10px; }
+  .kpi-icon { width: 36px; height: 36px; }
+  .kpi-icon svg { width: 18px; height: 18px; }
+  .kpi-value { font-size: 18px; }
+  .kpi-spark { display: none; }
 }
 
 @media (max-width: 480px) {
   .topbar-right { gap: 6px; }
   .topbar-right .status-online-text { display: none; }
   .page-content { padding: 12px; }
+  .kpi-icon { display: none; }
+  .kpi-value { font-size: 20px; }
+  .kpi-card { padding: 14px 12px; }
   .rmo-metrics { grid-template-columns: 1fr; }
   .stats-grid,
   #sales-summary-cards,
