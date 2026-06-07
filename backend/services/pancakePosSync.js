@@ -2497,9 +2497,10 @@ async function listPosUsers(db, payload = {}) {
 // to reclaim the freed space and NEVER run VACUUM FULL (it can OOM / fill the disk
 // on small instances). Date comparison uses a plain substr(...,1,10) text compare
 // so it works identically on SQLite and Postgres without engine-specific casts.
-async function pruneOldData(db, { retentionDays = 30, batchSize = 5000 } = {}) {
+async function pruneOldData(db, { retentionDays = 30, cutoffDate = null, batchSize = 5000 } = {}) {
   const days = Math.max(1, Number(retentionDays) || 30);
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  // cutoffDate overrides the rolling-days window when a fixed date is needed.
+  const cutoff = cutoffDate || new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const runCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
   let deletedOrders = 0;
@@ -2527,7 +2528,7 @@ async function pruneOldData(db, { retentionDays = 30, batchSize = 5000 } = {}) {
 
   return {
     provider: PROVIDER,
-    retention_days: days,
+    retention_days: cutoffDate ? null : days,
     cutoff_date: cutoff,
     deleted_pos_orders: deletedOrders,
     deleted_sync_runs: Number(runResult.changes || 0),

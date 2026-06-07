@@ -536,17 +536,29 @@ if (require.main === module) {
           app.locals.schedulePancakePosSync();
         }
 
-        // Trim old POS data shortly after boot, then daily, so storage stays bounded.
-        // Requires POS_RETENTION_ENABLED=true to activate — disabled by default so
-        // full history is kept without needing an explicit env var on every deployment.
+        // Always purge pos_orders from before 2026 on startup — pre-2026 data is
+        // definitively old and can be re-synced from Pancake if ever needed.
+        setTimeout(async () => {
+          try {
+            const r = await pancakePosSync.pruneOldData(db, { cutoffDate: '2026-01-01' });
+            if (r.deleted_pos_orders > 0) {
+              console.log(`[retention] pre-2026 purge: removed ${r.deleted_pos_orders} pos_orders (cutoff 2026-01-01).`);
+            }
+          } catch (e) {
+            console.warn(`[retention] pre-2026 purge failed: ${e.message}`);
+          }
+        }, 35 * 1000);
+
+        // Rolling retention (30-day window). Requires POS_RETENTION_ENABLED=true —
+        // disabled by default so 2026+ history is kept without explicit env config.
         if (process.env.POS_RETENTION_ENABLED === 'true') {
           setTimeout(() => {
             app.locals.runRetentionCleanup('startup');
-          }, 30 * 1000);
+          }, 60 * 1000);
 
           app.locals.scheduleRetentionCleanup();
         } else {
-          console.log('[retention] disabled (POS_RETENTION_ENABLED!=true) — keeping full history.');
+          console.log('[retention] rolling retention disabled (POS_RETENTION_ENABLED!=true) — keeping 2026+ history.');
         }
       }
 
