@@ -818,6 +818,7 @@ const DB = {
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
+  csrPosOrders: {},
   inventory: [],
   rtsPcsByProduct: {},
   expenses: [],
@@ -1206,9 +1207,25 @@ async function loadCsrRecordsFromBackend({ force = false } = {}) {
     DB.csrRecords = Array.isArray(result?.data) ? result.data : [];
     csrRecordsLoaded = true;
     await migrateLocalCsrRecords();
+    await loadCsrLinkedPosOrders();
     return true;
   } catch {
     return false;
+  }
+}
+
+// Fetch live status + tracking from pos_orders for all order IDs referenced by
+// the loaded CSR records. Stored in DB.csrPosOrders keyed by external_id.
+async function loadCsrLinkedPosOrders() {
+  const ids = [...new Set(DB.csrRecords.map((r) => String(r.orderId || '').trim()).filter(Boolean))];
+  if (!ids.length) return;
+  try {
+    const result = await authorizedJsonRequest(`/orders/pos-orders/by-ids?ids=${encodeURIComponent(ids.join(','))}`);
+    const map = {};
+    (Array.isArray(result?.data) ? result.data : []).forEach((o) => { map[String(o.id)] = o; });
+    DB.csrPosOrders = map;
+  } catch {
+    // non-fatal — live status falls back to stored value
   }
 }
 
@@ -6808,11 +6825,9 @@ function renderCSRChart(records) {
 
 // Locate the live Google Orders (sheet) record a CSR row is linked to, by Order ID.
 function getCsrLinkedOrder(record) {
-  const id = String(record?.orderId || '').trim().toLowerCase();
+  const id = String(record?.orderId || '').trim();
   if (!id) return null;
-  return (DB.sheetRecordsForReport || []).find(
-    (order) => String(order.id || '').trim().toLowerCase() === id
-  ) || null;
+  return DB.csrPosOrders[id] || null;
 }
 
 // Status/tracking shown for a CSR record always reflect the latest Google Orders
