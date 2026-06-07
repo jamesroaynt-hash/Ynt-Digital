@@ -4872,11 +4872,7 @@ function renderMarketingCenter() {
                   <td>${escapeHtml(entry.date)}</td>
                   <td><strong>${escapeHtml(entry.page)}</strong>${entry.product ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(entry.product)}</div>` : ''}</td>
                   <td>${escapeHtml(entry.owner || '—')}</td>
-                  <td style="text-align:right;">
-                    ${marketingManager
-                      ? `<input type="number" class="form-control" min="0" step="0.01" value="${Number(entry.spend || 0)}" onchange="updateMarketingEntrySpend(${id}, this.value)" style="width:120px;text-align:right;font-weight:600;padding:4px 8px;font-size:13px;margin-left:auto;">`
-                      : `<span style="font-weight:600;">${marketingMoney(entry.spend)}</span>`}
-                  </td>
+                  <td style="text-align:right;"><span style="font-weight:600;">${marketingMoney(entry.spend)}</span></td>
                   <td>
                     ${marketingManager ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editMarketingEntry(${id})">Edit</button><button class="btn btn-ghost btn-sm" onclick="deleteMarketingEntry(${id})">×</button></div>` : '<span class="text-xs text-muted">—</span>'}
                   </td>
