@@ -56,6 +56,35 @@ let authMode = 'login';
 let salesBarChart = null;
 let salesDonutChart = null;
 let homeDonutChart = null;
+
+// Draws percentage labels in the middle of each arc segment for doughnut/pie charts.
+// Skips slices < 4% so labels don't crowd tiny segments.
+const doughnutPctPlugin = {
+  id: 'doughnutPct',
+  afterDraw(chart) {
+    if (chart.config.type !== 'doughnut' && chart.config.type !== 'pie') return;
+    const { ctx } = chart;
+    const dataset = chart.data.datasets[0];
+    const total = dataset.data.reduce((s, v) => s + Number(v || 0), 0);
+    if (!total) return;
+    chart.getDatasetMeta(0).data.forEach((arc, i) => {
+      const value = Number(dataset.data[i] || 0);
+      const pct = (value / total) * 100;
+      if (pct < 4) return;
+      const midAngle = arc.startAngle + (arc.endAngle - arc.startAngle) / 2;
+      const r = (arc.outerRadius + arc.innerRadius) / 2;
+      const x = arc.x + Math.cos(midAngle) * r;
+      const y = arc.y + Math.sin(midAngle) * r;
+      ctx.save();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(pct.toFixed(1) + '%', x, y);
+      ctx.restore();
+    });
+  },
+};
 let homeRtsBarChart = null;
 let dataReportPriceChart = null;
 let integrationsBackendHydrated = false;
@@ -6713,6 +6742,7 @@ function renderCSRChart(records) {
 
   chartRefs.csrStatusPie = new Chart(canvas, {
     type: 'pie',
+    plugins: [doughnutPctPlugin],
     data: {
       labels: labels.length ? labels : ['No Records'],
       datasets: [{
@@ -7684,6 +7714,7 @@ function initCharts(page) {
     DB.orders.forEach(o => { statusCounts[o.status] = (statusCounts[o.status]||0) + 1; });
     new Chart(document.getElementById('sales-donut-chart'), {
       type: 'doughnut',
+      plugins: [doughnutPctPlugin],
       data: {
         labels: Object.keys(statusCounts),
         datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#3b82f6','#10b981','#ef4444','#f59e0b','#6b7280'], borderWidth: 0 }]
@@ -8811,6 +8842,7 @@ function renderHomeOrderCharts() {
     donutCanvas.style.display = donutTotal > 0 ? '' : 'none';
     homeDonutChart = upsertChart(homeDonutChart, donutCanvas, donutTotal > 0, {
       type: 'doughnut',
+      plugins: [doughnutPctPlugin],
       data: {
         labels: Object.keys(statusCounts),
         datasets: [{
