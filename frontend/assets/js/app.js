@@ -3987,6 +3987,13 @@ function adspendMetricMoney(value) {
   return parsed ? `PHP ${parsed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}` : '-';
 }
 
+function getAdspendCampaignId(item) {
+  const directId = String(item?.campaign_id || item?.campaignId || '').trim();
+  if (directId) return directId;
+  const text = String(item?.campaign_name || '').trim();
+  return text.match(/\b\d{8,}\b/)?.[0] || '-';
+}
+
 function getAdspendAdsRequestKey() {
   return 'ad-sets-v2';
 }
@@ -4012,7 +4019,7 @@ function getFilteredAdspendAdsItems(data) {
     if (adspendAdsShopFilter !== 'all' && String(item.shop_id || item.shop_name || '') !== adspendAdsShopFilter) return false;
     if (adspendAdsStatusFilter !== 'all' && String(item.status || '-').toLowerCase() !== adspendAdsStatusFilter.toLowerCase()) return false;
     if (search) {
-      const haystack = normalizeText(`${item.campaign_name || ''} ${item.name || ''} ${item.shop_name || ''} ${item.status || ''} ${item.id || ''}`);
+      const haystack = normalizeText(`${getAdspendCampaignId(item)} ${item.campaign_name || ''} ${item.name || ''} ${item.shop_name || ''} ${item.status || ''} ${item.id || ''}`);
       if (!haystack.includes(search)) return false;
     }
     return true;
@@ -4095,10 +4102,10 @@ function renderAdspendAdsCardBody(data, totalAmount) {
     ${failedHtml}
     <div class="adspend-ads-table-wrap">
       <table class="adspend-ads-table">
-        <thead><tr><th>Campaign Name</th><th>Ad Set</th><th>Shop</th><th>Status</th><th>Budget</th><th>Spend</th><th>Reach</th><th>Impressions</th><th>Clicks</th><th>CPC</th><th>CPP</th><th>CPM</th><th>CTR</th><th>ROAS</th><th>Frequency</th></tr></thead>
+        <thead><tr><th>Campaign ID</th><th>Ad Set</th><th>Shop</th><th>Status</th><th>Budget</th><th>Spend</th><th>Reach</th><th>Impressions</th><th>Clicks</th><th>CPC</th><th>CPP</th><th>CPM</th><th>CTR</th><th>ROAS</th><th>Frequency</th></tr></thead>
         <tbody>
           ${tableItems.length ? tableItems.map((item) => `<tr>
-            <td>${escapeHtml(item.campaign_name || 'Untitled campaign')}</td>
+            <td>${escapeHtml(getAdspendCampaignId(item))}</td>
             <td>${escapeHtml(item.name || 'Untitled ad set')}</td>
             <td>${escapeHtml(item.shop_name || item.shop_id || '-')}</td>
             <td>${escapeHtml(item.status || '-')}</td>
@@ -6162,12 +6169,17 @@ function getRmoProblematicCount() {
   return DB.posRawOrders.filter((order) => normalizeText(order?.partner?.note) === 'problematic').length;
 }
 
+function getRmoUndeliverableCount() {
+  return DB.posRawOrders.filter((order) => normalizeText(order?.partner?.note) === 'undeliverable').length;
+}
+
 function renderRmoManagement() {
   const { posProductOptions, posPageOptions, posTagOptions } = getPosOrderFilterOptions();
   const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
   const delivered = statusCounts.Delivered || 0;
   const returning = statusCounts.Returning || 0;
   const problematic = getRmoProblematicCount();
+  const undeliverable = getRmoUndeliverableCount();
   const posStatusDisplayOptions = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -6197,6 +6209,7 @@ function renderRmoManagement() {
       <div class="rmo-metric"><span>Total For Delivery Today</span><strong id="rmo-metric-total">${Number(DB.posRawTotal || 0).toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Delivered</span><strong id="rmo-metric-delivered">${delivered.toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Returning</span><strong id="rmo-metric-returning">${returning.toLocaleString()}</strong></div>
+      <div class="rmo-metric"><span>Undeliverable</span><strong id="rmo-metric-undeliverable">${undeliverable.toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Problematic</span><strong id="rmo-metric-problematic">${problematic.toLocaleString()}</strong></div>
     </div>
 
@@ -10089,6 +10102,7 @@ function renderPosOrdersTable() {
       total: Number(DB.posRawTotal || 0),
       delivered: statusCounts.Delivered || 0,
       returning: statusCounts.Returning || 0,
+      undeliverable: getRmoUndeliverableCount(),
       problematic: getRmoProblematicCount(),
     };
     Object.entries(metricValues).forEach(([key, value]) => {
