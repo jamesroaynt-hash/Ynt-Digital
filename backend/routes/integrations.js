@@ -23,9 +23,21 @@ module.exports = function integrationRoutes(db) {
   }
 
   // Backend cache of all pos_orders for the data-report and records views.
-  // Full reload on every version change (pos_orders is ~20k rows, ~5 MB raw —
-  // cheaper to reload in full than to track deltas).
+  // Full reload on every version change (pos_orders is ~9k rows after retention).
+  // Evicted after REPORT_CACHE_IDLE_MS of no access to keep memory low when nobody
+  // is using the Data Report page.
+  const REPORT_CACHE_IDLE_MS = 15 * 60 * 1000; // 15 minutes
   let reportCache = { version: null, records: null, loading: null, loadingVersion: null };
+  let reportCacheIdleTimer = null;
+
+  function scheduleReportCacheEviction() {
+    if (reportCacheIdleTimer) clearTimeout(reportCacheIdleTimer);
+    reportCacheIdleTimer = setTimeout(() => {
+      reportCache.records = null;
+      reportCache.version = null;
+      reportCacheIdleTimer = null;
+    }, REPORT_CACHE_IDLE_MS);
+  }
 
   // Parse shipping_address_json → province string (JS, avoids SQL dialect diff)
   function extractProvince(json) {
@@ -86,10 +98,9 @@ module.exports = function integrationRoutes(db) {
 
   async function refillReportCache(marks) {
     try {
-      // Cap at 90 days to keep the in-memory footprint bounded regardless of
-      // whether rolling retention is enabled in env. The Data Report shows months
-      // going back ~3 months which is well within this window.
-      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+      // Cap at 60 days — Data Report shows the last ~2 months, 60d covers it.
+      // Keeps the in-memory footprint smaller than the old 90-day window.
+      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
         .toISOString().slice(0, 10);
       const rows = await db.prepare(`
         SELECT id, external_id, tracking_no, page_name, customer_name, customer_phone,
@@ -117,6 +128,7 @@ module.exports = function integrationRoutes(db) {
       }
       await reportCache.loading;
     }
+    scheduleReportCacheEviction();
     return { records: reportCache.records, version: marks.version };
   }
 
