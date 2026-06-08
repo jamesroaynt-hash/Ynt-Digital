@@ -682,5 +682,107 @@ module.exports = function hrRoutes(db) {
     res.json({ deleted: id });
   });
 
+  // ─── USER SCHEDULES ───────────────────────────────────────────
+  router.get('/schedules', requireCurrentUser, async (req, res) => {
+    try {
+      const userId = isHrManager(req.currentUser)
+        ? (Number(req.query?.user_id || 0) || null)
+        : Number(req.currentUser.id);
+      const today = manilaParts().date;
+      const from = normalizeDate(req.query?.from, today);
+      const to = normalizeDate(req.query?.to, from);
+      const params = [];
+      let where = 'WHERE s.schedule_date BETWEEN ? AND ?';
+      params.push(from, to);
+      if (userId) { where += ' AND s.user_id = ?'; params.push(userId); }
+      const rows = await db.prepare(`
+        SELECT s.*, u.full_name, u.username,
+               a.time_in, a.time_out
+        FROM user_schedules s
+        JOIN users u ON u.id = s.user_id
+        LEFT JOIN attendance_records a ON a.user_id = s.user_id AND a.work_date = s.schedule_date
+        ${where}
+        ORDER BY s.schedule_date DESC, s.id DESC
+      `).all(...params);
+
+      function timeToMinutes(t) {
+        if (!t) return null;
+        const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+        return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+      }
+
+      const schedules = rows.map((row) => {
+        const isFuture = row.schedule_date > today;
+        let status = 'no-schedule'; // shift_start not set
+        let minutes_late = null;
+
+        if (!isFuture && row.shift_start) {
+          if (!row.time_in) {
+            status = 'absent';
+          } else {
+            const shiftMin = timeToMinutes(row.shift_start);
+            const clockMin = timeToMinutes(row.time_in);
+            if (shiftMin !== null && clockMin !== null && clockMin > shiftMin) {
+              status = 'late';
+              minutes_late = clockMin - shiftMin;
+            } else {
+              status = 'on-time';
+            }
+          }
+        } else if (isFuture) {
+          status = 'upcoming';
+        } else if (!row.shift_start) {
+          // schedule with no set start — just track absent/present
+          status = row.time_in ? 'present' : 'absent';
+        }
+
+        return { ...row, status, minutes_late };
+      });
+
+      res.json({ schedules });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/schedules', requireCurrentUser, requireHrManager, async (req, res) => {
+    try {
+      const userId = Number(req.body?.user_id);
+      const scheduleDate = normalizeDate(req.body?.schedule_date, manilaParts().date);
+      const shiftStart = normalizeTime(req.body?.shift_start);
+      const shiftEnd = normalizeTime(req.body?.shift_end);
+      const notes = String(req.body?.notes || '').trim() || null;
+      const isHoliday = req.body?.is_holiday ? 1 : 0;
+      const allowedHolidayTypes = ['Regular day', 'Special Holiday', 'Regular Holiday'];
+      const holidayType = allowedHolidayTypes.includes(req.body?.holiday_type) ? req.body.holiday_type : 'Regular day';
+      const allowedPct = [0, 30, 50, 100];
+      const holidayPercentage = allowedPct.includes(Number(req.body?.holiday_percentage)) ? Number(req.body.holiday_percentage) : 0;
+      if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'User is required' });
+      const user = await getActiveUser(db, userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      const result = await db.prepare(`
+        INSERT INTO user_schedules (user_id, schedule_date, shift_start, shift_end, notes, is_holiday, holiday_type, holiday_percentage, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(userId, scheduleDate, shiftStart, shiftEnd, notes, isHoliday, holidayType, holidayPercentage, req.currentUser.id);
+      const schedule = await db.prepare('SELECT * FROM user_schedules WHERE id = ?').get(result.lastInsertRowid);
+      res.status(201).json({ schedule });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.delete('/schedules/:id', requireCurrentUser, requireHrManager, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid schedule id' });
+      const existing = await db.prepare('SELECT id FROM user_schedules WHERE id = ?').get(id);
+      if (!existing) return res.status(404).json({ error: 'Schedule not found' });
+      await db.prepare('DELETE FROM user_schedules WHERE id = ?').run(id);
+      res.json({ deleted: true, id });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return router;
 };

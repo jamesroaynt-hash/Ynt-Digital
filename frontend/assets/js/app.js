@@ -9,15 +9,15 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  RMO: ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
@@ -154,6 +154,7 @@ function loadPage(page) {
     'view-records': renderViewRecords,
     'manage-users': renderManageUsers,
     'api-connections': renderApiConnections,
+    schedule: renderSchedulePage,
     profile: renderProfilePage,
   };
 
@@ -186,6 +187,7 @@ const pageNames = {
   'view-records': 'Records',
   'manage-users': 'Users',
   'api-connections': 'Integrations',
+  schedule: 'Schedule',
   profile: 'My Profile',
 };
 
@@ -2683,6 +2685,8 @@ function renderHR() {
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="loadHRDashboard()">Refresh</button>
+      <button class="btn btn-primary btn-sm" onclick="openModal('cash-advance-modal')">+ Cash Advance</button>
+      <button class="btn btn-secondary btn-sm" onclick="openScheduleModal()">+ Schedule</button>
     </div>
   </div>
 
@@ -2713,17 +2717,21 @@ function renderHR() {
 
   <div id="hr-summary-wrap" class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:20px;"></div>
 
-  <div style="display:grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .8fr); gap:16px; margin-bottom:20px;">
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">User Payroll</div><div class="card-subtitle">Days worked, OT, holiday pay, cash advances, and net pay</div></div></div>
-      <div class="card-body" id="hr-payroll-table-wrap">
-        <div class="empty-state"><h3>Loading payroll</h3><p>Preparing HR records.</p></div>
-      </div>
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header"><div><div class="card-title">User Payroll</div><div class="card-subtitle">Days worked, OT, holiday pay, cash advances, and net pay</div></div></div>
+    <div class="card-body" id="hr-payroll-table-wrap">
+      <div class="empty-state"><h3>Loading payroll</h3><p>Preparing HR records.</p></div>
     </div>
+  </div>
 
-    <div class="card">
-      <div class="card-header"><div><div class="card-title">Cash Advance</div><div class="card-subtitle">Deducted on selected period payslip</div></div></div>
-      <div class="card-body">
+  <!-- Cash Advance Modal -->
+  <div class="modal-overlay" id="cash-advance-modal">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-header">
+        <div class="modal-title">Cash Advance</div>
+        <button class="modal-close" onclick="closeModal('cash-advance-modal')">×</button>
+      </div>
+      <div class="modal-body">
         <form onsubmit="createCashAdvance(event)">
           <div class="form-group">
             <label class="form-label">User</label>
@@ -2743,53 +2751,104 @@ function renderHR() {
             <label class="form-label">Reason</label>
             <input type="text" id="cash-advance-reason" class="form-control" placeholder="Cash advance note">
           </div>
-          <button type="submit" class="btn btn-primary" style="width:100%;">Save Cash Advance</button>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button type="submit" class="btn btn-primary" style="flex:1;">Save Cash Advance</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('cash-advance-modal')">Cancel</button>
+          </div>
         </form>
       </div>
     </div>
   </div>
 
-  <div class="card" style="margin-top:20px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Overtime Approvals</div>
-        <div class="card-subtitle">Approved hours count toward pay. Pending and rejected do not.</div>
+  <!-- Daily Schedule Modal -->
+  <div class="modal-overlay" id="schedule-modal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title">Daily Schedule</div>
+        <button class="modal-close" onclick="closeModal('schedule-modal')">×</button>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="loadHRPendingOT()">Refresh</button>
-    </div>
-    <div class="card-body" id="hr-ot-request-list">
-      <div style="color:var(--text-muted);font-size:13px;">Loading pending OT requests...</div>
+      <div class="modal-body">
+        <form onsubmit="createUserSchedule(event)">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">User</label>
+              <select id="schedule-user" class="form-control" onchange="loadUserSchedules()"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date</label>
+              <input type="date" id="schedule-date" class="form-control" value="${today}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Shift Start</label>
+              <input type="time" id="schedule-shift-start" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Shift End</label>
+              <input type="time" id="schedule-shift-end" class="form-control">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <input type="text" id="schedule-notes" class="form-control" placeholder="e.g. Morning shift, WFH, Rest day">
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500;margin-bottom:8px;">
+              <input type="checkbox" id="schedule-is-holiday" onchange="toggleScheduleHoliday()" style="width:16px;height:16px;cursor:pointer;">
+              Holiday
+            </label>
+            <div id="schedule-holiday-options" style="display:none;">
+              <div class="form-grid-2" style="gap:8px;margin-bottom:8px;">
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:11px;">Holiday Type</label>
+                  <select id="schedule-holiday-type" class="form-control" style="height:34px;font-size:13px;">
+                    <option value="Special Holiday">Special Holiday</option>
+                    <option value="Regular Holiday">Regular Holiday</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:11px;">Holiday Pay %</label>
+                  <div style="display:flex;gap:4px;">
+                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-30" onclick="selectSchedulePct(30)" style="flex:1;">30%</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-50" onclick="selectSchedulePct(50)" style="flex:1;">50%</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-100" onclick="selectSchedulePct(100)" style="flex:1;">100%</button>
+                  </div>
+                  <input type="hidden" id="schedule-holiday-percentage" value="30">
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button type="submit" class="btn btn-primary" style="flex:1;">Add Schedule</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('schedule-modal')">Close</button>
+          </div>
+        </form>
+        <div id="schedule-list" style="margin-top:16px;"></div>
+      </div>
     </div>
   </div>
 
-  <div class="card" style="margin-top:20px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">📢 Announcement Editor</div>
-        <div class="card-subtitle">Posts here appear on every user's Home page.</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="loadHRAnnouncements()">Refresh</button>
-    </div>
-    <div class="card-body">
-      <div class="form-grid-2">
-        <div class="form-group">
-          <label class="form-label">Title</label>
-          <input type="text" class="form-control" id="hr-announce-title" placeholder="e.g. Holiday schedule update">
+  <!-- Edit Daily Rate Modal -->
+  <div class="modal-overlay" id="payroll-edit-modal">
+    <div class="modal" style="max-width:400px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="payroll-modal-title">Edit Daily Rate</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="payroll-modal-role"></div>
         </div>
+        <button class="modal-close" onclick="closeModal('payroll-edit-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="payroll-modal-user-id">
         <div class="form-group">
-          <label class="form-label">Expires On (optional)</label>
-          <input type="date" class="form-control" id="hr-announce-expires">
+          <label class="form-label">Daily Rate (PHP)</label>
+          <input type="number" min="0" step="0.01" id="payroll-modal-rate" class="form-control" placeholder="0.00">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="savePayrollRate()">Save Rate</button>
+          <button class="btn btn-secondary" onclick="printPayslipFromModal()">Print Payslip</button>
+          <button class="btn btn-secondary" onclick="closeModal('payroll-edit-modal')">Cancel</button>
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Message</label>
-        <textarea class="form-control" id="hr-announce-body" rows="3" placeholder="Write the announcement details..."></textarea>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-primary" onclick="submitHRAnnouncement()">Post Announcement</button>
-        <button class="btn btn-secondary" onclick="clearHRAnnouncementForm()">Clear</button>
-      </div>
-      <div id="hr-announcement-list" style="margin-top:16px;display:grid;gap:8px;"></div>
     </div>
   </div>`;
 }
@@ -5418,18 +5477,23 @@ function renderExpenses() {
     <div class="page-title"><h1>Expenses</h1><p>Log and track all business expenses.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('expenses-table','expenses')">Export CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="openExpenseModal()">+ Log New Expense</button>
     </div>
   </div>
 
-  <div style="display:grid; grid-template-columns:400px 1fr; gap:20px; align-items:start;">
-    <div class="card" style="position:sticky; top:80px;">
-      <div class="card-header"><div class="card-title">Log New Expense</div></div>
-      <div class="card-body">
+  <!-- Expense Log Modal -->
+  <div class="modal-overlay" id="expense-log-modal">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-header">
+        <div class="modal-title">Log New Expense</div>
+        <button class="modal-close" onclick="closeModal('expense-log-modal')">×</button>
+      </div>
+      <div class="modal-body">
         <div class="form-group"><label class="form-label">Date <span class="required">*</span></label><input type="date" class="form-control" id="exp-date" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="form-group"><label class="form-label">Category <span class="required">*</span></label>
           <select class="form-control" id="exp-cat">
             <option value="">Select category...</option>
-            <option>Load</option><option>Utility</option><option>Product Supplies</option><option>Others</option>
+            <option>Load</option><option>Utility</option><option>Product Supplies</option><option>Product</option><option>Shipping Fee</option><option>Transfer Fee</option><option>Others</option>
           </select>
         </div>
         <div class="form-group"><label class="form-label">Classification <span class="required">*</span></label>
@@ -5450,29 +5514,37 @@ function renderExpenses() {
             </div>
           </div>
         </div>
-        <div class="form-group"><label class="form-label">Noted By</label><input type="text" class="form-control" id="exp-noted" value="${App.user?.name || ''}"></div>
+        <div class="form-group"><label class="form-label">Noted By</label><input type="text" class="form-control" id="exp-noted" value="${App.user?.full_name || App.user?.name || ''}"></div>
         <div class="form-group">
           <label class="form-label">Total Amount</label>
           <div class="input-group">
             <span class="input-addon">₱</span>
-            <input type="text" class="form-control" id="exp-total" placeholder="0.00" readonly style="background:var(--surface-3); font-weight:600; font-size:16px;">
+            <input type="text" class="form-control" id="exp-total" placeholder="0.00" readonly style="background:var(--surface-3);font-weight:600;font-size:16px;">
           </div>
         </div>
-        <button class="btn btn-primary w-full" onclick="saveExpense()">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2H5L2 6v7a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1zM11 14v-4H5v4"/><path d="M5 2v4h5V2"/></svg>
-          Save Expense
-        </button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('expense-log-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveExpense()">Save Expense</button>
       </div>
     </div>
+  </div>
 
-    <div>
-      <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr); margin-bottom:16px;">
-        <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
-        <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Credit Received</div><div class="stat-value" style="font-size:18px;" id="exp-credit-total">₱0</div></div>
-        <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Net Expenses</div><div class="stat-value" style="font-size:18px;" id="exp-net-total">₱${totalExp.toLocaleString()}</div></div>
-        <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">This Month</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
-      </div>
+  <div>
+    <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr); margin-bottom:16px;">
+      <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
+      <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Credit Received</div><div class="stat-value" style="font-size:18px;" id="exp-credit-total">₱0</div></div>
+      <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Net Expenses</div><div class="stat-value" style="font-size:18px;" id="exp-net-total">₱${totalExp.toLocaleString()}</div></div>
+      <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">This Month</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
+    </div>
 
+    <div class="tabs" style="margin-bottom:16px;">
+      <button class="tab-btn active" onclick="switchTab(this,'exp-tab-list')">Expenses</button>
+      <button class="tab-btn" onclick="switchTab(this,'exp-tab-summary')">Summary</button>
+    </div>
+
+    <!-- Tab: Expenses list -->
+    <div class="tab-content active" id="exp-tab-list">
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header" style="flex-wrap:wrap;gap:10px;">
           <div>
@@ -5515,7 +5587,7 @@ function renderExpenses() {
             <input type="text" placeholder="Search expenses..." id="exp-search" oninput="filterExpTable()">
           </div>
           <div class="table-filters">
-            ${['All','Load','Utility','Product Supplies','Others'].map((c,i) =>
+            ${['All','Load','Utility','Product Supplies','Product','Shipping Fee','Transfer Fee','Others'].map((c,i) =>
               `<button class="filter-pill ${i===0?'active':''}" onclick="setExpCatFilter('${c}',this)">${c}</button>`
             ).join('')}
           </div>
@@ -5543,11 +5615,95 @@ function renderExpenses() {
         </table>
       </div>
     </div>
+
+    <!-- Tab: Summary by category -->
+    <div class="tab-content" id="exp-tab-summary">
+      ${renderExpenseSummary()}
+    </div>
   </div>`;
 }
 
+function renderExpenseSummary() {
+  const allCats = ['Load', 'Utility', 'Product Supplies', 'Product', 'Shipping Fee', 'Transfer Fee', 'Others'];
+  const grandTotal = DB.expenses.reduce((s, e) => s + e.total, 0);
+  const thisMonth = new Date().toISOString().slice(0, 7);
+
+  const byCategory = allCats.map((cat) => {
+    const items = DB.expenses.filter((e) => e.category === cat);
+    const monthItems = items.filter((e) => e.date.startsWith(thisMonth));
+    return {
+      cat,
+      count: items.length,
+      total: items.reduce((s, e) => s + e.total, 0),
+      monthTotal: monthItems.reduce((s, e) => s + e.total, 0),
+    };
+  }).filter((r) => r.count > 0);
+
+  if (!byCategory.length) {
+    return '<div class="empty-state"><h3>No expenses yet</h3><p>Log your first expense to see the summary.</p></div>';
+  }
+
+  const byClass = ['OPEX', 'COGS', 'CAPEX'].map((cls) => {
+    const items = DB.expenses.filter((e) => (e.classification || 'OPEX') === cls);
+    return { cls, count: items.length, total: items.reduce((s, e) => s + e.total, 0) };
+  }).filter((r) => r.count > 0);
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start;">
+      <div class="card">
+        <div class="card-header"><div class="card-title">By Category</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Category</th><th>Entries</th><th>This Month</th><th>Total</th><th>% of Total</th></tr></thead>
+            <tbody>
+              ${byCategory.map((r) => {
+                const pct = grandTotal > 0 ? ((r.total / grandTotal) * 100).toFixed(1) : '0.0';
+                return `<tr>
+                  <td><span class="badge ${catBadge(r.cat)}">${escapeHtml(r.cat)}</span></td>
+                  <td>${r.count}</td>
+                  <td>₱${r.monthTotal.toLocaleString()}</td>
+                  <td><strong>₱${r.total.toLocaleString()}</strong></td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <div style="flex:1;height:6px;background:var(--surface-3);border-radius:999px;min-width:60px;">
+                        <div style="width:${pct}%;height:100%;background:var(--primary);border-radius:999px;"></div>
+                      </div>
+                      <span style="font-size:12px;color:var(--text-muted);min-width:36px;">${pct}%</span>
+                    </div>
+                  </td>
+                </tr>`;
+              }).join('')}
+              <tr style="border-top:2px solid var(--border);font-weight:700;">
+                <td>Total</td>
+                <td>${DB.expenses.length}</td>
+                <td>₱${DB.expenses.filter(e=>e.date.startsWith(thisMonth)).reduce((s,e)=>s+e.total,0).toLocaleString()}</td>
+                <td>₱${grandTotal.toLocaleString()}</td>
+                <td>100%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">By Classification</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Class</th><th>Entries</th><th>Total</th></tr></thead>
+            <tbody>
+              ${byClass.map((r) => `<tr>
+                <td><span class="badge ${classBadge(r.cls)}">${r.cls}</span></td>
+                <td>${r.count}</td>
+                <td><strong>₱${r.total.toLocaleString()}</strong></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
 function catBadge(cat) {
-  return { Load: 'badge-info', Utility: 'badge-warning', 'Product Supplies': 'badge-purple', Others: 'badge-gray' }[cat] || 'badge-gray';
+  return { Load: 'badge-info', Utility: 'badge-warning', 'Product Supplies': 'badge-purple', Product: 'badge-success', 'Shipping Fee': 'badge-danger', 'Transfer Fee': 'badge-amber', Others: 'badge-gray' }[cat] || 'badge-gray';
 }
 
 function classBadge(cls) {
@@ -7922,6 +8078,11 @@ function initPage(page) {
   }
 
   if (page === 'expenses') {
+    loadExpensesFromBackend().then(() => {
+      if (App.currentPage !== 'expenses') return;
+      document.getElementById('main-page-content').innerHTML = renderExpenses();
+      loadExpenseCredits().catch(() => {});
+    }).catch(() => {});
     loadExpenseCredits().catch(() => {});
   }
 
@@ -7967,6 +8128,10 @@ function initPage(page) {
 
   if (page === 'attendance-log') {
     initAttendanceLogPage();
+  }
+
+  if (page === 'schedule') {
+    initSchedulePage();
   }
 
   if (page === 'inventory') {
@@ -8095,10 +8260,11 @@ function populateHRUserSelects() {
     filter.innerHTML = options;
     filter.dataset.ready = '1';
   }
+  const userOptions = hrState.users.map((user) => `<option value="${user.id}">${escapeHtml(user.full_name)}</option>`).join('');
   const cashSelect = document.getElementById('cash-advance-user');
-  if (cashSelect) {
-    cashSelect.innerHTML = hrState.users.map((user) => `<option value="${user.id}">${escapeHtml(user.full_name)}</option>`).join('');
-  }
+  if (cashSelect) cashSelect.innerHTML = userOptions;
+  const scheduleUserSelect = document.getElementById('schedule-user');
+  if (scheduleUserSelect) scheduleUserSelect.innerHTML = userOptions;
 }
 
 async function initHRPage() {
@@ -8116,8 +8282,6 @@ async function initHRPage() {
     showToast('error', 'Users unavailable', error.message || 'Could not load HR users.');
   }
   await loadHRDashboard();
-  loadHRAnnouncements().catch(() => {});
-  loadHRPendingOT().catch(() => {});
 }
 
 // Attendance edits live on both the HR/Payroll page and the Attendance Log page.
@@ -8167,24 +8331,114 @@ function renderAttendanceLog() {
   </div>
 
   <div class="tabs" style="margin-bottom:16px;">
-    <button class="tab-btn active" onclick="switchTab(this,'al-tab-summary')">Summary</button>
-    <button class="tab-btn" onclick="switchTab(this,'al-tab-log')">Attendance Log</button>
+    <button class="tab-btn active" onclick="switchTab(this,'al-tab-log')">Attendance Log</button>
+    <button class="tab-btn" onclick="switchTab(this,'al-tab-announcements'); loadHRAnnouncements();">Announcements</button>
+    <button class="tab-btn" onclick="switchTab(this,'al-tab-ot'); loadHRPendingOT();">Overtime Approvals</button>
   </div>
 
-  <div id="al-tab-summary" class="tab-content active">
+  <div id="al-tab-log" class="tab-content active">
     <div class="card">
-      <div class="card-header"><div><div class="card-title">Salary Summary</div><div class="card-subtitle">Total salary per user for the selected date range. Total Salary = base + OT + holiday − cash advance.</div></div></div>
-      <div class="card-body" id="al-summary-wrap">
-        <div class="empty-state"><h3>Loading summary</h3><p>Preparing salary totals.</p></div>
+      <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Click any row to edit. Days under 4 hrs do not count toward salary.</div></div></div>
+      <div class="card-body" id="al-attendance-wrap">
+        <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
       </div>
     </div>
   </div>
 
-  <div id="al-tab-log" class="tab-content">
+  <div id="al-tab-announcements" class="tab-content">
     <div class="card">
-      <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Daily time records. Edit holiday % to adjust pay. Days under 4 hrs do not count toward salary.</div></div></div>
-      <div class="card-body" id="al-attendance-wrap">
-        <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
+      <div class="card-header">
+        <div><div class="card-title">Announcements</div><div class="card-subtitle">Posts here appear on every user's Home page.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadHRAnnouncements()">Refresh</button>
+      </div>
+      <div class="card-body">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input type="text" class="form-control" id="hr-announce-title" placeholder="e.g. Holiday schedule update">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expires On (optional)</label>
+            <input type="date" class="form-control" id="hr-announce-expires">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea class="form-control" id="hr-announce-body" rows="3" placeholder="Write the announcement details..."></textarea>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" onclick="submitHRAnnouncement()">Post Announcement</button>
+          <button class="btn btn-secondary" onclick="clearHRAnnouncementForm()">Clear</button>
+        </div>
+        <div id="hr-announcement-list" style="margin-top:16px;display:grid;gap:8px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="al-tab-ot" class="tab-content">
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">Overtime Approvals</div><div class="card-subtitle">Approved hours count toward pay. Pending and rejected do not.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadHRPendingOT()">Refresh</button>
+      </div>
+      <div class="card-body" id="hr-ot-request-list">
+        <div style="color:var(--text-muted);font-size:13px;">Loading OT requests...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Attendance Modal -->
+  <div class="modal-overlay" id="edit-attendance-modal">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="att-modal-title">Edit Attendance</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="att-modal-subtitle"></div>
+        </div>
+        <button class="modal-close" onclick="closeModal('edit-attendance-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="att-modal-record-id">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Time In</label>
+            <input type="time" id="att-modal-time-in" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Time Out</label>
+            <input type="time" id="att-modal-time-out" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Break Out</label>
+            <input type="time" id="att-modal-break-out" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Break In</label>
+            <input type="time" id="att-modal-break-in" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">OT (minutes)</label>
+            <input type="number" min="0" id="att-modal-ot-minutes" class="form-control" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Holiday %</label>
+            <select id="att-modal-holiday-pct" class="form-control">
+              <option value="100">100 — Regular day</option>
+              <option value="125">125 — Special Holiday</option>
+              <option value="150">150 — Regular Holiday</option>
+              <option value="200">200 — Double pay</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea id="att-modal-notes" class="form-control" rows="2" placeholder="Optional note"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="saveAttendanceFromModal()">Save Changes</button>
+          <button class="btn btn-secondary" onclick="closeModal('edit-attendance-modal')">Cancel</button>
+          <button class="btn btn-ghost" style="color:var(--error-color,#dc2626);" onclick="deleteAttendanceFromModal()">Delete</button>
+        </div>
       </div>
     </div>
   </div>`;
@@ -8201,7 +8455,7 @@ function getAttendanceLogFilters() {
 
 async function initAttendanceLogPage() {
   if (!canManageHR()) {
-    const wrap = document.getElementById('al-summary-wrap');
+    const wrap = document.getElementById('al-attendance-wrap');
     if (wrap) wrap.innerHTML = '<div class="empty-state"><h3>HR access required</h3><p>Your account cannot view the attendance log.</p></div>';
     return;
   }
@@ -8222,6 +8476,8 @@ async function initAttendanceLogPage() {
     showToast('error', 'Users unavailable', error.message || 'Could not load users.');
   }
   await loadAttendanceLogDashboard();
+  loadHRAnnouncements().catch(() => {});
+  loadHRPendingOT().catch(() => {});
 }
 
 async function loadAttendanceLogDashboard() {
@@ -8230,14 +8486,23 @@ async function loadAttendanceLogDashboard() {
   const query = new URLSearchParams({ from, to, _: Date.now().toString() });
   if (userId) query.set('user_id', userId);
 
+  // Schedules need the full date range without user filter so we can look up any user's schedule
+  const scheduleQuery = new URLSearchParams({ from, to });
+  if (userId) scheduleQuery.set('user_id', userId);
+
   try {
-    const [summaryData, attendanceData] = await Promise.all([
-      authorizedJsonRequest(`/hr/summary?${query.toString()}`),
+    const [attendanceData, scheduleData] = await Promise.all([
       authorizedJsonRequest(`/hr/attendance?${query.toString()}`),
+      authorizedJsonRequest(`/hr/schedules?${scheduleQuery.toString()}`).catch(() => ({ schedules: [] })),
     ]);
-    hrState.summary = Array.isArray(summaryData?.summary) ? summaryData.summary : [];
     hrState.attendance = Array.isArray(attendanceData?.records) ? attendanceData.records : [];
-    renderAttendanceLogSummary();
+
+    // Build lookup: "userId|date" → schedule row
+    hrState.scheduleMap = {};
+    for (const s of (scheduleData?.schedules || [])) {
+      hrState.scheduleMap[`${s.user_id}|${s.schedule_date}`] = s;
+    }
+
     renderHRAttendanceTable('al-attendance-wrap');
   } catch (error) {
     showToast('error', 'Attendance log failed', error.message || 'Could not load attendance log.');
@@ -8345,25 +8610,19 @@ function renderHRPayrollTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Actions</th></tr></thead>
+        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th></tr></thead>
         <tbody>
           ${hrState.summary.map((item) => {
             const user = item.user || {};
             return `
-              <tr>
+              <tr onclick="openPayrollEditModal(${user.id})" style="cursor:pointer;" title="Click to edit daily rate">
                 <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
-                <td><input type="number" min="0" step="0.01" class="form-control" style="width:120px;" id="daily-rate-${user.id}" value="${Number(user.daily_rate || 0)}" onkeydown="if(event.key==='Enter'){event.preventDefault();saveDailyRate(${user.id});}" onblur="saveDailyRateOnBlur(${user.id}, ${Number(user.daily_rate || 0)})"></td>
+                <td><strong>${formatPHP(user.daily_rate)}</strong></td>
                 <td>${Number(item.days_worked || 0)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
                 <td>${formatPHP(item.cash_advances)}</td>
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
-                <td>
-                  <div class="flex gap-2">
-                    <button class="btn btn-primary btn-sm" onclick="saveDailyRate(${user.id})">Save Rate</button>
-                    <button class="btn btn-secondary btn-sm" onclick="printPayslip(${user.id})">Payslip</button>
-                  </div>
-                </td>
               </tr>`;
           }).join('')}
         </tbody>
@@ -8379,10 +8638,11 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
     return;
   }
 
+  const timeTxt = (v) => v ? escapeHtml(v) : '<span style="color:var(--text-muted)">—</span>';
   wrap.innerHTML = `
     <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Break Out</th><th>Break In</th><th>Time Out</th><th>Work Hours</th><th>OT</th><th>Holiday %</th><th>Daily Salary</th><th></th></tr></thead>
+      <table class="data-table" style="cursor:pointer;">
+        <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Break Out</th><th>Break In</th><th>Time Out</th><th>Work Hours</th><th>OT</th><th>Daily Salary</th></tr></thead>
         <tbody>
           ${hrState.attendance.map((record) => {
             const workedMins = Number(record.worked_minutes || 0);
@@ -8391,27 +8651,47 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const holidayPct = Number(record.holiday_percentage || 100);
             const dailyRate = Number(record.daily_rate || 0);
             const dailySalary = qualifies ? dailyRate * (holidayPct / 100) : 0;
-            const timeInput = (field) => `<input type="time" class="form-control" style="width:110px;padding:4px 6px;" id="att-${field}-${record.id}" value="${escapeHtml(record[field] || '')}">`;
+
+            // Schedule lookup for this user + date
+            const sched = (hrState.scheduleMap || {})[`${record.user_id}|${record.work_date}`] || null;
+            let scheduleHtml = '';
+            if (sched) {
+              const shiftLabel = sched.shift_start
+                ? escapeHtml(sched.shift_start) + (sched.shift_end ? ' – ' + escapeHtml(sched.shift_end) : '')
+                : (sched.notes ? '' : '—');
+              const statusInfo = (() => {
+                if (!sched.shift_start) return { label: sched.notes ? 'Scheduled' : '', color: '#6b7280', bg: 'transparent' };
+                const toMin = (t) => { const m = String(t||'').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1]*60 + +m[2] : null; };
+                const shiftMin = toMin(sched.shift_start);
+                const clockMin = toMin(record.time_in);
+                if (clockMin !== null && shiftMin !== null && clockMin > shiftMin) {
+                  const late = clockMin - shiftMin;
+                  return { label: `Late ${late}m`, color: '#b45309', bg: '#fef3c7' };
+                }
+                return { label: 'On Time', color: '#16a34a', bg: '#dcfce7' };
+              })();
+              const holidayTag = sched.is_holiday
+                ? `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:#7c3aed;background:#ede9fe;">${escapeHtml(sched.holiday_type || 'Holiday')}${sched.holiday_percentage ? ` +${sched.holiday_percentage}%` : ''}</span>`
+                : '';
+              scheduleHtml = `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+                ${shiftLabel ? `<span style="font-size:11px;color:var(--text-muted);">${shiftLabel}</span>` : ''}
+                ${statusInfo.label ? `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${statusInfo.color};background:${statusInfo.bg};">${statusInfo.label}</span>` : ''}
+                ${holidayTag}
+                ${sched.notes ? `<span style="font-size:10px;color:var(--text-muted);font-style:italic;">${escapeHtml(sched.notes)}</span>` : ''}
+              </div>`;
+            }
+
             return `
-            <tr>
+            <tr onclick="openAttendanceEditModal(${record.id})" style="cursor:pointer;" title="Click to edit">
               <td><strong>${escapeHtml(record.work_date || '')}</strong></td>
-              <td>${escapeHtml(record.full_name || '')}</td>
-              <td>${timeInput('time_in')}</td>
-              <td>${timeInput('break_out')}</td>
-              <td>${timeInput('break_in')}</td>
-              <td>${timeInput('time_out')}</td>
+              <td>${escapeHtml(record.full_name || '')}${scheduleHtml}</td>
+              <td>${timeTxt(record.time_in)}</td>
+              <td>${timeTxt(record.break_out)}</td>
+              <td>${timeTxt(record.break_in)}</td>
+              <td>${timeTxt(record.time_out)}</td>
               <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td>${otMins > 0 ? `<span class="badge badge-warning">${formatMinutes(otMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-              <td>
-                <input type="number" min="100" step="1" class="form-control" style="width:90px;"
-                  id="att-holiday-${record.id}" value="${holidayPct}"
-                  title="100=regular, 125=special holiday, 150=regular holiday">
-              </td>
               <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong></td>
-              <td style="white-space:nowrap;">
-                <button class="btn btn-ghost btn-sm" onclick="saveAttendanceAdjustments(${record.id})">Save</button>
-                <button class="btn btn-ghost btn-sm" style="color:var(--danger, #dc2626);" onclick="deleteAttendance(${record.id})">Delete</button>
-              </td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -8419,14 +8699,27 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
     </div>`;
 }
 
-async function saveDailyRate(userId) {
-  const input = document.getElementById(`daily-rate-${userId}`);
-  const dailyRate = Number(input?.value || 0);
+function openPayrollEditModal(userId) {
+  const item = (hrState.summary || []).find((s) => Number(s.user?.id) === Number(userId));
+  if (!item) return;
+  const user = item.user || {};
+  document.getElementById('payroll-modal-user-id').value = userId;
+  document.getElementById('payroll-modal-title').textContent = user.full_name || user.username || 'User';
+  document.getElementById('payroll-modal-role').textContent = formatRoleLabel(user.role);
+  document.getElementById('payroll-modal-rate').value = Number(user.daily_rate || 0);
+  openModal('payroll-edit-modal');
+}
+
+async function savePayrollRate() {
+  const userId = Number(document.getElementById('payroll-modal-user-id')?.value || 0);
+  const dailyRate = Number(document.getElementById('payroll-modal-rate')?.value || 0);
+  if (!userId) return;
   try {
     await authorizedJsonRequest(`/hr/users/${userId}/rate`, {
       method: 'PATCH',
       body: JSON.stringify({ daily_rate: dailyRate }),
     });
+    closeModal('payroll-edit-modal');
     showToast('success', 'Rate saved', 'Daily rate was updated.');
     await loadHRDashboard();
   } catch (error) {
@@ -8434,34 +8727,52 @@ async function saveDailyRate(userId) {
   }
 }
 
-async function saveDailyRateOnBlur(userId, originalRate) {
-  const input = document.getElementById(`daily-rate-${userId}`);
-  if (!input) return;
-  const newRate = Number(input.value || 0);
-  if (newRate === originalRate) return;
-  await saveDailyRate(userId);
+function printPayslipFromModal() {
+  const userId = Number(document.getElementById('payroll-modal-user-id')?.value || 0);
+  if (userId) printPayslip(userId);
 }
 
-async function saveAttendanceAdjustments(recordId) {
+function openAttendanceEditModal(recordId) {
+  const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
+  if (!record) return;
+  document.getElementById('att-modal-record-id').value = recordId;
+  document.getElementById('att-modal-title').textContent = `Edit — ${record.full_name || 'User'}`;
+  document.getElementById('att-modal-subtitle').textContent = record.work_date || '';
+  document.getElementById('att-modal-time-in').value = record.time_in || '';
+  document.getElementById('att-modal-time-out').value = record.time_out || '';
+  document.getElementById('att-modal-break-out').value = record.break_out || '';
+  document.getElementById('att-modal-break-in').value = record.break_in || '';
+  document.getElementById('att-modal-ot-minutes').value = record.ot_minutes || 0;
+  const pctSelect = document.getElementById('att-modal-holiday-pct');
+  const pct = String(Number(record.holiday_percentage || 100));
+  if ([...pctSelect.options].some((o) => o.value === pct)) pctSelect.value = pct;
+  else pctSelect.value = '100';
+  document.getElementById('att-modal-notes').value = record.notes || '';
+  openModal('edit-attendance-modal');
+}
+
+async function saveAttendanceFromModal() {
+  const recordId = Number(document.getElementById('att-modal-record-id')?.value || 0);
+  if (!recordId) return;
+  const record = (hrState.attendance || []).find((r) => Number(r.id) === recordId);
+  if (!record) return;
+  const holidayPercentage = Math.max(100, Number(document.getElementById('att-modal-holiday-pct')?.value || 100));
   try {
-    const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
-    if (!record) throw new Error('Record not found in current view.');
-    const readTime = (field) => String(document.getElementById(`att-${field}-${recordId}`)?.value || '').trim();
-    const holidayPercentage = Math.max(100, Number(document.getElementById(`att-holiday-${recordId}`)?.value || 100));
     await authorizedJsonRequest(`/hr/attendance/${recordId}`, {
       method: 'PUT',
       body: JSON.stringify({
-        time_in: readTime('time_in'),
-        break_out: readTime('break_out'),
-        break_in: readTime('break_in'),
-        time_out: readTime('time_out'),
+        time_in: document.getElementById('att-modal-time-in')?.value || '',
+        break_out: document.getElementById('att-modal-break-out')?.value || '',
+        break_in: document.getElementById('att-modal-break-in')?.value || '',
+        time_out: document.getElementById('att-modal-time-out')?.value || '',
         break_minutes: Number(record.break_minutes || 0),
-        ot_minutes: Number(record.ot_minutes || 0),
+        ot_minutes: Math.max(0, Number(document.getElementById('att-modal-ot-minutes')?.value || 0)),
         holiday_type: holidayPercentage > 100 ? (record.holiday_type || 'Holiday') : 'Regular day',
         holiday_percentage: holidayPercentage,
-        notes: record.notes || '',
+        notes: document.getElementById('att-modal-notes')?.value || '',
       }),
     });
+    closeModal('edit-attendance-modal');
     showToast('success', 'Attendance saved', 'Attendance record was updated.');
     await refreshHRViews();
   } catch (error) {
@@ -8469,16 +8780,274 @@ async function saveAttendanceAdjustments(recordId) {
   }
 }
 
-async function deleteAttendance(recordId) {
-  const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
+async function deleteAttendanceFromModal() {
+  const recordId = Number(document.getElementById('att-modal-record-id')?.value || 0);
+  if (!recordId) return;
+  const record = (hrState.attendance || []).find((r) => Number(r.id) === recordId);
   const who = record ? `${record.full_name || 'user'} on ${record.work_date}` : `record #${recordId}`;
   if (!window.confirm(`Delete attendance for ${who}? This cannot be undone.`)) return;
   try {
     await authorizedJsonRequest(`/hr/attendance/${recordId}`, { method: 'DELETE' });
+    closeModal('edit-attendance-modal');
     showToast('success', 'Attendance deleted', 'The attendance record was removed.');
     await refreshHRViews();
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete attendance.');
+  }
+}
+
+// ─── SCHEDULE PAGE ─────────────────────────────────────────
+function renderSchedulePage() {
+  const today = new Date().toLocaleDateString('en-CA');
+  return `
+    <div class="page-header">
+      <div>
+        <h1>Schedule</h1>
+        <p class="page-subtitle">Staff daily schedules</p>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;padding:16px 20px;">
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label class="form-label" style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">From</label>
+          <input type="date" id="sched-page-from" class="form-control" value="${today}" style="width:160px;">
+        </div>
+        <div>
+          <label class="form-label" style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">To</label>
+          <input type="date" id="sched-page-to" class="form-control" value="${today}" style="width:160px;">
+        </div>
+        <div>
+          <label class="form-label" style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">User</label>
+          <select id="sched-page-user" class="form-control" style="min-width:200px;">
+            <option value="">All Users</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary" onclick="loadSchedulePageData()" style="margin-bottom:1px;">Apply</button>
+      </div>
+    </div>
+    <div class="card">
+      <div id="sched-page-table-wrap">
+        <div class="empty-state"><p>Loading schedules...</p></div>
+      </div>
+    </div>`;
+}
+
+async function initSchedulePage() {
+  const today = new Date().toLocaleDateString('en-CA');
+  const fromEl = document.getElementById('sched-page-from');
+  const toEl = document.getElementById('sched-page-to');
+  if (fromEl) fromEl.value = today;
+  if (toEl) toEl.value = today;
+
+  const select = document.getElementById('sched-page-user');
+  if (select && canManageHR()) {
+    try {
+      let users = hrState.users.length ? hrState.users : null;
+      if (!users) {
+        const data = await authorizedJsonRequest('/auth/users');
+        users = Array.isArray(data?.users) ? data.users : [];
+      }
+      users.forEach((u) => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.full_name || u.username || '';
+        select.appendChild(opt);
+      });
+    } catch (e) {}
+  }
+
+  loadSchedulePageData();
+}
+
+async function loadSchedulePageData() {
+  const wrap = document.getElementById('sched-page-table-wrap');
+  if (!wrap) return;
+  const today = new Date().toLocaleDateString('en-CA');
+  const from = document.getElementById('sched-page-from')?.value || today;
+  const to = document.getElementById('sched-page-to')?.value || today;
+  const userId = document.getElementById('sched-page-user')?.value || '';
+  wrap.innerHTML = '<div class="empty-state"><p>Loading...</p></div>';
+  try {
+    let url = `/hr/schedules?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    if (userId) url += `&user_id=${encodeURIComponent(userId)}`;
+    const data = await authorizedJsonRequest(url);
+    renderSchedulePageTable(data.schedules || []);
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><p style="color:var(--danger)">Failed to load: ${escapeHtml(e.message || 'Request failed')}</p></div>`;
+  }
+}
+
+function renderSchedulePageTable(schedules) {
+  const wrap = document.getElementById('sched-page-table-wrap');
+  if (!wrap) return;
+  if (!schedules.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No schedules</h3><p>No schedules found for the selected date and user.</p></div>';
+    return;
+  }
+  const statusBadge = (s) => {
+    const map = {
+      'on-time': ['On Time', '#16a34a', '#dcfce7'],
+      late: [`Late${s.minutes_late ? ` ${s.minutes_late}m` : ''}`, '#b45309', '#fef3c7'],
+      absent: ['Absent', '#dc2626', '#fee2e2'],
+      upcoming: ['Upcoming', '#6b7280', '#f3f4f6'],
+      present: ['Present', '#2563eb', '#dbeafe'],
+    };
+    const [label, color, bg] = map[s.status] || ['—', '', ''];
+    return label !== '—'
+      ? `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;color:${color};background:${bg};">${label}</span>`
+      : '<span style="color:var(--text-muted)">—</span>';
+  };
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr>
+          <th>Date</th><th>User</th><th>Shift</th><th>Status</th><th>Holiday</th><th>Notes</th>
+        </tr></thead>
+        <tbody>
+          ${schedules.map((s) => {
+            const shiftLabel = s.shift_start
+              ? escapeHtml(s.shift_start) + (s.shift_end ? ' – ' + escapeHtml(s.shift_end) : '')
+              : '<span style="color:var(--text-muted)">—</span>';
+            const holidayHtml = s.is_holiday
+              ? `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;color:#7c3aed;background:#ede9fe;">${escapeHtml(s.holiday_type || 'Holiday')}${s.holiday_percentage ? ` +${s.holiday_percentage}%` : ''}</span>`
+              : '<span style="color:var(--text-muted)">—</span>';
+            return `<tr>
+              <td><strong>${escapeHtml(s.schedule_date || '')}</strong></td>
+              <td>${escapeHtml(s.full_name || s.username || '')}</td>
+              <td>${shiftLabel}</td>
+              <td>${statusBadge(s)}</td>
+              <td>${holidayHtml}</td>
+              <td>${s.notes ? `<span style="font-size:12px;color:var(--text-muted);">${escapeHtml(s.notes)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openScheduleModal() {
+  populateHRUserSelects();
+  openModal('schedule-modal');
+  loadUserSchedules();
+}
+
+async function loadUserSchedules() {
+  const wrap = document.getElementById('schedule-list');
+  if (!wrap) return;
+  const userId = document.getElementById('schedule-user')?.value;
+  if (!userId) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Loading...</div>';
+  try {
+    const today = normalizeDateString(new Date());
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const from = normalizeDateString(monthAgo);
+    const params = new URLSearchParams({ user_id: userId, from, to: today });
+    const data = await authorizedJsonRequest(`/hr/schedules?${params}`);
+    const rows = data?.schedules || [];
+    if (!rows.length) {
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:12px 0;">No schedules found for this user.</div>';
+      return;
+    }
+    function scheduleStatusBadge(r) {
+      const map = {
+        'on-time':  { label: 'On Time',  color: '#16a34a', bg: '#dcfce7' },
+        'late':     { label: r.minutes_late ? `Late ${r.minutes_late}m` : 'Late', color: '#b45309', bg: '#fef3c7' },
+        'absent':   { label: 'Absent',   color: '#dc2626', bg: '#fee2e2' },
+        'present':  { label: 'Present',  color: '#16a34a', bg: '#dcfce7' },
+        'upcoming': { label: 'Upcoming', color: '#6b7280', bg: '#f3f4f6' },
+        'no-schedule': { label: '—',     color: '#6b7280', bg: 'transparent' },
+      };
+      const s = map[r.status] || map['no-schedule'];
+      const holidayBadge = r.is_holiday
+        ? `<span style="display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600;color:#7c3aed;background:#ede9fe;margin-left:4px;">${escapeHtml(r.holiday_type || 'Holiday')}${r.holiday_percentage ? ` +${r.holiday_percentage}%` : ''}</span>`
+        : '';
+      return `<span style="display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600;color:${s.color};background:${s.bg};">${s.label}</span>${holidayBadge}`;
+    }
+    wrap.innerHTML = `
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Recent schedules (last 30 days)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-color);">
+            <th style="padding:6px 8px;text-align:left;">Date</th>
+            <th style="padding:6px 8px;text-align:left;">Shift</th>
+            <th style="padding:6px 8px;text-align:left;">Status</th>
+            <th style="padding:6px 8px;text-align:left;">Clock In</th>
+            <th style="padding:6px 8px;text-align:left;">Notes</th>
+            <th style="padding:6px 8px;width:36px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r) => `
+            <tr style="border-bottom:1px solid var(--border-color);">
+              <td style="padding:6px 8px;white-space:nowrap;">${escapeHtml(r.schedule_date || '')}</td>
+              <td style="padding:6px 8px;white-space:nowrap;">${r.shift_start ? escapeHtml(r.shift_start) + (r.shift_end ? ' – ' + escapeHtml(r.shift_end) : '') : '—'}</td>
+              <td style="padding:6px 8px;">${scheduleStatusBadge(r)}</td>
+              <td style="padding:6px 8px;color:var(--text-muted);white-space:nowrap;">${r.time_in ? escapeHtml(r.time_in) : '—'}</td>
+              <td style="padding:6px 8px;color:var(--text-muted);">${escapeHtml(r.notes || '')}</td>
+              <td style="padding:6px 8px;">
+                <button class="btn btn-ghost btn-sm" style="color:var(--error-color);padding:2px 6px;" onclick="deleteUserSchedule(${r.id})">×</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (error) {
+    wrap.innerHTML = `<div style="color:var(--error-color);font-size:13px;">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function toggleScheduleHoliday() {
+  const checked = document.getElementById('schedule-is-holiday')?.checked;
+  const opts = document.getElementById('schedule-holiday-options');
+  if (opts) opts.style.display = checked ? '' : 'none';
+  if (checked) selectSchedulePct(30);
+}
+
+function selectSchedulePct(pct) {
+  document.getElementById('schedule-holiday-percentage').value = pct;
+  [30, 50, 100].forEach((v) => {
+    const btn = document.getElementById(`sched-pct-${v}`);
+    if (btn) btn.className = `btn btn-sm ${v === pct ? 'btn-primary' : 'btn-secondary'}`;
+  });
+}
+
+async function createUserSchedule(event) {
+  event.preventDefault();
+  const isHoliday = document.getElementById('schedule-is-holiday')?.checked || false;
+  const holidayType = isHoliday ? (document.getElementById('schedule-holiday-type')?.value || 'Special Holiday') : 'Regular day';
+  const holidayPercentage = isHoliday ? Number(document.getElementById('schedule-holiday-percentage')?.value || 30) : 0;
+  try {
+    await authorizedJsonRequest('/hr/schedules', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: Number(document.getElementById('schedule-user')?.value || 0),
+        schedule_date: document.getElementById('schedule-date')?.value,
+        shift_start: document.getElementById('schedule-shift-start')?.value || null,
+        shift_end: document.getElementById('schedule-shift-end')?.value || null,
+        notes: document.getElementById('schedule-notes')?.value || '',
+        is_holiday: isHoliday,
+        holiday_type: holidayType,
+        holiday_percentage: holidayPercentage,
+      }),
+    });
+    document.getElementById('schedule-shift-start').value = '';
+    document.getElementById('schedule-shift-end').value = '';
+    document.getElementById('schedule-notes').value = '';
+    const cb = document.getElementById('schedule-is-holiday');
+    if (cb) { cb.checked = false; toggleScheduleHoliday(); }
+    showToast('success', 'Schedule added', 'Daily schedule entry was saved.');
+    await loadUserSchedules();
+  } catch (error) {
+    showToast('error', 'Schedule failed', error.message || 'Could not save schedule.');
+  }
+}
+
+async function deleteUserSchedule(id) {
+  try {
+    await authorizedJsonRequest(`/hr/schedules/${id}`, { method: 'DELETE' });
+    showToast('success', 'Deleted', 'Schedule entry removed.');
+    await loadUserSchedules();
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete schedule.');
   }
 }
 
@@ -8498,6 +9067,7 @@ async function createCashAdvance(event) {
     const reason = document.getElementById('cash-advance-reason');
     if (amount) amount.value = '';
     if (reason) reason.value = '';
+    closeModal('cash-advance-modal');
     showToast('success', 'Cash advance saved', 'Payroll deduction was recorded.');
     await loadHRDashboard();
   } catch (error) {
@@ -10625,6 +11195,20 @@ async function performScan(pageId, scanType) {
 }
 
 // ─── EXPENSE HELPERS ───────────────────────────────────────
+function openExpenseModal() {
+  const dateEl = document.getElementById('exp-date');
+  if (dateEl) dateEl.value = new Date().toISOString().split('T')[0];
+  ['exp-cat','exp-item','exp-price','exp-total'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = id === 'exp-cat' ? '' : '';
+  });
+  const qtyEl = document.getElementById('exp-qty');
+  if (qtyEl) qtyEl.value = '1';
+  const clsEl = document.getElementById('exp-class');
+  if (clsEl) clsEl.value = 'OPEX';
+  openModal('expense-log-modal');
+}
+
 function calcExpTotal() {
   const qty = parseFloat(document.getElementById('exp-qty')?.value || 0);
   const price = parseFloat(document.getElementById('exp-price')?.value || 0);
@@ -10633,50 +11217,63 @@ function calcExpTotal() {
   if (el) el.value = total > 0 ? total.toFixed(2) : '';
 }
 
-function saveExpense() {
+async function loadExpensesFromBackend() {
+  try {
+    const result = await authorizedJsonRequest('/expenses?per_page=500');
+    const rows = Array.isArray(result?.data) ? result.data : [];
+    DB.expenses = rows.map((r) => ({
+      id: r.expense_ref || `EXP-${r.id}`,
+      date: r.exp_date || '',
+      category: r.category || 'Others',
+      classification: r.classification || 'OPEX',
+      item: r.item_name || '',
+      qty: Number(r.quantity || 1),
+      price: Number(r.unit_price || 0),
+      total: Number(r.quantity || 1) * Number(r.unit_price || 0),
+      noted: r.noted_by || '',
+    }));
+  } catch (e) {
+    // keep existing DB.expenses if fetch fails
+  }
+}
+
+async function saveExpense() {
   const date = document.getElementById('exp-date')?.value;
   const category = document.getElementById('exp-cat')?.value;
   const classification = document.getElementById('exp-class')?.value || 'OPEX';
   const item = document.getElementById('exp-item')?.value;
   const qty = parseInt(document.getElementById('exp-qty')?.value || 0);
   const price = parseFloat(document.getElementById('exp-price')?.value || 0);
-  const noted = document.getElementById('exp-noted')?.value || App.user?.name || '';
+  const noted = document.getElementById('exp-noted')?.value || App.user?.full_name || App.user?.name || '';
 
   if (!date || !category || !item || qty < 1 || price <= 0) {
     showToast('error', 'Validation failed', 'Please fill in all required fields.');
     return;
   }
 
-  const newExp = {
-    id: `EXP-${String(DB.expenses.length + 1).padStart(4, '0')}`,
-    date, category, classification, item, qty, price, total: qty * price, noted,
-  };
-
-  DB.expenses.unshift(newExp);
-
-  const tbody = document.getElementById('exp-tbody');
-  if (tbody) {
-    const row = document.createElement('tr');
-    row.dataset.classification = classification;
-    row.innerHTML = `
-      <td class="font-mono text-xs text-muted">${newExp.id}</td>
-      <td>${newExp.date}</td>
-      <td><span class="badge ${catBadge(newExp.category)}">${newExp.category}</span></td>
-      <td><span class="badge ${classBadge(classification)}">${classification}</span></td>
-      <td>${newExp.item}</td>
-      <td>${newExp.qty}</td>
-      <td>₱${newExp.price.toLocaleString()}</td>
-      <td><strong>₱${newExp.total.toLocaleString()}</strong></td>
-      <td>${newExp.noted}</td>`;
-    tbody.insertBefore(row, tbody.firstChild);
+  try {
+    await authorizedJsonRequest('/expenses', {
+      method: 'POST',
+      body: JSON.stringify({
+        exp_date: date,
+        category,
+        classification,
+        item_name: item,
+        quantity: qty,
+        unit_price: price,
+        noted_by: noted,
+      }),
+    });
+    showToast('success', 'Expense saved', `${item} — ₱${(qty * price).toLocaleString()}`);
+    closeModal('expense-log-modal');
+    await loadExpensesFromBackend();
+    if (App.currentPage === 'expenses') {
+      document.getElementById('main-page-content').innerHTML = renderExpenses();
+      loadExpenseCredits().catch(() => {});
+    }
+  } catch (err) {
+    showToast('error', 'Save failed', err.message || 'Could not save expense.');
   }
-
-  ['exp-item','exp-qty','exp-price','exp-total'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = id === 'exp-qty' ? '1' : '';
-  });
-
-  showToast('success', 'Expense saved', `${item} — ₱${(qty*price).toLocaleString()}`);
 }
 
 // ─── PICKUP HELPERS ────────────────────────────────────────

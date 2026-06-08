@@ -1884,13 +1884,27 @@ function normalizeAdsBudget(item) {
   return raw >= 1000 ? raw / 100 : raw;
 }
 
+function normalizeCampaignId(item) {
+  return stringOrNull(
+    item?.campaign_id
+    || item?.campaignId
+    || item?.campaign?.id
+    || item?.ad_campaign?.id
+    || item?.adCampaign?.id
+    || item?.ad_performance_session?.campaign_id
+    || item?.ad_performance_session?.campaignId
+  );
+}
+
 function normalizeAdSet(item, connection) {
   const insights = item?.insights && typeof item.insights === 'object' ? item.insights : {};
   const source = { ...item, insights };
   const spend = firstNumberFrom(source, ['spend', 'insights.spend']);
   const resultRoas = firstNumberFrom(source, ['result_roas', 'insights.result_roas', 'roas', 'insights.roas']);
+  const campaignId = normalizeCampaignId(item);
   return {
     id: stringOrNull(item?.id || item?.adset_id || item?.ad_set_id),
+    campaign_id: campaignId,
     campaign_name: stringOrNull(item?.ad_campaign?.name || item?.campaign_name || item?.campaign?.name || item?.campaignName) || 'Untitled campaign',
     name: stringOrNull(item?.name || item?.adset_name || item?.ad_set_name) || 'Untitled ad set',
     status: stringOrNull(item?.status || item?.effective_status || item?.configured_status),
