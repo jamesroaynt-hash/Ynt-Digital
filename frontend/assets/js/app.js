@@ -3696,7 +3696,7 @@ function renderDataReportDashboard() {
       <div class="card-header">
         <div>
           <div class="card-title">By Assigned Staff</div>
-          <div class="card-subtitle">Orders and RTS rate per staff who confirmed the order</div>
+          <div class="card-subtitle">Orders and RTS rate per assigned staff member</div>
         </div>
       </div>
       ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet', { showCod: true })}
