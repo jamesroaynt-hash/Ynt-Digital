@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   expense_ref TEXT NOT NULL UNIQUE,
   exp_date TEXT NOT NULL DEFAULT (date('now')),
   category TEXT NOT NULL
-    CHECK(category IN ('Load', 'Utility', 'Product Supplies', 'Others')),
+    CHECK(category IN ('Load', 'Utility', 'Product Supplies', 'Product', 'Shipping Fee', 'Transfer Fee', 'Others')),
   classification TEXT NOT NULL DEFAULT 'OPEX'
     CHECK(classification IN ('COGS', 'OPEX', 'CAPEX')),
   item_name TEXT NOT NULL,

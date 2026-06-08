@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   expense_ref TEXT NOT NULL UNIQUE,
   exp_date TEXT NOT NULL DEFAULT (CURRENT_DATE::text),
   category TEXT NOT NULL
-    CHECK(category IN ('Load', 'Utility', 'Product Supplies', 'Others')),
+    CHECK(category IN ('Load', 'Utility', 'Product Supplies', 'Product', 'Shipping Fee', 'Transfer Fee', 'Others')),
   item_name TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
   unit_price REAL NOT NULL DEFAULT 0,
