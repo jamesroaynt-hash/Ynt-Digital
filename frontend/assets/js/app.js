@@ -3756,7 +3756,6 @@ function renderConfirmedByStatsTable(stats) {
         <th style="text-align:right">Total</th>
         <th style="text-align:right">Delivered</th>
         <th style="text-align:right">Returned</th>
-        <th style="text-align:right">Canceled</th>
         <th style="text-align:right">Active</th>
         <th style="text-align:right">RTS Rate</th>
       </tr></thead>
@@ -3768,7 +3767,6 @@ function renderConfirmedByStatsTable(stats) {
             <td style="text-align:right">${Number(row.total || 0).toLocaleString()}</td>
             <td style="text-align:right" class="text-success">${Number(row.delivered || 0).toLocaleString()}</td>
             <td style="text-align:right" class="text-danger">${Number(row.returned || 0).toLocaleString()}</td>
-            <td style="text-align:right">${Number(row.canceled || 0).toLocaleString()}</td>
             <td style="text-align:right">${Number(row.active || 0).toLocaleString()}</td>
             <td style="text-align:right"><span class="data-report-rate ${rts >= 30 ? 'bad' : rts >= 15 ? 'warn' : 'ok'}">${rts.toFixed(1)}%</span></td>
           </tr>`;
