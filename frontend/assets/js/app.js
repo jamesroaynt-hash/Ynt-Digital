@@ -2816,7 +2816,7 @@ function renderAttendance() {
   </div>
 
   <div id="attendance-tab-clock" class="tab-content active">
-    <div style="display:grid; grid-template-columns:minmax(0, .9fr) minmax(320px, 1.1fr); gap:16px;">
+    <div style="display:grid; grid-template-columns:${canManageHR() ? 'minmax(0, .9fr) minmax(320px, 1.1fr)' : 'minmax(0, 1fr)'}; gap:16px;">
       <div class="card">
         <div class="card-header">
           <div><div class="card-title">Today Status</div><div class="card-subtitle">Use the buttons to clock in/out and record breaks.</div></div>
@@ -2841,34 +2841,34 @@ function renderAttendance() {
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header"><div><div class="card-title">Time Inputs</div><div class="card-subtitle">${canManageHR() ? 'Adjust the current day record when needed.' : 'Time records can only be edited by HR or Admin.'}</div></div></div>
+      ${canManageHR() ? `<div class="card">
+        <div class="card-header"><div><div class="card-title">Time Inputs</div><div class="card-subtitle">Adjust the current day record when needed.</div></div></div>
         <div class="card-body">
           <div class="form-grid-2">
             <div class="form-group">
               <label class="form-label">Time In</label>
-              <input type="time" id="attendance-time-in" class="form-control" ${canManageHR() ? '' : 'readonly'}>
+              <input type="time" id="attendance-time-in" class="form-control">
             </div>
             <div class="form-group">
               <label class="form-label">Time Out</label>
-              <input type="time" id="attendance-time-out" class="form-control" ${canManageHR() ? '' : 'readonly'}>
+              <input type="time" id="attendance-time-out" class="form-control">
             </div>
             <div class="form-group">
               <label class="form-label">Break Out</label>
-              <input type="time" id="attendance-break-out" class="form-control" ${canManageHR() ? '' : 'readonly'}>
+              <input type="time" id="attendance-break-out" class="form-control">
             </div>
             <div class="form-group">
               <label class="form-label">Break In</label>
-              <input type="time" id="attendance-break-in" class="form-control" ${canManageHR() ? '' : 'readonly'}>
+              <input type="time" id="attendance-break-in" class="form-control">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Notes</label>
-            <textarea id="attendance-notes" class="form-control" rows="3" placeholder="Optional attendance note" ${canManageHR() ? '' : 'readonly'}></textarea>
+            <textarea id="attendance-notes" class="form-control" rows="3" placeholder="Optional attendance note"></textarea>
           </div>
-          ${canManageHR() ? '<button class="btn btn-primary" onclick="saveAttendanceTimes()">Save Time Record</button>' : '<p style="font-size:13px;color:var(--text-muted);margin:0;">Contact HR or Admin to correct your time record.</p>'}
+          <button class="btn btn-primary" onclick="saveAttendanceTimes()">Save Time Record</button>
         </div>
-      </div>
+      </div>` : ''}
     </div>
   </div>
 
