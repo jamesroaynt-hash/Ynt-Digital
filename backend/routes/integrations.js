@@ -159,10 +159,10 @@ module.exports = function integrationRoutes(db) {
       const stats = await db.prepare(`
         SELECT
           COALESCE(NULLIF(TRIM(pu.name), ''), pu.username, pu.email, '—') AS staff_name,
-          SUM(CASE WHEN po.id IS NOT NULL AND po.status_name NOT IN ('new','canceled','removed') THEN 1 ELSE 0 END) AS total,
+          SUM(CASE WHEN po.status_name IN ('shipped','delivered','submitted','returned','returning') THEN 1 ELSE 0 END) AS total,
           SUM(CASE WHEN po.status_name = 'delivered' THEN 1 ELSE 0 END) AS delivered,
           SUM(CASE WHEN po.status_name IN ('returned','returning') THEN 1 ELSE 0 END) AS returned,
-          SUM(CASE WHEN po.id IS NOT NULL AND po.status_name NOT IN ('new','delivered','returned','returning','canceled','removed') THEN 1 ELSE 0 END) AS active,
+          SUM(CASE WHEN po.status_name IN ('shipped','submitted') THEN 1 ELSE 0 END) AS active,
           ROUND(100.0 * SUM(CASE WHEN po.status_name IN ('returned','returning') THEN 1 ELSE 0 END)
             / NULLIF(SUM(CASE WHEN po.status_name IN ('delivered','returned','returning') THEN 1 ELSE 0 END),0), 1) AS rts_rate
         FROM pos_users pu
