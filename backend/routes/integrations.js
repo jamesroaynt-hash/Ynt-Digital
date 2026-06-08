@@ -375,8 +375,8 @@ module.exports = function integrationRoutes(db) {
         cod,
         rtsRate: base ? ((returned + returning) / base) * 100 : 0,
         byPrice:     jsGroupBy((r) => getPriceRange(r.cod_amount)),
-        byConfirmed: jsGroupBy((r) => r.confirmed_by || 'Unassigned'),
-        byProvince:  jsGroupBy((r) => r.province_city || 'Unknown province'),
+        byConfirmed: jsGroupBy((r) => r.confirmed_by || null).filter((g) => g.label !== 'Unknown'),
+        byProvince:  jsGroupBy((r) => r.province_city || null).filter((g) => g.label !== 'Unknown'),
       };
 
       // Dropdown domains from full (unfiltered) cache
