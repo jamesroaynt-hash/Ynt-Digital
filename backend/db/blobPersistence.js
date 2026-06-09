@@ -161,23 +161,24 @@ function createBackupScheduler(db, filename) {
     }, delay);
   }
 
-  async function uploadBackupToR2(body) {
+  async function uploadBackupToR2(dbFilename, size) {
     const { PutObjectCommand } = require('@aws-sdk/client-s3');
     const key = getR2Key();
 
     await createR2Client().send(new PutObjectCommand({
       Bucket: process.env.R2_BUCKET,
       Key: key,
-      Body: body,
+      Body: fs.createReadStream(dbFilename),
+      ContentLength: size,
       ContentType: 'application/vnd.sqlite3',
     }));
     console.log(`[sqlite] Backed up database to Cloudflare R2: ${process.env.R2_BUCKET}/${key}`);
   }
 
-  async function uploadBackupToVercelBlob(body) {
+  async function uploadBackupToVercelBlob(dbFilename) {
     const { put } = require('@vercel/blob');
 
-    await put(getBlobPath(), body, {
+    await put(getBlobPath(), fs.createReadStream(dbFilename), {
       access: 'private',
       allowOverwrite: true,
       contentType: 'application/vnd.sqlite3',
@@ -196,13 +197,13 @@ function createBackupScheduler(db, filename) {
     lastRunAt = Date.now();
     try {
       db.pragma('wal_checkpoint(FULL)');
-      const body = fs.readFileSync(filename);
-      if (!body.length) return;
+      const stat = fs.statSync(filename);
+      if (!stat.size) return;
 
       if (isR2Enabled()) {
-        await uploadBackupToR2(body);
+        await uploadBackupToR2(filename, stat.size);
       } else {
-        await uploadBackupToVercelBlob(body);
+        await uploadBackupToVercelBlob(filename);
       }
     } catch (error) {
       dirty = true; // failed — retry on the next interval

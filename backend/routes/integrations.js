@@ -22,23 +22,6 @@ module.exports = function integrationRoutes(db) {
     return (await getPosOrdersMarks()).version;
   }
 
-  // Backend cache of all pos_orders for the data-report and records views.
-  // Full reload on every version change (pos_orders is ~9k rows after retention).
-  // Evicted after REPORT_CACHE_IDLE_MS of no access to keep memory low when nobody
-  // is using the Data Report page.
-  const REPORT_CACHE_IDLE_MS = 15 * 60 * 1000; // 15 minutes
-  let reportCache = { version: null, records: null, loading: null, loadingVersion: null };
-  let reportCacheIdleTimer = null;
-
-  function scheduleReportCacheEviction() {
-    if (reportCacheIdleTimer) clearTimeout(reportCacheIdleTimer);
-    reportCacheIdleTimer = setTimeout(() => {
-      reportCache.records = null;
-      reportCache.version = null;
-      reportCacheIdleTimer = null;
-    }, REPORT_CACHE_IDLE_MS);
-  }
-
   // Parse shipping_address_json → province string (JS, avoids SQL dialect diff)
   function extractProvince(json) {
     try {
@@ -94,42 +77,6 @@ module.exports = function integrationRoutes(db) {
       return [a.address, a.street, a.barangay, a.city || a.city_name, a.province || a.province_name]
         .filter(Boolean).join(', ');
     } catch { return ''; }
-  }
-
-  async function refillReportCache(marks) {
-    try {
-      // Cap at 60 days — Data Report shows the last ~2 months, 60d covers it.
-      // Keeps the in-memory footprint smaller than the old 90-day window.
-      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
-        .toISOString().slice(0, 10);
-      const rows = await db.prepare(`
-        SELECT id, external_id, tracking_no, page_name, customer_name, customer_phone,
-               note_product, cod, status_name, assigning_seller_name, attempts,
-               tags_json, shipping_address_json, inserted_at_remote, updated_at_remote,
-               sprinter_name
-        FROM pos_orders
-        WHERE inserted_at_remote >= ?
-        ORDER BY inserted_at_remote DESC, id DESC
-      `).all(cutoff);
-      reportCache.records = rows.map(posRowToReportShape);
-      reportCache.version = marks.version;
-      return reportCache.records;
-    } finally {
-      reportCache.loading = null;
-    }
-  }
-
-  async function getOrRefreshCache() {
-    const marks = await getPosOrdersMarks();
-    if (reportCache.version !== marks.version || !reportCache.records) {
-      if (!reportCache.loading || reportCache.loadingVersion !== marks.version) {
-        reportCache.loadingVersion = marks.version;
-        reportCache.loading = refillReportCache(marks);
-      }
-      await reportCache.loading;
-    }
-    scheduleReportCacheEviction();
-    return { records: reportCache.records, version: marks.version };
   }
 
   function requireAdmin(req, res, next) {
@@ -197,8 +144,15 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  // Records — served from pos_orders. report view uses the backend cache
-  // (one full pull per sync, then RAM). Regular view queries directly.
+  const STATUS_NAME_MAP = {
+    new: ['new'], confirmed: ['submitted'],
+    'waiting for pickup': ['pending', 'wait_print', 'waitting'],
+    shipped: ['shipped'], delivered: ['delivered'],
+    returning: ['returning'], returned: ['returned'],
+    canceled: ['canceled', 'removed'],
+  };
+
+  // Records — direct SQL pagination, no in-memory cache.
   router.get('/google-sheets/records', async (req, res) => {
     try {
       const { sheet, status, tag, search, date_from, date_to, page = 1, per_page = 50, view } = req.query;
@@ -207,75 +161,95 @@ module.exports = function integrationRoutes(db) {
       const perPage = Math.min(1000, Math.max(10, parseInt(per_page, 10) || 50));
       const offset = (pageNum - 1) * perPage;
 
-      const { records: all, version } = await getOrRefreshCache();
+      const conditions = [];
+      const params = [];
 
-      // Apply JS-level filters on cached records
-      const statusRawMap = {
-        new: ['new'], confirmed: ['submitted'],
-        'waiting for pickup': ['pending', 'wait_print', 'waitting'],
-        shipped: ['shipped'], delivered: ['delivered'],
-        returning: ['returning'], returned: ['returned'],
-        canceled: ['canceled', 'removed'],
-      };
-
-      let filtered = all;
-      if (sheet && sheet !== 'all') filtered = filtered.filter((r) => r.source_sheet === sheet);
+      if (sheet && sheet !== 'all') { conditions.push('page_name = ?'); params.push(sheet); }
       if (status && status !== 'all') {
-        const sl = status.toLowerCase();
-        filtered = filtered.filter((r) => (r.status || '').toLowerCase() === sl);
+        const rawStatuses = STATUS_NAME_MAP[status.toLowerCase()];
+        if (rawStatuses?.length) {
+          conditions.push(`status_name IN (${rawStatuses.map(() => '?').join(',')})`);
+          params.push(...rawStatuses);
+        }
       }
       if (tag && tag !== 'all') {
-        const tl = tag.toLowerCase();
-        filtered = filtered.filter((r) => (r.tag || '').toLowerCase().split(',').map((s) => s.trim()).includes(tl));
+        conditions.push('LOWER(COALESCE(tags_json, \'\')) LIKE ?');
+        params.push(`%${tag.toLowerCase()}%`);
       }
-      if (date_from) filtered = filtered.filter((r) => (r.order_date || '') >= date_from);
-      if (date_to)   filtered = filtered.filter((r) => (r.order_date || '') <= date_to);
+      if (date_from) { conditions.push('DATE(inserted_at_remote) >= ?'); params.push(date_from); }
+      if (date_to)   { conditions.push('DATE(inserted_at_remote) <= ?'); params.push(date_to); }
       if (search) {
-        const q = search.toLowerCase();
-        filtered = filtered.filter((r) =>
-          (r.order_ref || '').toLowerCase().includes(q)
-          || (r.tracking_no || '').toLowerCase().includes(q)
-          || (r.customer || '').toLowerCase().includes(q)
-          || (r.phone || '').toLowerCase().includes(q)
-          || (r.source_sheet || '').toLowerCase().includes(q)
-          || (r.tag || '').toLowerCase().includes(q)
-          || (r.province_city || '').toLowerCase().includes(q)
+        const q = `%${search.toLowerCase()}%`;
+        conditions.push(
+          '(LOWER(COALESCE(external_id,\'\')) LIKE ? OR LOWER(COALESCE(tracking_no,\'\')) LIKE ?'
+          + ' OR LOWER(COALESCE(customer_name,\'\')) LIKE ? OR LOWER(COALESCE(customer_phone,\'\')) LIKE ?'
+          + ' OR LOWER(COALESCE(page_name,\'\')) LIKE ? OR LOWER(COALESCE(tags_json,\'\')) LIKE ?'
+          + ' OR LOWER(COALESCE(shipping_address_json,\'\')) LIKE ?)'
         );
+        params.push(q, q, q, q, q, q, q);
       }
 
-      const statusCounts = Object.entries(
-        filtered.reduce((acc, r) => { acc[r.status || 'Unknown'] = (acc[r.status || 'Unknown'] || 0) + 1; return acc; }, {})
-      ).map(([s, count]) => ({ status: s, count }));
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      const sliced = filtered.slice(offset, offset + perPage);
+      const summaryRow = await db.prepare(
+        `SELECT COUNT(*) as total, COALESCE(SUM(cod), 0) as total_cod FROM pos_orders ${where}`
+      ).get(...params);
+      const total = Number(summaryRow?.total || 0);
+      const totalCod = Number(summaryRow?.total_cod || 0);
+
+      const statusRows = await db.prepare(
+        `SELECT status_name, COUNT(*) as cnt FROM pos_orders ${where} GROUP BY status_name`
+      ).all(...params);
+      const statusCounts = statusRows.map((r) => ({
+        status: POS_STATUS_DISPLAY[r.status_name] || (r.status_name ? r.status_name.charAt(0).toUpperCase() + r.status_name.slice(1) : 'Unknown'),
+        count: Number(r.cnt),
+      }));
+
+      const rows = await db.prepare(`
+        SELECT id, external_id, tracking_no, page_name, customer_name, customer_phone,
+               note_product, cod, status_name, assigning_seller_name, attempts,
+               tags_json, shipping_address_json, inserted_at_remote, updated_at_remote,
+               sprinter_name
+        FROM pos_orders ${where}
+        ORDER BY inserted_at_remote DESC, id DESC
+        LIMIT ? OFFSET ?
+      `).all(...params, perPage, offset);
+      const records = rows.map(posRowToReportShape);
 
       if (reportView) {
         res.json({
-          records: sliced,
-          total: filtered.length,
-          total_cod: filtered.reduce((s, r) => s + Number(r.cod_amount || 0), 0),
+          records,
+          total,
+          total_cod: totalCod,
           status_counts: statusCounts,
           page: pageNum, per_page: perPage,
-          pages: Math.ceil(filtered.length / perPage),
+          pages: Math.ceil(total / perPage),
         });
         return;
       }
 
-      // Sheet Records page: include filter option dropdowns on first page
-      const includeFilterOptions = pageNum === 1 && !sheet && !status && !tag && !search && !date_from && !date_to;
       const payload = {
-        records: sliced,
-        total: filtered.length,
+        records,
+        total,
         page: pageNum, per_page: perPage,
-        pages: Math.ceil(filtered.length / perPage),
+        pages: Math.ceil(total / perPage),
         status_counts: statusCounts,
       };
-      if (includeFilterOptions) {
-        payload.sheet_names = [...new Set(all.map((r) => r.source_sheet).filter(Boolean))].sort();
+
+      if (pageNum === 1 && !sheet && !status && !tag && !search && !date_from && !date_to) {
+        const sheetRows = await db.prepare(
+          `SELECT DISTINCT page_name FROM pos_orders WHERE page_name IS NOT NULL AND TRIM(page_name) != '' ORDER BY page_name`
+        ).all();
+        payload.sheet_names = sheetRows.map((r) => r.page_name);
+
+        const tagRows = await db.prepare(
+          `SELECT tags_json FROM pos_orders WHERE tags_json IS NOT NULL AND LENGTH(tags_json) > 2`
+        ).all();
         const tagSet = new Set();
-        all.forEach((r) => (r.tag || '').split(',').forEach((t) => { const s = t.trim(); if (s) tagSet.add(s); }));
+        tagRows.forEach((r) => extractTags(r.tags_json).split(',').forEach((t) => { const s = t.trim(); if (s) tagSet.add(s); }));
         payload.tags = [...tagSet].sort();
       }
+
       res.json(payload);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -319,83 +293,148 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  // Server-side Data Report aggregation. The page used to walk every /records
-  // page (~30 MB of rows per visit, the #1 Supabase egress source) just to group
-  // them in the browser. This computes the same grouped metrics in Postgres and
-  // returns a few KB. The SQL below intentionally mirrors the frontend helpers
-  // it replaces — getOrderStatusKey, orderHasTag('undeliverable'),
-  // Data Report summary — JS groupBy on cached pos_orders records.
-  // Avoids SQL JSON-extraction dialect differences (SQLite vs Postgres).
+  // Data Report aggregation — pure SQL, no in-memory cache needed.
   router.get('/google-sheets/report-summary', async (req, res) => {
     try {
       const { month, date_from, date_to, page } = req.query;
-      const { records: all } = await getOrRefreshCache();
 
-      // Apply filters
-      let data = all;
-      if (month) data = data.filter((r) => (r.order_date || '').startsWith(month));
-      else {
-        if (date_from) data = data.filter((r) => (r.order_date || '') >= date_from);
-        if (date_to)   data = data.filter((r) => (r.order_date || '') <= date_to);
+      const conditions = [];
+      const params = [];
+      if (month) {
+        conditions.push("SUBSTR(inserted_at_remote, 1, 7) = ?");
+        params.push(month);
+      } else {
+        if (date_from) { conditions.push('DATE(inserted_at_remote) >= ?'); params.push(date_from); }
+        if (date_to)   { conditions.push('DATE(inserted_at_remote) <= ?'); params.push(date_to); }
       }
-      if (page && page !== 'all') data = data.filter((r) => (r.chat_page || 'Sheets') === page);
-
-      // Helpers
-      function getPriceRange(cod) {
-        const c = Number(cod || 0);
-        if (c <= 500)  return 'PHP 251 - PHP 500';
-        if (c <= 750)  return 'PHP 501 - PHP 750';
-        if (c <= 1000) return 'PHP 751 - PHP 1,000';
-        if (c <= 1500) return 'PHP 1,001 - PHP 1,500';
-        if (c <= 2000) return 'PHP 1,501 - PHP 2,000';
-        if (c <= 3000) return 'PHP 2,001 - PHP 3,000';
-        if (c <= 5000) return 'PHP 3,001 - PHP 5,000';
-        return 'PHP 5,000+';
-      }
-      function jsGroupBy(keyFn) {
-        const map = {};
-        for (const r of data) {
-          const key = keyFn(r) || 'Unknown';
-          if (!map[key]) map[key] = { label: key, total: 0, delivered: 0, returned: 0, returning: 0, cod: 0 };
-          map[key].total++;
-          if (r.status === 'Delivered') map[key].delivered++;
-          if (r.status === 'Returned')  map[key].returned++;
-          if (r.status === 'Returning') map[key].returning++;
-          map[key].cod += Number(r.cod_amount || 0);
-        }
-        return Object.values(map).map((g) => {
-          const base = g.delivered + g.returned + g.returning;
-          return { ...g, rtsRate: base ? ((g.returned + g.returning) / base) * 100 : 0 };
-        }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
-      }
+      if (page && page !== 'all') { conditions.push('page_name = ?'); params.push(page); }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
       // Totals
-      let total = 0, delivered = 0, returned = 0, returning = 0, shipped = 0, undeliverable = 0, cod = 0;
-      for (const r of data) {
-        total++;
-        if (r.status === 'Delivered')            delivered++;
-        if (r.status === 'Returned')             returned++;
-        if (r.status === 'Returning')            returning++;
-        if (r.status === 'Shipped')              shipped++;
-        if ((r.tag || '').toLowerCase().includes('undeliverable')) undeliverable++;
-        cod += Number(r.cod_amount || 0);
+      const totalsRow = await db.prepare(`
+        SELECT
+          COUNT(*) as total,
+          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          SUM(CASE WHEN status_name = 'shipped'   THEN 1 ELSE 0 END) as shipped,
+          SUM(CASE WHEN LOWER(COALESCE(tags_json,'')) LIKE '%undeliverable%' THEN 1 ELSE 0 END) as undeliverable,
+          COALESCE(SUM(cod), 0) as cod
+        FROM pos_orders ${where}
+      `).get(...params);
+
+      const total = Number(totalsRow?.total || 0);
+      const delivered = Number(totalsRow?.delivered || 0);
+      const returned = Number(totalsRow?.returned || 0);
+      const returningCnt = Number(totalsRow?.returning || 0);
+      const shipped = Number(totalsRow?.shipped || 0);
+      const undeliverable = Number(totalsRow?.undeliverable || 0);
+      const cod = Number(totalsRow?.cod || 0);
+      const base = delivered + returned + returningCnt;
+
+      // byConfirmed — direct column GROUP BY
+      const confirmedWhere = conditions.length
+        ? `WHERE (${conditions.join(' AND ')}) AND assigning_seller_name IS NOT NULL AND TRIM(assigning_seller_name) != ''`
+        : `WHERE assigning_seller_name IS NOT NULL AND TRIM(assigning_seller_name) != ''`;
+      const confirmedRows = await db.prepare(`
+        SELECT
+          assigning_seller_name as label,
+          COUNT(*) as total,
+          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          COALESCE(SUM(cod), 0) as cod
+        FROM pos_orders ${confirmedWhere}
+        GROUP BY assigning_seller_name
+        ORDER BY total DESC
+      `).all(...params);
+      const byConfirmed = confirmedRows.map((r) => {
+        const b = Number(r.delivered) + Number(r.returned) + Number(r.returning);
+        return {
+          label: r.label,
+          total: Number(r.total), delivered: Number(r.delivered),
+          returned: Number(r.returned), returning: Number(r.returning),
+          cod: Number(r.cod),
+          rtsRate: b ? ((Number(r.returned) + Number(r.returning)) / b) * 100 : 0,
+        };
+      });
+
+      // byPrice — CASE on cod column
+      const priceRows = await db.prepare(`
+        SELECT
+          CASE
+            WHEN COALESCE(cod,0) <= 500  THEN 'PHP 251 - PHP 500'
+            WHEN COALESCE(cod,0) <= 750  THEN 'PHP 501 - PHP 750'
+            WHEN COALESCE(cod,0) <= 1000 THEN 'PHP 751 - PHP 1,000'
+            WHEN COALESCE(cod,0) <= 1500 THEN 'PHP 1,001 - PHP 1,500'
+            WHEN COALESCE(cod,0) <= 2000 THEN 'PHP 1,501 - PHP 2,000'
+            WHEN COALESCE(cod,0) <= 3000 THEN 'PHP 2,001 - PHP 3,000'
+            WHEN COALESCE(cod,0) <= 5000 THEN 'PHP 3,001 - PHP 5,000'
+            ELSE 'PHP 5,000+'
+          END as label,
+          COUNT(*) as total,
+          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          COALESCE(SUM(cod), 0) as cod
+        FROM pos_orders ${where}
+        GROUP BY label
+        ORDER BY total DESC
+      `).all(...params);
+      const byPrice = priceRows.map((r) => {
+        const b = Number(r.delivered) + Number(r.returned) + Number(r.returning);
+        return {
+          label: r.label, total: Number(r.total), delivered: Number(r.delivered),
+          returned: Number(r.returned), returning: Number(r.returning),
+          cod: Number(r.cod),
+          rtsRate: b ? ((Number(r.returned) + Number(r.returning)) / b) * 100 : 0,
+        };
+      });
+
+      // byProvince — load 3 columns, JS JSON extraction (avoids SQL dialect diff)
+      const provinceRows = await db.prepare(
+        `SELECT shipping_address_json, status_name, cod FROM pos_orders ${where}`
+      ).all(...params);
+      const provinceMap = {};
+      for (const row of provinceRows) {
+        const key = extractProvince(row.shipping_address_json) || null;
+        if (!key) continue;
+        if (!provinceMap[key]) provinceMap[key] = { label: key, total: 0, delivered: 0, returned: 0, returning: 0, cod: 0 };
+        provinceMap[key].total++;
+        if (row.status_name === 'delivered') provinceMap[key].delivered++;
+        if (row.status_name === 'returned')  provinceMap[key].returned++;
+        if (row.status_name === 'returning') provinceMap[key].returning++;
+        provinceMap[key].cod += Number(row.cod || 0);
       }
-      const base = delivered + returned + returning;
+      const byProvince = Object.values(provinceMap).map((g) => {
+        const b = g.delivered + g.returned + g.returning;
+        return { ...g, rtsRate: b ? ((g.returned + g.returning) / b) * 100 : 0 };
+      }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
 
-      const summary = {
-        counts: { total, delivered, returned, returning, shipped, undeliverable },
+      // Dropdown options from full dataset (no filter applied)
+      const monthRows = await db.prepare(`
+        SELECT DISTINCT SUBSTR(inserted_at_remote, 1, 7) as m
+        FROM pos_orders
+        WHERE inserted_at_remote IS NOT NULL AND LENGTH(inserted_at_remote) >= 7
+        ORDER BY m DESC
+      `).all();
+      const months = monthRows.map((r) => r.m).filter((m) => /^\d{4}-\d{2}$/.test(m));
+
+      const pageRows = await db.prepare(
+        `SELECT DISTINCT page_name FROM pos_orders WHERE page_name IS NOT NULL AND TRIM(page_name) != '' ORDER BY page_name`
+      ).all();
+      const pages = pageRows.map((r) => r.page_name);
+
+      res.json({
+        counts: { total, delivered, returned, returning: returningCnt, shipped, undeliverable },
         cod,
-        rtsRate: base ? ((returned + returning) / base) * 100 : 0,
-        byPrice:     jsGroupBy((r) => getPriceRange(r.cod_amount)),
-        byConfirmed: jsGroupBy((r) => r.confirmed_by || null).filter((g) => g.label !== 'Unknown'),
-        byProvince:  jsGroupBy((r) => r.province_city || null).filter((g) => g.label !== 'Unknown'),
-      };
-
-      // Dropdown domains from full (unfiltered) cache
-      const months = [...new Set(all.map((r) => (r.order_date || '').slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)))].sort((a, b) => b.localeCompare(a));
-      const pages = [...new Set(all.map((r) => r.chat_page || 'Sheets').filter(Boolean))].sort();
-
-      res.json({ ...summary, months, pages });
+        rtsRate: base ? ((returned + returningCnt) / base) * 100 : 0,
+        byPrice,
+        byConfirmed,
+        byProvince,
+        months,
+        pages,
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
