@@ -529,6 +529,24 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const { name: sprinterName, tel: sprinterTel } = getPosSprintorInfo(item);
 
   const resolvedShopId = stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id || 'unknown');
+
+  // Egress saver: the interval "updated_at" pass re-fetches the same recent
+  // orders every cycle (created=0, updated=2000), so without this guard we
+  // re-ship the full row (items/tags/partner/shipping JSON + raw_payload) to
+  // Postgres on every sync — the dominant Railway->Supabase egress. If the
+  // order's remote updated_at AND resolved status already match what we stored,
+  // nothing changed on Pancake, so skip the write. Real status changes bump
+  // updated_at on Pancake's side, so they still flow through.
+  const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
+  if (incomingUpdatedAtRemote) {
+    const stored = await db.prepare(
+      'SELECT updated_at_remote, status_name FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+    ).get(resolvedShopId, externalId);
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName) {
+      return externalId; // unchanged — no write needed
+    }
+  }
+
   const pageName = connectionName || await findSavedConnectionName(db, resolvedShopId);
 
   const rawItems = item?.order_details || item?.items || [];
