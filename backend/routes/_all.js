@@ -334,6 +334,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       city: city || '',
       province: province || '',
       shop_id: row.shop_id,
+      updated_at: row.updated_at || '',
     };
   }
 
@@ -407,17 +408,28 @@ function ordersRoutes(db, { dispatch } = {}) {
     const { effectiveInsertedAt } = posManilaExprs();
     const { where, params } = posDashboardWhere(req.query);
 
+    // Incremental delta: ?since=<updated_at> returns only rows changed at/after
+    // that watermark so the client can upsert instead of re-pulling the whole
+    // list (~2.3MB raw). `total` is always the full filtered count so the client
+    // can detect deletions (count shrank) and resync with a full reload.
+    let deltaWhere = where;
+    const deltaParams = [...params];
+    if (req.query.since) {
+      deltaWhere += ` AND updated_at >= ?`;
+      deltaParams.push(String(req.query.since));
+    }
+
     const total = (await db.prepare(`SELECT COUNT(*) AS c FROM pos_orders ${where}`).get(...params)).c;
     const rows = await db.prepare(`
       SELECT external_id, shop_id, tracking_no, page_name,
              inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              customer_name, customer_phone, note_product, items_json, tags_json,
              attempts, cod, assigning_seller_name, status_name,
-             sprinter_name, partner_json, shipping_address_json
-      FROM pos_orders ${where}
+             sprinter_name, partner_json, shipping_address_json, updated_at
+      FROM pos_orders ${deltaWhere}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
-    `).all(...params, perPage, offset);
+    `).all(...deltaParams, perPage, offset);
 
     res.json({
       data: rows.map(posRowToOrderShape),

@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'rts-rate', 'attendance', 'sales', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'sales', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'sales', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [] };
@@ -135,7 +135,6 @@ function loadPage(page) {
   const renderFns = {
     home: renderHome,
     attendance: renderAttendance,
-    sales: renderSales,
     'marketing-center': renderMarketingCenter,
     'rmo-management': renderRmoManagement,
     creatives: renderCreatives,
@@ -168,7 +167,6 @@ function loadPage(page) {
 const pageNames = {
   home: 'Home',
   attendance: 'Time & Attendance',
-  sales: 'Sales',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
   creatives: 'Ad Creatives',
@@ -182,7 +180,7 @@ const pageNames = {
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
   'rts-rate': 'Sale Report',
-  'data-report': 'Data Report',
+  'data-report': 'Sales Dashboard',
   scanning: 'Scan Orders',
   'view-records': 'Records',
   'manage-users': 'Users',
@@ -286,6 +284,7 @@ function mapBackendOrder(row) {
     confirmedBy: row.confirmed_by || row.confirmedBy || '',
     city: row.city || '',
     province: row.province || '',
+    updated_at: row.updated_at || '',
   };
 }
 
@@ -305,19 +304,12 @@ function mapBackendInventoryItem(row) {
 }
 
 let _ordersLoadedAt = 0;
+let _ordersWatermark = '';   // max updated_at seen — drives incremental fetch
+let _ordersTotal = 0;        // last known full count — drives deletion detection
 const ORDERS_CACHE_TTL_MS = 60_000; // reuse in-memory data for 60s
+const ORDERS_BASE_QUERY = '/orders?per_page=5000&page=1';
 
-async function refreshOrdersFromBackend(force = false) {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
-
-  // Return immediately if cache is still fresh and data is loaded
-  if (!force && DB.orders.length && (Date.now() - _ordersLoadedAt) < ORDERS_CACHE_TTL_MS) return true;
-
-  // Fetch all rows in a single request (per_page=5000 covers typical datasets)
-  const result = await authorizedJsonRequest(`/orders?per_page=5000&page=1&_=${Date.now()}`);
-  if (!Array.isArray(result?.data)) return false;
-
-  DB.orders = result.data.map(mapBackendOrder);
+function recomputeOrderStats() {
   DB.orderStats = {
     total_orders: DB.orders.length,
     total_cod: DB.orders.reduce((sum, order) => sum + Number(order.cod || 0), 0),
@@ -326,6 +318,54 @@ async function refreshOrdersFromBackend(force = false) {
       return counts;
     }, {})).map(([status, count]) => ({ status, count })),
   };
+}
+
+async function refreshOrdersFromBackend(force = false) {
+  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+
+  // Return immediately if cache is still fresh and data is loaded
+  if (!force && DB.orders.length && (Date.now() - _ordersLoadedAt) < ORDERS_CACHE_TTL_MS) return true;
+
+  // Incremental: once we have a baseline + watermark, pull only rows changed
+  // since the watermark and upsert them — turns the recurring ~2.3MB full pull
+  // into a few KB. Full reload only on first load or when rows were deleted.
+  const canDelta = DB.orders.length > 0 && _ordersWatermark;
+  let result = await authorizedJsonRequest(
+    canDelta
+      ? `${ORDERS_BASE_QUERY}&since=${encodeURIComponent(_ordersWatermark)}&_=${Date.now()}`
+      : `${ORDERS_BASE_QUERY}&_=${Date.now()}`
+  );
+  if (!Array.isArray(result?.data)) return false;
+
+  let fullReplace = !canDelta;
+  if (canDelta && Number(result.total) < _ordersTotal) {
+    // Deletion happened — a delta can't express removals, so resync fully.
+    result = await authorizedJsonRequest(`${ORDERS_BASE_QUERY}&_=${Date.now()}`);
+    if (!Array.isArray(result?.data)) return false;
+    fullReplace = true;
+  }
+
+  const incoming = result.data.map(mapBackendOrder);
+  if (fullReplace) {
+    DB.orders = incoming;
+  } else if (incoming.length) {
+    // Upsert by id: replace changed rows in place, prepend genuinely new ones
+    // (delta arrives newest-first, so prepending as a block preserves order).
+    const indexById = new Map(DB.orders.map((order, i) => [order.id, i]));
+    const fresh = [];
+    for (const order of incoming) {
+      if (indexById.has(order.id)) DB.orders[indexById.get(order.id)] = order;
+      else fresh.push(order);
+    }
+    if (fresh.length) DB.orders = [...fresh, ...DB.orders];
+  }
+
+  _ordersWatermark = DB.orders.reduce(
+    (mx, o) => (o.updated_at && o.updated_at > mx ? o.updated_at : mx),
+    ''
+  );
+  _ordersTotal = Number(result.total) || DB.orders.length;
+  recomputeOrderStats();
   _ordersLoadedAt = Date.now();
   return true;
 }
@@ -347,7 +387,6 @@ async function ensureOrdersLoadedForPage(page) {
 }
 
 function renderPageOrderData(page) {
-  if (page === 'sales') renderSalesTable();
   if (page === 'rmo-management') renderPosOrdersTable();
   if (page === 'home') renderHomeOrderCharts();
   if (page === 'rts-rate') renderRTSRateDashboard();
@@ -625,7 +664,7 @@ let posOrdersLastVersion = null;
 // actually changed.
 const POS_ORDERS_AUTO_REFRESH_MS = 180 * 1000;
 const POS_ORDERS_RMO_REFRESH_MS = 45 * 1000;
-const POS_ORDERS_LIVE_PAGES = ['sales', 'data-report', 'rts-rate', 'rmo-management', 'marketing-center'];
+const POS_ORDERS_LIVE_PAGES = ['data-report', 'rts-rate', 'rmo-management', 'marketing-center'];
 
 function getPosOrdersRefreshInterval() {
   return App.currentPage === 'rmo-management' ? POS_ORDERS_RMO_REFRESH_MS : POS_ORDERS_AUTO_REFRESH_MS;
@@ -670,7 +709,7 @@ async function refreshOrderViewsFromBackend() {
   try {
     // Only re-download full sheet records when the current page actually renders them.
     // Home and data-report use lightweight stat/summary endpoints instead.
-    const SHEET_RECORD_PAGES = ['sales', 'rts-rate', 'marketing-center', 'csr', 'view-records', 'adspend-roas'];
+    const SHEET_RECORD_PAGES = ['data-report', 'rts-rate', 'marketing-center', 'csr', 'view-records', 'adspend-roas'];
     const needsRecords = SHEET_RECORD_PAGES.includes(App.currentPage);
     await Promise.all([
       refreshOrdersFromBackend(true),
@@ -679,18 +718,15 @@ async function refreshOrderViewsFromBackend() {
       needsRecords ? loadSheetRecordsForDataReport() : Promise.resolve(),
     ]);
 
-    if (App.currentPage === 'sales') {
-      renderSalesTable();
-      initCharts('sales');
+    if (App.currentPage === 'data-report') {
+      renderRTSRateDashboard();
+      loadDataReportSummary().then(() => renderDataReportDashboard()).catch(() => {});
     }
     if (App.currentPage === 'rmo-management') {
       loadPage('rmo-management');
     }
     if (App.currentPage === 'rts-rate') {
       renderRTSRateDashboard();
-    }
-    if (App.currentPage === 'data-report') {
-      loadDataReportSummary().then(() => renderDataReportDashboard()).catch(() => {});
     }
     if (App.currentPage === 'home') {
       loadPage('home');
@@ -3529,6 +3565,7 @@ function renderSaleReportBarChart(orders) {
   }
 }
 
+let dataReportTab = 'sales';
 let dataReportPreset = 'monthly';
 let dataReportDateFrom = '';
 let dataReportDateTo = '';
@@ -3607,9 +3644,22 @@ function monthLabel(ym) {
   return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
 }
 
+function setDataReportTab(tab) {
+  dataReportTab = tab;
+  document.querySelectorAll('.dr-tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.dr-tab-panel').forEach((panel) => {
+    panel.classList.toggle('hidden', panel.dataset.tab !== tab);
+  });
+  if (tab === 'analytics') renderDataReportDashboard();
+  if (tab === 'sales') renderRTSRateDashboard();
+}
+
 function setDataReportPreset(preset) {
   dataReportPreset = preset;
   if (preset !== 'custom') { dataReportDateFrom = ''; dataReportDateTo = ''; }
+  dataReportTab = 'analytics';
   navigateTo('data-report');
 }
 
@@ -3622,12 +3672,14 @@ function applyDataReportCustomRange() {
 
 function setDataReportPageFilter() {
   dataReportPageFilter = document.getElementById('data-report-page-filter')?.value || 'all';
+  dataReportTab = 'analytics';
   navigateTo('data-report');
 }
 
 function setDataReportMonth() {
   dataReportMonth = document.getElementById('data-report-month')?.value || '';
   dataReportPreset = 'monthly';
+  dataReportTab = 'analytics';
   navigateTo('data-report');
 }
 
@@ -3659,63 +3711,125 @@ function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false }
 }
 
 function renderDataReport() {
-  const quickLinks = [
-    ['sales', 'Sales Dashboard'],
-    ['rts-rate', 'RTS Rate'],
-    ['view-records', 'Order Records'],
-  ].filter(([page]) => canAccessPage(page));
+  const records = DB.sheetRecordsForReport;
+  const newOrders = records.filter((o) => o.status === 'New').length;
+  const confirmed = records.filter((o) => o.status === 'Confirmed').length;
+  const waiting = records.filter((o) => o.status === 'Waiting for pickup').length;
+  const shipped = records.filter((o) => o.status === 'Shipped').length;
+  const delivered = records.filter((o) => o.status === 'Delivered').length;
+  const returned = records.filter((o) => o.status === 'Returned').length;
+  const returning = records.filter((o) => o.status === 'Returning').length;
+  const canceled = records.filter((o) => o.status === 'Canceled').length;
+  const totalCOD = records.reduce((sum, o) => sum + Number(o.cod || 0), 0);
+  const sourceOptions = getPosSourceOptions();
+  const yearOptions = getPosYearOptions();
+  const monthOptions = getPosMonthOptions(salesYearFilter === 'all' ? '' : salesYearFilter);
+  const salesMonths = getDataReportMonths();
+  if (salesFilter === 'monthly' && !salesMonth) {
+    salesMonth = salesMonths[0] || normalizeDateString(new Date()).slice(0, 7);
+  }
+
+  const today = normalizeDateString(new Date());
+  const rtsMonths = getDataReportMonths();
+  if (rtsRateFilter === 'monthly' && !rtsRateMonth) {
+    rtsRateMonth = rtsMonths[0] || today.slice(0, 7);
+  }
 
   const pageOptions = dataReportPages.length ? dataReportPages : getPosSourceOptions();
   const presets = [['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']];
-  const months = getDataReportMonths();
+  const analyticsMonths = getDataReportMonths();
   if (dataReportPreset === 'monthly' && !dataReportMonth) {
-    dataReportMonth = months[0] || normalizeDateString(new Date()).slice(0, 7);
+    dataReportMonth = analyticsMonths[0] || normalizeDateString(new Date()).slice(0, 7);
   }
 
   return `
-  <div class="data-report-page">
-    <div class="page-header data-report-header">
-      <div class="page-title"><h1>Data Report</h1><p>RTS analytics from synced Google Sheets records.</p></div>
-      <button class="btn btn-secondary btn-sm" onclick="refreshDataReport()">Refresh Data</button>
-    </div>
+  <div class="page-header">
+    <div class="page-title"><h1>Sales Dashboard</h1><p>Track orders, deliveries, and revenue metrics.</p></div>
+  </div>
 
+  <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--border-color);">
+    <button class="dr-tab-btn ${dataReportTab === 'sales' ? 'active' : ''}" data-tab="sales" onclick="setDataReportTab('sales')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'sales' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'sales' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Sales Dashboard</button>
+    <button class="dr-tab-btn ${dataReportTab === 'analytics' ? 'active' : ''}" data-tab="analytics" onclick="setDataReportTab('analytics')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'analytics' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'analytics' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Analytics</button>
+  </div>
+
+  <div class="dr-tab-panel ${dataReportTab !== 'sales' ? 'hidden' : ''}" data-tab="sales">
     <div class="card" style="margin-bottom:16px;padding:14px 18px;">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+      <div style="margin-bottom:4px;font-size:14px;font-weight:700;color:var(--text-primary);">Sale Report</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Delivery, return-to-sender, and COD performance based on Google Sheets records.</div>
+      <div class="rts-filter-bar">
+        <div class="rts-filter-group">
+          <div class="rts-filter-label">Time Filter</div>
+          <div class="table-filters">
+            <button class="filter-pill ${rtsRateFilter === 'all' ? 'active' : ''}" onclick="setRTSRateFilter('all',this)">All Time</button>
+            <button class="filter-pill ${rtsRateFilter === 'weekly' ? 'active' : ''}" onclick="setRTSRateFilter('weekly',this)">Weekly</button>
+            <button class="filter-pill ${rtsRateFilter === 'monthly' ? 'active' : ''}" onclick="setRTSRateFilter('monthly',this)">Monthly</button>
+            <button class="filter-pill ${rtsRateFilter === 'custom' ? 'active' : ''}" onclick="setRTSRateFilter('custom',this)">Custom Date Range</button>
+          </div>
+        </div>
+        <div class="rts-filter-group ${rtsRateFilter === 'monthly' ? '' : 'hidden'}" id="rts-rate-month-group">
+          <div class="rts-filter-label">Month</div>
+          <select class="form-control" id="rts-rate-month" onchange="setRTSRateMonth()" style="min-width:160px;height:34px;font-size:13px;">
+            ${rtsMonths.length
+              ? rtsMonths.map((m) => `<option value="${m}"${rtsRateMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
+              : `<option value="${escapeHtml(rtsRateMonth || today.slice(0,7))}">${escapeHtml(monthLabel(rtsRateMonth || today.slice(0,7)))}</option>`}
+          </select>
+        </div>
+        <div class="rts-filter-group rts-sheet-filter">
+          <label class="rts-filter-label" for="rts-rate-source-filter">Page Filter</label>
+          <select class="form-control" id="rts-rate-source-filter" onchange="setRTSRateSourceFilter()">
+            <option value="all">All Pages</option>
+            ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${rtsRateSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="rts-custom-range ${rtsRateFilter === 'custom' ? '' : 'hidden'}" id="rts-rate-custom-range">
+          <input type="date" class="form-control" id="rts-rate-date-from">
+          <input type="date" class="form-control" id="rts-rate-date-to">
+          <button class="btn btn-secondary btn-sm" onclick="applyRTSRateCustomRange()">Apply</button>
+        </div>
+      </div>
+    </div>
+    <div id="rts-rate-dashboard" style="margin-bottom:20px;"></div>
+  </div>
+
+  <div class="dr-tab-panel ${dataReportTab !== 'analytics' ? 'hidden' : ''}" data-tab="analytics">
+    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Time Filter</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">Analytics</div>
+          <div style="font-size:12px;color:var(--text-muted);">RTS analytics from synced POS records.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="refreshDataReport()">Refresh</button>
+      </div>
+      <div class="rts-filter-bar">
+        <div class="rts-filter-group">
+          <div class="rts-filter-label">Time Filter</div>
+          <div class="table-filters">
             ${presets.map(([v, l]) => `<button class="filter-pill ${dataReportPreset === v ? 'active' : ''}" onclick="setDataReportPreset('${v}')">${l}</button>`).join('')}
           </div>
         </div>
-        <div class="${dataReportPreset === 'monthly' ? '' : 'hidden'}">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Month</div>
+        <div class="rts-filter-group ${dataReportPreset === 'monthly' ? '' : 'hidden'}" id="data-report-month-group">
+          <div class="rts-filter-label">Month</div>
           <select class="form-control" id="data-report-month" onchange="setDataReportMonth()" style="min-width:160px;height:34px;font-size:13px;">
-            ${months.length
-              ? months.map((m) => `<option value="${m}"${dataReportMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
+            ${analyticsMonths.length
+              ? analyticsMonths.map((m) => `<option value="${m}"${dataReportMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
               : `<option value="${escapeHtml(dataReportMonth)}">${escapeHtml(monthLabel(dataReportMonth))}</option>`}
           </select>
         </div>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px;">Page Name</div>
-          <select class="form-control" id="data-report-page-filter" onchange="setDataReportPageFilter()" style="min-width:200px;height:34px;font-size:13px;">
+        <div class="rts-filter-group rts-sheet-filter">
+          <label class="rts-filter-label" for="data-report-page-filter">Page Filter</label>
+          <select class="form-control" id="data-report-page-filter" onchange="setDataReportPageFilter()">
             <option value="all">All Pages</option>
             ${pageOptions.map((p) => `<option value="${escapeHtml(p)}"${dataReportPageFilter === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
           </select>
         </div>
-        <div class="${dataReportPreset === 'custom' ? '' : 'hidden'}" style="display:flex;gap:6px;align-items:center;">
-          <input type="date" class="form-control" id="data-report-date-from" value="${dataReportDateFrom}" style="height:34px;font-size:13px;width:140px;">
-          <span style="font-size:13px;color:var(--text-muted);">—</span>
-          <input type="date" class="form-control" id="data-report-date-to" value="${dataReportDateTo}" style="height:34px;font-size:13px;width:140px;">
-          <button class="btn btn-primary btn-sm" onclick="applyDataReportCustomRange()" style="height:34px;">Apply</button>
+        <div class="rts-custom-range ${dataReportPreset === 'custom' ? '' : 'hidden'}" id="data-report-custom-range">
+          <input type="date" class="form-control" id="data-report-date-from" value="${dataReportDateFrom}">
+          <input type="date" class="form-control" id="data-report-date-to" value="${dataReportDateTo}">
+          <button class="btn btn-secondary btn-sm" onclick="applyDataReportCustomRange()">Apply</button>
         </div>
       </div>
     </div>
-
-    <div class="data-report-connect">
-      ${quickLinks.map(([page, label]) => `<button class="data-report-link" onclick="navigateTo('${page}')">${label}</button>`).join('')}
-    </div>
-
-    <div id="data-report-dashboard"></div>
+    <div id="data-report-dashboard" style="margin-bottom:20px;"></div>
   </div>`;
 }
 
@@ -3728,22 +3842,8 @@ function renderDataReportDashboard() {
     return;
   }
 
-  const { counts, rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
-  const total = counts.total;
+  const { rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
   wrapper.innerHTML = `
-    <div class="data-report-kpis">
-      ${renderRTSMetricCard('Total Orders', total, 'blue', total)}
-      ${renderRTSMetricCard('Delivered', counts.delivered, 'green', total)}
-      ${renderRTSMetricCard('Shipped', counts.shipped, 'purple', total)}
-      ${renderRTSMetricCard('Returned', counts.returned + counts.returning, 'red', total)}
-      ${renderRTSMetricCard('Undeliverable', counts.undeliverable, 'amber', total)}
-      <div class="rts-metric-card yellow">
-        <div class="stat-label">RTS Rate</div>
-        <div class="rts-metric-value">${formatPercent(rtsRate)}</div>
-        <div class="stat-meta">Delivered vs returned order base</div>
-      </div>
-    </div>
-
     <section class="data-report-section">
       <div class="card-header">
         <div><div class="card-title">By Price (Final Amount)</div><div class="card-subtitle">RTS rate by order price range</div></div>
@@ -3855,15 +3955,19 @@ function upsertChart(existing, canvas, hasData, config) {
 function renderDataReportPriceChart(rows) {
   const canvas = document.getElementById('data-report-price-chart');
   dataReportPriceChart = upsertChart(dataReportPriceChart, canvas, rows.length > 0, {
-    type: 'bar',
+    type: 'line',
     data: {
       labels: rows.map((row) => row.label),
       datasets: [{
         label: 'RTS Rate',
         data: rows.map((row) => Number(row.rtsRate.toFixed(2))),
-        backgroundColor: '#e66a63',
-        borderRadius: 4,
-        maxBarThickness: 22,
+        borderColor: '#e66a63',
+        backgroundColor: 'rgba(230, 106, 99, 0.1)',
+        pointBackgroundColor: '#e66a63',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.3,
+        fill: true,
       }],
     },
     options: {
@@ -6765,7 +6869,7 @@ function getDefaultPageForCurrentUser() {
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
   const role = normalizeRoleName(App.user.role);
-  return NAV_ACCESS[role] || ['home', 'rts-rate', 'sales', 'data-report'];
+  return NAV_ACCESS[role] || ['home', 'rts-rate', 'data-report'];
 }
 
 function canAccessPage(page) {
@@ -6779,7 +6883,7 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['sales', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasRmo = ['rmo-management'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
@@ -6852,7 +6956,7 @@ function getHomeQuickActions() {
   if (isCSRLikeUser()) {
     return [
       ['🏠', 'Home', 'home'],
-      ['📊', 'Sales Dashboard', 'sales'],
+      ['📊', 'Sales Dashboard', 'data-report'],
     ];
   }
 
@@ -6860,7 +6964,7 @@ function getHomeQuickActions() {
     ['📦', 'New Pickup', 'daily-pickup'],
     ['🔍', 'Scan Package', 'scanning'],
     ['↩️', 'RTS Scan', 'rts-scanning'],
-    ['📊', 'View Sales', 'sales'],
+    ['📊', 'View Sales', 'data-report'],
     ['🗃️', 'Inventory', 'inventory'],
     ['💰', 'Log Expense', 'expenses'],
   ].filter(([, , page]) => canAccessPage(page));
@@ -7923,7 +8027,7 @@ function initCharts(page) {
     renderHomeOrderCharts();
   }
 
-  if (page === 'sales') {
+  if (page === 'data-report') {
     // Monthly bar chart
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const monthlyCOD = Array(12).fill(0);
@@ -7989,15 +8093,6 @@ function initPage(page) {
     initAttendancePage();
   }
 
-  if (page === 'sales') {
-    const today = new Date().toISOString().split('T')[0];
-    const salesDateFromInput = document.getElementById('sales-date-from');
-    const salesDateToInput = document.getElementById('sales-date-to');
-    if (salesDateFromInput && !salesDateFromInput.value) salesDateFromInput.value = today;
-    if (salesDateToInput && !salesDateToInput.value) salesDateToInput.value = today;
-    renderSalesTable();
-  }
-
   if (page === 'rts-rate') {
     const today = new Date().toISOString().split('T')[0];
     const dateFromInput = document.getElementById('rts-rate-date-from');
@@ -8011,9 +8106,17 @@ function initPage(page) {
   }
 
   if (page === 'data-report') {
-    // First-ever visit has no month/page domains yet; once the summary returns
-    // them, re-enter once so the filter dropdowns populate (the repeat fetch is
-    // a backend cache hit). Subsequent loads just refresh the dashboard.
+    const today = new Date().toISOString().split('T')[0];
+    const salesDateFromInput = document.getElementById('sales-date-from');
+    const salesDateToInput = document.getElementById('sales-date-to');
+    if (salesDateFromInput && !salesDateFromInput.value) salesDateFromInput.value = today;
+    if (salesDateToInput && !salesDateToInput.value) salesDateToInput.value = today;
+    renderRTSRateDashboard();
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport().then(() => {
+        if (App.currentPage === 'data-report') renderRTSRateDashboard();
+      }).catch(() => {});
+    }
     const firstLoad = dataReportMonths.length === 0;
     loadDataReportSummary().then(() => {
       if (App.currentPage !== 'data-report') return;
@@ -10990,7 +11093,6 @@ async function editOrderRecord(orderId) {
     saveCourierOptions([...getCourierOptions(), payload.courier]);
     showToast('success', 'Order updated', `${order.id} was saved.`);
     renderViewRecordsOrdersTable();
-    if (App.currentPage === 'sales') renderSalesTable();
   } catch (error) {
     showToast('error', 'Update failed', error.message || 'Could not update order.');
   }
@@ -11013,7 +11115,6 @@ async function deleteOrderRecord(orderId) {
     }
     showToast('success', 'Order deleted', order.id);
     renderViewRecordsOrdersTable();
-    if (App.currentPage === 'sales') renderSalesTable();
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete order.');
   }
@@ -13120,8 +13221,7 @@ async function importCsvFile(type, file) {
       navigateTo('inventory');
     } else {
       await refreshOrdersFromBackend();
-      if (App.currentPage === 'sales') renderSalesTable();
-      if (App.currentPage === 'view-records') renderViewRecordsOrdersTable();
+        if (App.currentPage === 'view-records') renderViewRecordsOrdersTable();
     }
 
     const failed = Array.isArray(result.failed_rows) ? result.failed_rows.length : 0;
@@ -13289,7 +13389,7 @@ async function init() {
     refreshInventoryFromBackend(),
   ]).then(() => {
     if (!App.user) return;
-    if (['home', 'sales', 'inventory', 'view-records', 'rts-rate'].includes(App.currentPage)) {
+    if (['home', 'data-report', 'inventory', 'view-records', 'rts-rate'].includes(App.currentPage)) {
       loadPage(App.currentPage);
     }
   });
