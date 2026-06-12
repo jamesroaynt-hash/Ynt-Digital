@@ -81,6 +81,17 @@ const PANCAKE_POS_SYNC_PAGE_SIZE = Math.max(
   10,
   Math.min(100, Number(process.env.PANCAKE_POS_SYNC_PAGE_SIZE || 100))
 );
+// Bound the interval sync's page drain. Pancake's start_time_updated_at filter
+// is coarse and hands back the same ~2000 recent orders every cycle (maxPages
+// default 20 × page_size 100). Results are sorted updated_at_desc, so the
+// genuinely-changed orders are always on the first pages — a few pages catch
+// every real change, and the unchanged tail is skipped at upsert anyway. This
+// caps Pancake fetch size, memory, and sync time per cycle. Manual/backfill
+// syncs don't use this window, so full history re-pulls are unaffected.
+const PANCAKE_POS_SYNC_MAX_PAGES = Math.max(
+  1,
+  Math.min(20, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 5))
+);
 
 // Shared security state
 const tokenBlocklist = new Map(); // jti -> expiresAt (ms)
@@ -370,6 +381,7 @@ async function createApp() {
     return {
       endDateTime: Math.floor(Date.now() / 1000),
       page_size: PANCAKE_POS_SYNC_PAGE_SIZE,
+      max_pages: PANCAKE_POS_SYNC_MAX_PAGES,
       resources: ['orders'],
       replay_stored_orders: false,
     };
