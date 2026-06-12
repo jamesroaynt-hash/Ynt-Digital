@@ -1,4 +1,4 @@
-const RAILWAY = 'https://ynt-digital-production.up.railway.app';
+const RAILWAY = 'https://ynt-digital-marketing.up.railway.app';
 
 export default {
   async fetch(request, env) {
