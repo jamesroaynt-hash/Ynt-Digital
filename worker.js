@@ -8,6 +8,10 @@ export default {
       try {
         const headers = new Headers(request.headers);
         headers.delete('host');
+        // Let Railway respond uncompressed; Cloudflare re-compresses to the
+        // browser. Forwarding the browser's Accept-Encoding makes the Worker
+        // pass through gzip bytes without the Content-Encoding header → garbled.
+        headers.delete('accept-encoding');
 
         const hasBody = !['GET', 'HEAD'].includes(request.method);
         const body = hasBody ? await request.arrayBuffer() : undefined;

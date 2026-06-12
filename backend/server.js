@@ -112,7 +112,9 @@ function isHostedAppHost(hostname = '') {
     || /\.vercel\.app$/i.test(hostname)
     || /\.up\.railway\.app$/i.test(hostname)
     || /\.railway\.app$/i.test(hostname)
-    || /\.trycloudflare\.com$/i.test(hostname);
+    || /\.trycloudflare\.com$/i.test(hostname)
+    || /\.workers\.dev$/i.test(hostname)
+    || /\.pages\.dev$/i.test(hostname);
 }
 
 function isAllowedOrigin(origin) {
