@@ -5,10 +5,14 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith('/api/')) {
+      const headers = new Headers(request.headers);
+      headers.delete('host');
+
       return fetch(`${RAILWAY}${url.pathname}${url.search}`, {
         method: request.method,
-        headers: request.headers,
-        body: request.body,
+        headers,
+        body: ['GET', 'HEAD'].includes(request.method) ? null : request.body,
+        redirect: 'follow',
       });
     }
 
