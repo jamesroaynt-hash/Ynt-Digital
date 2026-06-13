@@ -682,11 +682,25 @@ function ordersRoutes(db, { dispatch } = {}) {
 
     const total = statusCountRows.reduce((s, r) => s + Number(r.count || 0), 0);
 
+    // Courier-status metrics over the same filtered set (not just the page).
+    // Undeliverable = courier marked it undeliverable; Problematic = the latest
+    // courier note reports a delivery failure.
+    const undeliverableRow = await db.prepare(
+      `SELECT COUNT(*) AS c FROM pos_orders ${where} AND LOWER(COALESCE(partner_status,'')) = 'undeliverable'`
+    ).get(...params);
+    const problematicRow = await db.prepare(
+      `SELECT COUNT(*) AS c FROM pos_orders ${where} AND LOWER(COALESCE(courier_note,'')) LIKE '%fail%'`
+    ).get(...params);
+    const partnerCounts = {
+      undeliverable: Number(undeliverableRow?.c || 0),
+      problematic: Number(problematicRow?.c || 0),
+    };
+
     const rows = await db.prepare(`
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, assigned_to_user_id, assigned_to_name, psid
+             partner_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note
       FROM pos_orders ${where}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
@@ -729,8 +743,11 @@ function ordersRoutes(db, { dispatch } = {}) {
         assigned_to_user_id: row.assigned_to_user_id != null ? Number(row.assigned_to_user_id) : null,
         assigned_to_name: row.assigned_to_name || null,
         can_message: Boolean(row.psid),
+        partner_status: row.partner_status || null,
+        courier_note: row.courier_note || null,
       })),
       status_counts: statusCountRows,
+      partner_counts: partnerCounts,
       filter_options: {
         products: [...filterOptions.products].sort(),
         pages: [...filterOptions.pages].sort(),

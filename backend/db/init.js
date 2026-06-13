@@ -662,6 +662,9 @@ async function runPostgresMigrations(db) {
   // Botcake messaging: recipient PSID + page id derived from the order payload.
   await ensureColumnAsync(db, 'pos_orders', 'psid', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'botcake_page_id', 'TEXT');
+  // Courier/partner status + latest courier tracking note (for RMO metrics + display).
+  await ensureColumnAsync(db, 'pos_orders', 'partner_status', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'courier_note', 'TEXT');
   await migratePosOrdersCompositeIdentityAsync(db);
   await migrateIntegrationSettingsMultiRowAsync(db);
   await ensureOrderStatusConstraintAsync(db);

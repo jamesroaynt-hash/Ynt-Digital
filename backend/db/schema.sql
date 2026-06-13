@@ -314,6 +314,8 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   shipping_address_json TEXT,
   psid TEXT,
   botcake_page_id TEXT,
+  partner_status TEXT,
+  courier_note TEXT,
   raw_payload TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

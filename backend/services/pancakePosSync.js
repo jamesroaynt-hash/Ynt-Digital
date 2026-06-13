@@ -536,6 +536,12 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const psid = derivePosPsid(item);
   const botcakePageId = stringOrNull(item?.account) || stringOrNull(item?.page_id);
 
+  // Courier/partner status (delivered, returning, undeliverable, ...) and the
+  // latest courier tracking line (e.g. "package is Delivery Failed"). Drives the
+  // RMO Undeliverable/Problematic metrics and the courier note in the table.
+  const partnerStatus = stringOrNull(partner?.partner_status);
+  const courierNote = stringOrNull(Array.isArray(partner?.extend_update) ? partner.extend_update[0]?.status : null);
+
   const rawItems = item?.order_details || item?.items || [];
   // Product name lives in variation_info.name. note_product is a free-text note
   // that sometimes holds a long marketing description, so use it only as a last
@@ -559,11 +565,12 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   if (incomingUpdatedAtRemote) {
     const stored = await db.prepare(
-      'SELECT updated_at_remote, status_name, psid, note_product FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+      'SELECT updated_at_remote, status_name, psid, note_product, partner_status FROM pos_orders WHERE shop_id = ? AND external_id = ?'
     ).get(resolvedShopId, externalId);
     const psidAlreadyStored = stored && (stored.psid || !psid);
     const productUnchanged = stored && (stored.note_product === noteProduct);
-    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged) {
+    const partnerUnchanged = stored && ((stored.partner_status || null) === (partnerStatus || null));
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged) {
       return externalId; // unchanged — no write needed
     }
   }
@@ -587,9 +594,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, sprinter_name, sprinter_tel,
-      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, raw_payload
+      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -619,6 +626,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       shipping_address_json = excluded.shipping_address_json,
       psid = COALESCE(excluded.psid, pos_orders.psid),
       botcake_page_id = COALESCE(excluded.botcake_page_id, pos_orders.botcake_page_id),
+      partner_status = excluded.partner_status,
+      courier_note = excluded.courier_note,
       raw_payload = excluded.raw_payload,
       updated_at = datetime('now')
   `).run(
@@ -654,6 +663,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     safeJson(shippingAddress || null),
     psid,
     botcakePageId,
+    partnerStatus,
+    courierNote,
     rawPayloadForStorage(item)
   );
   return externalId;

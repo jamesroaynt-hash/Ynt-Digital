@@ -614,6 +614,7 @@ async function refreshPosRawOrdersFromBackend() {
   DB.posRawOrders = Array.isArray(result?.data) ? result.data : [];
   DB.posRawTotal = Number(result?.total || 0);
   DB.posRawStatusCounts = Array.isArray(result?.status_counts) ? result.status_counts : [];
+  DB.posRawPartnerCounts = result?.partner_counts || { undeliverable: 0, problematic: 0 };
   DB.posRawFilterOptions = {
     products: Array.isArray(result?.filter_options?.products) ? result.filter_options.products : [],
     pages: Array.isArray(result?.filter_options?.pages) ? result.filter_options.pages : [],
@@ -6576,12 +6577,21 @@ function updateRmoFilterOptions() {
   updatePosFilterSelect('pos-orders-tags', 'All Tags', posTagOptions, posOrdersTagFilter);
 }
 
+// Server-side totals over the whole filtered set (computed from partner_status /
+// courier_note in /pos-orders), not just the current page.
 function getRmoProblematicCount() {
-  return DB.posRawOrders.filter((order) => normalizeText(order?.partner?.note) === 'problematic').length;
+  return Number(DB.posRawPartnerCounts?.problematic || 0);
 }
 
 function getRmoUndeliverableCount() {
-  return DB.posRawOrders.filter((order) => normalizeText(order?.partner?.note) === 'undeliverable').length;
+  return Number(DB.posRawPartnerCounts?.undeliverable || 0);
+}
+
+// True when the courier reported a delivery problem for this order.
+function isOrderCourierProblem(order) {
+  const status = normalizeText(order?.partner_status);
+  const note = String(order?.courier_note || '').toLowerCase();
+  return status === 'undeliverable' || note.includes('fail');
 }
 
 function renderRmoManagement() {
@@ -11055,6 +11065,7 @@ function renderPosOrdersTable() {
         <td>
           <div class="rmo-item-main">${escapeHtml(order.sprinter_name || 'Unassigned rider')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.sprinter_tel || 'No rider phone')}</div>
+          ${isOrderCourierProblem(order) ? `<div class="rmo-courier-note" title="Courier status">${escapeHtml(order.courier_note || 'Delivery problem')}</div>` : ''}
         </td>
         <td>
           <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
