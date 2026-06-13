@@ -1979,6 +1979,80 @@ async function sendBotcakeFlow(db, payload = {}) {
   };
 }
 
+// ─── POS ORDER TAGS (read + write-back to Pancake) ─────────
+// Pancake POS write endpoint. posRequest is GET-only, so this handles other
+// methods, mirroring its pos.pages.fm -> pos.pancake.ph 404 fallback.
+async function posWrite(baseUrl, path, apiKey, method, body) {
+  if (!apiKey) throw new Error('Missing Pancake POS api_key.');
+  const doFetch = async (b) => {
+    const url = buildUrl(b, path, { api_key: apiKey });
+    const r = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(20000),
+    });
+    const text = await r.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    return { r, data, url };
+  };
+  const selectedBaseUrl = baseUrl || POS_API_BASE;
+  let { r, data, url } = await doFetch(selectedBaseUrl);
+  if (r.status === 404 && !selectedBaseUrl.includes('pos.pancake.ph')) {
+    ({ r, data, url } = await doFetch('https://pos.pancake.ph/api/v1'));
+  }
+  if (!r.ok || (data && typeof data === 'object' && data.success === false)) {
+    const reason = (data && typeof data === 'object' && stringOrNull(data.message))
+      || (typeof data === 'string' ? truncate(data, 180) : 'request failed');
+    throw new Error(`Pancake POS ${method} ${url.pathname} failed (${r.status}): ${reason}`);
+  }
+  return data;
+}
+
+// List the order tags configured for a shop (id, name, colour, group).
+async function listShopOrderTags(db, payload = {}) {
+  const connection = await resolveConnectionForValidation(db, payload);
+  if (!connection?.api_key || !connection?.shop_id) throw new Error('No POS connection found for this shop.');
+  const data = await posRequest(connection.base_url, `/shops/${connection.shop_id}/orders/tags`, connection.api_key);
+  const tags = Array.isArray(data?.data) ? data.data : [];
+  return {
+    shop_id: connection.shop_id,
+    tags: tags
+      .filter((t) => t && t.id != null)
+      .map((t) => ({ id: t.id, name: stringOrNull(t.name) || `Tag ${t.id}`, group: stringOrNull(t.groups?.[0]?.name) })),
+  };
+}
+
+// Replace an order's tag set in Pancake, then mirror it into the local row.
+// payload: { shop_id|connection_id, external_id, tags: [tagId, ...] }
+async function updateOrderTags(db, payload = {}) {
+  const connection = await resolveConnectionForValidation(db, payload);
+  if (!connection?.api_key || !connection?.shop_id) throw new Error('No POS connection found for this shop.');
+  const externalId = stringOrNull(payload.external_id || payload.externalId);
+  if (!externalId) throw new Error('Missing order id.');
+  if (!Array.isArray(payload.tags)) throw new Error('Missing tags.');
+  const tagIds = payload.tags
+    .map((t) => Number(t && typeof t === 'object' ? t.id : t))
+    .filter((n) => Number.isInteger(n));
+
+  const data = await posWrite(connection.base_url, `/shops/${connection.shop_id}/orders/${encodeURIComponent(externalId)}`, connection.api_key, 'PUT', { tags: tagIds });
+
+  // Pancake returns the updated order; prefer its tag list (carries names).
+  let newTags = Array.isArray(data?.data?.tags)
+    ? data.data.tags.map((t) => ({ id: t.id, name: stringOrNull(t.name) || String(t.id) }))
+    : null;
+  if (!newTags) {
+    const all = await listShopOrderTags(db, { shop_id: connection.shop_id });
+    const byId = new Map(all.tags.map((t) => [Number(t.id), t.name]));
+    newTags = tagIds.map((id) => ({ id, name: byId.get(id) || String(id) }));
+  }
+  await db.prepare(`UPDATE pos_orders SET tags_json = ?, updated_at = datetime('now') WHERE shop_id = ? AND external_id = ?`)
+    .run(safeJson(newTags), connection.shop_id, externalId);
+
+  return { ok: true, shop_id: connection.shop_id, external_id: externalId, tags: newTags };
+}
+
 function collectSummaryPayload(resources, options) {
   return {
     mode: 'pos_collect',
@@ -2723,6 +2797,8 @@ module.exports = {
   validateBotcakeToken,
   listBotcakeFlows,
   sendBotcakeFlow,
+  listShopOrderTags,
+  updateOrderTags,
   collectPosData,
   replayStoredOrdersToDashboard,
   receiveWebhook,

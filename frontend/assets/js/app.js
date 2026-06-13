@@ -785,6 +785,64 @@ async function confirmBotcakeSend() {
   }
 }
 
+// ─── POS ORDER TAG EDITOR (RMO Management) ─────────────────
+// Edit a Pancake POS order's tags from the dashboard and push the change back
+// to Pancake. Available tags are fetched per shop and cached.
+let tagEditor = { externalId: null, shopId: null };
+const shopTagsCache = {};
+
+async function openTagEditor(externalId, shopId) {
+  tagEditor = { externalId, shopId };
+  const order = DB.posRawOrders.find((o) =>
+    String(o.external_id) === String(externalId) && String(o.shop_id || '') === String(shopId));
+  const current = Array.isArray(order?.tags)
+    ? order.tags.map((t) => Number(t && typeof t === 'object' ? t.id : t)).filter(Number.isInteger)
+    : [];
+  const recap = document.getElementById('pos-tags-recap');
+  if (recap) recap.textContent = order?.customer_name ? `Order for ${order.customer_name}` : `Order ${externalId}`;
+  const list = document.getElementById('pos-tags-list');
+  if (list) list.innerHTML = 'Loading…';
+  openModal('pos-tags-modal');
+  try {
+    let tags = shopTagsCache[shopId];
+    if (!tags) {
+      const data = await authorizedJsonRequest(`/orders/pos-orders/tags?shop_id=${encodeURIComponent(shopId || '')}`);
+      tags = Array.isArray(data?.tags) ? data.tags : [];
+      shopTagsCache[shopId] = tags;
+    }
+    if (!tags.length) { list.innerHTML = '<div class="field-help">No tags configured for this page.</div>'; return; }
+    const cur = new Set(current);
+    list.innerHTML = tags.map((t) =>
+      `<label class="pos-tag-opt"><input type="checkbox" value="${escapeHtml(t.id)}" ${cur.has(Number(t.id)) ? 'checked' : ''}>
+        <span>${escapeHtml(t.name)}</span>${t.group ? `<span class="pos-tag-group">${escapeHtml(t.group)}</span>` : ''}</label>`
+    ).join('');
+  } catch (error) {
+    if (list) list.innerHTML = `<div class="field-help" style="color:var(--danger,#ef4444)">Failed to load tags: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function saveOrderTags() {
+  const ids = [...document.querySelectorAll('#pos-tags-list input:checked')].map((cb) => Number(cb.value)).filter(Number.isInteger);
+  const btn = document.getElementById('pos-tags-save');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const data = await authorizedJsonRequest(`/orders/pos-orders/${encodeURIComponent(tagEditor.externalId)}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ shop_id: tagEditor.shopId, tags: ids }),
+    });
+    const order = DB.posRawOrders.find((o) =>
+      String(o.external_id) === String(tagEditor.externalId) && String(o.shop_id || '') === String(tagEditor.shopId));
+    if (order) order.tags = Array.isArray(data?.tags) ? data.tags : [];
+    showToast('success', 'Tags updated', `Saved ${(data?.tags || []).length} tag(s) to Pancake.`);
+    closeModal('pos-tags-modal');
+    renderPosOrdersTable();
+  } catch (error) {
+    showToast('error', 'Tag update failed', error.message || 'Request failed');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save tags'; }
+  }
+}
+
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
 // RMO Management is a live order-monitoring dashboard, so it polls every 45s.
@@ -6653,7 +6711,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Assignee</th><th>Status</th><th>Inserted At</th><th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Tags</th><th>Status</th><th>Inserted At</th><th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="12" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
@@ -6678,6 +6736,23 @@ function renderRmoManagement() {
           <div style="display:flex;gap:8px;margin-top:10px;">
             <button type="button" class="btn btn-primary" id="botcake-send-confirm" style="flex:1;" onclick="confirmBotcakeSend()">Send</button>
             <button type="button" class="btn btn-secondary" onclick="closeModal('botcake-send-modal')">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="pos-tags-modal">
+      <div class="modal" style="max-width:460px;">
+        <div class="modal-header">
+          <div class="modal-title">Edit Order Tags</div>
+          <button class="modal-close" onclick="closeModal('pos-tags-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <div id="pos-tags-recap" class="field-help" style="margin-bottom:10px;"></div>
+          <div id="pos-tags-list" class="pos-tags-list">Loading…</div>
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button type="button" class="btn btn-primary" id="pos-tags-save" style="flex:1;" onclick="saveOrderTags()">Save tags</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('pos-tags-modal')">Cancel</button>
           </div>
         </div>
       </div>
@@ -11012,7 +11087,6 @@ function renderPosOrdersTable() {
         <td>
           <div class="rmo-item-main">${escapeHtml(product)}</div>
           <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - ${escapeHtml(order.tracking_no)}` : ''}</div>
-          <div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}</div>
         </td>
         <td>
           <div class="rmo-item-main">${escapeHtml(order.sprinter_name || 'Unassigned rider')}</div>
@@ -11027,7 +11101,7 @@ function renderPosOrdersTable() {
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : '&#8369;0'}</td>
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
-        <td>${renderAssigneeSelect(order)}</td>
+        <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
         <td class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash}</td>
         <td>${order.can_message

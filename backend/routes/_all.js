@@ -819,6 +819,31 @@ function ordersRoutes(db, { dispatch } = {}) {
     }
   });
 
+  // List the order tags configured for a shop (to populate the tag editor).
+  r.get('/pos-orders/tags', async (req, res) => {
+    try {
+      const result = await pancakePosSync.listShopOrderTags(db, { shop_id: req.query.shop_id || req.query.shopId });
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Replace an order's tags and push the change back to Pancake POS.
+  // Body: { shop_id, tags: [tagId, ...] }
+  r.post('/pos-orders/:externalId/tags', async (req, res) => {
+    try {
+      const result = await pancakePosSync.updateOrderTags(db, {
+        external_id: req.params.externalId,
+        shop_id: req.body?.shop_id || req.body?.shopId,
+        tags: req.body?.tags,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   r.delete('/pos-orders/no-contact', async (req, res) => {
     const result = await db.prepare(`
       DELETE FROM pos_orders
