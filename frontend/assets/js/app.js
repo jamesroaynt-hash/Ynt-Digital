@@ -597,6 +597,7 @@ async function refreshPosRawOrdersFromBackend() {
   if (posOrdersPageFilter !== 'all') query.set('source', posOrdersPageFilter);
   if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
+  if (posOrdersAttemptFilter !== 'all') query.set('attempts', posOrdersAttemptFilter);
   if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
   if (posOrdersPeriod === 'custom') {
     if (posOrdersDateFrom) query.set('date_from', posOrdersDateFrom);
@@ -6620,6 +6621,10 @@ function renderRmoManagement() {
         <option value="all">All Pages</option>
         ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
       </select>
+      <select class="rmo-select" id="pos-orders-attempts" onchange="applyPosOrdersDropdown()">
+        ${[['all','All Attempts'],['1','1st attempt'],['2','2nd attempt'],['3','3rd attempt'],['4plus','4+ attempts']].map(([v, l]) =>
+          `<option value="${v}" ${posOrdersAttemptFilter === v ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>
     </div>
 
     <div class="rmo-period-bar">
@@ -9657,6 +9662,7 @@ let posOrdersProductFilter = 'all';
 let posOrdersPageFilter = 'all';
 let posOrdersStatusFilter = 'all';
 let posOrdersTagFilter = 'all';
+let posOrdersAttemptFilter = 'all';
 let posOrdersPeriod = 'all';
 let posOrdersDateFrom = '';
 let posOrdersDateTo = '';
@@ -11086,6 +11092,7 @@ function applyPosOrdersDropdown() {
   posOrdersPageFilter = document.getElementById('pos-orders-page')?.value || 'all';
   posOrdersStatusFilter = document.getElementById('pos-orders-status')?.value || 'all';
   posOrdersTagFilter = document.getElementById('pos-orders-tags')?.value || 'all';
+  posOrdersAttemptFilter = document.getElementById('pos-orders-attempts')?.value || 'all';
   posRawPage = 1;
   refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
     showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');

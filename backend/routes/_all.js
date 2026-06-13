@@ -549,7 +549,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   r.get('/pos-orders', async (req, res) => {
     const {
       page = 1, per_page = 50,
-      search, product, source: pageFilter, status, tags,
+      search, product, source: pageFilter, status, tags, attempts,
       period, date_from, date_to,
     } = req.query;
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));
@@ -596,6 +596,18 @@ function ordersRoutes(db, { dispatch } = {}) {
     if (tags && tags !== 'all') {
       where += ` AND LOWER(COALESCE(tags_json,'')) LIKE ?`;
       params.push(`%${String(tags).toLowerCase()}%`);
+    }
+
+    if (attempts && attempts !== 'all') {
+      if (attempts === '4plus') {
+        where += ` AND attempts >= 4`;
+      } else if (attempts === '1') {
+        // 1st attempt: orders not yet re-attempted (stored as 1, 0, or NULL).
+        where += ` AND COALESCE(attempts, 0) <= 1`;
+      } else {
+        const n = Number(attempts);
+        if (Number.isInteger(n)) { where += ` AND attempts = ?`; params.push(n); }
+      }
     }
 
     // Prefer the original POS payload inserted_at when present. Some older
