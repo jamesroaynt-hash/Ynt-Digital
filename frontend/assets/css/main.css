@@ -2889,6 +2889,21 @@ tfoot td {
   background: var(--surface-2);
 }
 
+/* Attempts filter lives on the period row, pushed to the right and clearly
+   separated from the status/tags/product/page dropdown cluster. */
+.rmo-attempts-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rmo-attempts-filter label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .rmo-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);

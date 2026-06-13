@@ -6621,10 +6621,6 @@ function renderRmoManagement() {
         <option value="all">All Pages</option>
         ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
       </select>
-      <select class="rmo-select" id="pos-orders-attempts" onchange="applyPosOrdersDropdown()">
-        ${[['all','All Attempts'],['1','1st attempt'],['2','2nd attempt'],['3','3rd attempt'],['4plus','4+ attempts']].map(([v, l]) =>
-          `<option value="${v}" ${posOrdersAttemptFilter === v ? 'selected' : ''}>${l}</option>`).join('')}
-      </select>
     </div>
 
     <div class="rmo-period-bar">
@@ -6637,6 +6633,13 @@ function renderRmoManagement() {
         <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
         <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
         <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
+      </div>
+      <div class="rmo-attempts-filter">
+        <label for="pos-orders-attempts">Attempts</label>
+        <select class="rmo-select" id="pos-orders-attempts" onchange="applyPosOrdersDropdown()">
+          ${[['all','All Attempts'],['1','1st attempt'],['2','2nd attempt'],['3','3rd attempt'],['4plus','4+ attempts']].map(([v, l]) =>
+            `<option value="${v}" ${posOrdersAttemptFilter === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
       </div>
     </div>
 
