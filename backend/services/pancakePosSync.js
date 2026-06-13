@@ -1823,9 +1823,10 @@ async function validatePancakePageToken(db, payload = {}) {
 }
 
 const BOTCAKE_API_BASE = 'https://botcake.io/api/public_api/v1';
-// Folder the dashboard scopes sendable broadcast flows to (the "UPDATE" folder).
-// Override per-request with payload.folder_id.
-const BOTCAKE_DEFAULT_FOLDER_ID = '446238949';
+// The dashboard scopes sendable broadcast flows to a folder. Folder IDs differ
+// per page, so we resolve the target folder by NAME ("UPDATE") on each page
+// rather than a fixed id. Override per-request with payload.folder_id/folder_name.
+const BOTCAKE_DEFAULT_FOLDER_NAME = 'UPDATE';
 
 // Low-level Botcake call. The Public API key authenticates as a Bearer token.
 // Botcake sometimes returns HTTP 200 with {"success":false}, so treat that as
@@ -1884,21 +1885,32 @@ async function validateBotcakeToken(db, payload = {}) {
   return { ok: true, page_id: pageId, flow_count: flows.length };
 }
 
-// List the broadcast flows available to send, scoped to one folder (default UPDATE).
+// List the broadcast flows available to send, scoped to one folder. Folder IDs
+// differ per page, so the target folder is resolved by NAME ("UPDATE") on each
+// page unless an explicit folder_id is supplied.
 async function listBotcakeFlows(db, payload = {}) {
   const { connection, pageId, token } = await resolveBotcakeConnection(db, payload);
-  const folderId = stringOrNull(payload.folder_id || payload.folderId) || BOTCAKE_DEFAULT_FOLDER_ID;
   const { flows, folders } = await botcakeFetchFlows(pageId, token);
+
+  const explicitFolderId = stringOrNull(payload.folder_id || payload.folderId);
+  const wantName = (stringOrNull(payload.folder_name) || BOTCAKE_DEFAULT_FOLDER_NAME).toLowerCase();
+  const matchFolder = explicitFolderId
+    ? folders.find((f) => String(f.id) === explicitFolderId)
+    : folders.find((f) => (stringOrNull(f.name) || '').toLowerCase() === wantName);
+  const folderId = matchFolder ? String(matchFolder.id) : (explicitFolderId || null);
+
   const scoped = flows
     .filter((f) => f && !f.is_removed)
-    .filter((f) => !folderId || String(f.parent_id ?? '') === String(folderId))
+    .filter((f) => folderId && String(f.parent_id ?? '') === String(folderId))
     .map((f) => ({ id: f.id, name: stringOrNull(f.name) || `Flow ${f.id}` }));
+
   return {
     ok: true,
     shop_id: connection.shop_id,
     page_id: pageId,
     folder_id: folderId,
-    folder_name: stringOrNull(folders.find((x) => String(x.id) === String(folderId))?.name) || null,
+    folder_name: stringOrNull(matchFolder?.name) || null,
+    folder_found: Boolean(folderId),
     flows: scoped,
   };
 }

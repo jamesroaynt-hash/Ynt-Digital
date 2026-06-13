@@ -734,7 +734,9 @@ async function loadBotcakeFlows(shopId) {
     const data = await authorizedJsonRequest(`/orders/pos-orders/botcake/flows?shop_id=${encodeURIComponent(shopId || '')}`);
     const flows = Array.isArray(data?.flows) ? data.flows : [];
     if (!flows.length) {
-      select.innerHTML = '<option value="">No broadcasts in the "UPDATE" folder</option>';
+      select.innerHTML = data?.folder_found
+        ? '<option value="">"UPDATE" folder is empty — add broadcasts to it in Botcake</option>'
+        : '<option value="">No "UPDATE" folder found on this page</option>';
       return;
     }
     select.innerHTML = flows.map((f) => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join('');
