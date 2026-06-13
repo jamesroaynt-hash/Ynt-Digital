@@ -228,6 +228,20 @@ module.exports = function hrRoutes(db) {
       return res.status(409).json({ error: 'You already timed in today.' });
     }
 
+    // One break per day: once a break has started, block starting another, and
+    // once it has ended, block ending again.
+    if (column === 'break_out' && existing && existing.break_out) {
+      return res.status(409).json({ error: 'You already took your break today.' });
+    }
+    if (column === 'break_in') {
+      if (!existing || !existing.break_out) {
+        return res.status(409).json({ error: 'Break out first before ending a break.' });
+      }
+      if (existing.break_in) {
+        return res.status(409).json({ error: 'You already ended your break today.' });
+      }
+    }
+
     if (!existing) {
       await db.prepare(`
         INSERT INTO attendance_records (user_id, work_date, break_minutes, ${column}, notes)

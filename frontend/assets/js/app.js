@@ -2768,8 +2768,8 @@ function renderTimeClockCard() {
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
           <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
-          <button class="btn btn-secondary" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
-          <button class="btn btn-secondary" onclick="startBreakWithCountdown(15)">15-min Break</button>
+          <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
+          <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(15)">15-min Break</button>
         </div>
 
         ${canAccessPage('hr') ? "<button class=\"btn btn-ghost btn-sm\" style=\"margin-top:12px;\" onclick=\"navigateTo('hr')\">Open HR records</button>" : ''}
@@ -3084,8 +3084,8 @@ function renderAttendance() {
           <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;">
             <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
             <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
-            <button class="btn btn-secondary" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
-            <button class="btn btn-secondary" onclick="startBreakWithCountdown(15)">15-min Break</button>
+            <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
+            <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(15)">15-min Break</button>
           </div>
         </div>
       </div>
@@ -8073,6 +8073,14 @@ function lockTimeInIfDone(record) {
   document.querySelectorAll('.btn-time-in').forEach((btn) => {
     btn.disabled = done;
     btn.textContent = done ? 'Timed In ✓' : 'Time In';
+  });
+  // One break per day: disable both break buttons once a break has started
+  // (break_out set) — whether the user is mid-break or has already finished it.
+  const breakStarted = Boolean(record?.break_out);
+  const breakDone = Boolean(record?.break_out && record?.break_in);
+  document.querySelectorAll('.btn-break').forEach((btn) => {
+    btn.disabled = breakStarted;
+    btn.title = breakDone ? 'Break already taken today' : '';
   });
 }
 
