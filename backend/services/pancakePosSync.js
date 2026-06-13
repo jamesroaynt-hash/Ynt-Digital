@@ -536,30 +536,39 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const psid = derivePosPsid(item);
   const botcakePageId = stringOrNull(item?.account) || stringOrNull(item?.page_id);
 
+  const rawItems = item?.order_details || item?.items || [];
+  // Product name lives in variation_info.name. note_product is a free-text note
+  // that sometimes holds a long marketing description, so use it only as a last
+  // resort to avoid showing a paragraph instead of the product name.
+  const firstItem = rawItems[0] || {};
+  const noteProduct = stringOrNull(firstItem?.variation_info?.name)
+    || stringOrNull(firstItem?.product_name)
+    || stringOrNull(firstItem?.product?.name)
+    || stringOrNull(firstItem?.name)
+    || stringOrNull(firstItem?.note_product);
+
   // Egress saver: the interval "updated_at" pass re-fetches the same recent
   // orders every cycle (created=0, updated=2000), so without this guard we
   // re-ship the full row (items/tags/partner/shipping JSON + raw_payload) to
   // Postgres on every sync — the dominant Railway->Supabase egress. If the
   // order's remote updated_at AND resolved status already match what we stored,
   // nothing changed on Pancake, so skip the write. Real status changes bump
-  // updated_at on Pancake's side, so they still flow through. Exception: if we
-  // don't yet have the PSID stored but the payload now carries one, allow the
-  // write so the messaging fields backfill (one-time per order).
+  // updated_at on Pancake's side, so they still flow through. Exceptions: if we
+  // don't yet have the PSID stored, or the stored product name is stale, allow
+  // the write so those fields backfill (one-time per order).
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   if (incomingUpdatedAtRemote) {
     const stored = await db.prepare(
-      'SELECT updated_at_remote, status_name, psid FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+      'SELECT updated_at_remote, status_name, psid, note_product FROM pos_orders WHERE shop_id = ? AND external_id = ?'
     ).get(resolvedShopId, externalId);
     const psidAlreadyStored = stored && (stored.psid || !psid);
-    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored) {
+    const productUnchanged = stored && (stored.note_product === noteProduct);
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged) {
       return externalId; // unchanged — no write needed
     }
   }
 
   const pageName = connectionName || await findSavedConnectionName(db, resolvedShopId);
-
-  const rawItems = item?.order_details || item?.items || [];
-  const noteProduct = stringOrNull(rawItems[0]?.note_product);
   const rawSeller = item?.assigning_seller
     || rawItems[0]?.assigning_seller
     || null;
