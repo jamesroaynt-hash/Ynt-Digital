@@ -2156,42 +2156,6 @@ function renderApiConnections() {
       </div>
     </div>
 
-    <section class="card integration-card" style="margin-top:20px;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Historical POS Sync</div>
-          <div class="card-subtitle">Pull past orders from Pancake POS for a custom date range. Use this to backfill older data.</div>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">From Date</label>
-            <input type="date" class="form-control" id="pos-hist-from" value="${normalizeDateString(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1))}">
-            <div class="field-help">Start of the date range to sync.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">To Date</label>
-            <input type="date" class="form-control" id="pos-hist-to" value="${normalizeDateString(new Date(new Date().getFullYear(), new Date().getMonth(), 0))}">
-            <div class="field-help">End of the date range to sync.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Max Pages</label>
-            <input type="number" class="form-control" id="pos-hist-max-pages" value="200" min="1" max="2000">
-            <div class="field-help">Each page = up to 100 orders. 200 pages ≈ 20,000 orders.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Page Size</label>
-            <input type="number" class="form-control" id="pos-hist-page-size" value="100" min="10" max="100">
-            <div class="field-help">Orders per API request (max 100).</div>
-          </div>
-        </div>
-        <div id="pos-hist-status" style="margin-bottom:12px;font-size:13px;color:var(--text-muted);"></div>
-        <div class="integration-actions">
-          <button class="btn btn-primary" type="button" id="pos-hist-btn" onclick="runPosHistoricalSync()">Start Historical Sync</button>
-        </div>
-      </div>
-    </section>
   </div>
 
   <div id="api-tab-pos-users" class="tab-content">
@@ -12188,6 +12152,7 @@ function renderPancakePagesTable() {
         <td>${r.lastSync ? escapeHtml(new Date(r.lastSync).toLocaleString()) : '—'}</td>
         <td>
           <button class="btn btn-secondary btn-sm" type="button" data-pos-sync-id="${escapeHtml(r.id)}" onclick="syncPancakePosPage(event, '${escapeHtml(String(r.id))}')">Sync</button>
+          <button class="btn btn-danger btn-sm" type="button" onclick="deletePancakePosPage(event, '${escapeHtml(String(r.id))}')">Delete</button>
           <span class="pos-page-sync-status" data-pos-sync-status="${escapeHtml(r.id)}"></span>
         </td>
       </tr>`).join('')
@@ -12537,6 +12502,29 @@ async function collectPancakePosData() {
       syncButton.disabled = false;
       syncButton.textContent = 'Sync POS Orders';
     }
+  }
+}
+
+// Delete a connected page: remove the connection from the backend and the local
+// integration state. Stored orders already synced are kept.
+async function deletePancakePosPage(event, connectionId) {
+  if (event) event.stopPropagation();
+  const state = getIntegrationState();
+  const connections = Array.isArray(state.pancakePos?.connections) ? state.pancakePos.connections : [];
+  const connection = connections.find((item) => String(item.id) === String(connectionId));
+  const name = connection?.name || connection?.shopName || `Shop ${connection?.shopId || connection?.shop_id || connectionId}`;
+  if (!confirm(`Delete the page "${name}"? This removes the connection from the dashboard. Orders already synced are kept.`)) return;
+  try {
+    await authorizedJsonRequest('/integrations/pancake-pos/connections/delete', {
+      method: 'POST',
+      body: JSON.stringify({ connection_id: connectionId }),
+    });
+    state.pancakePos.connections = connections.filter((item) => String(item.id) !== String(connectionId));
+    saveIntegrationState(state);
+    renderPancakePagesTable();
+    showToast('success', 'Page deleted', `"${name}" was removed from the dashboard.`);
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete the page.');
   }
 }
 

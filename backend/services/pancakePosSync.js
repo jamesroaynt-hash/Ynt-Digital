@@ -2053,6 +2053,18 @@ async function updateOrderTags(db, payload = {}) {
   return { ok: true, shop_id: connection.shop_id, external_id: externalId, tags: newTags };
 }
 
+// Delete a saved POS connection (page) from integration_settings. Stored orders
+// in pos_orders are intentionally left untouched.
+async function deleteConnection(db, payload = {}) {
+  const connectionId = stringOrNull(payload.connection_id || payload.connectionId || payload.id);
+  if (!connectionId) throw new Error('Missing connection_id.');
+  const result = await db.prepare(
+    `DELETE FROM integration_settings WHERE provider = ? AND connection_id = ?`
+  ).run(PROVIDER, connectionId);
+  invalidateSavedConnectionsCache();
+  return { ok: true, connection_id: connectionId, deleted: result.changes || 0 };
+}
+
 function collectSummaryPayload(resources, options) {
   return {
     mode: 'pos_collect',
@@ -2799,6 +2811,7 @@ module.exports = {
   sendBotcakeFlow,
   listShopOrderTags,
   updateOrderTags,
+  deleteConnection,
   collectPosData,
   replayStoredOrdersToDashboard,
   receiveWebhook,

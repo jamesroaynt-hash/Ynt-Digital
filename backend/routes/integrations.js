@@ -524,6 +524,15 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.post('/pancake-pos/connections/delete', async (req, res) => {
+    try {
+      const result = await posSync.deleteConnection(db, req.body || {});
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.post('/pancake-pos/collect', async (req, res) => {
     try {
       const result = await posSync.collectPosData(db, req.body || {});
@@ -622,6 +631,7 @@ module.exports = function integrationRoutes(db) {
     '/pancake-pos/shops',
     '/pancake-pos/validate-page-token',
     '/pancake-pos/validate-botcake-token',
+    '/pancake-pos/connections/delete',
     '/pancake-pos/collect',
     '/pancake-pos/replay',
     '/google-sheets/collect',
