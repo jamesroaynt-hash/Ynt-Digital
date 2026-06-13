@@ -2766,7 +2766,7 @@ function renderTimeClockCard() {
         </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-          <button class="btn btn-primary" onclick="submitTimeClock('time_in')">Time In</button>
+          <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
           <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
           <button class="btn btn-secondary" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
           <button class="btn btn-secondary" onclick="startBreakWithCountdown(15)">15-min Break</button>
@@ -3082,7 +3082,7 @@ function renderAttendance() {
           </div>
 
           <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;">
-            <button class="btn btn-primary" onclick="submitTimeClock('time_in')">Time In</button>
+            <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
             <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
             <button class="btn btn-secondary" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
             <button class="btn btn-secondary" onclick="startBreakWithCountdown(15)">15-min Break</button>
@@ -7720,6 +7720,7 @@ function formatClock12(value) {
 
 function renderTimeClockStatus(record, date) {
   const wrapper = document.getElementById('time-clock-status');
+  lockTimeInIfDone(record);
   if (!wrapper) return;
   wrapper.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:left;">
@@ -8065,8 +8066,19 @@ function renderMyWorkHours(payslip) {
     </div>`;
 }
 
+// Disable the Time In button(s) once the user has timed in today, so they can't
+// time in twice (the backend also rejects a second time-in).
+function lockTimeInIfDone(record) {
+  const done = Boolean(record?.time_in);
+  document.querySelectorAll('.btn-time-in').forEach((btn) => {
+    btn.disabled = done;
+    btn.textContent = done ? 'Timed In ✓' : 'Time In';
+  });
+}
+
 function renderAttendanceClockStatus(record, date) {
   const wrapper = document.getElementById('attendance-clock-status');
+  lockTimeInIfDone(record);
   if (!wrapper) return;
   wrapper.className = '';
   wrapper.innerHTML = `

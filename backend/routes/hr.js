@@ -222,6 +222,12 @@ module.exports = function hrRoutes(db) {
       WHERE user_id = ? AND work_date = ?
     `).get(req.currentUser.id, now.date);
 
+    // Once timed in for the day, block a second time-in (it would overwrite the
+    // original). Other punches (break/time-out) may still update.
+    if (column === 'time_in' && existing && existing.time_in) {
+      return res.status(409).json({ error: 'You already timed in today.' });
+    }
+
     if (!existing) {
       await db.prepare(`
         INSERT INTO attendance_records (user_id, work_date, break_minutes, ${column}, notes)
