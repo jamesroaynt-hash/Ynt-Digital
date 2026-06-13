@@ -2859,6 +2859,36 @@ tfoot td {
   border: 1px solid var(--border);
 }
 
+.rmo-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rmo-msg-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rmo-msg-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
 .rmo-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);

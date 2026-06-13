@@ -530,19 +530,28 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
 
   const resolvedShopId = stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id || 'unknown');
 
+  // Botcake messaging fields: the recipient PSID and page id live in the order
+  // payload. conversation_id (and customer.fb_id) are formatted `{page_id}_{psid}`,
+  // so the bare PSID is the part after the first underscore.
+  const psid = derivePosPsid(item);
+  const botcakePageId = stringOrNull(item?.account) || stringOrNull(item?.page_id);
+
   // Egress saver: the interval "updated_at" pass re-fetches the same recent
   // orders every cycle (created=0, updated=2000), so without this guard we
   // re-ship the full row (items/tags/partner/shipping JSON + raw_payload) to
   // Postgres on every sync — the dominant Railway->Supabase egress. If the
   // order's remote updated_at AND resolved status already match what we stored,
   // nothing changed on Pancake, so skip the write. Real status changes bump
-  // updated_at on Pancake's side, so they still flow through.
+  // updated_at on Pancake's side, so they still flow through. Exception: if we
+  // don't yet have the PSID stored but the payload now carries one, allow the
+  // write so the messaging fields backfill (one-time per order).
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   if (incomingUpdatedAtRemote) {
     const stored = await db.prepare(
-      'SELECT updated_at_remote, status_name FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+      'SELECT updated_at_remote, status_name, psid FROM pos_orders WHERE shop_id = ? AND external_id = ?'
     ).get(resolvedShopId, externalId);
-    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName) {
+    const psidAlreadyStored = stored && (stored.psid || !psid);
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored) {
       return externalId; // unchanged — no write needed
     }
   }
@@ -569,9 +578,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, sprinter_name, sprinter_tel,
-      items_json, tags_json, partner_json, shipping_address_json, raw_payload
+      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -599,6 +608,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       tags_json = excluded.tags_json,
       partner_json = excluded.partner_json,
       shipping_address_json = excluded.shipping_address_json,
+      psid = COALESCE(excluded.psid, pos_orders.psid),
+      botcake_page_id = COALESCE(excluded.botcake_page_id, pos_orders.botcake_page_id),
       raw_payload = excluded.raw_payload,
       updated_at = datetime('now')
   `).run(
@@ -632,9 +643,24 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(partner || null),
     safeJson(shippingAddress || null),
+    psid,
+    botcakePageId,
     rawPayloadForStorage(item)
   );
   return externalId;
+}
+
+// Pancake stores the Messenger conversation as `{page_id}_{psid}` in
+// conversation_id (and customer.fb_id). Botcake's send API addresses the
+// recipient by the bare PSID, so return the part after the first underscore.
+function derivePosPsid(item = {}) {
+  const conv = stringOrNull(item?.conversation_id)
+    || stringOrNull(item?.customer?.fb_id)
+    || stringOrNull(item?.customer?.psid);
+  if (!conv) return null;
+  const idx = conv.indexOf('_');
+  const psid = idx >= 0 ? conv.slice(idx + 1) : conv;
+  return /^\d{5,}$/.test(psid) ? psid : null;
 }
 
 async function upsertProduct(db, shopId, item) {
@@ -1796,46 +1822,148 @@ async function validatePancakePageToken(db, payload = {}) {
   };
 }
 
-async function validateBotcakeToken(db, payload = {}) {
-  const connection = await resolveConnectionForValidation(db, payload);
-  const pageId = stringOrNull(
-    payload.messaging_page_id
-    || payload.messagingPageId
-    || payload.page_id
-    || payload.pageId
-    || connection?.messaging_page_id
-  );
-  const botcakeToken = stringOrNull(
-    payload.botcake_token
-    || payload.botcakeToken
-    || connection?.botcake_token
-  );
+const BOTCAKE_API_BASE = 'https://botcake.io/api/public_api/v1';
+// Folder the dashboard scopes sendable broadcast flows to (the "UPDATE" folder).
+// Override per-request with payload.folder_id.
+const BOTCAKE_DEFAULT_FOLDER_ID = '446238949';
 
-  if (!pageId) throw new Error('Missing Page ID for Botcake validation.');
-  if (!botcakeToken) throw new Error('Missing Botcake token.');
-
-  const url = `https://botcake.io/api/public_api/v1/integration_page/list_access_token/${encodeURIComponent(pageId)}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${botcakeToken}`,
-      'Content-Type': 'application/json',
-    },
+// Low-level Botcake call. The Public API key authenticates as a Bearer token.
+// Botcake sometimes returns HTTP 200 with {"success":false}, so treat that as
+// a failure too.
+async function botcakeRequest(method, path, token, body) {
+  const response = await fetch(`${BOTCAKE_API_BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(15000),
   });
   const text = await response.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!response.ok || (data && typeof data === 'object' && data.success === false)) {
+    const reason = stringOrNull(data?.message)
+      || (typeof data === 'string' ? truncate(data, 180) : 'request rejected by Botcake');
+    const err = new Error(`Botcake API failed (${response.status}): ${reason}`);
+    err.status = response.status;
+    throw err;
+  }
+  return data;
+}
 
-  if (!response.ok) {
-    const details = typeof data === 'string' ? truncate(data, 180) : truncate(safeJson(data), 180);
-    throw new Error(`Botcake token failed (${response.status}): ${details}`);
+async function botcakeFetchFlows(pageId, token) {
+  const data = await botcakeRequest('GET', `/pages/${encodeURIComponent(pageId)}/flows`, token);
+  const flows = Array.isArray(data?.data?.flows) ? data.data.flows
+    : Array.isArray(data?.flows) ? data.flows : [];
+  const folders = Array.isArray(data?.data?.folders) ? data.data.folders
+    : Array.isArray(data?.folders) ? data.folders : [];
+  return { flows, folders };
+}
+
+// Resolve the Botcake connection (token + Botcake page id) for a shop/connection.
+async function resolveBotcakeConnection(db, payload = {}) {
+  const connection = await resolveConnectionForValidation(db, payload);
+  if (!connection) throw new Error('No saved POS connection found.');
+  const pageId = stringOrNull(
+    payload.messaging_page_id || payload.messagingPageId
+    || payload.page_id || payload.pageId
+    || connection.messaging_page_id
+  );
+  const token = stringOrNull(payload.botcake_token || payload.botcakeToken || connection.botcake_token);
+  if (!pageId) throw new Error('This page has no Pancake page id saved, so Botcake cannot be reached.');
+  if (!token) throw new Error('This page has no Botcake token saved.');
+  return { connection, pageId, token };
+}
+
+async function validateBotcakeToken(db, payload = {}) {
+  // Validate by listing the page's flows. The Public API key (Bearer) authorizes
+  // this call; a valid token returns { data: { flows: [...] } }.
+  // (Note: the integration_page/list_access_token endpoint always returns
+  // {"success":false} for this token type, so it is NOT a usable health check.)
+  const { pageId, token } = await resolveBotcakeConnection(db, payload);
+  const { flows } = await botcakeFetchFlows(pageId, token);
+  return { ok: true, page_id: pageId, flow_count: flows.length };
+}
+
+// List the broadcast flows available to send, scoped to one folder (default UPDATE).
+async function listBotcakeFlows(db, payload = {}) {
+  const { connection, pageId, token } = await resolveBotcakeConnection(db, payload);
+  const folderId = stringOrNull(payload.folder_id || payload.folderId) || BOTCAKE_DEFAULT_FOLDER_ID;
+  const { flows, folders } = await botcakeFetchFlows(pageId, token);
+  const scoped = flows
+    .filter((f) => f && !f.is_removed)
+    .filter((f) => !folderId || String(f.parent_id ?? '') === String(folderId))
+    .map((f) => ({ id: f.id, name: stringOrNull(f.name) || `Flow ${f.id}` }));
+  return {
+    ok: true,
+    shop_id: connection.shop_id,
+    page_id: pageId,
+    folder_id: folderId,
+    folder_name: stringOrNull(folders.find((x) => String(x.id) === String(folderId))?.name) || null,
+    flows: scoped,
+  };
+}
+
+// Send a Botcake flow to one or more POS-order recipients on a single page/shop.
+// payload: { shop_id|connection_id, flow_id, orders:[{external_id}], psids?:[], variables? }
+async function sendBotcakeFlow(db, payload = {}) {
+  const { connection, pageId, token } = await resolveBotcakeConnection(db, payload);
+  const flowId = stringOrNull(payload.flow_id || payload.flowId);
+  if (!flowId) throw new Error('Missing flow_id (which broadcast to send).');
+
+  const orderRefs = Array.isArray(payload.orders) ? payload.orders : [];
+  const explicitPsids = Array.isArray(payload.psids)
+    ? payload.psids.map(stringOrNull).filter(Boolean) : [];
+
+  const recipients = [];
+  for (const psid of explicitPsids) recipients.push({ psid, ref: psid, name: null });
+  for (const ref of orderRefs) {
+    const externalId = stringOrNull(ref?.external_id || ref?.externalId || ref);
+    if (!externalId) continue;
+    const row = await db.prepare(
+      'SELECT customer_name, psid FROM pos_orders WHERE external_id = ? AND shop_id = ? LIMIT 1'
+    ).get(externalId, connection.shop_id);
+    recipients.push({
+      psid: stringOrNull(row?.psid),
+      ref: externalId,
+      name: stringOrNull(row?.customer_name),
+      error: row ? (row.psid ? null : 'no Messenger PSID on this order') : 'order not found on this page',
+    });
+  }
+  if (!recipients.length) throw new Error('No recipients to send to.');
+
+  // De-dupe by PSID so a customer with several orders is messaged once.
+  const seen = new Set();
+  const results = [];
+  let sent = 0;
+  for (const recipient of recipients) {
+    if (!recipient.psid) {
+      results.push({ ref: recipient.ref, name: recipient.name, ok: false, error: recipient.error || 'no PSID' });
+      continue;
+    }
+    if (seen.has(recipient.psid)) {
+      results.push({ ref: recipient.ref, name: recipient.name, ok: true, skipped: 'duplicate recipient' });
+      continue;
+    }
+    seen.add(recipient.psid);
+    try {
+      const body = { psid: recipient.psid, flow_id: Number(flowId) || flowId };
+      if (payload.variables && typeof payload.variables === 'object') body.payload = payload.variables;
+      await botcakeRequest('POST', `/pages/${encodeURIComponent(pageId)}/flows/send_flow`, token, body);
+      sent += 1;
+      results.push({ ref: recipient.ref, name: recipient.name, ok: true });
+    } catch (err) {
+      results.push({ ref: recipient.ref, name: recipient.name, ok: false, error: err.message });
+    }
   }
 
   return {
-    ok: true,
+    ok: sent > 0,
+    shop_id: connection.shop_id,
     page_id: pageId,
-    response_keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 8) : [],
+    flow_id: flowId,
+    sent,
+    failed: results.length - sent,
+    results,
   };
 }
 
@@ -2581,6 +2709,8 @@ module.exports = {
   listAdSetsFromApi,
   validatePancakePageToken,
   validateBotcakeToken,
+  listBotcakeFlows,
+  sendBotcakeFlow,
   collectPosData,
   replayStoredOrdersToDashboard,
   receiveWebhook,

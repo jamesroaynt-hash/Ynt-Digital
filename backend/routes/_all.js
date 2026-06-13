@@ -1,6 +1,7 @@
 /* ─── ORDERS ──────────────────────────────────────────────── */
 const express = require('express');
 const googleSheetsSync = require('../services/googleSheetsSync');
+const pancakePosSync = require('../services/pancakePosSync');
 
 function ordersRoutes(db, { dispatch } = {}) {
   const r = express.Router();
@@ -673,7 +674,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, assigned_to_user_id, assigned_to_name
+             partner_json, assigned_to_user_id, assigned_to_name, psid
       FROM pos_orders ${where}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
@@ -715,6 +716,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         partner: parseJsonObject(row.partner_json, null),
         assigned_to_user_id: row.assigned_to_user_id != null ? Number(row.assigned_to_user_id) : null,
         assigned_to_name: row.assigned_to_name || null,
+        can_message: Boolean(row.psid),
       })),
       status_counts: statusCountRows,
       filter_options: {
@@ -774,6 +776,35 @@ function ordersRoutes(db, { dispatch } = {}) {
       : await db.prepare(updateSql).run(userId, name, externalId);
     if (!result.changes) return res.status(404).json({ error: 'Order not found.' });
     res.json({ external_id: externalId, shop_id: shopId, assigned_to_user_id: userId, assigned_to_name: name });
+  });
+
+  // List the Botcake broadcast flows available to send for a shop/page, scoped to
+  // a folder (defaults to the "UPDATE" folder). Used to populate the send dropdown.
+  r.get('/pos-orders/botcake/flows', async (req, res) => {
+    try {
+      const result = await pancakePosSync.listBotcakeFlows(db, {
+        shop_id: req.query.shop_id || req.query.shopId,
+        folder_id: req.query.folder_id || req.query.folderId,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Send a Botcake flow to one or more order recipients on a single page.
+  // Body: { shop_id, flow_id, orders: [{ external_id }] }
+  r.post('/pos-orders/botcake/send', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const orders = Array.isArray(body.orders) ? body.orders : [];
+      if (!body.flow_id && !body.flowId) return res.status(400).json({ error: 'Missing flow_id.' });
+      if (!orders.length && !Array.isArray(body.psids)) return res.status(400).json({ error: 'No recipients selected.' });
+      const result = await pancakePosSync.sendBotcakeFlow(db, body);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   r.delete('/pos-orders/no-contact', async (req, res) => {

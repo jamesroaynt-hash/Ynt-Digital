@@ -654,6 +654,134 @@ async function assignPosOrder(externalId, userId, shopId = '') {
   }
 }
 
+// ─── BOTCAKE SEND (RMO Management) ─────────────────────────
+// Lets RMO staff fire a Botcake "broadcast" flow to a customer (or several) over
+// Messenger. Recipients are resolved server-side from the order's stored PSID.
+let botcakeSend = { recipients: [], shopId: null };
+
+// Read the currently checked row checkboxes into recipient objects.
+function getRmoSelectedRows() {
+  return [...document.querySelectorAll('.rmo-row-check:checked')].map((cb) => ({
+    external_id: cb.dataset.id,
+    shop_id: cb.dataset.shop || '',
+    name: cb.dataset.name || '',
+  }));
+}
+
+function updateRmoBulkBar() {
+  const bar = document.getElementById('rmo-bulk-bar');
+  const count = document.getElementById('rmo-bulk-count');
+  if (!bar) return;
+  const n = document.querySelectorAll('.rmo-row-check:checked').length;
+  bar.style.display = n ? 'flex' : 'none';
+  if (count) count.textContent = `${n} selected`;
+  const all = document.getElementById('rmo-select-all');
+  const boxes = document.querySelectorAll('.rmo-row-check');
+  if (all) all.checked = boxes.length > 0 && n === boxes.length;
+}
+
+function onRmoRowCheck() { updateRmoBulkBar(); }
+
+function toggleRmoSelectAll(master) {
+  document.querySelectorAll('.rmo-row-check').forEach((cb) => { cb.checked = master.checked; });
+  updateRmoBulkBar();
+}
+
+function clearRmoSelection() {
+  document.querySelectorAll('.rmo-row-check:checked').forEach((cb) => { cb.checked = false; });
+  updateRmoBulkBar();
+}
+
+// Open the send modal for one order ('single') or the current selection ('selected').
+// A Botcake flow id is page-specific, so a send is scoped to one shop/page; if a
+// multi-select spans pages we stop and ask the user to narrow it down.
+async function openBotcakeSendModal(mode, externalId, shopId) {
+  let recipients = mode === 'single'
+    ? [{ external_id: externalId, shop_id: shopId || '', name: '' }]
+    : getRmoSelectedRows();
+  recipients = recipients.filter((r) => r.external_id);
+  if (!recipients.length) { showToast('error', 'No recipients', 'Select at least one messageable customer.'); return; }
+
+  const shops = [...new Set(recipients.map((r) => r.shop_id || ''))];
+  if (shops.length > 1) {
+    showToast('error', 'One page at a time', 'Selected orders span multiple pages. Filter to a single page, then send.');
+    return;
+  }
+
+  botcakeSend = { recipients, shopId: shops[0] || '' };
+  const recapEl = document.getElementById('botcake-send-recipients');
+  if (recapEl) {
+    const names = recipients.map((r) => r.name).filter(Boolean);
+    recapEl.textContent = recipients.length === 1
+      ? `Recipient: ${names[0] || recipients[0].external_id}`
+      : `${recipients.length} recipients on this page`;
+  }
+  const resultEl = document.getElementById('botcake-send-result');
+  if (resultEl) resultEl.innerHTML = '';
+  const confirmBtn = document.getElementById('botcake-send-confirm');
+  if (confirmBtn) confirmBtn.disabled = false;
+
+  openModal('botcake-send-modal');
+  await loadBotcakeFlows(botcakeSend.shopId);
+}
+
+async function loadBotcakeFlows(shopId) {
+  const select = document.getElementById('botcake-flow-select');
+  if (!select) return;
+  select.innerHTML = '<option value="">Loading…</option>';
+  try {
+    const data = await authorizedJsonRequest(`/orders/pos-orders/botcake/flows?shop_id=${encodeURIComponent(shopId || '')}`);
+    const flows = Array.isArray(data?.flows) ? data.flows : [];
+    if (!flows.length) {
+      select.innerHTML = '<option value="">No broadcasts in the "UPDATE" folder</option>';
+      return;
+    }
+    select.innerHTML = flows.map((f) => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join('');
+  } catch (error) {
+    select.innerHTML = '<option value="">Failed to load broadcasts</option>';
+    showToast('error', 'Could not load broadcasts', error.message || 'Request failed');
+  }
+}
+
+async function confirmBotcakeSend() {
+  const select = document.getElementById('botcake-flow-select');
+  const flowId = select ? select.value : '';
+  if (!flowId) { showToast('error', 'Pick a broadcast', 'Choose which broadcast to send.'); return; }
+  const confirmBtn = document.getElementById('botcake-send-confirm');
+  const resultEl = document.getElementById('botcake-send-result');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Sending…'; }
+  try {
+    const data = await authorizedJsonRequest('/orders/pos-orders/botcake/send', {
+      method: 'POST',
+      body: JSON.stringify({
+        shop_id: botcakeSend.shopId,
+        flow_id: flowId,
+        orders: botcakeSend.recipients.map((r) => ({ external_id: r.external_id })),
+      }),
+    });
+    const sent = Number(data?.sent || 0);
+    const failed = Number(data?.failed || 0);
+    if (sent && !failed) {
+      showToast('success', 'Broadcast sent', `Delivered to ${sent} recipient${sent === 1 ? '' : 's'}.`);
+      closeModal('botcake-send-modal');
+      clearRmoSelection();
+    } else {
+      if (sent) showToast('warning', 'Partly sent', `${sent} sent, ${failed} failed.`);
+      else showToast('error', 'Send failed', 'No messages were delivered.');
+      if (resultEl) {
+        const fails = (data?.results || []).filter((r) => !r.ok);
+        resultEl.innerHTML = `<div class="field-help" style="color:var(--danger,#ef4444)">${escapeHtml(
+          fails.slice(0, 5).map((r) => `${r.name || r.ref}: ${r.error || 'failed'}`).join('; ')
+        )}</div>`;
+      }
+    }
+  } catch (error) {
+    showToast('error', 'Send failed', error.message || 'Request failed');
+  } finally {
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Send'; }
+  }
+}
+
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
 // RMO Management is a live order-monitoring dashboard, so it polls every 45s.
@@ -6508,14 +6636,41 @@ function renderRmoManagement() {
     </div>
 
     <div id="pos-orders-status-summary" class="rmo-status-summary"></div>
+    <div id="rmo-bulk-bar" class="rmo-bulk-bar" style="display:none;">
+      <span id="rmo-bulk-count">0 selected</span>
+      <button class="btn btn-primary btn-sm" onclick="openBotcakeSendModal('selected')">✉ Send message</button>
+      <button class="btn btn-secondary btn-sm" onclick="clearRmoSelection()">Clear</button>
+    </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Assignee</th><th>Status</th><th>Inserted At</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Assignee</th><th>Status</th><th>Inserted At</th><th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="12" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
+    </div>
+
+    <div class="modal-overlay" id="botcake-send-modal">
+      <div class="modal" style="max-width:460px;">
+        <div class="modal-header">
+          <div class="modal-title">Send Messenger Broadcast</div>
+          <button class="modal-close" onclick="closeModal('botcake-send-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <div id="botcake-send-recipients" class="field-help" style="margin-bottom:10px;"></div>
+          <div class="form-group">
+            <label class="form-label">Broadcast (from the "UPDATE" folder)</label>
+            <select class="form-control" id="botcake-flow-select"><option value="">Loading…</option></select>
+            <div class="field-help">Move the broadcasts you want here into Botcake's "UPDATE" folder.</div>
+          </div>
+          <div id="botcake-send-result" style="margin-top:6px;"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button type="button" class="btn btn-primary" id="botcake-send-confirm" style="flex:1;" onclick="confirmBotcakeSend()">Send</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('botcake-send-modal')">Cancel</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -10837,7 +10992,12 @@ function renderPosOrdersTable() {
         : order.status_name === 'delivered' ? 'success'
         : ['shipped', 'submitted', 'wait_print'].includes(order.status_name) ? 'primary'
         : 'info';
+      const msgId = escapeHtml(order.external_id || '');
+      const msgShop = escapeHtml(order.shop_id || '');
       return `<tr>
+        <td style="text-align:center;">${order.can_message
+          ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
+          : '<span class="rmo-muted" title="No Messenger contact for this order">—</span>'}</td>
         <td>
           <div class="rmo-item-main">${escapeHtml(product)}</div>
           <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - ${escapeHtml(order.tracking_no)}` : ''}</div>
@@ -10859,6 +11019,9 @@ function renderPosOrdersTable() {
         <td>${renderAssigneeSelect(order)}</td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
         <td class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash}</td>
+        <td>${order.can_message
+          ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
+          : '<span class="rmo-muted">—</span>'}</td>
       </tr>`;
     }
     return `<tr>
@@ -10877,7 +11040,10 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? 10 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? 12 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+
+  // The repaint replaced the row checkboxes, so reset the bulk selection bar.
+  if (isRmoPage) updateRmoBulkBar();
 
   const pagination = document.getElementById('pos-orders-pagination');
   if (pagination) {
@@ -11855,7 +12021,7 @@ async function validateIntegrationToken(kind) {
       showToast('success', 'Pancake token is valid', `Connected to page ${data.page_id}. Users visible: ${totalUsers}.`);
       return;
     }
-    showToast('success', 'Botcake token is valid', `Botcake accepted the token for page ${data.page_id}.`);
+    showToast('success', 'Botcake token is valid', `Botcake accepted the token for page ${data.page_id}. Flows found: ${Number(data.flow_count || 0)}.`);
   } catch (error) {
     showToast('error', `${cfg.label} invalid`, error.message || 'The token could not be validated.');
   }
@@ -13241,6 +13407,14 @@ function closeModal(id) {
   const el = document.getElementById(id);
   if (el) el.classList.remove('open');
 }
+
+// Press Esc to close the topmost open modal (works for every .modal-overlay).
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const open = document.querySelectorAll('.modal-overlay.open');
+  if (!open.length) return;
+  open[open.length - 1].classList.remove('open');
+});
 
 // ─── TABS ──────────────────────────────────────────────────
 function switchTab(btn, contentId) {
