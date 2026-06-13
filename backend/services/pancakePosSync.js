@@ -2053,16 +2053,29 @@ async function updateOrderTags(db, payload = {}) {
   return { ok: true, shop_id: connection.shop_id, external_id: externalId, tags: newTags };
 }
 
-// Delete a saved POS connection (page) from integration_settings. Stored orders
-// in pos_orders are intentionally left untouched.
+// Delete a saved POS connection (page) from integration_settings. When
+// delete_orders is set, also purge that shop's stored orders from pos_orders;
+// otherwise the orders are left untouched.
 async function deleteConnection(db, payload = {}) {
   const connectionId = stringOrNull(payload.connection_id || payload.connectionId || payload.id);
   if (!connectionId) throw new Error('Missing connection_id.');
+  const deleteOrders = Boolean(payload.delete_orders || payload.deleteOrders);
+  // Resolve the shop_id from the saved row (page_id column) so we can purge its
+  // orders even if the caller didn't pass shop_id.
+  const row = await db.prepare(
+    `SELECT page_id AS shop_id FROM integration_settings WHERE provider = ? AND connection_id = ? LIMIT 1`
+  ).get(PROVIDER, connectionId);
+  const shopId = stringOrNull(payload.shop_id || payload.shopId || row?.shop_id);
   const result = await db.prepare(
     `DELETE FROM integration_settings WHERE provider = ? AND connection_id = ?`
   ).run(PROVIDER, connectionId);
+  let deletedOrders = 0;
+  if (deleteOrders && shopId) {
+    const r2 = await db.prepare(`DELETE FROM pos_orders WHERE shop_id = ?`).run(shopId);
+    deletedOrders = r2.changes || 0;
+  }
   invalidateSavedConnectionsCache();
-  return { ok: true, connection_id: connectionId, deleted: result.changes || 0 };
+  return { ok: true, connection_id: connectionId, deleted: result.changes || 0, deleted_orders: deletedOrders, shop_id: shopId || null };
 }
 
 function collectSummaryPayload(resources, options) {

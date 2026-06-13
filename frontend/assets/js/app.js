@@ -12513,16 +12513,20 @@ async function deletePancakePosPage(event, connectionId) {
   const connections = Array.isArray(state.pancakePos?.connections) ? state.pancakePos.connections : [];
   const connection = connections.find((item) => String(item.id) === String(connectionId));
   const name = connection?.name || connection?.shopName || `Shop ${connection?.shopId || connection?.shop_id || connectionId}`;
-  if (!confirm(`Delete the page "${name}"? This removes the connection from the dashboard. Orders already synced are kept.`)) return;
+  const shopId = connection?.shopId || connection?.shop_id || '';
+  if (!confirm(`Delete the page "${name}"? This removes the connection from the dashboard.`)) return;
+  // Second prompt: optionally also purge this page's stored orders.
+  const deleteOrders = confirm(`Also delete "${name}"'s synced orders from the dashboard?\n\nOK = delete the page AND its stored orders (cannot be undone).\nCancel = delete the page only, keep its orders.`);
   try {
-    await authorizedJsonRequest('/integrations/pancake-pos/connections/delete', {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/connections/delete', {
       method: 'POST',
-      body: JSON.stringify({ connection_id: connectionId }),
+      body: JSON.stringify({ connection_id: connectionId, shop_id: shopId, delete_orders: deleteOrders }),
     });
     state.pancakePos.connections = connections.filter((item) => String(item.id) !== String(connectionId));
     saveIntegrationState(state);
     renderPancakePagesTable();
-    showToast('success', 'Page deleted', `"${name}" was removed from the dashboard.`);
+    const extra = Number(data?.deleted_orders) ? ` and ${Number(data.deleted_orders).toLocaleString()} order(s)` : '';
+    showToast('success', 'Page deleted', `"${name}"${extra} removed from the dashboard.`);
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete the page.');
   }
