@@ -604,7 +604,7 @@ async function refreshPosRawOrdersFromBackend() {
     // filter by the last status-update date instead of the order's inserted date.
     if (rmoTab === 'undeliverable') query.set('partner', 'undeliverable');
     else if (rmoTab === 'returning') query.set('status', 'Returning');
-    else if (rmoTab === 'delivering') query.set('status', 'Shipped');
+    else if (rmoTab === 'delivering') query.set('tags', 'On delivery');
     if (rmoUpdatePeriod !== 'all') query.set('update_period', rmoUpdatePeriod);
   } else {
     if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
@@ -11392,7 +11392,7 @@ function renderPosOrdersTable() {
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
-        <td><span class="rmo-status ${statusTone}">${escapeHtml(rmoTab === 'delivering' ? 'On Delivery' : (statusText || 'Unknown'))}</span></td>
+        <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
         ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash)}</td>
         <td><button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button></td>` : ''}
         <td>${order.can_message
