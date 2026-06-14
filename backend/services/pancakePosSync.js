@@ -542,6 +542,12 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const partnerStatus = stringOrNull(partner?.partner_status);
   const courierNote = stringOrNull(Array.isArray(partner?.extend_update) ? partner.extend_update[0]?.status : null);
 
+  // Ad attribution: the Pancake order object carries the Facebook ad id and the
+  // advertising source. ad_id matches the `id` of an ad in the Ads tab, linking
+  // each order back to the specific ad that generated it.
+  const adId = stringOrNull(item?.ad_id || item?.ads_id || item?.ad?.id);
+  const adsSource = stringOrNull(item?.ads_source || item?.ad_source);
+
   const rawItems = item?.order_details || item?.items || [];
   // Product name lives in variation_info.name. note_product is a free-text note
   // that sometimes holds a long marketing description, so use it only as a last
@@ -565,12 +571,13 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   if (incomingUpdatedAtRemote) {
     const stored = await db.prepare(
-      'SELECT updated_at_remote, status_name, psid, note_product, partner_status FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+      'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id FROM pos_orders WHERE shop_id = ? AND external_id = ?'
     ).get(resolvedShopId, externalId);
     const psidAlreadyStored = stored && (stored.psid || !psid);
     const productUnchanged = stored && (stored.note_product === noteProduct);
     const partnerUnchanged = stored && ((stored.partner_status || null) === (partnerStatus || null));
-    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged) {
+    const adAlreadyStored = stored && (stored.ad_id || !adId);
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged && adAlreadyStored) {
       return externalId; // unchanged — no write needed
     }
   }
@@ -594,9 +601,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, sprinter_name, sprinter_tel,
-      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, raw_payload
+      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, ad_id, ads_source, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -628,6 +635,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       botcake_page_id = COALESCE(excluded.botcake_page_id, pos_orders.botcake_page_id),
       partner_status = excluded.partner_status,
       courier_note = excluded.courier_note,
+      ad_id = COALESCE(excluded.ad_id, pos_orders.ad_id),
+      ads_source = COALESCE(excluded.ads_source, pos_orders.ads_source),
       raw_payload = excluded.raw_payload,
       updated_at = datetime('now')
   `).run(
@@ -665,6 +674,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     botcakePageId,
     partnerStatus,
     courierNote,
+    adId,
+    adsSource,
     rawPayloadForStorage(item)
   );
   return externalId;

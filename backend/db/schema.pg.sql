@@ -286,6 +286,8 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   botcake_page_id TEXT,
   partner_status TEXT,
   courier_note TEXT,
+  ad_id TEXT,
+  ads_source TEXT,
   raw_payload TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

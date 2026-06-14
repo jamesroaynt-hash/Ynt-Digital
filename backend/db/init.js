@@ -367,6 +367,8 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'assigning_seller_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_to_user_id', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'assigned_to_name', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'ad_id', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'ads_source', 'TEXT');
   migratePosOrdersCompositeIdentity(db);
   migrateIntegrationSettingsMultiRow(db);
   ensureOrderStatusConstraint(db);
@@ -665,6 +667,8 @@ async function runPostgresMigrations(db) {
   // Courier/partner status + latest courier tracking note (for RMO metrics + display).
   await ensureColumnAsync(db, 'pos_orders', 'partner_status', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'courier_note', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'ad_id', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'ads_source', 'TEXT');
   await migratePosOrdersCompositeIdentityAsync(db);
   await migrateIntegrationSettingsMultiRowAsync(db);
   await ensureOrderStatusConstraintAsync(db);
