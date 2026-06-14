@@ -4458,7 +4458,7 @@ function renderAdspendAdsSubtabs(view) {
   const tab = (key, label) => `<button type="button" class="filter-pill${view === key ? ' active' : ''}" onclick="setAdspendAdsView('${key}')">${label}</button>`;
   return `
     <div class="adspend-ads-subtabs" style="display:flex;gap:8px;margin-bottom:14px;">
-      ${tab('adsets', 'Ad Sets')}${tab('campaigns', 'Campaigns')}${tab('ads', 'Ads')}
+      ${tab('adsets', 'Ad Sets')}${tab('campaigns', 'Campaigns')}
     </div>`;
 }
 
