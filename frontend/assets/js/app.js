@@ -6799,6 +6799,34 @@ function getRmoUndeliverableCount() {
   return Number(DB.posRawPartnerCounts?.undeliverable || 0);
 }
 
+// Courier delivery-failure text embeds the reason as `reason [<text>]` inside a
+// larger status string, e.g.
+//   "...register by [F-DVO Libungan DH] , reason [No Reason to Reject without Opening the Box]"
+// Pull the text after `reason [` (supports [] and full-width 【】 brackets).
+// Recurse newest-entry-first since extend_update is ordered oldest→newest.
+const COURIER_REASON_RE = /reason\s*[\[【]\s*([^\]】]+?)\s*[\]】]/i;
+function deepFindCourierReason(node) {
+  if (node == null) return '';
+  if (typeof node === 'string') {
+    const match = node.match(COURIER_REASON_RE);
+    return match ? match[1].trim() : '';
+  }
+  if (Array.isArray(node)) {
+    for (let i = node.length - 1; i >= 0; i--) {
+      const found = deepFindCourierReason(node[i]);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (typeof node === 'object') {
+    for (const key of Object.keys(node)) {
+      const found = deepFindCourierReason(node[key]);
+      if (found) return found;
+    }
+  }
+  return '';
+}
+
 // Undeliverable reason, read straight from the order's partner_json
 // (returned as order.partner) so it works for already-stored orders without
 // waiting for a re-sync. Falls back to the stored partner_reason column.
@@ -6806,14 +6834,8 @@ function getRmoUndeliverableCount() {
 function getRmoUndeliverableReason(order) {
   const partner = order?.partner;
   if (partner && typeof partner === 'object') {
-    const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
-    for (let i = updates.length - 1; i >= 0; i--) {
-      const u = updates[i] || {};
-      const reason = u.reason || u.sub_status || u.reason_name || u.status;
-      if (reason) return String(reason);
-    }
-    const top = partner.reason || partner.sub_status || partner.note;
-    if (top) return String(top);
+    const reason = deepFindCourierReason(partner.extend_update) || deepFindCourierReason(partner);
+    if (reason) return reason;
   }
   return order?.partner_reason || '';
 }

@@ -1045,24 +1045,40 @@ function normalizePosTagValue(value) {
   );
 }
 
-// The courier rejection / undeliverable reason lives in partner_json. Pancake
-// stores delivery history in partner.extend_update; the reason text may sit in a
-// dedicated reason/sub_status field or fall back to the status text. Walk
-// newest-first so the most recent reason wins.
+// Courier delivery-failure text embeds the reason as `reason [<text>]` inside a
+// larger status string, e.g.
+//   "...register by [F-DVO Libungan DH] , reason [No Reason to Reject without Opening the Box]"
+// Pull the text after `reason [` (supports [] and full-width 【】 brackets).
+// Recurse newest-entry-first since extend_update is ordered oldest→newest.
+const COURIER_REASON_RE = /reason\s*[\[【]\s*([^\]】]+?)\s*[\]】]/i;
+function deepFindCourierReason(node) {
+  if (node == null) return null;
+  if (typeof node === 'string') {
+    const match = node.match(COURIER_REASON_RE);
+    return match ? match[1].trim() : null;
+  }
+  if (Array.isArray(node)) {
+    for (let i = node.length - 1; i >= 0; i--) {
+      const found = deepFindCourierReason(node[i]);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof node === 'object') {
+    for (const key of Object.keys(node)) {
+      const found = deepFindCourierReason(node[key]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// The courier rejection / undeliverable reason lives in partner_json, embedded
+// as `reason [<text>]` within a delivery-status string under
+// partner.extend_update. Returns just the reason text.
 function getPosUndeliverableReason(partner) {
   if (!partner || typeof partner !== 'object') return null;
-  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
-  for (const update of [...updates].reverse()) {
-    const reason = stringOrNull(update?.reason)
-      || stringOrNull(update?.sub_status)
-      || stringOrNull(update?.reason_name)
-      || stringOrNull(update?.status);
-    if (reason) return reason;
-  }
-  return stringOrNull(partner.reason)
-    || stringOrNull(partner.sub_status)
-    || stringOrNull(partner.note)
-    || null;
+  return deepFindCourierReason(partner.extend_update) || deepFindCourierReason(partner) || null;
 }
 
 function extractAttemptNumber(item, tags) {
