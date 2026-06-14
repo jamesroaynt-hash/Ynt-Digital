@@ -4020,7 +4020,7 @@ function renderDataReportDashboard() {
       <div class="card-header">
         <div><div class="card-title">By Ads ID</div><div class="card-subtitle">Orders and RTS rate grouped by ad id</div></div>
       </div>
-      ${renderDataReportTable(byAdId, 'Ads ID', 'No ads ID data yet', { showCod: true })}
+      ${renderDataReportTable(byAdId, 'Ads ID', 'No ads ID data yet')}
     </section>
 
     <section class="data-report-section">
