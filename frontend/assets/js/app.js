@@ -6804,27 +6804,27 @@ function getRmoUndeliverableCount() {
 //   "...register by [F-DVO Libungan DH] , reason [No Reason to Reject without Opening the Box]"
 // Pull the text after `reason [` (supports [] and full-width 【】 brackets).
 // Recurse newest-entry-first since extend_update is ordered oldest→newest.
-const COURIER_REASON_RE = /reason\s*[\[【]\s*([^\]】]+?)\s*[\]】]/i;
-function deepFindCourierReason(node) {
-  if (node == null) return '';
+const COURIER_REASON_RE = /reason\s*[\[【]\s*([^\]】]+?)\s*[\]】]/gi;
+function collectCourierReasons(node, out) {
+  if (node == null) return;
   if (typeof node === 'string') {
-    const match = node.match(COURIER_REASON_RE);
-    return match ? match[1].trim() : '';
+    for (const match of node.matchAll(COURIER_REASON_RE)) out.push(match[1].trim());
+    return;
   }
   if (Array.isArray(node)) {
-    for (let i = node.length - 1; i >= 0; i--) {
-      const found = deepFindCourierReason(node[i]);
-      if (found) return found;
-    }
-    return '';
+    for (const child of node) collectCourierReasons(child, out);
+    return;
   }
   if (typeof node === 'object') {
-    for (const key of Object.keys(node)) {
-      const found = deepFindCourierReason(node[key]);
-      if (found) return found;
-    }
+    for (const key of Object.keys(node)) collectCourierReasons(node[key], out);
   }
-  return '';
+}
+// Return only the latest reason: extend_update history is chronological, so the
+// last `reason [..]` we encounter is the most recent.
+function deepFindCourierReason(node) {
+  const out = [];
+  collectCourierReasons(node, out);
+  return out.length ? out[out.length - 1] : '';
 }
 
 // Undeliverable reason, read straight from the order's partner_json
