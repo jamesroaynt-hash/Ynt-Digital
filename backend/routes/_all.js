@@ -546,6 +546,75 @@ function ordersRoutes(db, { dispatch } = {}) {
     });
   });
 
+  // Full report dataset sourced from pos_orders (the single source of truth for
+  // ROAS Summary, RTS Rate, Marketing Center, CSR and Home). Paged so the client
+  // can load every order; shaped to match what the dashboards expect.
+  r.get('/pos-orders/report', async (req, res) => {
+    const perPage = Math.max(1, Math.min(5000, Number(req.query.per_page) || 1000));
+    const pageNum = Math.max(1, Number(req.query.page) || 1);
+    const offset = (pageNum - 1) * perPage;
+
+    const totalRow = await db.prepare(
+      `SELECT COUNT(*) AS c FROM pos_orders WHERE customer_phone IS NOT NULL AND customer_phone != ''`
+    ).get();
+    const total = Number(totalRow?.c || 0);
+
+    const rows = await db.prepare(`
+      SELECT external_id, tracking_no, page_name, inserted_at_remote,
+             customer_name, customer_phone, note_product, tags_json,
+             cod, assigning_seller_name, status_name, attempts, shipping_address_json
+      FROM pos_orders
+      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+      ORDER BY inserted_at_remote DESC, id DESC
+      LIMIT ? OFFSET ?
+    `).all(perPage, offset);
+
+    const statusMap = {
+      new: 'New',
+      submitted: 'Confirmed',
+      pending: 'Waiting for pickup', wait_print: 'Waiting for pickup', waitting: 'Waiting for pickup',
+      shipped: 'Shipped', delivered: 'Delivered',
+      returning: 'Returning', returned: 'Returned',
+      canceled: 'Canceled', removed: 'Canceled',
+    };
+
+    res.json({
+      version: await getPosOrdersVersion(),
+      page: pageNum,
+      per_page: perPage,
+      total,
+      pages: Math.max(1, Math.ceil(total / perPage)),
+      records: rows.map((row) => {
+        const shipping = parseJsonObject(row.shipping_address_json, {});
+        const province = readNamedValue(shipping, ['province', 'province_name', 'state', 'region', 'city', 'city_name']);
+        const tags = parseJsonObject(row.tags_json, []).map((t) =>
+          typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')
+        ).filter(Boolean);
+        const status = statusMap[row.status_name] || (row.status_name
+          ? row.status_name.charAt(0).toUpperCase() + row.status_name.slice(1)
+          : 'New');
+        return {
+          id: row.external_id,
+          tracking: row.tracking_no || '',
+          customer: row.customer_name || '',
+          phone: row.customer_phone || '',
+          product: row.note_product || '',
+          attempts: Number(row.attempts || 0),
+          status,
+          status_name: row.status_name,
+          cod: Number(row.cod || 0),
+          province: province || '',
+          assigning_seller_name: row.assigning_seller_name || '',
+          confirmed_by: row.assigning_seller_name || '',
+          tags: tags.join(', '),
+          date: toManilaDate(row.inserted_at_remote) || '',
+          source_sheet: row.page_name || 'POS',
+          sourceSheet: row.page_name || 'POS',
+        };
+      }),
+    });
+  });
+
   r.get('/pos-orders', async (req, res) => {
     const {
       page = 1, per_page = 50,

@@ -491,9 +491,9 @@ async function fetchSheetRecordsVersion() {
 async function loadSheetRecordsForDataReport({ force = false } = {}) {
   if (!App.user || !getAuthToken() || !getApiBase()) return false;
 
-  // Skip the full multi-page walk when google_orders is unchanged since the
-  // last load — this is the single biggest egress source on the dashboard.
-  const version = await fetchSheetRecordsVersion();
+  // Single source of truth: pos_orders. Skip the full multi-page walk when
+  // pos_orders is unchanged since the last load (biggest dashboard egress).
+  const version = await fetchPosOrdersVersion();
   const hasData = Array.isArray(DB.sheetRecordsForReport) && DB.sheetRecordsForReport.length > 0;
   if (!force && hasData) {
     if (version !== null && version === sheetRecordsLastVersion) return true;
@@ -505,15 +505,16 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
   let page = 1;
   let totalPages = 1;
   do {
-    const params = new URLSearchParams({ view: 'report', page: String(page), per_page: String(perPage), _: String(Date.now()) });
-    const result = await authorizedJsonRequest(`/integrations/google-sheets/records?${params}`);
+    const params = new URLSearchParams({ page: String(page), per_page: String(perPage), _: String(Date.now()) });
+    const result = await authorizedJsonRequest(`/orders/pos-orders/report?${params}`);
     const records = Array.isArray(result?.records) ? result.records : [];
     all.push(...records);
     totalPages = Number(result?.pages || 1);
     page += 1;
     if (page > 200) break;
   } while (page <= totalPages);
-  DB.sheetRecordsForReport = all.map(mapGoogleSheetReportRecord);
+  // The endpoint already returns the dashboard record shape, so use as-is.
+  DB.sheetRecordsForReport = all;
   sheetRecordsLastVersion = version;
   sheetRecordsLastFetch = Date.now();
   return true;
@@ -598,10 +599,11 @@ async function refreshPosRawOrdersFromBackend() {
   if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
   if (posOrdersAttemptFilter !== 'all') query.set('attempts', posOrdersAttemptFilter);
-  if (rmoTab === 'undeliverable') {
-    // Undeliverable tab: scope to courier-undeliverable orders and filter by the
+  if (rmoTab !== 'orders') {
+    // Undeliverable / Returning tabs: scope to that status and filter by the
     // last status-update date instead of the order's inserted date.
-    query.set('partner', 'undeliverable');
+    if (rmoTab === 'undeliverable') query.set('partner', 'undeliverable');
+    else if (rmoTab === 'returning') query.set('status', 'Returning');
     if (rmoUpdatePeriod !== 'all') query.set('update_period', rmoUpdatePeriod);
   } else {
     if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
@@ -6882,6 +6884,7 @@ function renderRmoManagement() {
     <div class="rmo-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
       <button class="filter-pill ${rmoTab === 'orders' ? 'active' : ''}" onclick="setRmoTab('orders')">For Delivery</button>
       <button class="filter-pill ${rmoTab === 'undeliverable' ? 'active' : ''}" onclick="setRmoTab('undeliverable')">Undeliverable</button>
+      <button class="filter-pill ${rmoTab === 'returning' ? 'active' : ''}" onclick="setRmoTab('returning')">Returning</button>
     </div>
 
     <div class="rmo-metrics">
@@ -6916,7 +6919,7 @@ function renderRmoManagement() {
     </div>
 
     <div class="rmo-period-bar">
-      ${rmoTab === 'undeliverable' ? `
+      ${rmoTab !== 'orders' ? `
       <div class="table-filters" title="Filtered by last status update">
         ${[['all','All'],['today','Today'],['yesterday','Yesterday']].map(([v, l]) =>
           `<button class="filter-pill ${rmoUpdatePeriod === v ? 'active' : ''}" onclick="setRmoUpdatePeriod('${v}',this)">${l}</button>`
@@ -6950,9 +6953,9 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab === 'undeliverable' ? '<th>Reason</th>' : ''}<th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? '<th>Reason</th>' : ''}<th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="${rmoTab === 'undeliverable' ? 11 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="${rmoTab !== 'orders' ? 11 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -7006,13 +7009,12 @@ function renderViewRecords() {
   </div>
 
   <div class="tabs" id="records-tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'rec-sheets'); loadSheetRecords()">Sheet Records</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-csr')">CSR Records (<span id="rec-csr-count">${DB.csrRecords.length}</span>)</button>
+    <button class="tab-btn active" onclick="switchTab(this,'rec-csr')">CSR Records (<span id="rec-csr-count">${DB.csrRecords.length}</span>)</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
   </div>
 
-  <div id="rec-csr" class="tab-content">
+  <div id="rec-csr" class="tab-content active">
     <div class="table-container">
       <table><thead><tr><th>Date</th><th>Name CSR</th><th>Page Name</th><th>Order ID</th><th>Customer</th><th>Cellphone</th><th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th></tr></thead>
         <tbody id="rec-csr-tbody">${renderRecCsrRows()}</tbody>
@@ -7047,76 +7049,6 @@ function renderViewRecords() {
     </div>
   </div>
 
-  <div id="rec-sheets" class="tab-content active">
-    <section class="card integration-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Google Sheets Synced Records</div>
-          <div class="card-subtitle">All orders imported from the connected Google Sheets tab(s). Records update each time you run a sync.</div>
-        </div>
-        <button class="btn btn-secondary" onclick="loadSheetRecords()">Refresh</button>
-      </div>
-      <div class="card-body">
-        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
-          <div class="form-group" style="margin:0; min-width:160px;">
-            <label class="form-label" style="font-size:12px;">Page</label>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <select class="form-control" id="sheet-records-sheet-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-                <option value="all">All pages</option>
-              </select>
-              <button class="btn btn-secondary" title="Rename selected page" onclick="showRenameSourceModal()" style="height:34px; padding:0 10px; flex-shrink:0;">✎</button>
-            </div>
-          </div>
-          <div class="form-group" style="margin:0; min-width:140px;">
-            <label class="form-label" style="font-size:12px;">Status</label>
-            <select class="form-control" id="sheet-records-status-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-              <option value="all">All statuses</option>
-              <option value="New">New</option>
-              <option value="Confirmed">Confirmed</option>
-              <option value="Waiting for pickup">Waiting for pickup</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Delivered">Delivered</option>
-              <option value="Returning">Returning</option>
-              <option value="Returned">Returned</option>
-              <option value="Canceled">Canceled</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin:0; min-width:140px;">
-            <label class="form-label" style="font-size:12px;">Tag</label>
-            <select class="form-control" id="sheet-records-tag-filter" onchange="loadSheetRecords(1)" style="height:34px;">
-              <option value="all">All tags</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin:0; flex:1; min-width:200px;">
-            <label class="form-label" style="font-size:12px;">Search</label>
-            <input type="text" class="form-control" id="sheet-records-search" placeholder="Order ID, customer, phone, tracking, province/city..." oninput="clearTimeout(window._srSearchTimer); window._srSearchTimer = setTimeout(() => loadSheetRecords(1), 400)" style="height:34px;">
-          </div>
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:flex-end;">
-          <div class="form-group" style="margin:0;">
-            <label class="form-label" style="font-size:12px;">Date</label>
-            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-              <div id="sheet-date-presets" style="display:flex; gap:4px; flex-wrap:wrap;">
-                <button class="btn btn-secondary sheet-date-preset active" data-preset="all" onclick="setSheetDatePreset('all')" style="height:30px;font-size:12px;padding:0 10px;">All</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="today" onclick="setSheetDatePreset('today')" style="height:30px;font-size:12px;padding:0 10px;">Today</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="yesterday" onclick="setSheetDatePreset('yesterday')" style="height:30px;font-size:12px;padding:0 10px;">Yesterday</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="month" onclick="setSheetDatePreset('month')" style="height:30px;font-size:12px;padding:0 10px;">This Month</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="year" onclick="setSheetDatePreset('year')" style="height:30px;font-size:12px;padding:0 10px;">This Year</button>
-                <button class="btn btn-secondary sheet-date-preset" data-preset="custom" onclick="setSheetDatePreset('custom')" style="height:30px;font-size:12px;padding:0 10px;">Custom</button>
-              </div>
-              <div id="sheet-date-custom" style="display:none; gap:6px; align-items:center;">
-                <input type="date" class="form-control" id="sheet-date-from" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
-                <span style="font-size:12px;color:var(--text-muted);">—</span>
-                <input type="date" class="form-control" id="sheet-date-to" onchange="loadSheetRecords(1)" style="height:30px;font-size:12px;width:140px;">
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="sheet-records-status-summary" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; min-height:0;"></div>
-        <div id="sheet-records-table"><div class="loading-spinner"></div></div>
-        <div id="sheet-records-pagination" style="display:flex; justify-content:center; gap:8px; margin-top:16px;"></div>
-      </div>
-    </section>
   </div>`;
 }
 
@@ -8699,12 +8631,11 @@ function initPage(page) {
   }
 
   if (page === 'view-records') {
-    loadSheetRecords();
     // CSR Records tab is server-backed; pull the latest entries, then repaint.
     loadCsrRecordsFromBackend({ force: true })
       .then(() => { if (App.currentPage === 'view-records') refreshRecCsrTable(); })
       .catch(() => {});
-    // CSR Records tab shows live status/tracking from Google Orders — ensure they
+    // CSR Records tab shows live status/tracking from pos_orders — ensure they
     // are loaded, then repaint the rows once available.
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport()
@@ -11367,7 +11298,7 @@ function renderPosOrdersTable() {
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab === 'undeliverable' ? `<td class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</td>` : ''}
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</td>` : ''}
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
           : '<span class="rmo-muted">—</span>'}</td>
@@ -11389,7 +11320,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab === 'undeliverable' ? 11 : 10) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab !== 'orders' ? 11 : 10) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
   if (isRmoPage) updateRmoBulkBar();
