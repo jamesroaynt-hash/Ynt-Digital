@@ -904,6 +904,39 @@ function ordersRoutes(db, { dispatch } = {}) {
     res.json({ external_id: externalId, shop_id: shopId, assigned_to_user_id: userId, assigned_to_name: name });
   });
 
+  // Per-customer notes (keyed by normalized phone). Append-only history so any
+  // RMO/Logistics/Admin user can read past notes and add a new one. Stored apart
+  // from pos_orders so it survives the 30-day order retention.
+  const normalizeCustomerPhone = (raw) => {
+    let digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('63') && digits.length === 12) digits = '0' + digits.slice(2);
+    else if (digits.length === 10 && digits.startsWith('9')) digits = '0' + digits;
+    return digits;
+  };
+
+  r.get('/customer-notes', async (req, res) => {
+    const phone = normalizeCustomerPhone(req.query.phone);
+    if (!phone) return res.json({ phone: '', notes: [] });
+    const notes = await db.prepare(
+      'SELECT id, note, author_id, author_name, created_at FROM customer_notes WHERE customer_phone = ? ORDER BY id DESC'
+    ).all(phone);
+    res.json({ phone, notes });
+  });
+
+  r.post('/customer-notes', async (req, res) => {
+    const phone = normalizeCustomerPhone(req.body?.phone);
+    const note = String(req.body?.note || '').trim();
+    if (!phone) return res.status(400).json({ error: 'Missing customer phone.' });
+    if (!note) return res.status(400).json({ error: 'Note cannot be empty.' });
+    const authorId = req.user?.id || null;
+    const authorName = req.user?.full_name || req.user?.username || 'Unknown';
+    const result = await db.prepare(
+      `INSERT INTO customer_notes (customer_phone, note, author_id, author_name) VALUES (?, ?, ?, ?)`
+    ).run(phone, note.slice(0, 2000), authorId, authorName);
+    res.json({ id: result.lastInsertRowid, phone, note, author_id: authorId, author_name: authorName });
+  });
+
   // List the Botcake broadcast flows available to send for a shop/page, scoped to
   // a folder (defaults to the "UPDATE" folder). Used to populate the send dropdown.
   r.get('/pos-orders/botcake/flows', async (req, res) => {

@@ -853,6 +853,70 @@ async function saveOrderTags() {
   }
 }
 
+// ─── Customer notes (per-phone, append-only history) ──────────
+let customerNotesPhone = '';
+
+async function openCustomerNotesModal(btn) {
+  customerNotesPhone = btn?.dataset?.phone || '';
+  const name = btn?.dataset?.name || '';
+  if (!customerNotesPhone) { showToast('warning', 'No phone', 'This order has no customer phone to attach notes to.'); return; }
+  const recap = document.getElementById('customer-notes-recap');
+  if (recap) recap.innerHTML = `Notes for <strong>${escapeHtml(name || 'customer')}</strong> · ${escapeHtml(customerNotesPhone)}`;
+  const err = document.getElementById('customer-notes-error');
+  if (err) err.textContent = '';
+  const input = document.getElementById('customer-note-input');
+  if (input) input.value = '';
+  openModal('customer-notes-modal');
+  await loadCustomerNotes();
+}
+
+async function loadCustomerNotes() {
+  const thread = document.getElementById('customer-notes-thread');
+  if (thread) thread.innerHTML = 'Loading…';
+  try {
+    const data = await authorizedJsonRequest(`/orders/customer-notes?phone=${encodeURIComponent(customerNotesPhone)}&_=${Date.now()}`);
+    renderCustomerNotesThread(Array.isArray(data?.notes) ? data.notes : []);
+  } catch (error) {
+    if (thread) thread.innerHTML = `<div style="color:var(--danger);font-size:13px;">Failed to load notes: ${escapeHtml(error.message || 'Request failed')}</div>`;
+  }
+}
+
+function renderCustomerNotesThread(notes) {
+  const thread = document.getElementById('customer-notes-thread');
+  if (!thread) return;
+  if (!notes.length) {
+    thread.innerHTML = '<div class="field-help">No notes yet. Add the first one below.</div>';
+    return;
+  }
+  thread.innerHTML = notes.map((n) => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:var(--surface-1);">
+      <div style="font-size:13px;white-space:pre-wrap;color:var(--text-primary);">${escapeHtml(n.note || '')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${escapeHtml(n.author_name || 'Unknown')} · ${escapeHtml(formatPosTimestamp(n.created_at))}</div>
+    </div>`).join('');
+}
+
+async function addCustomerNote() {
+  const input = document.getElementById('customer-note-input');
+  const err = document.getElementById('customer-notes-error');
+  const btn = document.getElementById('customer-note-add');
+  const note = (input?.value || '').trim();
+  if (err) err.textContent = '';
+  if (!note) { if (err) err.textContent = 'Please type a note first.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  try {
+    await authorizedJsonRequest('/orders/customer-notes', {
+      method: 'POST',
+      body: JSON.stringify({ phone: customerNotesPhone, note }),
+    });
+    if (input) input.value = '';
+    await loadCustomerNotes();
+  } catch (error) {
+    if (err) err.textContent = error.message || 'Failed to add note.';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add note'; }
+  }
+}
+
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
 // RMO Management is a live order-monitoring dashboard, so it polls every 45s.
@@ -6953,9 +7017,9 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? '<th>Reason</th>' : ''}<th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? '<th>Reason</th><th>Notes</th>' : ''}<th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="${rmoTab !== 'orders' ? 11 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="${rmoTab !== 'orders' ? 12 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -6995,6 +7059,28 @@ function renderRmoManagement() {
           <div style="display:flex;gap:8px;margin-top:12px;">
             <button type="button" class="btn btn-primary" id="pos-tags-save" style="flex:1;" onclick="saveOrderTags()">Save tags</button>
             <button type="button" class="btn btn-secondary" onclick="closeModal('pos-tags-modal')">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="customer-notes-modal">
+      <div class="modal" style="max-width:520px;">
+        <div class="modal-header">
+          <div class="modal-title">Customer Notes</div>
+          <button class="modal-close" onclick="closeModal('customer-notes-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <div id="customer-notes-recap" class="field-help" style="margin-bottom:10px;"></div>
+          <div id="customer-notes-thread" style="max-height:300px;overflow-y:auto;margin-bottom:12px;">Loading…</div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label class="form-label">Add a note</label>
+            <textarea class="form-control" id="customer-note-input" rows="3" placeholder="Type a note for this customer…"></textarea>
+          </div>
+          <div id="customer-notes-error" style="color:var(--danger);font-size:12px;margin-bottom:6px;"></div>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-primary" id="customer-note-add" style="flex:1;" onclick="addCustomerNote()">Add note</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('customer-notes-modal')">Close</button>
           </div>
         </div>
       </div>
@@ -11298,7 +11384,8 @@ function renderPosOrdersTable() {
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</td>` : ''}
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</td>
+        <td><button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button></td>` : ''}
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
           : '<span class="rmo-muted">—</span>'}</td>
@@ -11320,7 +11407,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab !== 'orders' ? 11 : 10) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab !== 'orders' ? 12 : 10) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
   if (isRmoPage) updateRmoBulkBar();
