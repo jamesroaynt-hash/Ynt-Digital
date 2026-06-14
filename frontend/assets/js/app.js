@@ -4243,6 +4243,18 @@ let adspendAdsStatusFilter = 'all';
 let adspendAdsSearch = '';
 let adspendRoasPage = 1;
 let adspendRoasPerPage = 20;
+let adspendActiveTab = 'summary';
+
+function setAdspendTab(tab) {
+  adspendActiveTab = tab;
+  const summary = document.getElementById('adspend-tab-summary');
+  const adsets = document.getElementById('adspend-tab-adsets');
+  if (summary) summary.style.display = tab === 'summary' ? 'block' : 'none';
+  if (adsets) adsets.style.display = tab === 'adsets' ? 'block' : 'none';
+  document.querySelectorAll('.adspend-tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+}
 
 const ADSPEND_STATUS_MAP = [
   ['Confirmed',          'adspend-cb-confirmed', 'View Confirmed'],
@@ -4622,6 +4634,12 @@ function renderAdspendRoas() {
     </div>
   </div>
 
+  <div class="adspend-tabs" style="display:flex;gap:8px;margin-bottom:16px;">
+    <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='summary'?' active':''}" data-tab="summary" onclick="setAdspendTab('summary')">ROAS Summary</button>
+    <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='adsets'?' active':''}" data-tab="adsets" onclick="setAdspendTab('adsets')">Live Ad Sets</button>
+  </div>
+
+  <div id="adspend-tab-summary" style="display:${adspendActiveTab==='summary'?'block':'none'};">
   <div class="card" style="padding:0;overflow:hidden;">
     <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
       <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
@@ -4727,8 +4745,11 @@ function renderAdspendRoas() {
       </div>
     </div>
   </div>
+  </div>
 
-  ${renderAdspendAdsCardShell(totalAmount)}`;
+  <div id="adspend-tab-adsets" style="display:${adspendActiveTab==='adsets'?'block':'none'};">
+    ${renderAdspendAdsCardShell(totalAmount)}
+  </div>`;
 }
 
 // ─── AD CREATIVES MONITOR ──────────────────────────────────
