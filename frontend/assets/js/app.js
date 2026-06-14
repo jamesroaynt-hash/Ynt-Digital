@@ -6799,6 +6799,25 @@ function getRmoUndeliverableCount() {
   return Number(DB.posRawPartnerCounts?.undeliverable || 0);
 }
 
+// Undeliverable reason, read straight from the order's partner_json
+// (returned as order.partner) so it works for already-stored orders without
+// waiting for a re-sync. Falls back to the stored partner_reason column.
+// Mirrors getPosUndeliverableReason on the backend.
+function getRmoUndeliverableReason(order) {
+  const partner = order?.partner;
+  if (partner && typeof partner === 'object') {
+    const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+    for (let i = updates.length - 1; i >= 0; i--) {
+      const u = updates[i] || {};
+      const reason = u.reason || u.sub_status || u.reason_name || u.status;
+      if (reason) return String(reason);
+    }
+    const top = partner.reason || partner.sub_status || partner.note;
+    if (top) return String(top);
+  }
+  return order?.partner_reason || '';
+}
+
 // True when the courier reported a delivery problem for this order.
 function isOrderCourierProblem(order) {
   const status = normalizeText(order?.partner_status);
@@ -11326,7 +11345,7 @@ function renderPosOrdersTable() {
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab === 'undeliverable' ? `<td class="rmo-item-sub">${escapeHtml(order.partner_reason || '') || dash}</td>` : ''}
+        ${rmoTab === 'undeliverable' ? `<td class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</td>` : ''}
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
           : '<span class="rmo-muted">—</span>'}</td>
