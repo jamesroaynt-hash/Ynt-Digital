@@ -286,6 +286,7 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   botcake_page_id TEXT,
   partner_status TEXT,
   courier_note TEXT,
+  partner_reason TEXT,
   ad_id TEXT,
   ads_source TEXT,
   raw_payload TEXT NOT NULL,

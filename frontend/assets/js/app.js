@@ -6909,9 +6909,9 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th><th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab === 'undeliverable' ? '<th>Reason</th>' : ''}<th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="${rmoTab === 'undeliverable' ? 11 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -11326,6 +11326,7 @@ function renderPosOrdersTable() {
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
+        ${rmoTab === 'undeliverable' ? `<td class="rmo-item-sub">${escapeHtml(order.partner_reason || '') || dash}</td>` : ''}
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
           : '<span class="rmo-muted">—</span>'}</td>
@@ -11347,7 +11348,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? 10 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab === 'undeliverable' ? 11 : 10) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
   if (isRmoPage) updateRmoBulkBar();

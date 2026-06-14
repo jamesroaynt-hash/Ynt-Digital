@@ -727,7 +727,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note
+             partner_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason
       FROM pos_orders ${where}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
@@ -772,6 +772,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         can_message: Boolean(row.psid),
         partner_status: row.partner_status || null,
         courier_note: row.courier_note || null,
+        partner_reason: row.partner_reason || null,
       })),
       status_counts: statusCountRows,
       partner_counts: partnerCounts,

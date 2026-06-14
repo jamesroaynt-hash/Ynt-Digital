@@ -541,6 +541,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   // RMO Undeliverable/Problematic metrics and the courier note in the table.
   const partnerStatus = stringOrNull(partner?.partner_status);
   const courierNote = stringOrNull(Array.isArray(partner?.extend_update) ? partner.extend_update[0]?.status : null);
+  // Undeliverable reason — e.g. "No Reason to Reject without Opening the Box".
+  // Lives in partner.extend_update; scan newest-first for a reason/sub-status.
+  const partnerReason = getPosUndeliverableReason(partner);
 
   // Ad attribution: the Pancake order object carries the Facebook ad id and the
   // advertising source. ad_id matches the `id` of an ad in the Ads tab, linking
@@ -601,9 +604,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, sprinter_name, sprinter_tel,
-      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, ad_id, ads_source, raw_payload
+      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, ad_id, ads_source, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -635,6 +638,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       botcake_page_id = COALESCE(excluded.botcake_page_id, pos_orders.botcake_page_id),
       partner_status = excluded.partner_status,
       courier_note = excluded.courier_note,
+      partner_reason = excluded.partner_reason,
       ad_id = COALESCE(excluded.ad_id, pos_orders.ad_id),
       ads_source = COALESCE(excluded.ads_source, pos_orders.ads_source),
       raw_payload = excluded.raw_payload,
@@ -674,6 +678,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     botcakePageId,
     partnerStatus,
     courierNote,
+    partnerReason,
     adId,
     adsSource,
     rawPayloadForStorage(item)
@@ -1038,6 +1043,26 @@ function normalizePosTagValue(value) {
     value?.code ||
     value?.id
   );
+}
+
+// The courier rejection / undeliverable reason lives in partner_json. Pancake
+// stores delivery history in partner.extend_update; the reason text may sit in a
+// dedicated reason/sub_status field or fall back to the status text. Walk
+// newest-first so the most recent reason wins.
+function getPosUndeliverableReason(partner) {
+  if (!partner || typeof partner !== 'object') return null;
+  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+  for (const update of [...updates].reverse()) {
+    const reason = stringOrNull(update?.reason)
+      || stringOrNull(update?.sub_status)
+      || stringOrNull(update?.reason_name)
+      || stringOrNull(update?.status);
+    if (reason) return reason;
+  }
+  return stringOrNull(partner.reason)
+    || stringOrNull(partner.sub_status)
+    || stringOrNull(partner.note)
+    || null;
 }
 
 function extractAttemptNumber(item, tags) {
