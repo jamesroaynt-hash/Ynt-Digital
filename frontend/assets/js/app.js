@@ -600,10 +600,11 @@ async function refreshPosRawOrdersFromBackend() {
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
   if (posOrdersAttemptFilter !== 'all') query.set('attempts', posOrdersAttemptFilter);
   if (rmoTab !== 'orders') {
-    // Undeliverable / Returning tabs: scope to that status and filter by the
-    // last status-update date instead of the order's inserted date.
+    // Undeliverable / Returning / On Delivery tabs: scope to that status and
+    // filter by the last status-update date instead of the order's inserted date.
     if (rmoTab === 'undeliverable') query.set('partner', 'undeliverable');
     else if (rmoTab === 'returning') query.set('status', 'Returning');
+    else if (rmoTab === 'delivering') query.set('status', 'Shipped');
     if (rmoUpdatePeriod !== 'all') query.set('update_period', rmoUpdatePeriod);
   } else {
     if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
@@ -5525,6 +5526,13 @@ function renderMarketingCenter() {
           </table>
         </div>
       </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="card-header">
+        <div><div class="card-title">POS Orders</div><div class="card-subtitle">Orders from POS for reference while logging entries.</div></div>
+      </div>
+      <div id="mkt-pos-orders-wrap">${renderMarketingPosOrdersList()}</div>
+    </div>
   </div>
 
   <div id="mkt-team" class="tab-content${lastMarketingTab === 'mkt-team' ? ' active' : ''}">
@@ -6947,6 +6955,7 @@ function renderRmoManagement() {
 
     <div class="rmo-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
       <button class="filter-pill ${rmoTab === 'orders' ? 'active' : ''}" onclick="setRmoTab('orders')">For Delivery</button>
+      <button class="filter-pill ${rmoTab === 'delivering' ? 'active' : ''}" onclick="setRmoTab('delivering')">On Delivery</button>
       <button class="filter-pill ${rmoTab === 'undeliverable' ? 'active' : ''}" onclick="setRmoTab('undeliverable')">Undeliverable</button>
       <button class="filter-pill ${rmoTab === 'returning' ? 'active' : ''}" onclick="setRmoTab('returning')">Returning</button>
     </div>
@@ -7017,7 +7026,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? '<th>Reason</th><th>Notes</th>' : ''}<th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : 'Reason'}</th><th>Notes</th>` : ''}<th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="${rmoTab !== 'orders' ? 12 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
@@ -11384,7 +11393,7 @@ function renderPosOrdersTable() {
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</td>
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash)}</td>
         <td><button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button></td>` : ''}
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
@@ -13852,6 +13861,69 @@ function switchTab(btn, contentId) {
 }
 
 let lastMarketingTab = 'mkt-entries';
+let marketingPosPage = 1;
+let marketingPosPerPage = 20;
+
+// Paginated POS orders listing shown in the Marketing Daily Entry tab. Sourced
+// from pos_orders (DB.sheetRecordsForReport). Rows-per-page: 10/20/50/100.
+function renderMarketingPosOrdersList() {
+  const rows = [...(DB.sheetRecordsForReport || [])]
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const total = rows.length;
+  const perPage = marketingPosPerPage;
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  if (marketingPosPage > pages) marketingPosPage = pages;
+  const start = (marketingPosPage - 1) * perPage;
+  const paged = rows.slice(start, start + perPage);
+  const end = Math.min(start + perPage, total);
+  return `
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Date</th><th>Order ID</th><th>Customer</th><th>Product</th><th>Page</th><th>Status</th><th style="text-align:right;">COD</th></tr></thead>
+        <tbody>
+          ${paged.map((o) => `<tr>
+            <td>${escapeHtml(o.date || '')}</td>
+            <td class="font-mono text-xs">${escapeHtml(o.id || '')}</td>
+            <td>${escapeHtml(o.customer || '')}</td>
+            <td>${escapeHtml(o.product || '')}</td>
+            <td>${escapeHtml(o.sourceSheet || o.source_sheet || '')}</td>
+            <td>${escapeHtml(o.status || '')}</td>
+            <td style="text-align:right;">${marketingMoney(o.cod || 0)}</td>
+          </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+    <div class="table-pagination">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:13px;color:var(--text-muted);">Rows:</span>
+        <select onchange="setMarketingPosPerPage(this.value)" style="height:30px;font-size:13px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
+          ${[10, 20, 50, 100].map((v) => `<option value="${v}"${marketingPosPerPage === v ? ' selected' : ''}>${v}</option>`).join('')}
+        </select>
+        <span>${total ? start + 1 : 0}–${end} of ${total} POS orders</span>
+      </div>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="changeMarketingPosPage(${marketingPosPage - 1})" ${marketingPosPage <= 1 ? 'disabled' : ''}>‹</button>
+        ${renderPaginationButtons(marketingPosPage, pages, 'changeMarketingPosPage')}
+        <button class="page-btn" onclick="changeMarketingPosPage(${marketingPosPage + 1})" ${marketingPosPage >= pages ? 'disabled' : ''}>›</button>
+      </div>
+    </div>`;
+}
+
+function repaintMarketingPosOrders() {
+  const wrap = document.getElementById('mkt-pos-orders-wrap');
+  if (wrap) wrap.innerHTML = renderMarketingPosOrdersList();
+}
+
+function setMarketingPosPerPage(val) {
+  marketingPosPerPage = Number(val) || 20;
+  marketingPosPage = 1;
+  repaintMarketingPosOrders();
+}
+
+function changeMarketingPosPage(page) {
+  marketingPosPage = Math.max(1, page);
+  repaintMarketingPosOrders();
+}
 
 function openViewRecordsTab(tabId) {
   navigateTo('view-records');
