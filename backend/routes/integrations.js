@@ -293,6 +293,14 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  router.get('/pancake-pos/ads/ads', async (req, res) => {
+    try {
+      res.json(await posSync.listAdsFromApi(db, req.query || {}));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Data Report aggregation — pure SQL, no in-memory cache needed.
   router.get('/google-sheets/report-summary', async (req, res) => {
     try {

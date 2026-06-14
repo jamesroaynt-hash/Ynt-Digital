@@ -2135,6 +2135,7 @@ function arrayFromPancakeResponse(response) {
   if (Array.isArray(response)) return response;
   if (Array.isArray(response?.data)) return response.data;
   if (Array.isArray(response?.ad_sets)) return response.ad_sets;
+  if (Array.isArray(response?.ads)) return response.ads;
   if (Array.isArray(response?.items)) return response.items;
   if (Array.isArray(response?.results)) return response.results;
   return [];
@@ -2184,6 +2185,37 @@ function normalizeAdSet(item, connection) {
     campaign_id: campaignId,
     campaign_name: stringOrNull(item?.ad_campaign?.name || item?.campaign_name || item?.campaign?.name || item?.campaignName) || 'Untitled campaign',
     name: stringOrNull(item?.name || item?.adset_name || item?.ad_set_name) || 'Untitled ad set',
+    status: stringOrNull(item?.status || item?.effective_status || item?.configured_status),
+    shop_id: connection.shop_id,
+    shop_name: connection.name,
+    budget: normalizeAdsBudget(item),
+    spend,
+    reach: firstNumberFrom(source, ['reach', 'insights.reach']),
+    impressions: firstNumberFrom(source, ['impressions', 'insights.impressions']),
+    clicks: firstNumberFrom(source, ['clicks', 'insights.clicks']),
+    frequency: firstNumberFrom(source, ['frequency', 'insights.frequency']),
+    cpp: firstNumberFrom(source, ['cpp', 'insights.cpp']),
+    cpm: firstNumberFrom(source, ['cpm', 'insights.cpm']),
+    cpc: firstNumberFrom(source, ['cpc', 'insights.cpc']),
+    ctr: firstNumberFrom(source, ['ctr', 'insights.ctr']),
+    cost_per_result: firstNumberFrom(source, ['cost_per_result', 'insights.cost_per_result']),
+    result_roas: resultRoas,
+    raw_status: stringOrNull(item?.status),
+  };
+}
+
+function normalizeAd(item, connection) {
+  const insights = item?.insights && typeof item.insights === 'object' ? item.insights : {};
+  const source = { ...item, insights };
+  const spend = firstNumberFrom(source, ['spend', 'insights.spend']);
+  const resultRoas = firstNumberFrom(source, ['result_roas', 'insights.result_roas', 'roas', 'insights.roas']);
+  return {
+    id: stringOrNull(item?.id || item?.ad_id),
+    ad_set_id: stringOrNull(item?.adset_id || item?.ad_set_id || item?.ad_set?.id),
+    ad_set_name: stringOrNull(item?.adset_name || item?.ad_set_name || item?.ad_set?.name) || 'Untitled ad set',
+    campaign_id: normalizeCampaignId(item),
+    campaign_name: stringOrNull(item?.ad_campaign?.name || item?.campaign_name || item?.campaign?.name || item?.campaignName) || 'Untitled campaign',
+    name: stringOrNull(item?.name || item?.ad_name) || 'Untitled ad',
     status: stringOrNull(item?.status || item?.effective_status || item?.configured_status),
     shop_id: connection.shop_id,
     shop_name: connection.name,
@@ -2269,6 +2301,83 @@ async function listAdSetsFromApi(db, payload = {}) {
 
   result.summary = {
     ad_sets: result.items.length,
+    spend: result.items.reduce((sum, item) => sum + Number(item.spend || 0), 0),
+    impressions: result.items.reduce((sum, item) => sum + Number(item.impressions || 0), 0),
+    clicks: result.items.reduce((sum, item) => sum + Number(item.clicks || 0), 0),
+    reach: result.items.reduce((sum, item) => sum + Number(item.reach || 0), 0),
+    avg_roas: result.items.length
+      ? result.items.reduce((sum, item) => sum + Number(item.result_roas || 0), 0) / result.items.length
+      : 0,
+  };
+  return result;
+}
+
+async function listAdsFromApi(db, payload = {}) {
+  const savedConnections = await getSavedConnections(db);
+  const requestedConnectionId = stringOrNull(payload.connection_id || payload.connectionId || payload.id);
+  const requestedShopId = stringOrNull(payload.shop_id || payload.shopId);
+  const enabledConnections = savedConnections.filter((connection) => (
+    connection.enabled !== false
+    && connection.api_key
+    && connection.shop_id
+    && (!requestedConnectionId || connection.id === requestedConnectionId)
+    && (!requestedShopId || connection.shop_id === requestedShopId)
+  ));
+  if (!enabledConnections.length) {
+    throw new Error('No enabled Pancake POS connection with an API key and shop ID was found.');
+  }
+
+  const selectFields = stringOrNull(payload.select_fields || payload.selectFields) || [
+    'ad_performance_session',
+    'spend',
+    'reach',
+    'impressions',
+    'clicks',
+    'frequency',
+    'cpp',
+    'cpm',
+    'cpc',
+    'ctr',
+    'cost_per_result',
+    'result_roas',
+  ].join(',');
+  const pageSize = Math.max(1, Math.min(100, Number(payload.page_size || payload.pageSize || 50)));
+  const maxPages = Math.max(1, Math.min(20, Number(payload.max_pages || payload.maxPages || 3)));
+
+  const result = {
+    provider: PROVIDER,
+    resource: 'ads_v2',
+    select_fields: selectFields,
+    shops: [],
+    items: [],
+    failed_shops: [],
+  };
+
+  for (const connection of enabledConnections) {
+    try {
+      const items = await collectPagedItems(async (page) => {
+        const response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/ads_manager/ads_v2`, connection.api_key, {
+          page,
+          page_size: pageSize,
+          select_fields: selectFields,
+          __timeout_ms: 20000,
+        });
+        return arrayFromPancakeResponse(response);
+      }, { startPage: Math.max(1, Number(payload.page || 1)), pageSize, maxPages });
+      const normalized = items.map((item) => normalizeAd(item, connection));
+      result.shops.push({ shop_id: connection.shop_id, name: connection.name, count: normalized.length });
+      result.items.push(...normalized);
+    } catch (error) {
+      result.failed_shops.push({
+        shop_id: connection.shop_id,
+        name: connection.name,
+        error: truncate(error.message, 240),
+      });
+    }
+  }
+
+  result.summary = {
+    ads: result.items.length,
     spend: result.items.reduce((sum, item) => sum + Number(item.spend || 0), 0),
     impressions: result.items.reduce((sum, item) => sum + Number(item.impressions || 0), 0),
     clicks: result.items.reduce((sum, item) => sum + Number(item.clicks || 0), 0),
@@ -2838,6 +2947,7 @@ module.exports = {
   listPosUsers,
   listShopsFromApi,
   listAdSetsFromApi,
+  listAdsFromApi,
   validatePancakePageToken,
   validateBotcakeToken,
   listBotcakeFlows,

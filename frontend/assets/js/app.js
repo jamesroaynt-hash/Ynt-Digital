@@ -4241,6 +4241,9 @@ let adspendAdsData = null;
 let adspendAdsShopFilter = 'all';
 let adspendAdsStatusFilter = 'all';
 let adspendAdsSearch = '';
+let adspendAdsView = 'adsets';
+let adspendIndividualAdsData = null;
+let adspendIndividualAdsLoading = false;
 let adspendRoasPage = 1;
 let adspendRoasPerPage = 20;
 let adspendActiveTab = 'summary';
@@ -4333,7 +4336,7 @@ function renderAdspendAdsCardShell(totalAmount) {
           <div class="adspend-ads-kicker">Pancake Ads Manager</div>
           <h3>Live Ad Sets</h3>
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="loadAdspendAdsSummary({ force: true })">Refresh Ads</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="refreshAdspendAds()">Refresh Ads</button>
       </div>
       <div id="adspend-ads-card-body" class="adspend-ads-loading">Loading Pancake ads...</div>
     </div>`;
@@ -4389,44 +4392,107 @@ function applyAdspendAdsFilters() {
   }
 }
 
-function renderAdspendAdsCardBody(data, totalAmount) {
-  if (!data) return '<div class="adspend-ads-loading">Loading Pancake ads...</div>';
-  if (data.error) {
-    return `<div class="adspend-ads-empty">Ads API unavailable: ${escapeHtml(data.error)}</div>`;
+function setAdspendAdsView(view) {
+  adspendAdsView = view;
+  const body = document.getElementById('adspend-ads-card-body');
+  const card = document.getElementById('adspend-ads-card');
+  if (body && card) {
+    body.innerHTML = renderAdspendAdsCardBody(adspendAdsData, Number(card.dataset.ordersAmount || 0));
   }
-  const rawItems = Array.isArray(data.items) ? data.items : [];
-  const items = getFilteredAdspendAdsItems(data);
+}
+
+// Aggregate ad-set rows into one row per campaign id. Sums additive counters
+// and derives ratio metrics (CPC/CPM/CTR/CPP/ROAS) from the summed totals so
+// they stay accurate rather than averaging per-ad-set ratios.
+function aggregateAdspendCampaigns(items) {
+  const map = new Map();
+  items.forEach((item) => {
+    const id = getAdspendCampaignId(item);
+    if (!map.has(id)) {
+      map.set(id, {
+        campaign_id: id,
+        campaign_name: item.campaign_name || '',
+        adSets: 0,
+        shops: new Set(),
+        statuses: new Set(),
+        budget: 0, spend: 0, reach: 0, impressions: 0, clicks: 0,
+        results: 0, revenue: 0,
+      });
+    }
+    const row = map.get(id);
+    if (!row.campaign_name && item.campaign_name) row.campaign_name = item.campaign_name;
+    row.adSets += 1;
+    if (item.shop_name || item.shop_id) row.shops.add(item.shop_name || item.shop_id);
+    if (item.status) row.statuses.add(item.status);
+    row.budget += Number(item.budget || 0);
+    row.spend += Number(item.spend || 0);
+    row.reach += Number(item.reach || 0);
+    row.impressions += Number(item.impressions || 0);
+    row.clicks += Number(item.clicks || 0);
+    // Derive purchase count and revenue from per-ad-set ratios so the campaign
+    // totals can recompute weighted CPP / ROAS.
+    const cpp = Number(item.cpp || 0);
+    if (cpp > 0) row.results += Number(item.spend || 0) / cpp;
+    row.revenue += Number(item.result_roas || 0) * Number(item.spend || 0);
+  });
+  return [...map.values()].map((row) => ({
+    ...row,
+    cpc: row.clicks > 0 ? row.spend / row.clicks : 0,
+    cpm: row.impressions > 0 ? (row.spend / row.impressions) * 1000 : 0,
+    ctr: row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0,
+    cpp: row.results > 0 ? row.spend / row.results : 0,
+    roas: row.spend > 0 ? row.revenue / row.spend : 0,
+    frequency: row.reach > 0 ? row.impressions / row.reach : 0,
+  }));
+}
+
+function renderAdspendAdsSubtabs(view) {
+  const tab = (key, label) => `<button type="button" class="filter-pill${view === key ? ' active' : ''}" onclick="setAdspendAdsView('${key}')">${label}</button>`;
+  return `
+    <div class="adspend-ads-subtabs" style="display:flex;gap:8px;margin-bottom:14px;">
+      ${tab('adsets', 'Ad Sets')}${tab('campaigns', 'Campaigns')}${tab('ads', 'Ads')}
+    </div>`;
+}
+
+function renderAdspendAdsCardBody(data, totalAmount) {
+  const view = adspendAdsView;
+  const subtabs = renderAdspendAdsSubtabs(view);
+
+  // The Ads view pulls from a separately-fetched, lazily-loaded dataset; the
+  // other two views reuse the ad-set payload passed in as `data`.
+  const sourceData = view === 'ads' ? adspendIndividualAdsData : data;
+  if (view === 'ads' && !sourceData) {
+    if (!adspendIndividualAdsLoading) loadAdspendIndividualAds().catch(() => {});
+    return `${subtabs}<div class="adspend-ads-loading">Loading individual ads...</div>`;
+  }
+  if (!sourceData) return `${subtabs}<div class="adspend-ads-loading">Loading Pancake ads...</div>`;
+  if (sourceData.error) return `${subtabs}<div class="adspend-ads-empty">Ads API unavailable: ${escapeHtml(sourceData.error)}</div>`;
+
+  const rawItems = Array.isArray(sourceData.items) ? sourceData.items : [];
+  const items = getFilteredAdspendAdsItems(sourceData);
   const spend = items.reduce((sum, item) => sum + Number(item.spend || 0), 0);
   const impressions = items.reduce((sum, item) => sum + Number(item.impressions || 0), 0);
   const clicks = items.reduce((sum, item) => sum + Number(item.clicks || 0), 0);
   const reach = items.reduce((sum, item) => sum + Number(item.reach || 0), 0);
-  const roas = spend > 0 ? Number(totalAmount || 0) / spend : 0;
+  // ROAS from the Ads API itself (revenue = result_roas x spend), not Google Sheets.
+  const apiRevenue = items.reduce((sum, item) => sum + Number(item.result_roas || 0) * Number(item.spend || 0), 0);
+  const roas = spend > 0 ? apiRevenue / spend : 0;
   const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
   const tableItems = [...items].sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
-  const failed = Array.isArray(data.failed_shops) ? data.failed_shops : [];
+  const failed = Array.isArray(sourceData.failed_shops) ? sourceData.failed_shops : [];
   const failedHtml = failed.length ? `
     <div class="adspend-ads-failures">
       ${failed.map((shop) => `<div><strong>${escapeHtml(shop.name || shop.shop_id || 'Shop')}</strong>: ${escapeHtml(shop.error || 'Ads API failed')}</div>`).join('')}
     </div>` : '';
+  const campaigns = view === 'campaigns' ? aggregateAdspendCampaigns(items).sort((a, b) => b.spend - a.spend) : [];
+  const unit = view === 'campaigns' ? 'campaigns' : view === 'ads' ? 'ads' : 'ad sets';
+  const unitLabel = view === 'campaigns' ? 'Campaigns' : view === 'ads' ? 'Ads' : 'Ad Sets';
+  const unitCount = view === 'campaigns' ? campaigns.length : items.length;
   const emptyMessage = rawItems.length
-    ? 'No ad sets match these filters.'
-    : 'Pancake Ads Manager returned 0 ad sets for the connected shops.';
+    ? `No ${unit} match these filters.`
+    : `Pancake Ads Manager returned 0 ${unit} for the connected shops.`;
 
-  return `
-    ${renderAdspendAdsFilters(data)}
-    <div class="adspend-ads-grid">
-      <div class="adspend-ads-metric"><span>API Ad Spend</span><strong>${adspendApiMoney(spend)}</strong></div>
-      <div class="adspend-ads-metric"><span>Ad Sets</span><strong>${items.length.toLocaleString()} <small>/ ${rawItems.length.toLocaleString()}</small></strong></div>
-      <div class="adspend-ads-metric"><span>Clicks</span><strong>${clicks.toLocaleString()}</strong></div>
-      <div class="adspend-ads-metric"><span>Impressions</span><strong>${impressions.toLocaleString()}</strong></div>
-      <div class="adspend-ads-metric"><span>CTR</span><strong>${ctr ? ctr.toFixed(2) + '%' : '-'}</strong></div>
-      <div class="adspend-ads-metric"><span>ROAS vs Orders</span><strong>${spend ? roas.toFixed(2) : '-'}</strong></div>
-    </div>
-    <div class="adspend-ads-subline">
-      Reach ${reach.toLocaleString()} across ${(Array.isArray(data.shops) ? data.shops.length : 0).toLocaleString()} connected shop(s).
-      ${failed.length ? `${failed.length} shop(s) failed.` : ''}
-    </div>
-    ${failedHtml}
+  const adSetsTable = `
     <div class="adspend-ads-table-wrap">
       <table class="adspend-ads-table">
         <thead><tr><th>Campaign ID</th><th>Ad Set</th><th>Shop</th><th>Status</th><th>Budget</th><th>Spend</th><th>Reach</th><th>Impressions</th><th>Clicks</th><th>CPC</th><th>CPP</th><th>CPM</th><th>CTR</th><th>ROAS</th><th>Frequency</th></tr></thead>
@@ -4451,6 +4517,116 @@ function renderAdspendAdsCardBody(data, totalAmount) {
         </tbody>
       </table>
     </div>`;
+
+  const campaignsTable = `
+    <div class="adspend-ads-table-wrap">
+      <table class="adspend-ads-table">
+        <thead><tr><th>Campaign ID</th><th>Campaign</th><th>Ad Sets</th><th>Shop</th><th>Status</th><th>Budget</th><th>Spend</th><th>Reach</th><th>Impressions</th><th>Clicks</th><th>CPC</th><th>CPP</th><th>CPM</th><th>CTR</th><th>ROAS</th><th>Frequency</th></tr></thead>
+        <tbody>
+          ${campaigns.length ? campaigns.map((c) => `<tr>
+            <td>${escapeHtml(c.campaign_id)}</td>
+            <td>${escapeHtml(c.campaign_name || 'Untitled campaign')}</td>
+            <td>${c.adSets.toLocaleString()}</td>
+            <td>${escapeHtml([...c.shops].join(', ') || '-')}</td>
+            <td>${escapeHtml([...c.statuses].join(', ') || '-')}</td>
+            <td>${c.budget ? adspendApiMoney(c.budget) : '-'}</td>
+            <td>${adspendApiMoney(c.spend)}</td>
+            <td>${c.reach.toLocaleString()}</td>
+            <td>${c.impressions.toLocaleString()}</td>
+            <td>${c.clicks.toLocaleString()}</td>
+            <td>${adspendMetricMoney(c.cpc)}</td>
+            <td>${adspendMetricMoney(c.cpp)}</td>
+            <td>${adspendMetricMoney(c.cpm)}</td>
+            <td>${c.ctr ? c.ctr.toFixed(2) : '-'}</td>
+            <td>${c.roas ? c.roas.toFixed(2) : '-'}</td>
+            <td>${c.frequency ? c.frequency.toFixed(2) : '-'}</td>
+          </tr>`).join('') : `<tr><td colspan="16">${escapeHtml(emptyMessage)}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+
+  const adsTable = `
+    <div class="adspend-ads-table-wrap">
+      <table class="adspend-ads-table">
+        <thead><tr><th>Ad</th><th>Ad Set</th><th>Campaign ID</th><th>Shop</th><th>Status</th><th>Budget</th><th>Spend</th><th>Reach</th><th>Impressions</th><th>Clicks</th><th>CPC</th><th>CPP</th><th>CPM</th><th>CTR</th><th>ROAS</th><th>Frequency</th></tr></thead>
+        <tbody>
+          ${tableItems.length ? tableItems.map((item) => `<tr>
+            <td>${escapeHtml(item.name || 'Untitled ad')}</td>
+            <td>${escapeHtml(item.ad_set_name || '-')}</td>
+            <td>${escapeHtml(getAdspendCampaignId(item))}</td>
+            <td>${escapeHtml(item.shop_name || item.shop_id || '-')}</td>
+            <td>${escapeHtml(item.status || '-')}</td>
+            <td>${Number(item.budget || 0) ? adspendApiMoney(item.budget) : '-'}</td>
+            <td>${adspendApiMoney(item.spend)}</td>
+            <td>${Number(item.reach || 0).toLocaleString()}</td>
+            <td>${Number(item.impressions || 0).toLocaleString()}</td>
+            <td>${Number(item.clicks || 0).toLocaleString()}</td>
+            <td>${adspendMetricMoney(item.cpc)}</td>
+            <td>${adspendMetricMoney(item.cpp)}</td>
+            <td>${adspendMetricMoney(item.cpm)}</td>
+            <td>${Number(item.ctr || 0) ? Number(item.ctr || 0).toFixed(2) : '-'}</td>
+            <td>${Number(item.result_roas || 0) ? Number(item.result_roas || 0).toFixed(2) : '-'}</td>
+            <td>${Number(item.frequency || 0) ? Number(item.frequency || 0).toFixed(2) : '-'}</td>
+          </tr>`).join('') : `<tr><td colspan="16">${escapeHtml(emptyMessage)}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+
+  const activeTable = view === 'campaigns' ? campaignsTable : view === 'ads' ? adsTable : adSetsTable;
+
+  return `
+    ${subtabs}
+    ${renderAdspendAdsFilters(sourceData)}
+    <div class="adspend-ads-grid">
+      <div class="adspend-ads-metric"><span>API Ad Spend</span><strong>${adspendApiMoney(spend)}</strong></div>
+      <div class="adspend-ads-metric"><span>${unitLabel}</span><strong>${unitCount.toLocaleString()} <small>/ ${rawItems.length.toLocaleString()}</small></strong></div>
+      <div class="adspend-ads-metric"><span>Clicks</span><strong>${clicks.toLocaleString()}</strong></div>
+      <div class="adspend-ads-metric"><span>Impressions</span><strong>${impressions.toLocaleString()}</strong></div>
+      <div class="adspend-ads-metric"><span>CTR</span><strong>${ctr ? ctr.toFixed(2) + '%' : '-'}</strong></div>
+      <div class="adspend-ads-metric"><span>ROAS</span><strong>${spend ? roas.toFixed(2) : '-'}</strong></div>
+    </div>
+    <div class="adspend-ads-subline">
+      Reach ${reach.toLocaleString()} across ${(Array.isArray(sourceData.shops) ? sourceData.shops.length : 0).toLocaleString()} connected shop(s).
+      ${failed.length ? `${failed.length} shop(s) failed.` : ''}
+    </div>
+    ${failedHtml}
+    ${activeTable}`;
+}
+
+function refreshAdspendAds() {
+  if (adspendAdsView === 'ads') {
+    loadAdspendIndividualAds({ force: true }).catch(() => {});
+  } else {
+    loadAdspendAdsSummary({ force: true }).catch(() => {});
+  }
+}
+
+async function loadAdspendIndividualAds({ force = false } = {}) {
+  if (adspendIndividualAdsLoading) return;
+  if (!force && adspendIndividualAdsData) return;
+  adspendIndividualAdsLoading = true;
+  const body = document.getElementById('adspend-ads-card-body');
+  const card = document.getElementById('adspend-ads-card');
+  if (body && adspendAdsView === 'ads') body.innerHTML = '<div class="adspend-ads-loading">Loading individual ads...</div>';
+  try {
+    const params = new URLSearchParams({
+      page: '1',
+      page_size: '100',
+      max_pages: '10',
+      select_fields: 'ad_performance_session,spend,reach,impressions,clicks,frequency,cpp,cpm,cpc,ctr,cost_per_result,result_roas',
+      _: String(Date.now()),
+    });
+    adspendIndividualAdsData = await authorizedJsonRequest(`/integrations/pancake-pos/ads/ads?${params}`);
+  } catch (error) {
+    adspendIndividualAdsData = { error: error.message || 'Request failed' };
+  } finally {
+    adspendIndividualAdsLoading = false;
+    const card2 = document.getElementById('adspend-ads-card');
+    const body2 = document.getElementById('adspend-ads-card-body');
+    if (body2 && card2 && adspendAdsView === 'ads') {
+      body2.innerHTML = renderAdspendAdsCardBody(adspendAdsData, Number(card2.dataset.ordersAmount || 0));
+    }
+  }
 }
 
 async function loadAdspendAdsSummary({ force = false } = {}) {
