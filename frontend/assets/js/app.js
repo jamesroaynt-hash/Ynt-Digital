@@ -598,15 +598,22 @@ async function refreshPosRawOrdersFromBackend() {
   if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
   if (posOrdersAttemptFilter !== 'all') query.set('attempts', posOrdersAttemptFilter);
-  if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
-  if (posOrdersPeriod === 'custom') {
-    if (posOrdersDateFrom) query.set('date_from', posOrdersDateFrom);
-    if (posOrdersDateTo) query.set('date_to', posOrdersDateTo);
+  if (rmoTab === 'undeliverable') {
+    // Undeliverable tab: scope to courier-undeliverable orders and filter by the
+    // last status-update date instead of the order's inserted date.
+    query.set('partner', 'undeliverable');
+    if (rmoUpdatePeriod !== 'all') query.set('update_period', rmoUpdatePeriod);
   } else {
-    const range = getPosOrdersPeriodRange(posOrdersPeriod);
-    if (range) {
-      query.set('date_from', range.from);
-      query.set('date_to', range.to);
+    if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
+    if (posOrdersPeriod === 'custom') {
+      if (posOrdersDateFrom) query.set('date_from', posOrdersDateFrom);
+      if (posOrdersDateTo) query.set('date_to', posOrdersDateTo);
+    } else {
+      const range = getPosOrdersPeriodRange(posOrdersPeriod);
+      if (range) {
+        query.set('date_from', range.from);
+        query.set('date_to', range.to);
+      }
     }
   }
 
@@ -6831,6 +6838,11 @@ function renderRmoManagement() {
       </div>
     </div>
 
+    <div class="rmo-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
+      <button class="filter-pill ${rmoTab === 'orders' ? 'active' : ''}" onclick="setRmoTab('orders')">For Delivery</button>
+      <button class="filter-pill ${rmoTab === 'undeliverable' ? 'active' : ''}" onclick="setRmoTab('undeliverable')">Undeliverable</button>
+    </div>
+
     <div class="rmo-metrics">
       <div class="rmo-metric"><span>Total For Delivery Today</span><strong id="rmo-metric-total">${Number(DB.posRawTotal || 0).toLocaleString()}</strong></div>
       <div class="rmo-metric"><span>Delivered</span><strong id="rmo-metric-delivered">${delivered.toLocaleString()}</strong></div>
@@ -6863,6 +6875,13 @@ function renderRmoManagement() {
     </div>
 
     <div class="rmo-period-bar">
+      ${rmoTab === 'undeliverable' ? `
+      <div class="table-filters" title="Filtered by last status update">
+        ${[['all','All'],['today','Today'],['yesterday','Yesterday']].map(([v, l]) =>
+          `<button class="filter-pill ${rmoUpdatePeriod === v ? 'active' : ''}" onclick="setRmoUpdatePeriod('${v}',this)">${l}</button>`
+        ).join('')}
+        <span style="font-size:12px;color:var(--text-muted);align-self:center;margin-left:6px;">by last status update</span>
+      </div>` : `
       <div class="table-filters">
         ${[['all','All'],['today','Today'],['yesterday','Yesterday'],['month','Month'],['year','Year'],['custom','Custom']].map(([v, l]) =>
           `<button class="filter-pill ${posOrdersPeriod === v ? 'active' : ''}" onclick="setPosOrdersPeriod('${v}',this)">${l}</button>`
@@ -6872,7 +6891,7 @@ function renderRmoManagement() {
         <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
         <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
         <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
-      </div>
+      </div>`}
       <div class="rmo-attempts-filter">
         <label for="pos-orders-attempts">Attempts</label>
         <select class="rmo-select" id="pos-orders-attempts" onchange="applyPosOrdersDropdown()">
@@ -9945,6 +9964,10 @@ let posOrdersAttemptFilter = 'all';
 let posOrdersPeriod = 'all';
 let posOrdersDateFrom = '';
 let posOrdersDateTo = '';
+// RMO management view tabs: 'orders' (For Delivery) | 'undeliverable'.
+let rmoTab = 'orders';
+// Undeliverable tab quick filter on last status-update date.
+let rmoUpdatePeriod = 'today';
 let recordsPosTagFilter = 'all';
 let recordsSummaryState = { total: 0, totalCod: 0, statusCounts: [], loading: false };
 let posRawPage = 1;
@@ -11389,6 +11412,27 @@ function setPosOrdersPeriod(period, btn) {
       showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
     });
   }
+}
+
+// Switch the RMO management view between the regular delivery list and the
+// Undeliverable tab. Re-renders the page shell (different filter bar) and
+// reloads orders with the tab's params.
+function setRmoTab(tab) {
+  if (rmoTab === tab) return;
+  rmoTab = tab;
+  posRawPage = 1;
+  navigateTo('rmo-management');
+}
+
+// Undeliverable tab: quick filter on the last status-update date.
+function setRmoUpdatePeriod(period, btn) {
+  rmoUpdatePeriod = period;
+  posRawPage = 1;
+  document.querySelectorAll('.rmo-period-bar .filter-pill').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
+    showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
+  });
 }
 
 function applyPosOrdersCustomRange() {

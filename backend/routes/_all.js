@@ -662,6 +662,33 @@ function ordersRoutes(db, { dispatch } = {}) {
       addDateRange(formatDate(new Date(now.getFullYear(), 0, 1)), formatDate(now));
     }
 
+    // Courier partner-status filter (RMO "Undeliverable" tab).
+    const { partner, update_period, update_date_from, update_date_to } = req.query;
+    if (partner && partner !== 'all') {
+      where += ` AND LOWER(COALESCE(partner_status,'')) = ?`;
+      params.push(String(partner).toLowerCase());
+    }
+
+    // Last-status-update date filter — uses updated_at_remote (when the courier
+    // status last changed), not the order's inserted date. Drives the
+    // Undeliverable tab's Today/Yesterday quick filters. updated_at_remote is
+    // stored in UTC, so shift to Manila (+8h) before comparing the day.
+    const manilaUpdateDay = db.type === 'postgres'
+      ? `to_char((updated_at_remote)::timestamp + interval '8 hours', 'YYYY-MM-DD')`
+      : `date(updated_at_remote, '+8 hours')`;
+    if (update_date_from || update_date_to) {
+      if (update_date_from) { where += ` AND ${manilaUpdateDay} >= ?`; params.push(String(update_date_from).slice(0, 10)); }
+      if (update_date_to) { where += ` AND ${manilaUpdateDay} <= ?`; params.push(String(update_date_to).slice(0, 10)); }
+    } else if (update_period === 'today') {
+      const t = formatDate(new Date());
+      where += ` AND ${manilaUpdateDay} >= ? AND ${manilaUpdateDay} <= ?`;
+      params.push(t, t);
+    } else if (update_period === 'yesterday') {
+      const y = formatDate(addDays(new Date(), -1));
+      where += ` AND ${manilaUpdateDay} >= ? AND ${manilaUpdateDay} <= ?`;
+      params.push(y, y);
+    }
+
     const statusCountRows = await db.prepare(`
       SELECT
         CASE
