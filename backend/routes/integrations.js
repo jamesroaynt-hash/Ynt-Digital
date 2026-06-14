@@ -367,6 +367,33 @@ module.exports = function integrationRoutes(db) {
         };
       });
 
+      // byAdId — direct column GROUP BY on ad_id
+      const adWhere = conditions.length
+        ? `WHERE (${conditions.join(' AND ')}) AND ad_id IS NOT NULL AND TRIM(ad_id) != ''`
+        : `WHERE ad_id IS NOT NULL AND TRIM(ad_id) != ''`;
+      const adRows = await db.prepare(`
+        SELECT
+          ad_id as label,
+          COUNT(*) as total,
+          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          COALESCE(SUM(cod), 0) as cod
+        FROM pos_orders ${adWhere}
+        GROUP BY ad_id
+        ORDER BY total DESC
+      `).all(...params);
+      const byAdId = adRows.map((r) => {
+        const b = Number(r.delivered) + Number(r.returned) + Number(r.returning);
+        return {
+          label: r.label,
+          total: Number(r.total), delivered: Number(r.delivered),
+          returned: Number(r.returned), returning: Number(r.returning),
+          cod: Number(r.cod),
+          rtsRate: b ? ((Number(r.returned) + Number(r.returning)) / b) * 100 : 0,
+        };
+      });
+
       // byPrice — CASE on cod column
       const priceRows = await db.prepare(`
         SELECT
@@ -439,6 +466,7 @@ module.exports = function integrationRoutes(db) {
         rtsRate: base ? ((returned + returningCnt) / base) * 100 : 0,
         byPrice,
         byConfirmed,
+        byAdId,
         byProvince,
         months,
         pages,

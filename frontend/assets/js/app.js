@@ -3997,6 +3997,7 @@ function renderDataReportDashboard() {
   }
 
   const { rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
+  const byAdId = dataReportSummary.byAdId || [];
   wrapper.innerHTML = `
     <section class="data-report-section">
       <div class="card-header">
@@ -4013,6 +4014,13 @@ function renderDataReportDashboard() {
         </div>
       </div>
       ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet', { showCod: true })}
+    </section>
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By Ads ID</div><div class="card-subtitle">Orders and RTS rate grouped by ad id</div></div>
+      </div>
+      ${renderDataReportTable(byAdId, 'Ads ID', 'No ads ID data yet', { showCod: true })}
     </section>
 
     <section class="data-report-section">
