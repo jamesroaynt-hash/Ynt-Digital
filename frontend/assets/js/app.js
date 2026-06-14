@@ -16,7 +16,7 @@ const NAV_ACCESS = {
   'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'expenses', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -6685,9 +6685,9 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>COD</th><th>Confirmed By</th><th>Tags</th><th>Status</th><th>Inserted At</th><th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th><th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="12" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -11081,6 +11081,7 @@ function renderPosOrdersTable() {
         <td>
           <div class="rmo-item-main">${escapeHtml(product)}</div>
           <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - ${escapeHtml(order.tracking_no)}` : ''}</div>
+          <div class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || ''}</div>
         </td>
         <td>
           <div class="rmo-item-main">${escapeHtml(order.sprinter_name || 'Unassigned rider')}</div>
@@ -11094,11 +11095,9 @@ function renderPosOrdersTable() {
         </td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
-        <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : '&#8369;0'}</td>
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        <td class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash}</td>
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
           : '<span class="rmo-muted">—</span>'}</td>
@@ -11120,7 +11119,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? 12 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? 10 : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
   if (isRmoPage) updateRmoBulkBar();
