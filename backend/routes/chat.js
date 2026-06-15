@@ -15,7 +15,12 @@ module.exports = function chatRoutes() {
   const router = express.Router();
 
   const BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
-  const MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini';
+  const IS_OPENROUTER = BASE_URL.includes('openrouter.ai');
+  // Default to a free OpenRouter model when pointed at OpenRouter and no model
+  // is configured; otherwise OpenAI's cheap default. Override with
+  // OPENAI_CHAT_MODEL (free OpenRouter ids end in ":free").
+  const MODEL = process.env.OPENAI_CHAT_MODEL
+    || (IS_OPENROUTER ? 'meta-llama/llama-3.3-70b-instruct:free' : 'gpt-4o-mini');
   const SYSTEM_PROMPT = process.env.OPENAI_CHAT_SYSTEM
     || 'You are a helpful assistant embedded in the YNT operations dashboard. Be concise, friendly, and practical.';
 
@@ -36,7 +41,7 @@ module.exports = function chatRoutes() {
 
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
     // OpenRouter recommends these for attribution; harmless for OpenAI.
-    if (BASE_URL.includes('openrouter.ai')) {
+    if (IS_OPENROUTER) {
       headers['HTTP-Referer'] = process.env.OPENROUTER_SITE_URL || 'https://ynt-digital.jamesroa-ynt.workers.dev';
       headers['X-Title'] = 'YNT Dashboard';
     }
