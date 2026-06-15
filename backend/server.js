@@ -88,9 +88,12 @@ const PANCAKE_POS_SYNC_PAGE_SIZE = Math.max(
 // every real change, and the unchanged tail is skipped at upsert anyway. This
 // caps Pancake fetch size, memory, and sync time per cycle. Manual/backfill
 // syncs don't use this window, so full history re-pulls are unaffected.
+// Default 2 pages: genuinely-changed orders sort to the front (updated_at_desc),
+// so 2×100 catches real changes while keeping peak memory low. Raise via env if
+// a shop legitimately churns >200 orders between cycles.
 const PANCAKE_POS_SYNC_MAX_PAGES = Math.max(
   1,
-  Math.min(20, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 5))
+  Math.min(20, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 2))
 );
 
 // Shared security state
@@ -554,7 +557,7 @@ if (require.main === module) {
         // definitively old and can be re-synced from Pancake if ever needed.
         setTimeout(async () => {
           try {
-            const r = await pancakePosSync.pruneOldData(db, { cutoffDate: '2026-01-01' });
+            const r = await pancakePosSync.pruneOldData(app.locals.db, { cutoffDate: '2026-01-01' });
             if (r.deleted_pos_orders > 0) {
               console.log(`[retention] pre-2026 purge: removed ${r.deleted_pos_orders} pos_orders (cutoff 2026-01-01).`);
             }
