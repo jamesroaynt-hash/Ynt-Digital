@@ -306,7 +306,6 @@ async function createApp() {
   app.use('/api/api-keys', authMiddleware, require('./routes/apiKeys')(db));
   app.use('/api/webhooks', authMiddleware, require('./routes/webhooks')(db));
   app.use('/api/announcements', authMiddleware, require('./routes/announcements')(db));
-  app.use('/api/chat', authMiddleware, require('./routes/chat')());
 
   // API discovery endpoint
   app.get('/api', (req, res) => {
