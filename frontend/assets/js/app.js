@@ -6942,7 +6942,7 @@ function renderRmoManagement() {
         <button class="rmo-icon-btn" title="Refresh POS orders" onclick="refreshPosOrdersNow()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5a5 5 0 1 0 1 3.8"/><path d="M13 2v3h-3"/></svg>
         </button>
-        <button class="rmo-action-btn" onclick="exportTableCSV('rmo-pos-orders-table','rmo-pos-orders')">
+        <button class="rmo-action-btn" onclick="exportRmoCSV()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
           Export
         </button>
@@ -13723,6 +13723,45 @@ async function viewWebhookDeliveries(id, name) {
 function copyWebhookSecret() {
   const val = document.getElementById('webhook-secret-value').textContent;
   navigator.clipboard.writeText(val).then(() => showToast('success', 'Copied', 'Signing secret copied to clipboard.'));
+}
+
+// Dedicated RMO Management export: clean columns with a separate Phone column,
+// and without the on-screen Notes / Message action columns.
+function exportRmoCSV() {
+  const orders = Array.isArray(DB.posRawOrders) ? DB.posRawOrders : [];
+  const statusName = {
+    new: 'New', pending: 'New', submitted: 'Confirmed', wait_print: 'Confirmed',
+    shipped: 'Shipped', delivered: 'Delivered', returning: 'Returning',
+    returned: 'Returned', canceled: 'Canceled', removed: 'Canceled',
+  };
+  const isExtra = rmoTab !== 'orders';
+  const extraHeader = rmoTab === 'delivering' ? 'Last Update' : 'Reason';
+  const headers = ['Order #', 'Tracking No', 'Date', 'Product', 'Rider', 'Rider Phone',
+    'Customer', 'Phone', 'Page', 'SRP', 'Attempts', 'Confirmed By', 'Tags', 'Status'];
+  if (isExtra) headers.push(extraHeader);
+  const rows = orders.map((o) => {
+    const tags = (Array.isArray(o.tags) ? o.tags : [])
+      .map((t) => typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || ''))
+      .filter(Boolean).join('; ');
+    const status = statusName[o.status_name] || (o.status_name || '');
+    const cells = [
+      o.external_id || '', o.tracking_no || '', formatPosTimestamp(o.inserted_at || o.date) || '',
+      o.note_product || '', o.sprinter_name || '', o.sprinter_tel || '',
+      o.customer_name || '', o.customer_phone || '', o.page_name || '',
+      Number(o.cod || 0), Number(o.attempts || 0), o.assigning_seller_name || '',
+      tags, status,
+    ];
+    if (isExtra) cells.push(rmoTab === 'delivering' ? (formatPosTimestamp(o.updated_at) || '') : (getRmoUndeliverableReason(o) || ''));
+    return cells;
+  });
+  const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const csv = [headers, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `rmo-pos-orders-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  showToast('success', 'CSV exported', 'rmo-pos-orders.csv downloaded');
 }
 
 function exportTableCSV(tableId, filename) {
