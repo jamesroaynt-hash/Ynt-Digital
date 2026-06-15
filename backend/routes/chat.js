@@ -46,8 +46,10 @@ module.exports = function chatRoutes() {
       headers['X-Title'] = 'YNT Dashboard';
     }
 
+    // Keep under typical gateway timeouts so the user gets a readable JSON
+    // error from us instead of an opaque proxy 502.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
+    const timeout = setTimeout(() => controller.abort(), 28000);
     try {
       const upstream = await fetch(`${BASE_URL}/chat/completions`, {
         method: 'POST',
@@ -60,16 +62,20 @@ module.exports = function chatRoutes() {
         }),
         signal: controller.signal,
       });
-      const data = await upstream.json().catch(() => null);
+      const raw = await upstream.text();
+      let data = null;
+      try { data = JSON.parse(raw); } catch { /* non-JSON provider error */ }
       if (!upstream.ok) {
-        return res.status(502).json({ error: data?.error?.message || `Provider error (${upstream.status})` });
+        console.error(`[chat] provider ${upstream.status} from ${BASE_URL} model=${MODEL}: ${raw.slice(0, 300)}`);
+        return res.status(502).json({ error: data?.error?.message || `Provider error (${upstream.status}): ${raw.slice(0, 200)}` });
       }
       const reply = String(data?.choices?.[0]?.message?.content || '').trim();
       if (!reply) return res.status(502).json({ error: 'Empty response from provider' });
       res.json({ reply, model: data?.model || MODEL });
     } catch (error) {
-      const msg = error.name === 'AbortError' ? 'Chat request timed out' : error.message;
-      res.status(500).json({ error: msg });
+      const msg = error.name === 'AbortError' ? 'The assistant took too long to respond. Try again or switch to a faster model.' : error.message;
+      console.error(`[chat] request failed: ${error.stack || error.message}`);
+      res.status(502).json({ error: msg });
     } finally {
       clearTimeout(timeout);
     }
