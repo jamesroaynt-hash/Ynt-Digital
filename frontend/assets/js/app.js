@@ -3875,7 +3875,12 @@ function monthLabel(ym) {
 function setDataReportTab(tab) {
   dataReportTab = tab;
   document.querySelectorAll('.dr-tab-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
+    const isActive = btn.dataset.tab === tab;
+    btn.classList.toggle('active', isActive);
+    // The underline/color are inline styles set at render time, so update them
+    // here too — toggling the class alone leaves the indicator on the old tab.
+    btn.style.color = isActive ? 'var(--primary)' : 'var(--text-muted)';
+    btn.style.borderBottom = `2px solid ${isActive ? 'var(--primary)' : 'transparent'}`;
   });
   document.querySelectorAll('.dr-tab-panel').forEach((panel) => {
     panel.classList.toggle('hidden', panel.dataset.tab !== tab);
