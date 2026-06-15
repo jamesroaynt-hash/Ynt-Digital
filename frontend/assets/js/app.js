@@ -14102,6 +14102,108 @@ async function init() {
   });
 
   startPosOrdersAutoRefresh();
+  mountChatWidget();
+}
+
+// ─── AI chat widget ──────────────────────────────────────────
+// Floating button + panel that talks to the server-side /chat proxy (OpenAI).
+// The API key lives on the server; the browser only ever sees /api/chat.
+let chatMessages = [];
+let chatBusy = false;
+
+function mountChatWidget() {
+  if (document.getElementById('ai-chat-root')) return; // mount once
+  const root = document.createElement('div');
+  root.id = 'ai-chat-root';
+  root.innerHTML = `
+    <style>
+      #ai-chat-root{position:fixed;right:20px;bottom:20px;z-index:9999;font-family:'DM Sans',sans-serif;}
+      #ai-chat-fab{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;background:var(--primary,#6366f1);color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;transition:transform .15s;}
+      #ai-chat-fab:hover{transform:scale(1.06);}
+      #ai-chat-fab svg{width:26px;height:26px;}
+      #ai-chat-panel{position:absolute;right:0;bottom:70px;width:360px;max-width:calc(100vw - 40px);height:480px;max-height:calc(100vh - 120px);background:var(--bg-card,#0f172a);border:1px solid var(--border,#1e293b);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.4);display:none;flex-direction:column;overflow:hidden;}
+      #ai-chat-panel.open{display:flex;}
+      #ai-chat-head{padding:12px 14px;background:var(--primary,#6366f1);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:space-between;}
+      #ai-chat-head button{background:none;border:none;color:#fff;font-size:18px;cursor:pointer;line-height:1;}
+      #ai-chat-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;}
+      .ai-chat-msg{max-width:85%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;}
+      .ai-chat-msg.user{align-self:flex-end;background:var(--primary,#6366f1);color:#fff;border-bottom-right-radius:4px;}
+      .ai-chat-msg.bot{align-self:flex-start;background:var(--bg-elevated,#1e293b);color:var(--text-primary,#e2e8f0);border-bottom-left-radius:4px;}
+      .ai-chat-msg.muted{align-self:center;background:none;color:var(--text-muted,#64748b);font-size:12px;}
+      #ai-chat-form{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border,#1e293b);}
+      #ai-chat-input{flex:1;resize:none;background:var(--bg-elevated,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;color:var(--text-primary,#e2e8f0);padding:8px 10px;font-size:13px;font-family:inherit;max-height:90px;}
+      #ai-chat-send{border:none;background:var(--primary,#6366f1);color:#fff;border-radius:8px;padding:0 14px;cursor:pointer;font-weight:600;}
+      #ai-chat-send:disabled{opacity:.5;cursor:default;}
+    </style>
+    <div id="ai-chat-panel" role="dialog" aria-label="AI assistant">
+      <div id="ai-chat-head"><span>💬 Assistant</span><button type="button" onclick="toggleChatPanel(false)" title="Close">×</button></div>
+      <div id="ai-chat-log"></div>
+      <form id="ai-chat-form" onsubmit="return sendChatMessage(event)">
+        <textarea id="ai-chat-input" rows="1" placeholder="Ask anything…" onkeydown="chatInputKeydown(event)"></textarea>
+        <button type="submit" id="ai-chat-send">Send</button>
+      </form>
+    </div>
+    <button id="ai-chat-fab" onclick="toggleChatPanel()" title="Chat with AI assistant">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    </button>`;
+  document.body.appendChild(root);
+  renderChatLog();
+}
+
+function toggleChatPanel(force) {
+  const panel = document.getElementById('ai-chat-panel');
+  if (!panel) return;
+  const open = force === undefined ? !panel.classList.contains('open') : force;
+  panel.classList.toggle('open', open);
+  if (open) document.getElementById('ai-chat-input')?.focus();
+}
+
+function chatInputKeydown(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendChatMessage(event);
+  }
+}
+
+function renderChatLog() {
+  const log = document.getElementById('ai-chat-log');
+  if (!log) return;
+  if (!chatMessages.length) {
+    log.innerHTML = `<div class="ai-chat-msg muted">Hi! Ask me anything to get started.</div>`;
+    return;
+  }
+  log.innerHTML = chatMessages.map((m) =>
+    `<div class="ai-chat-msg ${m.role === 'user' ? 'user' : 'bot'}">${escapeHtml(m.content)}</div>`
+  ).join('') + (chatBusy ? `<div class="ai-chat-msg bot muted">Thinking…</div>` : '');
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChatMessage(event) {
+  if (event) event.preventDefault();
+  if (chatBusy) return false;
+  const input = document.getElementById('ai-chat-input');
+  const text = (input?.value || '').trim();
+  if (!text) return false;
+  input.value = '';
+  chatMessages.push({ role: 'user', content: text });
+  chatBusy = true;
+  document.getElementById('ai-chat-send').disabled = true;
+  renderChatLog();
+  try {
+    const result = await authorizedJsonRequest('/chat', {
+      method: 'POST',
+      body: JSON.stringify({ messages: chatMessages }),
+    });
+    chatMessages.push({ role: 'assistant', content: result?.reply || '(no response)' });
+  } catch (error) {
+    chatMessages.push({ role: 'assistant', content: `⚠️ ${error.message || 'Chat failed.'}` });
+  } finally {
+    chatBusy = false;
+    const sendBtn = document.getElementById('ai-chat-send');
+    if (sendBtn) sendBtn.disabled = false;
+    renderChatLog();
+  }
+  return false;
 }
 
 window.addEventListener('DOMContentLoaded', init);
