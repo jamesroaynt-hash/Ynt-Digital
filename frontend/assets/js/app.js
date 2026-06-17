@@ -473,65 +473,15 @@ function rerenderInventoryTables() {
   });
 }
 
-// RTS Return tab: scan returned items back into stock. Each tracking is counted
-// once; stock + pcs auto-update on the server.
+// RTS Return tab: per-page ITEM NAME | RTS STOCKS, derived from RTS Scan Records.
+// Pcs accumulate per page+item, so every new RTS scan bumps the right table.
 function renderRtsReturnTab() {
   return `
-  <div class="card">
-    <div class="card-header"><div><div class="card-title">RTS Return Scan</div><div class="card-subtitle">Scan returned tracking numbers back into stock. Each tracking counts once; stock & pcs update automatically.</div></div></div>
-    <div class="card-body">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;max-width:560px;">
-        <input type="text" class="form-control" id="rts-return-input" placeholder="Scan or type tracking number" style="flex:1;min-width:240px;" onkeydown="if(event.key==='Enter'){event.preventDefault();performRtsReturnScan();}">
-        <button class="btn btn-primary" onclick="performRtsReturnScan()">Scan Return</button>
-      </div>
-      <div id="rts-return-result" style="margin-top:12px;"></div>
-    </div>
-  </div>
-  <div id="rts-return-pages" style="margin-top:16px;">
+  <div id="rts-return-pages">
     <div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">Loading RTS Return stocks...</div></div>
   </div>`;
 }
 
-async function performRtsReturnScan() {
-  const input = document.getElementById('rts-return-input');
-  const tracking = input?.value?.trim();
-  const resultEl = document.getElementById('rts-return-result');
-  if (!tracking) { showToast('warning', 'No input', 'Please enter a tracking number'); return; }
-  if (!getApiBase() || !getAuthToken()) { showToast('warning', 'Offline', 'Cannot record RTS Return without a server connection.'); return; }
-
-  try {
-    const res = await authorizedJsonRequest('/scans/rts-return', {
-      method: 'POST',
-      body: JSON.stringify({ tracking_no: tracking }),
-    });
-    const matched = res?.matched_item;
-    if (resultEl) {
-      resultEl.innerHTML = `<div class="scan-result-card"><div class="scan-result-header" style="color:var(--success);">Return Recorded</div><div class="scan-result-body">
-        <div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(res.tracking_no || tracking)}</div></div>
-        <div class="scan-field"><div class="scan-field-label">Product</div><div class="scan-field-value">${escapeHtml(res.product_name || '—')}</div></div>
-        <div class="scan-field"><div class="scan-field-label">Pcs added</div><div class="scan-field-value">${Number(res.pcs || 0)}</div></div>
-        <div class="scan-field"><div class="scan-field-label">Stock</div><div class="scan-field-value">${matched ? `${escapeHtml(matched.name)} → ${Number(matched.new_stock).toLocaleString()}` : 'No matching inventory item'}</div></div>
-      </div></div>`;
-    }
-    showToast('success', 'Return recorded', matched ? `${matched.name}: +${res.pcs} pcs` : 'Recorded (no inventory match)');
-    if (input) { input.value = ''; input.focus(); }
-
-    await Promise.allSettled([refreshInventoryFromBackend(), refreshRtsPcsByProduct()]);
-    if (App.currentPage === 'inventory') rerenderInventoryTables();
-    loadRtsReturnRecords();
-  } catch (error) {
-    if (error?.status === 409 || String(error?.message || '').toLowerCase().includes('already')) {
-      if (resultEl) resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">Already Returned</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">This tracking was already scanned for RTS Return and will not be counted again.</div></div></div></div>`;
-      showToast('warning', 'Already returned', `${tracking} was already counted.`);
-      if (input) { input.value = ''; input.focus(); }
-      return;
-    }
-    showToast('error', 'Scan failed', error.message || 'Could not record the return.');
-  }
-}
-
-// Build one ITEM NAME | RTS STOCKS table per scanned page from the RTS Return
-// scans. Pcs accumulate per page+item, so each new scan bumps the right table.
 async function loadRtsReturnRecords() {
   const wrap = document.getElementById('rts-return-pages');
   if (!wrap) return;
@@ -540,20 +490,20 @@ async function loadRtsReturnRecords() {
     return;
   }
   try {
-    const data = await authorizedJsonRequest(`/scans?type=${encodeURIComponent('RTS Return')}&per_page=1&page=1&_=${Date.now()}`);
+    const data = await authorizedJsonRequest(`/scans?type=RTS&per_page=1&page=1&_=${Date.now()}`);
     const byPage = Array.isArray(data?.summary?.by_page_product) ? data.summary.by_page_product : [];
     const pages = byPage
       .filter((p) => Array.isArray(p.products) && p.products.length)
       .sort((a, b) => String(a.page || '').localeCompare(String(b.page || '')));
     if (!pages.length) {
-      wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No RTS Return scans yet.</div></div>`;
+      wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No RTS scan records yet.</div></div>`;
       return;
     }
     wrap.innerHTML = pages.map(({ page, products }) => {
       const rows = [...products].sort((a, b) => Number(b.pcs || 0) - Number(a.pcs || 0));
       const total = rows.reduce((s, r) => s + Number(r.pcs || 0), 0);
       return `<div class="card" style="margin-bottom:16px;">
-        <div class="card-header"><div><div class="card-title">${escapeHtml(page || 'Unknown')}</div><div class="card-subtitle">Returned stock scanned for this page.</div></div></div>
+        <div class="card-header"><div><div class="card-title">${escapeHtml(page || 'Unknown')}</div><div class="card-subtitle">RTS stocks from scan records for this page.</div></div></div>
         <div class="table-container">
           <table>
             <thead><tr><th>ITEM NAME</th><th style="text-align:right;">RTS STOCKS</th></tr></thead>
