@@ -4320,6 +4320,7 @@ function autoFillMarketingSalesFromOrders() {
 let adspendDateFrom = '';
 let adspendDateTo = '';
 let adspendDatePreset = 'weekly';
+let adspendMonth = ''; // 'YYYY-MM' for the Monthly preset month dropdown
 let adspendPageFilter = 'all';
 let adspendStatusFilters = new Set();
 let adspendAdsRequestKey = '';
@@ -4371,12 +4372,33 @@ const ADSPEND_STATUS_MAP = [
 
 const ADSPEND_ALLOWED_STATUSES = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned']);
 
+// Date range (from/to) for a 'YYYY-MM' month string.
+function adspendMonthRange(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const pad = (n) => String(n).padStart(2, '0');
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(last)}` };
+}
+
 function setAdspendPreset(preset) {
   adspendDatePreset = preset;
-  if (preset !== 'custom') {
+  if (preset === 'monthly') {
+    if (!adspendMonth) adspendMonth = normalizeDateString(new Date()).slice(0, 7);
+    const r = adspendMonthRange(adspendMonth);
+    adspendDateFrom = r.from; adspendDateTo = r.to;
+  } else if (preset !== 'custom') {
     const range = computePresetRange(preset);
     if (range) { adspendDateFrom = range.from; adspendDateTo = range.to; }
   }
+  adspendRoasPage = 1;
+  navigateTo('adspend-roas');
+}
+
+function setAdspendMonth(ym) {
+  adspendMonth = ym;
+  adspendDatePreset = 'monthly';
+  const r = adspendMonthRange(ym);
+  adspendDateFrom = r.from; adspendDateTo = r.to;
   adspendRoasPage = 1;
   navigateTo('adspend-roas');
 }
@@ -4784,6 +4806,18 @@ function renderAdspendRoas() {
   // Pages: only chat pages that actually have sheet records (chat_page from google_orders).
   const allPages = [...new Set(DB.sheetRecordsForReport.map((o) => o.sourceSheet).filter(Boolean))].sort();
 
+  // Months available for the Monthly preset dropdown (newest first), derived
+  // from order + ad spend dates with the current month always included.
+  const monthSet = new Set();
+  DB.sheetRecordsForReport.forEach((o) => { if (o.date) monthSet.add(o.date.slice(0, 7)); });
+  (mktState.entries || []).forEach((e) => { if (e.date) monthSet.add(e.date.slice(0, 7)); });
+  monthSet.add(today.slice(0, 7));
+  const monthOptions = [...monthSet].filter(Boolean).sort().reverse();
+  const monthLabel = (ym) => {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long' }) + ' ' + y;
+  };
+
   // Build every date in range (local time — avoid toISOString UTC shift)
   const dates = [];
   const cursor = new Date(adspendDateFrom + 'T00:00:00');
@@ -4963,8 +4997,14 @@ function renderAdspendRoas() {
             <span style="color:var(--text-muted);">–</span>
             <input type="date" class="form-control" id="adspend-to${suffix}" value="${adspendDateTo}" style="width:148px;height:34px;">
             <button class="btn btn-primary btn-sm" onclick="applyAdspendFilter(${applyArg})">Apply</button>
-          </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
+          </div>` : adspendDatePreset === 'monthly' ? '' : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
         </div>
+        ${adspendDatePreset === 'monthly' ? `<div>
+          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">MONTH</div>
+          <select class="form-control" onchange="setAdspendMonth(this.value)" style="height:38px;font-size:13px;min-width:160px;">
+            ${monthOptions.map((ym) => `<option value="${ym}"${adspendMonth === ym ? ' selected' : ''} style="background:#0f172a;color:#fff;">${monthLabel(ym)}</option>`).join('')}
+          </select>
+        </div>` : ''}
         ${includePage ? `<div>
           <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
           <select class="form-control" id="adspend-page${suffix}" style="height:38px;font-size:13px;min-width:220px;" onchange="applyAdspendFilter(${applyArg})">
