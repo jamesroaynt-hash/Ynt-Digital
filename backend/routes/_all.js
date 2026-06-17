@@ -1158,9 +1158,14 @@ function inventoryRoutes(db, { dispatch } = {}) {
 
   r.get('/', async (req, res) => {
     const { type } = req.query;
-    let sql = 'SELECT * FROM inventory';
+    // total_orders = cumulative stock added (item creation + stock-update "add"),
+    // summed from inventory_logs.
+    let sql = `
+      SELECT i.*,
+        COALESCE((SELECT SUM(l.qty_change) FROM inventory_logs l WHERE l.item_id = i.item_id AND l.action = 'add'), 0) AS total_orders
+      FROM inventory i`;
     const params = [];
-    if (type) { sql += ' WHERE type=?'; params.push(type); }
+    if (type) { sql += ' WHERE i.type=?'; params.push(type); }
     res.json(await db.prepare(sql).all(...params));
   });
 
@@ -1172,6 +1177,12 @@ function inventoryRoutes(db, { dispatch } = {}) {
     const { name, sku, type, unit, stock, reorder_pt, cost_price, sell_price } = req.body;
     const item_id = `${type === 'Product' ? 'P' : 'S'}${String(Date.now()).slice(-4)}`;
     await db.prepare(`INSERT INTO inventory (item_id,name,sku,type,unit,stock,reorder_pt,cost_price,sell_price) VALUES (?,?,?,?,?,?,?,?,?)`).run(item_id, name, sku||null, type||'Product', unit||'pcs', stock||0, reorder_pt||(type==='Product'?200:15), cost_price||0, sell_price||null);
+    // Log the initial stock as an "add" so it counts toward total_orders.
+    const initStock = Number(stock || 0);
+    if (initStock > 0) {
+      await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`)
+        .run(item_id, 'add', 0, initStock, initStock, 'Initial stock', req.user?.id||1);
+    }
     res.status(201).json({ item_id });
   });
 

@@ -297,6 +297,7 @@ function mapBackendInventoryItem(row) {
     sku: row.sku || '',
     stock: Number(row.stock || 0),
     reorder: Number(row.reorder_pt || 0),
+    totalOrders: Number(row.total_orders || 0),
     unit: row.unit || 'pcs',
     cost: Number(row.cost_price || 0),
     price: row.sell_price === null || row.sell_price === undefined ? null : Number(row.sell_price),
@@ -522,13 +523,24 @@ async function loadRtsReturnRecords() {
     }
     const dash = '<span class="text-xs text-muted">—</span>';
     const total = rows.reduce((s, r) => s + r.pcs, 0);
+    // Merge the PAGE NAME cell for consecutive rows sharing a page (rowspan).
+    const groupSizes = {};
+    rows.forEach((r) => { groupSizes[r.page] = (groupSizes[r.page] || 0) + 1; });
+    const seen = {};
+    const bodyHtml = rows.map((r) => {
+      const first = !seen[r.page];
+      seen[r.page] = true;
+      const border = first ? 'border-top:1px solid var(--border);' : '';
+      const pageCell = first ? `<td rowspan="${groupSizes[r.page]}" style="vertical-align:top;${border}font-weight:500;">${escapeHtml(r.page)}</td>` : '';
+      return `<tr><td style="${border}"><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td>${pageCell}<td style="text-align:right;${border}"><strong>${r.pcs.toLocaleString()}</strong></td></tr>`;
+    }).join('');
     wrap.innerHTML = `<div class="card">
       <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per SKU and page, from scan records.</div></div></div>
       <div class="table-container">
         <table>
           <thead><tr><th>SKU</th><th>PAGE NAME</th><th style="text-align:right;">RTS TOTAL PCS</th></tr></thead>
           <tbody>
-            ${rows.map((r) => `<tr><td><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td><td>${escapeHtml(r.page)}</td><td style="text-align:right;"><strong>${r.pcs.toLocaleString()}</strong></td></tr>`).join('')}
+            ${bodyHtml}
           </tbody>
           <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td style="text-align:right;">${total.toLocaleString()}</td></tr></tfoot>
         </table>
@@ -6195,7 +6207,7 @@ function renderInventoryTable(items, pageScope) {
     : (DB.rtsPcsByProduct || {});
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th>Level</th><th>Reorder Pt.</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Total stock added (item creation + stock-update adds)">Total Orders</th><th>Level</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const pct = Math.min(100, (item.stock / (item.reorder * 1.5)) * 100);
@@ -6209,13 +6221,13 @@ function renderInventoryTable(items, pageScope) {
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
             <td><strong>${item.stock}</strong> ${item.unit}</td>
             <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
+            <td>${Number(item.totalOrders || 0) ? `<strong>${Number(item.totalOrders).toLocaleString()}</strong> ${item.unit}` : '<span class="text-xs text-muted">—</span>'}</td>
             <td>
               <div class="stock-indicator ${statusClass}" style="min-width:100px">
                 <div class="stock-bar"><div class="stock-bar-fill" style="width:${pct}%"></div></div>
                 <span class="text-xs" style="width:30px">${Math.round(pct)}%</span>
               </div>
             </td>
-            <td>${item.reorder} ${item.unit}</td>
             <td>₱${item.cost}</td>
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
