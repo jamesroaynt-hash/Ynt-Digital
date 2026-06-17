@@ -5587,7 +5587,7 @@ function renderMarketingCenter() {
           <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 10px;">All</button>
           <span style="font-size:12px;color:var(--text-muted);">Rows:</span>
           <select onchange="setMarketingRecentLimit(this.value)" style="height:30px;font-size:12px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
-            ${[10,20,40,50,100].map((v) => `<option value="${v}"${(window.mktRecentLimit || 50) === v ? ' selected' : ''}>${v}</option>`).join('')}
+            ${[10,20,40,50,100].map((v) => `<option value="${v}"${(window.mktRecentLimit || 10) === v ? ' selected' : ''} style="background:#0f172a;color:#fff;">${v}</option>`).join('')}
           </select>
           ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingEntryModal()" style="height:30px;font-size:12px;padding:0 14px;">+ Log Entry</button>' : ''}
         </div>
@@ -5601,7 +5601,7 @@ function renderMarketingCenter() {
                 let filtered = state.entries.slice();
                 if (rf.from) filtered = filtered.filter((e) => (e.date || '') >= rf.from);
                 if (rf.to) filtered = filtered.filter((e) => (e.date || '') <= rf.to);
-                return filtered.reverse().slice(0, window.mktRecentLimit || 50);
+                return filtered.reverse().slice(0, window.mktRecentLimit || 10);
               })().map((entry) => {
                 const id = Number(entry.id || 0);
                 return `<tr>
@@ -10806,7 +10806,7 @@ function clearMarketingRecentFilter() {
 }
 
 function setMarketingRecentLimit(val) {
-  window.mktRecentLimit = Number(val) || 50;
+  window.mktRecentLimit = Number(val) || 10;
   navigateTo('marketing-center');
   setTimeout(() => {
     const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
