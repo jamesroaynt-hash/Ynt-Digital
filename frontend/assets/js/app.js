@@ -471,18 +471,6 @@ function rerenderInventoryTables() {
     const container = document.querySelector(`#${id} .table-container`);
     if (container) container.innerHTML = renderInventoryTable(items);
   });
-  (DB.rtsScanPages || []).forEach((page, idx) => {
-    const container = document.querySelector(`#tab-rtspage-${idx} .table-container`);
-    if (container) container.innerHTML = renderRtsPageInventoryTable(page);
-  });
-}
-
-// Inventory rows for a single chat page, scoped to products with RTS pcs > 0
-// scanned for that page. Drives the auto-added per-page tabs in the Stocks view.
-function renderRtsPageInventoryTable(page) {
-  const map = (DB.rtsPcsByPageProduct || {})[page] || {};
-  const items = DB.inventory.filter((i) => Number(map[normalizeProductKey(i.name)] || 0) > 0);
-  return renderInventoryTable(items, page);
 }
 
 // RTS Return tab: scan returned items back into stock. Each tracking is counted
@@ -499,16 +487,8 @@ function renderRtsReturnTab() {
       <div id="rts-return-result" style="margin-top:12px;"></div>
     </div>
   </div>
-  <div class="card" style="margin-top:16px;">
-    <div class="card-header"><div><div class="card-title">RTS Return Records</div><div class="card-subtitle">Items returned to stock via RTS Return scans.</div></div></div>
-    <div class="table-container">
-      <table>
-        <thead><tr><th>Date</th><th>Tracking No.</th><th>Product</th><th style="text-align:right;">Pcs</th><th>Customer</th></tr></thead>
-        <tbody id="rts-return-records-body">
-          <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <div id="rts-return-pages" style="margin-top:16px;">
+    <div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">Loading RTS Return stocks...</div></div>
   </div>`;
 }
 
@@ -550,36 +530,43 @@ async function performRtsReturnScan() {
   }
 }
 
+// Build one ITEM NAME | RTS STOCKS table per scanned page from the RTS Return
+// scans. Pcs accumulate per page+item, so each new scan bumps the right table.
 async function loadRtsReturnRecords() {
-  const body = document.getElementById('rts-return-records-body');
-  if (!body) return;
+  const wrap = document.getElementById('rts-return-pages');
+  if (!wrap) return;
   if (!getApiBase() || !getAuthToken()) {
-    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">Connect to a server to view records.</td></tr>`;
+    wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">Connect to a server to view RTS Return stocks.</div></div>`;
     return;
   }
   try {
-    const data = await authorizedJsonRequest(`/scans?type=${encodeURIComponent('RTS Return')}&per_page=100&page=1&_=${Date.now()}`);
-    const records = Array.isArray(data?.data) ? data.data : [];
-    DB.rtsReturnRecords = records;
-    if (!records.length) {
-      body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">No RTS Return scans yet.</td></tr>`;
+    const data = await authorizedJsonRequest(`/scans?type=${encodeURIComponent('RTS Return')}&per_page=1&page=1&_=${Date.now()}`);
+    const byPage = Array.isArray(data?.summary?.by_page_product) ? data.summary.by_page_product : [];
+    const pages = byPage
+      .filter((p) => Array.isArray(p.products) && p.products.length)
+      .sort((a, b) => String(a.page || '').localeCompare(String(b.page || '')));
+    if (!pages.length) {
+      wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No RTS Return scans yet.</div></div>`;
       return;
     }
-    const dash = '<span class="text-xs text-muted">—</span>';
-    body.innerHTML = records.map((r) => {
-      const product = r.product_name || '';
-      const m = String(product).match(/^\s*(\d+)/);
-      const pcs = m ? parseInt(m[1], 10) : 1;
-      return `<tr>
-        <td>${escapeHtml(r.scan_date || '')}</td>
-        <td class="font-mono text-xs">${escapeHtml(r.tracking_no || '')}</td>
-        <td>${escapeHtml(product) || dash}</td>
-        <td style="text-align:right;">${pcs}</td>
-        <td>${escapeHtml(r.customer || '') || dash}</td>
-      </tr>`;
+    wrap.innerHTML = pages.map(({ page, products }) => {
+      const rows = [...products].sort((a, b) => Number(b.pcs || 0) - Number(a.pcs || 0));
+      const total = rows.reduce((s, r) => s + Number(r.pcs || 0), 0);
+      return `<div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><div><div class="card-title">${escapeHtml(page || 'Unknown')}</div><div class="card-subtitle">Returned stock scanned for this page.</div></div></div>
+        <div class="table-container">
+          <table>
+            <thead><tr><th>ITEM NAME</th><th style="text-align:right;">RTS STOCKS</th></tr></thead>
+            <tbody>
+              ${rows.map((r) => `<tr><td><div style="font-weight:500">${escapeHtml(r.name || r.product || '—')}</div></td><td style="text-align:right;"><strong>${Number(r.pcs || 0).toLocaleString()}</strong> pcs</td></tr>`).join('')}
+            </tbody>
+            <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td>Total</td><td style="text-align:right;">${total.toLocaleString()} pcs</td></tr></tfoot>
+          </table>
+        </div>
+      </div>`;
     }).join('');
   } catch (error) {
-    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--danger)">Failed to load: ${escapeHtml(error.message || 'error')}</td></tr>`;
+    wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--danger);padding:24px;">Failed to load: ${escapeHtml(error.message || 'error')}</div></div>`;
   }
 }
 
@@ -6154,7 +6141,6 @@ function renderInventory() {
     <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-all')">All Items</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
-    ${(DB.rtsScanPages || []).map((page, idx) => `<button class="tab-btn" onclick="switchTab(this,'tab-rtspage-${idx}')" title="RTS scanned for ${escapeHtml(page)}">${escapeHtml(page)}</button>`).join('')}
   </div>
 
   <div id="tab-products" class="tab-content active">
@@ -6175,11 +6161,6 @@ function renderInventory() {
   <div id="tab-rts-return" class="tab-content">
     ${renderRtsReturnTab()}
   </div>
-  ${(DB.rtsScanPages || []).map((page, idx) => `<div id="tab-rtspage-${idx}" class="tab-content">
-    <div class="table-container">
-      ${renderRtsPageInventoryTable(page)}
-    </div>
-  </div>`).join('')}
 
   <!-- Add/Edit Inventory Modal -->
   ${canEditStock ? `<div class="modal-overlay" id="add-inventory-modal">
@@ -9081,11 +9062,8 @@ function initPage(page) {
     refreshRtsPcsByProduct()
       .then((ok) => {
         if (!ok || App.currentPage !== 'inventory') return;
-        // If page tabs are now known but not yet in the DOM, rebuild the shell
-        // once so the auto per-page tabs appear; otherwise just refresh tables.
-        const needTabs = (DB.rtsScanPages || []).length && !document.getElementById('tab-rtspage-0');
-        if (needTabs) navigateTo('inventory');
-        else { rerenderInventoryTables(); refreshInventoryNamePicker(); }
+        rerenderInventoryTables();
+        refreshInventoryNamePicker();
       })
       .catch(() => {});
   }
