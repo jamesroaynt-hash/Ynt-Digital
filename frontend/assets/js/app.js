@@ -5005,8 +5005,8 @@ function renderAdspendRoas() {
         </div>
         <button class="page-btn" onclick="slideAdspendPage(1)" ${adspendAllPagesIndex >= apCount - 1 ? 'disabled' : ''}>Next ›</button>
       </div>
-      <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:10px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-        ${allPages.map((name, idx) => `<button type="button" onclick="setAdspendAllPagesIndex(${idx})" title="${escapeHtml(name)}" style="width:10px;height:10px;border-radius:50%;border:none;cursor:pointer;padding:0;background:${idx === adspendAllPagesIndex ? 'var(--primary,#3b82f6)' : 'var(--border,rgba(255,255,255,0.25))'};"></button>`).join('')}
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
+        ${allPages.map((name, idx) => `<button type="button" class="filter-pill${idx === adspendAllPagesIndex ? ' active' : ''}" onclick="setAdspendAllPagesIndex(${idx})" title="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join('')}
       </div>
       ${roasTableHtml(apData.rows, apData.totals, apData.rows.length || 1)}
     </div>`;
