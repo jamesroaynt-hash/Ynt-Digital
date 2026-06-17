@@ -4381,18 +4381,22 @@ function setAdspendPreset(preset) {
   navigateTo('adspend-roas');
 }
 
-function applyAdspendFilter() {
-  const from = document.getElementById('adspend-from')?.value || '';
-  const to = document.getElementById('adspend-to')?.value || '';
+function applyAdspendFilter(suffix) {
+  suffix = suffix || '';
+  const from = document.getElementById('adspend-from' + suffix)?.value || '';
+  const to = document.getElementById('adspend-to' + suffix)?.value || '';
   if (from) {
     adspendDateFrom = from;
     adspendDateTo = to || from;
     adspendDatePreset = 'custom';
   }
-  adspendPageFilter = document.getElementById('adspend-page')?.value || 'all';
+  // Page dropdown only exists on the Summary tab; the All Pages tab iterates
+  // every page so it leaves the page filter untouched.
+  const pageEl = document.getElementById('adspend-page' + suffix);
+  if (pageEl) adspendPageFilter = pageEl.value || 'all';
   adspendStatusFilters.clear();
   ADSPEND_STATUS_MAP.forEach(([status, id]) => {
-    if (document.getElementById(id)?.checked) adspendStatusFilters.add(status);
+    if (document.getElementById(id + suffix)?.checked) adspendStatusFilters.add(status);
   });
   adspendRoasPage = 1;
   navigateTo('adspend-roas');
@@ -4938,6 +4942,47 @@ function renderAdspendRoas() {
     </div>`;
   }
 
+  // Time + page + status filter bar. `suffix` keeps element ids unique across
+  // the Summary and All Pages tabs (both live in the DOM at once); `includePage`
+  // toggles the page dropdown (omitted on the All Pages tab).
+  function filterBarHtml(suffix, includePage) {
+    suffix = suffix || '';
+    const applyArg = `'${suffix}'`;
+    return `
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
+      <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
+        <div>
+          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
+              .map(([key,label]) => `<button type="button" class="filter-pill${adspendDatePreset===key?' active':''}" onclick="setAdspendPreset('${key}')">${label}</button>`)
+              .join('')}
+          </div>
+          ${adspendDatePreset === 'custom' ? `<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+            <input type="date" class="form-control" id="adspend-from${suffix}" value="${adspendDateFrom}" style="width:148px;height:34px;">
+            <span style="color:var(--text-muted);">–</span>
+            <input type="date" class="form-control" id="adspend-to${suffix}" value="${adspendDateTo}" style="width:148px;height:34px;">
+            <button class="btn btn-primary btn-sm" onclick="applyAdspendFilter(${applyArg})">Apply</button>
+          </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
+        </div>
+        ${includePage ? `<div>
+          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
+          <select class="form-control" id="adspend-page${suffix}" style="height:38px;font-size:13px;min-width:220px;" onchange="applyAdspendFilter(${applyArg})">
+            <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Pages</option>
+            ${allPages.map((name) => `<option value="${escapeHtml(name)}"${adspendPageFilter === name ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+          </select>
+        </div>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;">
+        ${ADSPEND_STATUS_MAP.map(([status, id, label]) => `
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+            <input type="checkbox" id="${id}${suffix}" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter(${applyArg})" style="width:14px;height:14px;accent-color:var(--primary);">
+            ${label}
+          </label>`).join('')}
+      </div>
+    </div>`;
+  }
+
   // ALL PAGES tab: one ROAS table per chat page, slideable one page at a time.
   // Respects the active time + status filters but ignores the page dropdown.
   const apCount = allPages.length;
@@ -4945,12 +4990,13 @@ function renderAdspendRoas() {
   if (adspendAllPagesIndex < 0) adspendAllPagesIndex = 0;
   let allPagesHtml;
   if (!apCount) {
-    allPagesHtml = `<div class="card" style="text-align:center;padding:48px;color:var(--text-muted);">No pages found for the selected filters.</div>`;
+    allPagesHtml = `<div class="card" style="padding:0;overflow:hidden;">${filterBarHtml('-ap', false)}<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages found for the selected filters.</div></div>`;
   } else {
     const apPage = allPages[adspendAllPagesIndex];
     const apData = buildRoasData(apPage);
     allPagesHtml = `
     <div class="card" style="padding:0;overflow:hidden;">
+      ${filterBarHtml('-ap', false)}
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
         <button class="page-btn" onclick="slideAdspendPage(-1)" ${adspendAllPagesIndex <= 0 ? 'disabled' : ''}>‹ Prev</button>
         <div style="text-align:center;">
@@ -4965,8 +5011,6 @@ function renderAdspendRoas() {
       ${roasTableHtml(apData.rows, apData.totals, apData.rows.length || 1)}
     </div>`;
   }
-
-  const statusOptions = ADSPEND_STATUS_MAP;
 
   const monthlyTarget = Number(mktState.targets?.sales || 0);
   const dailyTarget = monthlyTarget / 31;
@@ -5026,38 +5070,7 @@ function renderAdspendRoas() {
 
   <div id="adspend-tab-summary" style="display:${adspendActiveTab==='summary'?'block':'none'};">
   <div class="card" style="padding:0;overflow:hidden;">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-      <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
-        <div>
-          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
-              .map(([key,label]) => `<button type="button" class="filter-pill${adspendDatePreset===key?' active':''}" onclick="setAdspendPreset('${key}')">${label}</button>`)
-              .join('')}
-          </div>
-          ${adspendDatePreset === 'custom' ? `<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-            <input type="date" class="form-control" id="adspend-from" value="${adspendDateFrom}" style="width:148px;height:34px;">
-            <span style="color:var(--text-muted);">–</span>
-            <input type="date" class="form-control" id="adspend-to" value="${adspendDateTo}" style="width:148px;height:34px;">
-            <button class="btn btn-primary btn-sm" onclick="applyAdspendFilter()">Apply</button>
-          </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
-        </div>
-        <div>
-          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
-          <select class="form-control" id="adspend-page" style="height:38px;font-size:13px;min-width:220px;" onchange="applyAdspendFilter()">
-            <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Pages</option>
-            ${allPages.map((name) => `<option value="${escapeHtml(name)}"${adspendPageFilter === name ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;">
-        ${statusOptions.map(([status, id, label]) => `
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
-            <input type="checkbox" id="${id}" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter()" style="width:14px;height:14px;accent-color:var(--primary);">
-            ${label}
-          </label>`).join('')}
-      </div>
-    </div>
+    ${filterBarHtml('', true)}
     ${roasTableHtml(pagedRows, t, n)}
     <div class="table-pagination">
       <div style="display:flex;align-items:center;gap:10px;">
