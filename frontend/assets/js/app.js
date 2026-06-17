@@ -501,21 +501,21 @@ async function loadRtsReturnRecords() {
       if (k) skuByKey[k] = it.sku || '';
     });
 
-    // Aggregate RTS total pcs per (SKU, page).
-    const agg = new Map();
+    // One row per page: total RTS pcs + the matched SKUs for that page.
+    const pageAgg = new Map();
     byPage.forEach(({ page, products }) => {
       const pg = page || 'Unknown';
+      const cur = pageAgg.get(pg) || { page: pg, skus: new Set(), pcs: 0 };
       (Array.isArray(products) ? products : []).forEach((pr) => {
-        const key = normalizeProductKey(pr.name || pr.product);
-        const sku = skuByKey[key] || '';
-        const groupKey = `${sku || key}||${pg}`;
-        const cur = agg.get(groupKey) || { sku, page: pg, pcs: 0 };
+        const sku = skuByKey[normalizeProductKey(pr.name || pr.product)];
+        if (sku) cur.skus.add(sku);
         cur.pcs += Number(pr.pcs || 0);
-        agg.set(groupKey, cur);
       });
+      pageAgg.set(pg, cur);
     });
-    const rows = [...agg.values()]
-      .sort((a, b) => String(a.page).localeCompare(String(b.page)) || b.pcs - a.pcs);
+    const rows = [...pageAgg.values()]
+      .map((r) => ({ page: r.page, sku: [...r.skus].join(', '), pcs: r.pcs }))
+      .sort((a, b) => String(a.page).localeCompare(String(b.page)));
 
     if (!rows.length) {
       wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No RTS scan records yet.</div></div>`;
@@ -523,25 +523,13 @@ async function loadRtsReturnRecords() {
     }
     const dash = '<span class="text-xs text-muted">—</span>';
     const total = rows.reduce((s, r) => s + r.pcs, 0);
-    // Merge the PAGE NAME and RTS TOTAL PCS cells for rows sharing a page
-    // (rowspan); pcs shows the page total once.
-    const groupSizes = {};
-    const pageTotals = {};
-    rows.forEach((r) => {
-      groupSizes[r.page] = (groupSizes[r.page] || 0) + 1;
-      pageTotals[r.page] = (pageTotals[r.page] || 0) + r.pcs;
-    });
-    const seen = {};
-    const bodyHtml = rows.map((r) => {
-      const first = !seen[r.page];
-      seen[r.page] = true;
-      const border = first ? 'border-top:1px solid var(--border);' : '';
-      const pageCell = first ? `<td rowspan="${groupSizes[r.page]}" style="vertical-align:top;${border}font-weight:500;">${escapeHtml(r.page)}</td>` : '';
-      const pcsCell = first ? `<td rowspan="${groupSizes[r.page]}" style="text-align:right;vertical-align:top;${border}"><strong>${pageTotals[r.page].toLocaleString()}</strong></td>` : '';
-      return `<tr><td style="${border}"><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td>${pageCell}${pcsCell}</tr>`;
-    }).join('');
+    const bodyHtml = rows.map((r) => `<tr>
+      <td><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td>
+      <td style="font-weight:500;">${escapeHtml(r.page)}</td>
+      <td style="text-align:right;"><strong>${r.pcs.toLocaleString()}</strong></td>
+    </tr>`).join('');
     wrap.innerHTML = `<div class="card">
-      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per SKU and page, from scan records.</div></div></div>
+      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records.</div></div></div>
       <div class="table-container">
         <table>
           <thead><tr><th>SKU</th><th>PAGE NAME</th><th style="text-align:right;">RTS TOTAL PCS</th></tr></thead>
