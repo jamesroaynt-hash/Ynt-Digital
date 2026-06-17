@@ -5585,6 +5585,10 @@ function renderMarketingCenter() {
           <span style="font-size:12px;color:var(--text-muted);">—</span>
           <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
           <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 10px;">All</button>
+          <span style="font-size:12px;color:var(--text-muted);">Rows:</span>
+          <select onchange="setMarketingRecentLimit(this.value)" style="height:30px;font-size:12px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
+            ${[10,20,40,50,100].map((v) => `<option value="${v}"${(window.mktRecentLimit || 50) === v ? ' selected' : ''}>${v}</option>`).join('')}
+          </select>
           ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingEntryModal()" style="height:30px;font-size:12px;padding:0 14px;">+ Log Entry</button>' : ''}
         </div>
       </div>
@@ -5597,7 +5601,7 @@ function renderMarketingCenter() {
                 let filtered = state.entries.slice();
                 if (rf.from) filtered = filtered.filter((e) => (e.date || '') >= rf.from);
                 if (rf.to) filtered = filtered.filter((e) => (e.date || '') <= rf.to);
-                return filtered.reverse().slice(0, 50);
+                return filtered.reverse().slice(0, window.mktRecentLimit || 50);
               })().map((entry) => {
                 const id = Number(entry.id || 0);
                 return `<tr>
@@ -5614,13 +5618,6 @@ function renderMarketingCenter() {
           </table>
         </div>
       </div>
-
-    <div class="card" style="margin-top:16px;">
-      <div class="card-header">
-        <div><div class="card-title">POS Orders</div><div class="card-subtitle">Orders from POS for reference while logging entries.</div></div>
-      </div>
-      <div id="mkt-pos-orders-wrap">${renderMarketingPosOrdersList()}</div>
-    </div>
   </div>
 
   <div id="mkt-team" class="tab-content${lastMarketingTab === 'mkt-team' ? ' active' : ''}">
@@ -10801,6 +10798,15 @@ function applyMarketingRecentFilter() {
 
 function clearMarketingRecentFilter() {
   window.mktRecentFilter = { from: '', to: '' };
+  navigateTo('marketing-center');
+  setTimeout(() => {
+    const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
+    if (tab) tab.click();
+  }, 50);
+}
+
+function setMarketingRecentLimit(val) {
+  window.mktRecentLimit = Number(val) || 50;
   navigateTo('marketing-center');
   setTimeout(() => {
     const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
