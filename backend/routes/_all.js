@@ -758,6 +758,24 @@ function ordersRoutes(db, { dispatch } = {}) {
       params.push(y, y);
     }
 
+    // Undeliverable-reason options for the RMO Undeliverable/Returning tabs.
+    // Computed BEFORE the reason filter is applied so picking one doesn't
+    // collapse the dropdown to a single choice.
+    const reasonOptionRows = await db.prepare(
+      `SELECT DISTINCT partner_reason FROM pos_orders ${where} AND COALESCE(partner_reason,'') != ''`
+    ).all(...params);
+    const reasonOptions = reasonOptionRows
+      .map((row) => row.partner_reason)
+      .filter(Boolean)
+      .sort((a, b) => String(a).localeCompare(String(b)));
+
+    // Reason filter (exact match on the stored partner_reason).
+    const { reason } = req.query;
+    if (reason && reason !== 'all') {
+      where += ` AND COALESCE(partner_reason,'') = ?`;
+      params.push(String(reason));
+    }
+
     const statusCountRows = await db.prepare(`
       SELECT
         CASE
@@ -796,7 +814,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason
+             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason
       FROM pos_orders ${where}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
@@ -836,6 +854,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         sprinter_name: row.sprinter_name,
         sprinter_tel: row.sprinter_tel,
         partner: parseJsonObject(row.partner_json, null),
+        province: parseJsonObject(row.shipping_address_json, {})?.province_name || null,
         assigned_to_user_id: row.assigned_to_user_id != null ? Number(row.assigned_to_user_id) : null,
         assigned_to_name: row.assigned_to_name || null,
         can_message: Boolean(row.psid),
@@ -849,6 +868,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         products: [...filterOptions.products].sort(),
         pages: [...filterOptions.pages].sort(),
         tags: [...filterOptions.tags].sort(),
+        reasons: reasonOptions,
       },
       total,
       page: pageNum,

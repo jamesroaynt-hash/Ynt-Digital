@@ -606,6 +606,10 @@ async function refreshPosRawOrdersFromBackend() {
     else if (rmoTab === 'returning') query.set('status', 'Returning');
     else if (rmoTab === 'delivering') query.set('tags', 'On delivery');
     if (rmoUpdatePeriod !== 'all') query.set('update_period', rmoUpdatePeriod);
+    // Reason filter is only offered on the Undeliverable / Returning tabs.
+    if ((rmoTab === 'undeliverable' || rmoTab === 'returning') && posOrdersReasonFilter !== 'all') {
+      query.set('reason', posOrdersReasonFilter);
+    }
   } else {
     if (posOrdersPeriod !== 'all') query.set('period', posOrdersPeriod);
     if (posOrdersPeriod === 'custom') {
@@ -629,6 +633,7 @@ async function refreshPosRawOrdersFromBackend() {
     products: Array.isArray(result?.filter_options?.products) ? result.filter_options.products : [],
     pages: Array.isArray(result?.filter_options?.pages) ? result.filter_options.pages : [],
     tags: Array.isArray(result?.filter_options?.tags) ? result.filter_options.tags : [],
+    reasons: Array.isArray(result?.filter_options?.reasons) ? result.filter_options.reasons : [],
   };
   return true;
 }
@@ -6967,7 +6972,11 @@ function getPosOrderFilterOptions() {
     ...rawOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []),
     ...dashboardOrders.flatMap((o) => Array.isArray(o.tags) ? o.tags : []),
   ].map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean))].sort();
-  return { posProductOptions, posPageOptions, posTagOptions };
+  const posReasonOptions = [...new Set([
+    ...(Array.isArray(backendOptions.reasons) ? backendOptions.reasons : []),
+    ...rawOrders.map((o) => getRmoUndeliverableReason(o)),
+  ].filter(Boolean))].sort();
+  return { posProductOptions, posPageOptions, posTagOptions, posReasonOptions };
 }
 
 function updatePosFilterSelect(id, allLabel, options, selectedValue) {
@@ -6982,10 +6991,12 @@ function updatePosFilterSelect(id, allLabel, options, selectedValue) {
 
 function updateRmoFilterOptions() {
   if (App.currentPage !== 'rmo-management') return;
-  const { posProductOptions, posPageOptions, posTagOptions } = getPosOrderFilterOptions();
+  const { posProductOptions, posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
   updatePosFilterSelect('pos-orders-product', 'All Products', posProductOptions, posOrdersProductFilter);
   updatePosFilterSelect('pos-orders-page', 'All Pages', posPageOptions, posOrdersPageFilter);
   updatePosFilterSelect('pos-orders-tags', 'All Tags', posTagOptions, posOrdersTagFilter);
+  // Reason select only exists on the Undeliverable / Returning tabs.
+  updatePosFilterSelect('pos-orders-reason', 'All Reasons', posReasonOptions, posOrdersReasonFilter);
 }
 
 // Server-side totals over the whole filtered set (computed from partner_status /
@@ -7047,7 +7058,7 @@ function isOrderCourierProblem(order) {
 }
 
 function renderRmoManagement() {
-  const { posProductOptions, posPageOptions, posTagOptions } = getPosOrderFilterOptions();
+  const { posProductOptions, posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
   const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
   const delivered = statusCounts.Delivered || 0;
   const returning = statusCounts.Returning || 0;
@@ -7114,6 +7125,10 @@ function renderRmoManagement() {
         <option value="all">All Pages</option>
         ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
       </select>
+      ${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<select class="rmo-select" id="pos-orders-reason" onchange="applyPosOrdersDropdown()">
+        <option value="all">All Reasons</option>
+        ${posReasonOptions.map((reason) => `<option value="${escapeHtml(reason)}" ${posOrdersReasonFilter === reason ? 'selected' : ''}>${escapeHtml(reason)}</option>`).join('')}
+      </select>` : ''}
     </div>
 
     <div class="rmo-period-bar">
@@ -7151,9 +7166,9 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : 'Reason'}</th><th>Notes</th>` : ''}<th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>Page</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : 'Reason'}</th><th>Notes</th>` : ''}<th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="${rmoTab !== 'orders' ? 12 : 10}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="${rmoTab !== 'orders' ? 13 : 11}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -10153,6 +10168,7 @@ let posOrdersPageFilter = 'all';
 let posOrdersStatusFilter = 'all';
 let posOrdersTagFilter = 'all';
 let posOrdersAttemptFilter = 'all';
+let posOrdersReasonFilter = 'all'; // RMO Undeliverable/Returning tabs only
 let posOrdersPeriod = 'all';
 let posOrdersDateFrom = '';
 let posOrdersDateTo = '';
@@ -11520,8 +11536,9 @@ function renderPosOrdersTable() {
         <td>
           <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.customer_phone || 'No phone')}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.page_name || '')}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
         </td>
+        <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
@@ -11597,6 +11614,7 @@ function applyPosOrdersDropdown() {
   posOrdersStatusFilter = document.getElementById('pos-orders-status')?.value || 'all';
   posOrdersTagFilter = document.getElementById('pos-orders-tags')?.value || 'all';
   posOrdersAttemptFilter = document.getElementById('pos-orders-attempts')?.value || 'all';
+  posOrdersReasonFilter = document.getElementById('pos-orders-reason')?.value || 'all';
   posRawPage = 1;
   refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
     showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
@@ -11624,6 +11642,7 @@ function setRmoTab(tab) {
   if (rmoTab === tab) return;
   rmoTab = tab;
   posRawPage = 1;
+  posOrdersReasonFilter = 'all'; // reasons differ per tab; don't carry the selection over
   navigateTo('rmo-management');
 }
 
