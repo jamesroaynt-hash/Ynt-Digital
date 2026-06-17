@@ -4334,16 +4334,30 @@ let adspendIndividualAdsLoading = false;
 let adspendRoasPage = 1;
 let adspendRoasPerPage = 20;
 let adspendActiveTab = 'summary';
+let adspendAllPagesIndex = 0;
 
 function setAdspendTab(tab) {
   adspendActiveTab = tab;
   const summary = document.getElementById('adspend-tab-summary');
+  const allpages = document.getElementById('adspend-tab-allpages');
   const adsets = document.getElementById('adspend-tab-adsets');
   if (summary) summary.style.display = tab === 'summary' ? 'block' : 'none';
+  if (allpages) allpages.style.display = tab === 'allpages' ? 'block' : 'none';
   if (adsets) adsets.style.display = tab === 'adsets' ? 'block' : 'none';
   document.querySelectorAll('.adspend-tab-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
+}
+
+// Slide the All Pages tab one chat page at a time.
+function slideAdspendPage(dir) {
+  adspendAllPagesIndex += dir;
+  navigateTo('adspend-roas');
+}
+
+function setAdspendAllPagesIndex(idx) {
+  adspendAllPagesIndex = Number(idx) || 0;
+  navigateTo('adspend-roas');
 }
 
 const ADSPEND_STATUS_MAP = [
@@ -4780,32 +4794,6 @@ function renderAdspendRoas() {
   // Orders filtered by date + page + status (from google_orders / Sheet Records)
   // Baseline: only count orders with one of the 5 allowed statuses
   const statusActive = adspendStatusFilters.size > 0;
-  const filteredOrders = DB.sheetRecordsForReport.filter((o) => {
-    if (!ADSPEND_ALLOWED_STATUSES.has(o.status)) return false;
-    if (o.date < adspendDateFrom || o.date > adspendDateTo) return false;
-    if (adspendPageFilter !== 'all' && (o.sourceSheet || 'Manual') !== adspendPageFilter) return false;
-    if (statusActive && !adspendStatusFilters.has(o.status)) return false;
-    return true;
-  });
-
-  const ordersByDate = {};
-  filteredOrders.forEach((o) => {
-    if (!ordersByDate[o.date]) ordersByDate[o.date] = { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
-    ordersByDate[o.date].orders++;
-    ordersByDate[o.date].amount += Number(o.cod || 0);
-    const key = getOrderStatusKey(o.status);
-    if (key === 'delivered') ordersByDate[o.date].delivered++;
-    else if (key === 'returned') ordersByDate[o.date].returned++;
-    else if (key === 'returning') ordersByDate[o.date].returning++;
-  });
-
-  // Marketing ad spend by date
-  const spendByDate = {};
-  (mktState.entries || []).forEach((entry) => {
-    if (!entry.date || entry.date < adspendDateFrom || entry.date > adspendDateTo) return;
-    if (adspendPageFilter !== 'all' && entry.page !== adspendPageFilter) return;
-    spendByDate[entry.date] = (spendByDate[entry.date] || 0) + Number(entry.spend || 0);
-  });
 
   function roasCellStyle(roas) {
     if (roas >= 5) return 'background:rgba(16,185,129,0.16);color:#34d399;font-weight:700;';
@@ -4815,26 +4803,68 @@ function renderAdspendRoas() {
     return 'color:var(--text-muted);';
   }
 
-  const rows = dates.map((date) => {
-    const o = ordersByDate[date] || { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
-    const spend = spendByDate[date] || 0;
-    const roas = spend > 0 ? o.amount / spend : 0;
-    const cpp = spend > 0 ? o.orders / spend : 0;
-    const rtsBase = o.delivered + o.returned + o.returning;
-    const rtsRate = rtsBase > 0 ? ((o.returned + o.returning) / rtsBase) * 100 : 0;
-    return { date, orders: o.orders, delivered: o.delivered, returned: o.returned, returning: o.returning, amount: o.amount, spend, roas, cpp, rtsRate };
-  });
+  // Build daily ROAS rows + totals for one page ('all' = every page combined).
+  function buildRoasData(pageName) {
+    const fOrders = DB.sheetRecordsForReport.filter((o) => {
+      if (!ADSPEND_ALLOWED_STATUSES.has(o.status)) return false;
+      if (o.date < adspendDateFrom || o.date > adspendDateTo) return false;
+      if (pageName !== 'all' && (o.sourceSheet || 'Manual') !== pageName) return false;
+      if (statusActive && !adspendStatusFilters.has(o.status)) return false;
+      return true;
+    });
+    const obd = {};
+    fOrders.forEach((o) => {
+      if (!obd[o.date]) obd[o.date] = { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
+      obd[o.date].orders++;
+      obd[o.date].amount += Number(o.cod || 0);
+      const key = getOrderStatusKey(o.status);
+      if (key === 'delivered') obd[o.date].delivered++;
+      else if (key === 'returned') obd[o.date].returned++;
+      else if (key === 'returning') obd[o.date].returning++;
+    });
+    const sbd = {};
+    (mktState.entries || []).forEach((entry) => {
+      if (!entry.date || entry.date < adspendDateFrom || entry.date > adspendDateTo) return;
+      if (pageName !== 'all' && entry.page !== pageName) return;
+      sbd[entry.date] = (sbd[entry.date] || 0) + Number(entry.spend || 0);
+    });
+    const rws = dates.map((date) => {
+      const o = obd[date] || { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
+      const spend = sbd[date] || 0;
+      const roas = spend > 0 ? o.amount / spend : 0;
+      const cpp = spend > 0 ? o.orders / spend : 0;
+      const rtsBase = o.delivered + o.returned + o.returning;
+      const rtsRate = rtsBase > 0 ? ((o.returned + o.returning) / rtsBase) * 100 : 0;
+      return { date, orders: o.orders, delivered: o.delivered, returned: o.returned, returning: o.returning, amount: o.amount, spend, roas, cpp, rtsRate };
+    });
+    const tot = {
+      orders: rws.reduce((s, r) => s + r.orders, 0),
+      delivered: rws.reduce((s, r) => s + r.delivered, 0),
+      returned: rws.reduce((s, r) => s + r.returned, 0),
+      returning: rws.reduce((s, r) => s + r.returning, 0),
+      amount: rws.reduce((s, r) => s + r.amount, 0),
+      spend: rws.reduce((s, r) => s + r.spend, 0),
+    };
+    tot.roas = tot.spend > 0 ? tot.amount / tot.spend : 0;
+    tot.cpp = tot.spend > 0 ? tot.orders / tot.spend : 0;
+    tot.rtsBase = tot.delivered + tot.returned + tot.returning;
+    tot.rtsRate = tot.rtsBase > 0 ? ((tot.returned + tot.returning) / tot.rtsBase) * 100 : 0;
+    return { rows: rws, totals: tot };
+  }
 
-  const totalOrders = rows.reduce((s, r) => s + r.orders, 0);
-  const totalDelivered = rows.reduce((s, r) => s + r.delivered, 0);
-  const totalReturned = rows.reduce((s, r) => s + r.returned, 0);
-  const totalReturning = rows.reduce((s, r) => s + r.returning, 0);
-  const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
-  const totalSpend = rows.reduce((s, r) => s + r.spend, 0);
-  const totalRoas = totalSpend > 0 ? totalAmount / totalSpend : 0;
-  const totalCpp = totalSpend > 0 ? totalOrders / totalSpend : 0;
-  const totalRtsBase = totalDelivered + totalReturned + totalReturning;
-  const totalRtsRate = totalRtsBase > 0 ? ((totalReturned + totalReturning) / totalRtsBase) * 100 : 0;
+  const summaryData = buildRoasData(adspendPageFilter);
+  const rows = summaryData.rows;
+  const t = summaryData.totals;
+  const totalOrders = t.orders;
+  const totalDelivered = t.delivered;
+  const totalReturned = t.returned;
+  const totalReturning = t.returning;
+  const totalAmount = t.amount;
+  const totalSpend = t.spend;
+  const totalRoas = t.roas;
+  const totalCpp = t.cpp;
+  const totalRtsBase = t.rtsBase;
+  const totalRtsRate = t.rtsRate;
   const n = rows.length || 1;
 
   const totalRoasPages = Math.max(1, Math.ceil(rows.length / adspendRoasPerPage));
@@ -4844,6 +4874,97 @@ function renderAdspendRoas() {
   const roasPageEnd = Math.min(roasPageStart + adspendRoasPerPage, rows.length);
 
   const fmt = (v) => Number(v).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Renders the daily ROAS table (header + body rows + totals/average footer).
+  // Shared by the ROAS Summary tab and the per-page All Pages tab.
+  function roasTableHtml(displayRows, tot, rowCount) {
+    return `
+    <div class="table-container" style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;min-width:920px;">
+        <thead>
+          <tr style="background:var(--primary,#3b82f6);color:#fff;">
+            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">ROAS SUMMARY</th>
+          </tr>
+          <tr style="background:var(--primary,#3b82f6);color:#fff;">
+            <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">DELIVERED</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RETURNED</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS AMOUNT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">AD SPENT</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">CPP</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RTS RATE</th>
+            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${displayRows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
+            <td style="padding:10px 14px;font-weight:500;font-size:13px;">${row.date}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.amount)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.spend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:rgba(245,158,11,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
+            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.returned.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.amount)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.spend)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.orders > 0 && tot.spend > 0 ? fmt(tot.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.rtsBase > 0 ? tot.rtsRate.toFixed(1) + '%' : '—'}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
+          </tr>
+          <tr style="background:rgba(16,185,129,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(16,185,129,0.28);">
+            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">AVERAGE</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(tot.orders / rowCount).toFixed(2)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(tot.delivered / rowCount).toFixed(2)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(tot.returned / rowCount).toFixed(2)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.amount / rowCount)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.spend / rowCount)}</td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
+            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  }
+
+  // ALL PAGES tab: one ROAS table per chat page, slideable one page at a time.
+  // Respects the active time + status filters but ignores the page dropdown.
+  const apCount = allPages.length;
+  if (adspendAllPagesIndex >= apCount) adspendAllPagesIndex = apCount - 1;
+  if (adspendAllPagesIndex < 0) adspendAllPagesIndex = 0;
+  let allPagesHtml;
+  if (!apCount) {
+    allPagesHtml = `<div class="card" style="text-align:center;padding:48px;color:var(--text-muted);">No pages found for the selected filters.</div>`;
+  } else {
+    const apPage = allPages[adspendAllPagesIndex];
+    const apData = buildRoasData(apPage);
+    allPagesHtml = `
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
+        <button class="page-btn" onclick="slideAdspendPage(-1)" ${adspendAllPagesIndex <= 0 ? 'disabled' : ''}>‹ Prev</button>
+        <div style="text-align:center;">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary);">${escapeHtml(apPage)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Page ${adspendAllPagesIndex + 1} of ${apCount} · ${adspendDateFrom} — ${adspendDateTo}</div>
+        </div>
+        <button class="page-btn" onclick="slideAdspendPage(1)" ${adspendAllPagesIndex >= apCount - 1 ? 'disabled' : ''}>Next ›</button>
+      </div>
+      <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;padding:10px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
+        ${allPages.map((name, idx) => `<button type="button" onclick="setAdspendAllPagesIndex(${idx})" title="${escapeHtml(name)}" style="width:10px;height:10px;border-radius:50%;border:none;cursor:pointer;padding:0;background:${idx === adspendAllPagesIndex ? 'var(--primary,#3b82f6)' : 'var(--border,rgba(255,255,255,0.25))'};"></button>`).join('')}
+      </div>
+      ${roasTableHtml(apData.rows, apData.totals, apData.rows.length || 1)}
+    </div>`;
+  }
 
   const statusOptions = ADSPEND_STATUS_MAP;
 
@@ -4899,6 +5020,7 @@ function renderAdspendRoas() {
 
   <div class="adspend-tabs" style="display:flex;gap:8px;margin-bottom:16px;">
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='summary'?' active':''}" data-tab="summary" onclick="setAdspendTab('summary')">ROAS Summary</button>
+    <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='allpages'?' active':''}" data-tab="allpages" onclick="setAdspendTab('allpages')">All Pages</button>
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='adsets'?' active':''}" data-tab="adsets" onclick="setAdspendTab('adsets')">Live Ad Sets</button>
   </div>
 
@@ -4936,63 +5058,7 @@ function renderAdspendRoas() {
           </label>`).join('')}
       </div>
     </div>
-    <div class="table-container" style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;min-width:920px;">
-        <thead>
-          <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">ROAS SUMMARY</th>
-          </tr>
-          <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">DELIVERED</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RETURNED</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS AMOUNT</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">AD SPENT</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">CPP</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RTS RATE</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${pagedRows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
-            <td style="padding:10px 14px;font-weight:500;font-size:13px;">${row.date}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.amount)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.spend)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
-          </tr>`).join('')}
-        </tbody>
-        <tfoot>
-          <tr style="background:rgba(245,158,11,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
-            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalOrders.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalDelivered.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalReturned.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalAmount)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalSpend)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalOrders > 0 && totalSpend > 0 ? fmt(totalCpp) : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalRtsBase > 0 ? totalRtsRate.toFixed(1) + '%' : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${totalSpend > 0 ? totalRoas.toFixed(2) : '—'}</td>
-          </tr>
-          <tr style="background:rgba(16,185,129,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(16,185,129,0.28);">
-            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">AVERAGE</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalOrders / n).toFixed(2)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalDelivered / n).toFixed(2)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(totalReturned / n).toFixed(2)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalAmount / n)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(totalSpend / n)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+    ${roasTableHtml(pagedRows, t, n)}
     <div class="table-pagination">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:13px;color:var(--text-muted);">Rows:</span>
@@ -5008,6 +5074,10 @@ function renderAdspendRoas() {
       </div>
     </div>
   </div>
+  </div>
+
+  <div id="adspend-tab-allpages" style="display:${adspendActiveTab==='allpages'?'block':'none'};">
+    ${allPagesHtml}
   </div>
 
   <div id="adspend-tab-adsets" style="display:${adspendActiveTab==='adsets'?'block':'none'};">
