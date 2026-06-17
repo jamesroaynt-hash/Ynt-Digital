@@ -1368,6 +1368,7 @@ function scansRoutes(db) {
     const pcsByPage = new Map();
     const scansByPage = new Map();
     const pcsByProduct = new Map();
+    const pcsByPageProduct = new Map(); // page -> Map(productKey -> { name, pcs })
     let totalPcs = 0;
     for (const r of summaryRows) {
       const pcs = extractLeadingPcs(r.product_name);
@@ -1377,7 +1378,15 @@ function scansRoutes(db) {
       pcsByStatus.set(status, (pcsByStatus.get(status) || 0) + pcs);
       pcsByPage.set(chatPage, (pcsByPage.get(chatPage) || 0) + pcs);
       scansByPage.set(chatPage, (scansByPage.get(chatPage) || 0) + 1);
-      if (product) pcsByProduct.set(product, (pcsByProduct.get(product) || 0) + pcs);
+      if (product) {
+        pcsByProduct.set(product, (pcsByProduct.get(product) || 0) + pcs);
+        if (!pcsByPageProduct.has(chatPage)) pcsByPageProduct.set(chatPage, new Map());
+        const pm = pcsByPageProduct.get(chatPage);
+        const prev = pm.get(product) || { name: r.product_name || product, pcs: 0 };
+        prev.pcs += pcs;
+        if (!prev.name && r.product_name) prev.name = r.product_name;
+        pm.set(product, prev);
+      }
       totalPcs += pcs;
     }
     const by_status = Array.from(pcsByStatus, ([status, pcs]) => ({ status, pcs }))
@@ -1389,6 +1398,11 @@ function scansRoutes(db) {
     })).sort((a, b) => b.scans - a.scans);
     const by_product = Array.from(pcsByProduct, ([product, pcs]) => ({ product, pcs }))
       .sort((a, b) => b.pcs - a.pcs);
+    const by_page_product = Array.from(pcsByPageProduct, ([page, pm]) => ({
+      page,
+      products: Array.from(pm, ([product, v]) => ({ product, name: v.name, pcs: v.pcs }))
+        .sort((a, b) => b.pcs - a.pcs),
+    }));
 
     res.json({
       data,
@@ -1396,7 +1410,7 @@ function scansRoutes(db) {
       page: pageNum,
       per_page: perPage,
       pages: Math.ceil(total / perPage),
-      summary: { by_status, by_page, by_product, total_pcs: totalPcs },
+      summary: { by_status, by_page, by_product, by_page_product, total_pcs: totalPcs },
     });
   });
 
@@ -1461,6 +1475,66 @@ function scansRoutes(db) {
     const ref = `SCN-${String(Date.now()).slice(-6)}`;
     await db.prepare(`INSERT INTO scan_records (scan_ref,tracking_no,customer,phone,scan_date,status,courier,scan_type,scanned_by) VALUES (?,?,?,?,?,?,?,?,?)`).run(ref, tracking_no, customer||null, phone||null, today, status||null, courier||null, type, req.user?.id||1);
     res.status(201).json({ scan_ref: ref });
+  });
+
+  // RTS Return: record a returned item and add it back into stock. Each tracking
+  // is counted only once (all-time dedup) so stock is never double-incremented.
+  r.post('/rts-return', async (req, res) => {
+    const { tracking_no, scan_date } = req.body;
+    if (!tracking_no) return res.status(400).json({ error: 'Tracking number required' });
+    const today = scan_date || new Date().toISOString().split('T')[0];
+    const TYPE = 'RTS Return';
+
+    const duplicate = await db.prepare(
+      `SELECT id FROM scan_records WHERE LOWER(tracking_no) = LOWER(?) AND scan_type = ? LIMIT 1`
+    ).get(tracking_no, TYPE);
+    if (duplicate) {
+      return res.status(409).json({ error: 'Already scanned', message: `${tracking_no} was already returned and will not be counted again.` });
+    }
+
+    // Pull product/customer from the matching POS order (if any).
+    const posRow = await db.prepare(`
+      SELECT tracking_no, customer_name, customer_phone, note_product
+      FROM pos_orders WHERE LOWER(tracking_no) = LOWER(?) LIMIT 1
+    `).get(tracking_no);
+    const productName = posRow?.note_product || '';
+    const customer = posRow?.customer_name || 'Unknown Customer';
+    const phone = posRow?.customer_phone || '';
+
+    // pcs = leading number in the product name ("2 Niacinamide" -> 2), else 1.
+    const pcsMatch = String(productName).match(/^\s*(\d+)/);
+    const pcs = pcsMatch ? Math.min(10000, parseInt(pcsMatch[1], 10)) : 1;
+
+    // Record the scan.
+    const ref = `RTR-${String(Date.now()).slice(-6)}`;
+    await db.prepare(`INSERT INTO scan_records (scan_ref,tracking_no,customer,phone,scan_date,status,courier,scan_type,scanned_by) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(ref, tracking_no, customer, phone, today, 'RTS Return', null, TYPE, req.user?.id || 1);
+
+    // Match an inventory Product by normalized name and add the pcs back to stock.
+    const norm = (name) => String(name || '').replace(/^\s*\d+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const key = norm(productName);
+    let matched = null;
+    if (key) {
+      const items = await db.prepare(`SELECT item_id, name, stock FROM inventory WHERE type = 'Product'`).all();
+      const hit = items.find((it) => norm(it.name) === key);
+      if (hit) {
+        const before = Number(hit.stock || 0);
+        const after = before + pcs;
+        await db.prepare(`UPDATE inventory SET stock=?, updated_at=datetime('now') WHERE item_id=?`).run(after, hit.item_id);
+        await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`)
+          .run(hit.item_id, 'add', before, pcs, after, `RTS Return scan ${tracking_no}`, req.user?.id || 1);
+        matched = { item_id: hit.item_id, name: hit.name, new_stock: after };
+      }
+    }
+
+    res.status(201).json({
+      scan_ref: ref,
+      tracking_no,
+      customer,
+      product_name: productName,
+      pcs,
+      matched_item: matched,
+    });
   });
 
   return r;

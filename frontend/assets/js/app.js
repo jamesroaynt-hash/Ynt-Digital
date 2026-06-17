@@ -436,6 +436,28 @@ async function refreshRtsPcsByProduct() {
     if (key) map[key] = Number(row.pcs || 0);
   });
   DB.rtsPcsByProduct = map;
+
+  // Per-page breakdown: powers the auto-added per-page tabs on the Inventory
+  // page and the Add Item product-name picker.
+  const byPageProduct = result?.summary?.by_page_product;
+  const pageProductMap = {};
+  const pageList = [];
+  const nameSet = new Set();
+  if (Array.isArray(byPageProduct)) {
+    byPageProduct.forEach(({ page, products }) => {
+      const pm = {};
+      (Array.isArray(products) ? products : []).forEach((row) => {
+        const key = normalizeProductKey(row.product || row.name);
+        if (key) pm[key] = Number(row.pcs || 0);
+        if (row.name) nameSet.add(String(row.name).trim());
+      });
+      pageProductMap[page] = pm;
+      if (page) pageList.push(page);
+    });
+  }
+  DB.rtsPcsByPageProduct = pageProductMap;
+  DB.rtsScanPages = pageList.filter((p) => p && p !== 'Unknown').sort();
+  DB.rtsProductNames = [...nameSet].filter(Boolean).sort((a, b) => a.localeCompare(b));
   return true;
 }
 
@@ -449,6 +471,116 @@ function rerenderInventoryTables() {
     const container = document.querySelector(`#${id} .table-container`);
     if (container) container.innerHTML = renderInventoryTable(items);
   });
+  (DB.rtsScanPages || []).forEach((page, idx) => {
+    const container = document.querySelector(`#tab-rtspage-${idx} .table-container`);
+    if (container) container.innerHTML = renderRtsPageInventoryTable(page);
+  });
+}
+
+// Inventory rows for a single chat page, scoped to products with RTS pcs > 0
+// scanned for that page. Drives the auto-added per-page tabs in the Stocks view.
+function renderRtsPageInventoryTable(page) {
+  const map = (DB.rtsPcsByPageProduct || {})[page] || {};
+  const items = DB.inventory.filter((i) => Number(map[normalizeProductKey(i.name)] || 0) > 0);
+  return renderInventoryTable(items, page);
+}
+
+// RTS Return tab: scan returned items back into stock. Each tracking is counted
+// once; stock + pcs auto-update on the server.
+function renderRtsReturnTab() {
+  return `
+  <div class="card">
+    <div class="card-header"><div><div class="card-title">RTS Return Scan</div><div class="card-subtitle">Scan returned tracking numbers back into stock. Each tracking counts once; stock & pcs update automatically.</div></div></div>
+    <div class="card-body">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;max-width:560px;">
+        <input type="text" class="form-control" id="rts-return-input" placeholder="Scan or type tracking number" style="flex:1;min-width:240px;" onkeydown="if(event.key==='Enter'){event.preventDefault();performRtsReturnScan();}">
+        <button class="btn btn-primary" onclick="performRtsReturnScan()">Scan Return</button>
+      </div>
+      <div id="rts-return-result" style="margin-top:12px;"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="card-header"><div><div class="card-title">RTS Return Records</div><div class="card-subtitle">Items returned to stock via RTS Return scans.</div></div></div>
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Date</th><th>Tracking No.</th><th>Product</th><th style="text-align:right;">Pcs</th><th>Customer</th></tr></thead>
+        <tbody id="rts-return-records-body">
+          <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+async function performRtsReturnScan() {
+  const input = document.getElementById('rts-return-input');
+  const tracking = input?.value?.trim();
+  const resultEl = document.getElementById('rts-return-result');
+  if (!tracking) { showToast('warning', 'No input', 'Please enter a tracking number'); return; }
+  if (!getApiBase() || !getAuthToken()) { showToast('warning', 'Offline', 'Cannot record RTS Return without a server connection.'); return; }
+
+  try {
+    const res = await authorizedJsonRequest('/scans/rts-return', {
+      method: 'POST',
+      body: JSON.stringify({ tracking_no: tracking }),
+    });
+    const matched = res?.matched_item;
+    if (resultEl) {
+      resultEl.innerHTML = `<div class="scan-result-card"><div class="scan-result-header" style="color:var(--success);">Return Recorded</div><div class="scan-result-body">
+        <div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(res.tracking_no || tracking)}</div></div>
+        <div class="scan-field"><div class="scan-field-label">Product</div><div class="scan-field-value">${escapeHtml(res.product_name || '—')}</div></div>
+        <div class="scan-field"><div class="scan-field-label">Pcs added</div><div class="scan-field-value">${Number(res.pcs || 0)}</div></div>
+        <div class="scan-field"><div class="scan-field-label">Stock</div><div class="scan-field-value">${matched ? `${escapeHtml(matched.name)} → ${Number(matched.new_stock).toLocaleString()}` : 'No matching inventory item'}</div></div>
+      </div></div>`;
+    }
+    showToast('success', 'Return recorded', matched ? `${matched.name}: +${res.pcs} pcs` : 'Recorded (no inventory match)');
+    if (input) { input.value = ''; input.focus(); }
+
+    await Promise.allSettled([refreshInventoryFromBackend(), refreshRtsPcsByProduct()]);
+    if (App.currentPage === 'inventory') rerenderInventoryTables();
+    loadRtsReturnRecords();
+  } catch (error) {
+    if (error?.status === 409 || String(error?.message || '').toLowerCase().includes('already')) {
+      if (resultEl) resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">Already Returned</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">This tracking was already scanned for RTS Return and will not be counted again.</div></div></div></div>`;
+      showToast('warning', 'Already returned', `${tracking} was already counted.`);
+      if (input) { input.value = ''; input.focus(); }
+      return;
+    }
+    showToast('error', 'Scan failed', error.message || 'Could not record the return.');
+  }
+}
+
+async function loadRtsReturnRecords() {
+  const body = document.getElementById('rts-return-records-body');
+  if (!body) return;
+  if (!getApiBase() || !getAuthToken()) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">Connect to a server to view records.</td></tr>`;
+    return;
+  }
+  try {
+    const data = await authorizedJsonRequest(`/scans?type=${encodeURIComponent('RTS Return')}&per_page=100&page=1&_=${Date.now()}`);
+    const records = Array.isArray(data?.data) ? data.data : [];
+    DB.rtsReturnRecords = records;
+    if (!records.length) {
+      body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted)">No RTS Return scans yet.</td></tr>`;
+      return;
+    }
+    const dash = '<span class="text-xs text-muted">—</span>';
+    body.innerHTML = records.map((r) => {
+      const product = r.product_name || '';
+      const m = String(product).match(/^\s*(\d+)/);
+      const pcs = m ? parseInt(m[1], 10) : 1;
+      return `<tr>
+        <td>${escapeHtml(r.scan_date || '')}</td>
+        <td class="font-mono text-xs">${escapeHtml(r.tracking_no || '')}</td>
+        <td>${escapeHtml(product) || dash}</td>
+        <td style="text-align:right;">${pcs}</td>
+        <td>${escapeHtml(r.customer || '') || dash}</td>
+      </tr>`;
+    }).join('');
+  } catch (error) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--danger)">Failed to load: ${escapeHtml(error.message || 'error')}</td></tr>`;
+  }
 }
 
 async function loadPosOrdersDashboard() {
@@ -6021,6 +6153,8 @@ function renderInventory() {
     <button class="tab-btn active" onclick="switchTab(this,'tab-products')">Products</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-all')">All Items</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
+    ${(DB.rtsScanPages || []).map((page, idx) => `<button class="tab-btn" onclick="switchTab(this,'tab-rtspage-${idx}')" title="RTS scanned for ${escapeHtml(page)}">${escapeHtml(page)}</button>`).join('')}
   </div>
 
   <div id="tab-products" class="tab-content active">
@@ -6038,6 +6172,14 @@ function renderInventory() {
       ${renderInventoryTable(DB.inventory)}
     </div>
   </div>
+  <div id="tab-rts-return" class="tab-content">
+    ${renderRtsReturnTab()}
+  </div>
+  ${(DB.rtsScanPages || []).map((page, idx) => `<div id="tab-rtspage-${idx}" class="tab-content">
+    <div class="table-container">
+      ${renderRtsPageInventoryTable(page)}
+    </div>
+  </div>`).join('')}
 
   <!-- Add/Edit Inventory Modal -->
   ${canEditStock ? `<div class="modal-overlay" id="add-inventory-modal">
@@ -6045,12 +6187,18 @@ function renderInventory() {
       <div class="modal-header"><div class="modal-title">Add Inventory Item</div><button class="modal-close" onclick="closeModal('add-inventory-modal')">×</button></div>
       <div class="modal-body">
         <div class="form-grid-2">
-          <div class="form-group"><label class="form-label">Item Name <span class="required">*</span></label><input type="text" class="form-control" id="inv-name" placeholder="Product name"></div>
+          <div class="form-group"><label class="form-label">Item Name <span class="required">*</span></label>
+            <select class="form-control" id="inv-name-picker" style="margin-bottom:6px;" onchange="onInventoryNamePicked()">
+              <option value="">— Pick scanned product —</option>
+              ${(DB.rtsProductNames || []).map((nm) => `<option value="${escapeHtml(nm)}">${escapeHtml(nm)}</option>`).join('')}
+            </select>
+            <input type="text" class="form-control" id="inv-name" placeholder="Product name">
+          </div>
           <div class="form-group"><label class="form-label">SKU</label><input type="text" class="form-control" id="inv-sku" placeholder="SKU-XXX"></div>
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Type <span class="required">*</span></label>
-            <select class="form-control" id="inv-type"><option>Product</option><option>Supply</option></select></div>
+            <select class="form-control" id="inv-type" onchange="onInventoryTypeChange()"><option>Product</option><option>Supply</option></select></div>
           <div class="form-group"><label class="form-label">Unit</label><input type="text" class="form-control" id="inv-unit" placeholder="pcs, roll, bag..."></div>
         </div>
         <div class="form-grid-2">
@@ -6091,17 +6239,20 @@ function renderInventory() {
   </div>` : ''}`;
 }
 
-function renderInventoryTable(items) {
+function renderInventoryTable(items, pageScope) {
+  const rtsMap = pageScope
+    ? ((DB.rtsPcsByPageProduct || {})[pageScope] || {})
+    : (DB.rtsPcsByProduct || {});
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th title="Total pcs scanned in RTS for this product">RTS Pcs</th><th>Level</th><th>Reorder Pt.</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th>Level</th><th>Reorder Pt.</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const pct = Math.min(100, (item.stock / (item.reorder * 1.5)) * 100);
           const statusClass = item.stock >= item.reorder ? 'stock-ok' : item.stock >= item.reorder * 0.5 ? 'stock-low' : 'stock-crit';
           const badge = item.stock >= item.reorder ? 'badge-success' : item.stock >= item.reorder * 0.5 ? 'badge-warning' : 'badge-danger';
           const badgeText = item.stock >= item.reorder ? 'OK' : item.stock >= item.reorder * 0.5 ? 'Low' : 'Critical';
-          const rtsPcs = Number((DB.rtsPcsByProduct || {})[normalizeProductKey(item.name)] || 0);
+          const rtsPcs = Number(rtsMap[normalizeProductKey(item.name)] || 0);
           return `<tr>
             <td><span class="font-mono text-xs text-muted">${item.sku}</span></td>
             <td><div style="font-weight:500">${item.name}</div></td>
@@ -6126,6 +6277,29 @@ function renderInventoryTable(items) {
         }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
     </table>`;
+}
+
+// Add Item modal: the scanned-product picker is only relevant for Products.
+function onInventoryTypeChange() {
+  const type = document.getElementById('inv-type')?.value || 'Product';
+  const picker = document.getElementById('inv-name-picker');
+  if (picker) picker.style.display = type === 'Product' ? '' : 'none';
+}
+
+// Fill the item-name input from the picked scanned product.
+function onInventoryNamePicked() {
+  const picker = document.getElementById('inv-name-picker');
+  const input = document.getElementById('inv-name');
+  if (picker && input && picker.value) input.value = picker.value;
+}
+
+// Repopulate the Add Item product picker after RTS scan data loads.
+function refreshInventoryNamePicker() {
+  const picker = document.getElementById('inv-name-picker');
+  if (!picker) return;
+  const cur = picker.value;
+  picker.innerHTML = `<option value="">— Pick scanned product —</option>` +
+    (DB.rtsProductNames || []).map((nm) => `<option value="${escapeHtml(nm)}"${nm === cur ? ' selected' : ''}>${escapeHtml(nm)}</option>`).join('');
 }
 
 function openStockModal(itemId = '') {
@@ -8903,8 +9077,16 @@ function initPage(page) {
   }
 
   if (page === 'inventory') {
+    loadRtsReturnRecords().catch(() => {});
     refreshRtsPcsByProduct()
-      .then((ok) => { if (ok && App.currentPage === 'inventory') rerenderInventoryTables(); })
+      .then((ok) => {
+        if (!ok || App.currentPage !== 'inventory') return;
+        // If page tabs are now known but not yet in the DOM, rebuild the shell
+        // once so the auto per-page tabs appear; otherwise just refresh tables.
+        const needTabs = (DB.rtsScanPages || []).length && !document.getElementById('tab-rtspage-0');
+        if (needTabs) navigateTo('inventory');
+        else { rerenderInventoryTables(); refreshInventoryNamePicker(); }
+      })
       .catch(() => {});
   }
 
