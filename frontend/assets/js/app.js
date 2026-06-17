@@ -523,16 +523,22 @@ async function loadRtsReturnRecords() {
     }
     const dash = '<span class="text-xs text-muted">—</span>';
     const total = rows.reduce((s, r) => s + r.pcs, 0);
-    // Merge the PAGE NAME cell for consecutive rows sharing a page (rowspan).
+    // Merge the PAGE NAME and RTS TOTAL PCS cells for rows sharing a page
+    // (rowspan); pcs shows the page total once.
     const groupSizes = {};
-    rows.forEach((r) => { groupSizes[r.page] = (groupSizes[r.page] || 0) + 1; });
+    const pageTotals = {};
+    rows.forEach((r) => {
+      groupSizes[r.page] = (groupSizes[r.page] || 0) + 1;
+      pageTotals[r.page] = (pageTotals[r.page] || 0) + r.pcs;
+    });
     const seen = {};
     const bodyHtml = rows.map((r) => {
       const first = !seen[r.page];
       seen[r.page] = true;
       const border = first ? 'border-top:1px solid var(--border);' : '';
       const pageCell = first ? `<td rowspan="${groupSizes[r.page]}" style="vertical-align:top;${border}font-weight:500;">${escapeHtml(r.page)}</td>` : '';
-      return `<tr><td style="${border}"><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td>${pageCell}<td style="text-align:right;${border}"><strong>${r.pcs.toLocaleString()}</strong></td></tr>`;
+      const pcsCell = first ? `<td rowspan="${groupSizes[r.page]}" style="text-align:right;vertical-align:top;${border}"><strong>${pageTotals[r.page].toLocaleString()}</strong></td>` : '';
+      return `<tr><td style="${border}"><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td>${pageCell}${pcsCell}</tr>`;
     }).join('');
     wrap.innerHTML = `<div class="card">
       <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per SKU and page, from scan records.</div></div></div>
