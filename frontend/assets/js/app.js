@@ -492,29 +492,48 @@ async function loadRtsReturnRecords() {
   try {
     const data = await authorizedJsonRequest(`/scans?type=RTS&per_page=1&page=1&_=${Date.now()}`);
     const byPage = Array.isArray(data?.summary?.by_page_product) ? data.summary.by_page_product : [];
-    const pages = byPage
-      .filter((p) => Array.isArray(p.products) && p.products.length)
-      .sort((a, b) => String(a.page || '').localeCompare(String(b.page || '')));
-    if (!pages.length) {
+
+    // Map normalized product name -> inventory SKU.
+    const skuByKey = {};
+    (DB.inventory || []).forEach((it) => {
+      const k = normalizeProductKey(it.name);
+      if (k) skuByKey[k] = it.sku || '';
+    });
+
+    // Aggregate RTS total pcs per (SKU, page).
+    const agg = new Map();
+    byPage.forEach(({ page, products }) => {
+      const pg = page || 'Unknown';
+      (Array.isArray(products) ? products : []).forEach((pr) => {
+        const key = normalizeProductKey(pr.name || pr.product);
+        const sku = skuByKey[key] || '';
+        const groupKey = `${sku || key}||${pg}`;
+        const cur = agg.get(groupKey) || { sku, page: pg, pcs: 0 };
+        cur.pcs += Number(pr.pcs || 0);
+        agg.set(groupKey, cur);
+      });
+    });
+    const rows = [...agg.values()]
+      .sort((a, b) => String(a.page).localeCompare(String(b.page)) || b.pcs - a.pcs);
+
+    if (!rows.length) {
       wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No RTS scan records yet.</div></div>`;
       return;
     }
-    wrap.innerHTML = pages.map(({ page, products }) => {
-      const rows = [...products].sort((a, b) => Number(b.pcs || 0) - Number(a.pcs || 0));
-      const total = rows.reduce((s, r) => s + Number(r.pcs || 0), 0);
-      return `<div class="card" style="margin-bottom:16px;">
-        <div class="card-header"><div><div class="card-title">${escapeHtml(page || 'Unknown')}</div><div class="card-subtitle">RTS stocks from scan records for this page.</div></div></div>
-        <div class="table-container">
-          <table>
-            <thead><tr><th>ITEM NAME</th><th style="text-align:right;">RTS STOCKS</th></tr></thead>
-            <tbody>
-              ${rows.map((r) => `<tr><td><div style="font-weight:500">${escapeHtml(r.name || r.product || '—')}</div></td><td style="text-align:right;"><strong>${Number(r.pcs || 0).toLocaleString()}</strong> pcs</td></tr>`).join('')}
-            </tbody>
-            <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td>Total</td><td style="text-align:right;">${total.toLocaleString()} pcs</td></tr></tfoot>
-          </table>
-        </div>
-      </div>`;
-    }).join('');
+    const dash = '<span class="text-xs text-muted">—</span>';
+    const total = rows.reduce((s, r) => s + r.pcs, 0);
+    wrap.innerHTML = `<div class="card">
+      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per SKU and page, from scan records.</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>SKU</th><th>PAGE NAME</th><th style="text-align:right;">RTS TOTAL PCS</th></tr></thead>
+          <tbody>
+            ${rows.map((r) => `<tr><td><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td><td>${escapeHtml(r.page)}</td><td style="text-align:right;"><strong>${r.pcs.toLocaleString()}</strong></td></tr>`).join('')}
+          </tbody>
+          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td style="text-align:right;">${total.toLocaleString()}</td></tr></tfoot>
+        </table>
+      </div>
+    </div>`;
   } catch (error) {
     wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--danger);padding:24px;">Failed to load: ${escapeHtml(error.message || 'error')}</div></div>`;
   }
