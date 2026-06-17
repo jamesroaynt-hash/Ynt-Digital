@@ -6145,8 +6145,8 @@ function renderInventory() {
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Item Name <span class="required">*</span></label>
             <select class="form-control" id="inv-name-picker" style="margin-bottom:6px;" onchange="onInventoryNamePicked()">
-              <option value="">— Pick scanned product —</option>
-              ${(DB.rtsProductNames || []).map((nm) => `<option value="${escapeHtml(nm)}">${escapeHtml(nm)}</option>`).join('')}
+              <option value="">— Pick page —</option>
+              ${(DB.rtsScanPages || []).map((nm) => `<option value="${escapeHtml(nm)}">${escapeHtml(nm)}</option>`).join('')}
             </select>
             <input type="text" class="form-control" id="inv-name" placeholder="Product name">
           </div>
@@ -6254,8 +6254,8 @@ function refreshInventoryNamePicker() {
   const picker = document.getElementById('inv-name-picker');
   if (!picker) return;
   const cur = picker.value;
-  picker.innerHTML = `<option value="">— Pick scanned product —</option>` +
-    (DB.rtsProductNames || []).map((nm) => `<option value="${escapeHtml(nm)}"${nm === cur ? ' selected' : ''}>${escapeHtml(nm)}</option>`).join('');
+  picker.innerHTML = `<option value="">— Pick page —</option>` +
+    (DB.rtsScanPages || []).map((nm) => `<option value="${escapeHtml(nm)}"${nm === cur ? ' selected' : ''}>${escapeHtml(nm)}</option>`).join('');
 }
 
 function openStockModal(itemId = '') {
