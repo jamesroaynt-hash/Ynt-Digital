@@ -6144,11 +6144,7 @@ function renderInventory() {
       <div class="modal-body">
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Item Name <span class="required">*</span></label>
-            <select class="form-control" id="inv-name-picker" style="margin-bottom:6px;" onchange="onInventoryNamePicked()">
-              <option value="">— Pick page —</option>
-              ${(DB.rtsScanPages || []).map((nm) => `<option value="${escapeHtml(nm)}">${escapeHtml(nm)}</option>`).join('')}
-            </select>
-            <input type="text" class="form-control" id="inv-name" placeholder="Product name">
+            <div id="inv-name-field">${invNameFieldHtml('Product')}</div>
           </div>
           <div class="form-group"><label class="form-label">SKU</label><input type="text" class="form-control" id="inv-sku" placeholder="SKU-XXX"></div>
         </div>
@@ -6235,27 +6231,27 @@ function renderInventoryTable(items, pageScope) {
     </table>`;
 }
 
-// Add Item modal: the scanned-product picker is only relevant for Products.
+// Add Item modal — Item Name field: a page-name dropdown when the item is a
+// Product, a free-text input when it's a Supply. Same id either way so
+// saveInventoryItem reads it uniformly.
+function invNameFieldHtml(type) {
+  if (type === 'Supply') {
+    return `<input type="text" class="form-control" id="inv-name" placeholder="Item name">`;
+  }
+  return `<select class="form-control" id="inv-name"><option value="">— Pick page —</option>${getAvailablePageNames().map((nm) => `<option value="${escapeHtml(nm)}">${escapeHtml(nm)}</option>`).join('')}</select>`;
+}
+
 function onInventoryTypeChange() {
   const type = document.getElementById('inv-type')?.value || 'Product';
-  const picker = document.getElementById('inv-name-picker');
-  if (picker) picker.style.display = type === 'Product' ? '' : 'none';
+  const field = document.getElementById('inv-name-field');
+  if (field) field.innerHTML = invNameFieldHtml(type);
 }
 
-// Fill the item-name input from the picked scanned product.
-function onInventoryNamePicked() {
-  const picker = document.getElementById('inv-name-picker');
-  const input = document.getElementById('inv-name');
-  if (picker && input && picker.value) input.value = picker.value;
-}
-
-// Repopulate the Add Item product picker after RTS scan data loads.
+// Refresh the Product page dropdown once page data loads (no-op for Supply text).
 function refreshInventoryNamePicker() {
-  const picker = document.getElementById('inv-name-picker');
-  if (!picker) return;
-  const cur = picker.value;
-  picker.innerHTML = `<option value="">— Pick page —</option>` +
-    (DB.rtsScanPages || []).map((nm) => `<option value="${escapeHtml(nm)}"${nm === cur ? ' selected' : ''}>${escapeHtml(nm)}</option>`).join('');
+  const type = document.getElementById('inv-type')?.value || 'Product';
+  const field = document.getElementById('inv-name-field');
+  if (field && type === 'Product') field.innerHTML = invNameFieldHtml('Product');
 }
 
 function openStockModal(itemId = '') {
@@ -10327,6 +10323,16 @@ const HOME_STATUS_CHART_ITEMS = [
 
 function getPosSourceOptions() {
   return [...new Set(DB.sheetRecordsForReport.map((o) => o.sourceSheet || 'Sheets').filter(Boolean))].sort();
+}
+
+// Available chat-page names, unioned from whatever page-bearing data is loaded
+// (RTS scans, POS orders, sheet records). Used by the Add Item page picker.
+function getAvailablePageNames() {
+  const set = new Set();
+  (DB.rtsScanPages || []).forEach((p) => { if (p) set.add(p); });
+  (DB.posOrders || []).forEach((o) => { if (o.page_name) set.add(o.page_name); });
+  (DB.sheetRecordsForReport || []).forEach((o) => { if (o.sourceSheet) set.add(o.sourceSheet); });
+  return [...set].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
 function getPosYearOptions() {
