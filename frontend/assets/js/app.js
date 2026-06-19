@@ -301,6 +301,7 @@ function mapBackendInventoryItem(row) {
     unit: row.unit || 'pcs',
     cost: Number(row.cost_price || 0),
     price: row.sell_price === null || row.sell_price === undefined ? null : Number(row.sell_price),
+    active: row.active === 0 || row.active === false ? 0 : 1,
   };
 }
 
@@ -459,7 +460,47 @@ async function refreshRtsPcsByProduct() {
   DB.rtsPcsByPageProduct = pageProductMap;
   DB.rtsScanPages = pageList.filter((p) => p && p !== 'Unknown').sort();
   DB.rtsProductNames = [...nameSet].filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+  await loadRtsPageSkuMap();
   return true;
+}
+
+// Page → SKU assignments for RTS Return. Once a page is mapped to a SKU, that
+// page's RTS pcs flow into the inventory Product with the same SKU.
+async function loadRtsPageSkuMap() {
+  try {
+    const rows = await authorizedJsonRequest(`/inventory/rts-sku-map?_=${Date.now()}`);
+    const map = {};
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row && row.page_name) map[row.page_name] = String(row.sku || '');
+    });
+    DB.rtsPageSku = map;
+    return true;
+  } catch {
+    DB.rtsPageSku = DB.rtsPageSku || {};
+    return false;
+  }
+}
+
+// Build RTS pcs lookups honoring the page→SKU mapping: a mapped page's total pcs
+// go to its assigned SKU; unmapped pages fall back to per-product name matching.
+function computeRtsPcsLookups() {
+  const pageProduct = DB.rtsPcsByPageProduct || {}; // page -> { nameKey -> pcs }
+  const pageSku = DB.rtsPageSku || {};              // page -> sku
+  const skuPcs = {};
+  const namePcs = {};
+  Object.entries(pageProduct).forEach(([page, pm]) => {
+    const sku = String(pageSku[page] || '').trim();
+    if (sku) {
+      const total = Object.values(pm).reduce((sum, v) => sum + Number(v || 0), 0);
+      skuPcs[sku] = (skuPcs[sku] || 0) + total;
+    } else {
+      Object.entries(pm).forEach(([key, pcs]) => {
+        namePcs[key] = (namePcs[key] || 0) + Number(pcs || 0);
+      });
+    }
+  });
+  return { skuPcs, namePcs };
 }
 
 function rerenderInventoryTables() {
@@ -514,23 +555,38 @@ async function loadRtsReturnRecords() {
       pageAgg.set(pg, cur);
     });
     const rows = [...pageAgg.values()]
-      .map((r) => ({ page: r.page, sku: [...r.skus].join(', '), pcs: r.pcs }))
+      .map((r) => ({ page: r.page, derivedSku: [...r.skus].join(', '), pcs: r.pcs }))
       .sort((a, b) => String(a.page).localeCompare(String(b.page)));
 
     if (!rows.length) {
       wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No RTS scan records yet.</div></div>`;
       return;
     }
+
+    // Saved page→SKU assignments drive which Product receives each page's RTS pcs.
+    await loadRtsPageSkuMap();
+    const pageSku = DB.rtsPageSku || {};
+    const canEdit = canManageInventoryStock();
+    const skuOptions = [...new Set((DB.inventory || []).map((it) => it.sku).filter(Boolean))].sort();
+    const skuDatalist = `<datalist id="rts-sku-options">${skuOptions.map((s) => `<option value="${escapeHtml(s)}"></option>`).join('')}</datalist>`;
+
     const dash = '<span class="text-xs text-muted">—</span>';
     const total = rows.reduce((s, r) => s + r.pcs, 0);
-    const bodyHtml = rows.map((r) => `<tr>
-      <td><span class="font-mono text-xs">${escapeHtml(r.sku) || dash}</span></td>
+    const bodyHtml = rows.map((r) => {
+      const assigned = pageSku[r.page] || '';
+      const skuCell = canEdit
+        ? `<input type="text" class="form-control" style="width:140px;padding:4px 8px;height:auto;font-size:12px" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
+        : `<span class="font-mono text-xs">${escapeHtml(assigned || r.derivedSku) || dash}</span>`;
+      return `<tr>
+      <td>${skuCell}</td>
       <td style="font-weight:500;">${escapeHtml(r.page)}</td>
       <td style="text-align:right;"><strong>${r.pcs.toLocaleString()}</strong></td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
     wrap.innerHTML = `<div class="card">
-      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records.</div></div></div>
+      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records. Assign a SKU to route a page's pcs to a Product.</div></div></div>
       <div class="table-container">
+        ${skuDatalist}
         <table>
           <thead><tr><th>SKU</th><th>PAGE NAME</th><th style="text-align:right;">RTS TOTAL PCS</th></tr></thead>
           <tbody>
@@ -542,6 +598,29 @@ async function loadRtsReturnRecords() {
     </div>`;
   } catch (error) {
     wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--danger);padding:24px;">Failed to load: ${escapeHtml(error.message || 'error')}</div></div>`;
+  }
+}
+
+// Save a page→SKU assignment from the RTS Return tab, then refresh the inventory
+// tables so the Product with that SKU picks up the page's RTS pcs.
+async function saveRtsPageSku(pageEnc, sku) {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit RTS SKUs.');
+    return;
+  }
+  const pageName = decodeURIComponent(pageEnc);
+  const clean = String(sku || '').trim();
+  DB.rtsPageSku = DB.rtsPageSku || {};
+  if (clean) DB.rtsPageSku[pageName] = clean; else delete DB.rtsPageSku[pageName];
+  try {
+    await authorizedJsonRequest('/inventory/rts-sku-map', {
+      method: 'PUT',
+      body: JSON.stringify({ page_name: pageName, sku: clean }),
+    });
+    rerenderInventoryTables();
+    showToast('success', 'RTS SKU saved', `${pageName} → ${clean || '(cleared)'}`);
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save RTS SKU.');
   }
 }
 
@@ -6144,7 +6223,7 @@ function renderInventory() {
       <div class="modal-body">
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Item Name <span class="required">*</span></label>
-            <div id="inv-name-field">${invNameFieldHtml('Product')}</div>
+            <div id="inv-name-field">${invNameFieldHtml()}</div>
           </div>
           <div class="form-group"><label class="form-label">SKU</label><input type="text" class="form-control" id="inv-sku" placeholder="SKU-XXX"></div>
         </div>
@@ -6192,66 +6271,86 @@ function renderInventory() {
 }
 
 function renderInventoryTable(items, pageScope) {
-  const rtsMap = pageScope
-    ? ((DB.rtsPcsByPageProduct || {})[pageScope] || {})
-    : (DB.rtsPcsByProduct || {});
+  // Per-item RTS pcs: scoped per-page tabs match by name; the main tabs honor the
+  // page→SKU mapping (SKU wins, product-name fallback for unmapped pages).
+  let getRtsPcs;
+  if (pageScope) {
+    const rtsMap = (DB.rtsPcsByPageProduct || {})[pageScope] || {};
+    getRtsPcs = (item) => Number(rtsMap[normalizeProductKey(item.name)] || 0);
+  } else {
+    const { skuPcs, namePcs } = computeRtsPcsLookups();
+    getRtsPcs = (item) => (item.sku && skuPcs[item.sku] != null)
+      ? Number(skuPcs[item.sku])
+      : Number(namePcs[normalizeProductKey(item.name)] || 0);
+  }
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Total stock added (item creation + stock-update adds)">Total Orders</th><th>Level</th><th>Unit Cost</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Total stock added (item creation + stock-update adds)">Total Orders</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
-          const pct = Math.min(100, (item.stock / (item.reorder * 1.5)) * 100);
-          const statusClass = item.stock >= item.reorder ? 'stock-ok' : item.stock >= item.reorder * 0.5 ? 'stock-low' : 'stock-crit';
           const badge = item.stock >= item.reorder ? 'badge-success' : item.stock >= item.reorder * 0.5 ? 'badge-warning' : 'badge-danger';
           const badgeText = item.stock >= item.reorder ? 'OK' : item.stock >= item.reorder * 0.5 ? 'Low' : 'Critical';
-          const rtsPcs = Number(rtsMap[normalizeProductKey(item.name)] || 0);
-          return `<tr>
+          const rtsPcs = getRtsPcs(item);
+          const isActive = item.active !== 0;
+          return `<tr${isActive ? '' : ' style="opacity:0.55"'}>
             <td><span class="font-mono text-xs text-muted">${item.sku}</span></td>
             <td><div style="font-weight:500">${item.name}</div></td>
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
             <td><strong>${item.stock}</strong> ${item.unit}</td>
+            <td>
+              ${canManageInventoryStock()
+                ? `<input type="number" class="form-control" style="width:78px;padding:4px 8px;height:auto;font-size:13px" value="${item.reorder}" min="0" onchange="updateReorderPoint('${escapeHtml(item.id)}', this.value)" title="Editable reorder point">`
+                : `<span>${item.reorder}</span>`}
+            </td>
             <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
             <td>${Number(item.totalOrders || 0) ? `<strong>${Number(item.totalOrders).toLocaleString()}</strong> ${item.unit}` : '<span class="text-xs text-muted">—</span>'}</td>
-            <td>
-              <div class="stock-indicator ${statusClass}" style="min-width:100px">
-                <div class="stock-bar"><div class="stock-bar-fill" style="width:${pct}%"></div></div>
-                <span class="text-xs" style="width:30px">${Math.round(pct)}%</span>
-              </div>
-            </td>
             <td>₱${item.cost}</td>
             <td><span class="badge ${badge}">${badgeText}</span></td>
+            <td>
+              ${canManageInventoryStock()
+                ? `<label class="switch" title="${isActive ? 'Active — click to close' : 'Closed — click to activate'}">
+                    <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleInventoryActive('${escapeHtml(item.id)}', this.checked)">
+                    <span class="switch-slider"></span>
+                  </label>`
+                : `<span class="badge ${isActive ? 'badge-success' : 'badge-gray'}">${isActive ? 'Active' : 'Closed'}</span>`}
+            </td>
             <td>
               <div class="flex gap-2">
                 ${canManageInventoryStock() ? `<button class="btn btn-ghost btn-sm" onclick="openStockModal('${escapeHtml(item.id)}')">Restock</button>` : '<span class="text-xs text-muted">View only</span>'}
               </div>
             </td>
           </tr>`;
-        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
+        }).join('') : '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
     </table>`;
 }
 
-// Add Item modal — Item Name field: a page-name dropdown when the item is a
-// Product, a free-text input when it's a Supply. Same id either way so
-// saveInventoryItem reads it uniformly.
-function invNameFieldHtml(type) {
-  if (type === 'Supply') {
-    return `<input type="text" class="form-control" id="inv-name" placeholder="Item name">`;
-  }
-  return `<select class="form-control" id="inv-name"><option value="">— Pick page —</option>${getAvailablePageNames().map((nm) => `<option value="${escapeHtml(nm)}">${escapeHtml(nm)}</option>`).join('')}</select>`;
+// Add Item modal — Item Name is a free-text input for both Product and Supply.
+// A datalist suggests product names already seen in RTS scans so a typed name
+// matches the RTS pcs roll-up. Same id either way so saveInventoryItem reads it
+// uniformly.
+function invNameFieldHtml() {
+  const names = DB.rtsProductNames || [];
+  const list = names.length
+    ? `<datalist id="inv-name-options">${names.map((nm) => `<option value="${escapeHtml(nm)}"></option>`).join('')}</datalist>`
+    : '';
+  return `<input type="text" class="form-control" id="inv-name" placeholder="Item name"${names.length ? ' list="inv-name-options"' : ''}>${list}`;
 }
 
 function onInventoryTypeChange() {
-  const type = document.getElementById('inv-type')?.value || 'Product';
-  const field = document.getElementById('inv-name-field');
-  if (field) field.innerHTML = invNameFieldHtml(type);
+  // Item Name field is the same for every type; nothing to swap. Kept so the
+  // existing onchange hook on the Type select stays valid.
 }
 
-// Refresh the Product page dropdown once page data loads (no-op for Supply text).
+// Refresh the Item Name suggestions once RTS scan data loads, preserving any
+// value the user already typed.
 function refreshInventoryNamePicker() {
-  const type = document.getElementById('inv-type')?.value || 'Product';
   const field = document.getElementById('inv-name-field');
-  if (field && type === 'Product') field.innerHTML = invNameFieldHtml('Product');
+  if (!field) return;
+  const current = document.getElementById('inv-name')?.value || '';
+  field.innerHTML = invNameFieldHtml();
+  const input = document.getElementById('inv-name');
+  if (input) input.value = current;
 }
 
 function openStockModal(itemId = '') {
@@ -12370,6 +12469,56 @@ async function updateStock() {
   closeModal('stocks-modal');
   showToast('success', 'Stock updated', `${item.name} — ${item.stock} ${item.unit}`);
   navigateTo('inventory');
+}
+
+// Toggle an inventory item active (on) / closed (off) via the switch in the Stock table.
+async function toggleInventoryActive(itemId, active) {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit inventory.');
+    return;
+  }
+  const item = DB.inventory.find(i => i.id === itemId);
+  if (!item) return;
+  const prev = item.active;
+  item.active = active ? 1 : 0;
+  try {
+    await authorizedJsonRequest(`/inventory/${encodeURIComponent(itemId)}/active`, {
+      method: 'PATCH',
+      body: JSON.stringify({ active: !!active }),
+    });
+    rerenderInventoryTables();
+    showToast('success', active ? 'Item activated' : 'Item closed', item.name);
+  } catch (error) {
+    item.active = prev;
+    rerenderInventoryTables();
+    showToast('error', 'Update failed', error.message || 'Could not update item.');
+  }
+}
+
+// Inline-edit an item's reorder point from the Stock table.
+async function updateReorderPoint(itemId, value) {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit inventory.');
+    return;
+  }
+  const item = DB.inventory.find(i => i.id === itemId);
+  if (!item) return;
+  const reorder = Math.max(0, parseInt(value, 10) || 0);
+  const prev = item.reorder;
+  if (reorder === prev) return;
+  item.reorder = reorder;
+  try {
+    await authorizedJsonRequest(`/inventory/${encodeURIComponent(itemId)}/reorder`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reorder_pt: reorder }),
+    });
+    rerenderInventoryTables();
+    showToast('success', 'Reorder point updated', `${item.name} — ${reorder} ${item.unit}`);
+  } catch (error) {
+    item.reorder = prev;
+    rerenderInventoryTables();
+    showToast('error', 'Update failed', error.message || 'Could not update reorder point.');
+  }
 }
 
 // ─── RECORDS HELPERS ───────────────────────────────────────

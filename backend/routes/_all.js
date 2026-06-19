@@ -1129,7 +1129,13 @@ function inventoryRoutes(db, { dispatch } = {}) {
     };
   }
 
-  async function upsertInventoryItem(row) {
+  async function upsertInventoryItem(row, createdBy = 1) {
+    // Capture prior stock so we can log the imported quantity as an "add"
+    // (this is what feeds Total Orders). New item: prior = 0.
+    const prior = await db.prepare('SELECT stock FROM inventory WHERE item_id=?').get(row.item_id);
+    const priorStock = prior ? Number(prior.stock || 0) : 0;
+    const newStock = Number(row.stock || 0);
+
     await db.prepare(`
       INSERT INTO inventory (item_id, name, sku, type, unit, stock, reorder_pt, cost_price, sell_price, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
@@ -1154,15 +1160,27 @@ function inventoryRoutes(db, { dispatch } = {}) {
       row.cost_price,
       row.sell_price
     );
+
+    // Log the positive delta so re-imports don't double-count Total Orders.
+    const delta = newStock - priorStock;
+    if (delta > 0) {
+      await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`)
+        .run(row.item_id, 'add', priorStock, delta, newStock, 'CSV import', createdBy);
+    }
   }
 
   r.get('/', async (req, res) => {
     const { type } = req.query;
-    // total_orders = cumulative stock added (item creation + stock-update "add"),
-    // summed from inventory_logs.
+    // total_orders = cumulative stock added (item creation + stock-update "add" +
+    // CSV import), summed from inventory_logs. Legacy items that were imported/set
+    // before add-logging existed have no logs, so fall back to current stock.
     let sql = `
       SELECT i.*,
-        COALESCE((SELECT SUM(l.qty_change) FROM inventory_logs l WHERE l.item_id = i.item_id AND l.action = 'add'), 0) AS total_orders
+        COALESCE(
+          NULLIF((SELECT SUM(l.qty_change) FROM inventory_logs l WHERE l.item_id = i.item_id AND l.action = 'add'), 0),
+          i.stock,
+          0
+        ) AS total_orders
       FROM inventory i`;
     const params = [];
     if (type) { sql += ' WHERE i.type=?'; params.push(type); }
@@ -1171,6 +1189,27 @@ function inventoryRoutes(db, { dispatch } = {}) {
 
   r.get('/low-stock', async (req, res) => {
     res.json(await db.prepare('SELECT * FROM inventory WHERE stock < reorder_pt').all());
+  });
+
+  // RTS Return page→SKU routing map.
+  r.get('/rts-sku-map', async (req, res) => {
+    res.json(await db.prepare('SELECT page_name, sku FROM rts_page_sku').all());
+  });
+
+  r.put('/rts-sku-map', requireInventoryWrite, async (req, res) => {
+    const page_name = String(req.body?.page_name || '').trim();
+    const sku = String(req.body?.sku || '').trim();
+    if (!page_name) return res.status(400).json({ error: 'page_name required' });
+    if (!sku) {
+      await db.prepare('DELETE FROM rts_page_sku WHERE page_name=?').run(page_name);
+      return res.json({ success: true, page_name, sku: '' });
+    }
+    await db.prepare(`
+      INSERT INTO rts_page_sku (page_name, sku, updated_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(page_name) DO UPDATE SET sku = excluded.sku, updated_at = datetime('now')
+    `).run(page_name, sku);
+    res.json({ success: true, page_name, sku });
   });
 
   r.post('/', requireInventoryWrite, async (req, res) => {
@@ -1197,7 +1236,7 @@ function inventoryRoutes(db, { dispatch } = {}) {
       try {
         const item = cleanInventoryItem(row, index);
         if (!item.name) throw new Error('Item name is required');
-        await upsertInventoryItem(item);
+        await upsertInventoryItem(item, req.user?.id || 1);
         imported += 1;
       } catch (error) {
         failed_rows.push({ row_number: index + 2, error: error.message });
@@ -1221,6 +1260,26 @@ function inventoryRoutes(db, { dispatch } = {}) {
     await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`).run(req.params.item_id, action, item.stock, qty, newStock, notes||null, req.user?.id||1);
     if (dispatch) dispatch('inventory.updated', { item_id: req.params.item_id, name: item.name, action, qty_before: item.stock, qty_after: newStock });
     res.json({ success: true, new_stock: newStock });
+  });
+
+  // Update an item's reorder point (low-stock alert threshold).
+  r.patch('/:item_id/reorder', requireInventoryWrite, async (req, res) => {
+    const item = await db.prepare('SELECT * FROM inventory WHERE item_id=?').get(req.params.item_id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    const reorder_pt = Math.max(0, Number.parseInt(req.body?.reorder_pt, 10) || 0);
+    await db.prepare(`UPDATE inventory SET reorder_pt=?, updated_at=datetime('now') WHERE item_id=?`).run(reorder_pt, req.params.item_id);
+    if (dispatch) dispatch('inventory.updated', { item_id: req.params.item_id, name: item.name, reorder_pt });
+    res.json({ success: true, reorder_pt });
+  });
+
+  // Toggle an item active (on) or closed (off).
+  r.patch('/:item_id/active', requireInventoryWrite, async (req, res) => {
+    const item = await db.prepare('SELECT * FROM inventory WHERE item_id=?').get(req.params.item_id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    const active = req.body?.active ? 1 : 0;
+    await db.prepare(`UPDATE inventory SET active=?, updated_at=datetime('now') WHERE item_id=?`).run(active, req.params.item_id);
+    if (dispatch) dispatch('inventory.updated', { item_id: req.params.item_id, name: item.name, active });
+    res.json({ success: true, active });
   });
 
   return r;

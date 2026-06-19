@@ -327,6 +327,7 @@ function runMigrations(db) {
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   ensureColumn(db, 'orders', 'tags', 'TEXT');
   ensureColumn(db, 'orders', 'confirmed_by', 'TEXT');
+  ensureColumn(db, 'inventory', 'active', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'expenses', 'classification', "TEXT NOT NULL DEFAULT 'OPEX'");
   db.exec(`
     CREATE TABLE IF NOT EXISTS expense_credits (
@@ -589,6 +590,14 @@ function runMigrations(db) {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_customer_notes_phone ON customer_notes(customer_phone, id DESC)');
+  // Page → SKU routing for RTS Return: a page's RTS pcs flow to the Product with this SKU.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rts_page_sku (
+      page_name TEXT PRIMARY KEY,
+      sku TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
   ensurePerformanceIndexes(db);
 }
 
@@ -635,6 +644,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'orders', 'source_sheet', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'confirmed_by', 'TEXT');
+  await ensureColumnAsync(db, 'inventory', 'active', 'INTEGER NOT NULL DEFAULT 1');
   await ensureColumnAsync(db, 'expenses', 'classification', "TEXT NOT NULL DEFAULT 'OPEX'");
   await db.exec(`
     CREATE TABLE IF NOT EXISTS expense_credits (
@@ -903,6 +913,14 @@ async function runPostgresMigrations(db) {
     )
   `);
   await db.exec('CREATE INDEX IF NOT EXISTS idx_customer_notes_phone ON customer_notes(customer_phone, id DESC)');
+  // Page → SKU routing for RTS Return: a page's RTS pcs flow to the Product with this SKU.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS rts_page_sku (
+      page_name TEXT PRIMARY KEY,
+      sku TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
   await ensurePerformanceIndexesAsync(db);
 }
 
