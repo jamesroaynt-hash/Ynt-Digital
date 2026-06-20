@@ -3020,8 +3020,8 @@ function renderTimeClockCard() {
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
           <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
-          <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
-          <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(15)">15-min Break</button>
+          <button class="btn btn-secondary btn-break" data-break="break" onclick="startBreakWithCountdown(60, 'break')">Break Out (1hr)</button>
+          <button class="btn btn-secondary btn-break" data-break="break2" onclick="startBreakWithCountdown(15, 'break2')">15-min Break</button>
         </div>
 
         ${canAccessPage('hr') ? "<button class=\"btn btn-ghost btn-sm\" style=\"margin-top:12px;\" onclick=\"navigateTo('hr')\">Open HR records</button>" : ''}
@@ -3336,8 +3336,8 @@ function renderAttendance() {
           <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;">
             <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
             <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
-            <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(60)">Break Out (1hr)</button>
-            <button class="btn btn-secondary btn-break" onclick="startBreakWithCountdown(15)">15-min Break</button>
+            <button class="btn btn-secondary btn-break" data-break="break" onclick="startBreakWithCountdown(60, 'break')">Break Out (1hr)</button>
+            <button class="btn btn-secondary btn-break" data-break="break2" onclick="startBreakWithCountdown(15, 'break2')">15-min Break</button>
           </div>
         </div>
       </div>
@@ -3361,6 +3361,14 @@ function renderAttendance() {
             <div class="form-group">
               <label class="form-label">Break In</label>
               <input type="time" id="attendance-break-in" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">15-min Out</label>
+              <input type="time" id="attendance-break2-out" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">15-min In</label>
+              <input type="time" id="attendance-break2-in" class="form-control">
             </div>
           </div>
           <div class="form-group">
@@ -8472,6 +8480,8 @@ function renderTimeClockStatus(record, date) {
       <div><div class="text-xs text-muted">Time In</div><strong>${formatClockValue(record?.time_in)}</strong></div>
       <div><div class="text-xs text-muted">Break Out</div><strong>${formatClockValue(record?.break_out)}</strong></div>
       <div><div class="text-xs text-muted">Break In</div><strong>${formatClockValue(record?.break_in)}</strong></div>
+      <div><div class="text-xs text-muted">15-min Out</div><strong>${formatClockValue(record?.break2_out)}</strong></div>
+      <div><div class="text-xs text-muted">15-min In</div><strong>${formatClockValue(record?.break2_in)}</strong></div>
       <div><div class="text-xs text-muted">Time Out</div><strong>${formatClockValue(record?.time_out)}</strong></div>
     </div>`;
 }
@@ -8488,19 +8498,25 @@ async function loadTimeClockStatus() {
   }
 }
 
-function startBreakWithCountdown(minutes) {
+// kind: 'break' = 1-hour break out (break_out/break_in),
+//       'break2' = separate 15-min break (break2_out/break2_in).
+function startBreakWithCountdown(minutes, kind = 'break') {
   const duration = Math.max(1, Number(minutes) || 15) * 60;
-  const state = { endsAt: Date.now() + duration * 1000, duration };
+  const outAction = kind === 'break2' ? 'break2_out' : 'break_out';
+  const state = { endsAt: Date.now() + duration * 1000, duration, kind };
   try { localStorage.setItem('breakCountdown', JSON.stringify(state)); } catch {}
-  submitTimeClock('break_out');
+  submitTimeClock(outAction);
   startBreakCountdownTicker();
 }
 
 function endBreakCountdown() {
+  let state = null;
+  try { state = JSON.parse(localStorage.getItem('breakCountdown') || 'null'); } catch {}
+  const inAction = state?.kind === 'break2' ? 'break2_in' : 'break_in';
   try { localStorage.removeItem('breakCountdown'); } catch {}
   stopBreakCountdownTicker();
   hideBreakCountdownUI();
-  submitTimeClock('break_in');
+  submitTimeClock(inAction);
 }
 
 let _breakCountdownTimer = null;
@@ -8596,6 +8612,8 @@ async function submitTimeClock(action) {
     time_in: 'Time in',
     break_out: 'Break out',
     break_in: 'Break in',
+    break2_out: '15-min break out',
+    break2_in: '15-min break in',
     time_out: 'Time out',
   };
   try {
@@ -8817,13 +8835,19 @@ function lockTimeInIfDone(record) {
     btn.disabled = done;
     btn.textContent = done ? 'Timed In ✓' : 'Time In';
   });
-  // One break per day: disable both break buttons once a break has started
-  // (break_out set) — whether the user is mid-break or has already finished it.
-  const breakStarted = Boolean(record?.break_out);
-  const breakDone = Boolean(record?.break_out && record?.break_in);
+  // Two independent breaks: lock each button on its own punches. The 1-hour
+  // break out uses break_out/break_in; the 15-min break uses break2_out/break2_in.
+  // Buttons without a data-break marker fall back to the 1-hour break for safety.
   document.querySelectorAll('.btn-break').forEach((btn) => {
-    btn.disabled = breakStarted;
-    btn.title = breakDone ? 'Break already taken today' : '';
+    const kind = btn.dataset.break === 'break2' ? 'break2' : 'break';
+    const outVal = kind === 'break2' ? record?.break2_out : record?.break_out;
+    const inVal = kind === 'break2' ? record?.break2_in : record?.break_in;
+    const started = Boolean(outVal);
+    const done = Boolean(outVal && inVal);
+    btn.disabled = started;
+    btn.title = done
+      ? (kind === 'break2' ? '15-min break already taken today' : 'Break out already taken today')
+      : '';
   });
 }
 
@@ -8840,6 +8864,8 @@ function renderAttendanceClockStatus(record, date) {
       <div><div class="text-xs text-muted">Time Out</div><strong>${formatClockValue(record?.time_out)}</strong></div>
       <div><div class="text-xs text-muted">Break Out</div><strong>${formatClockValue(record?.break_out)}</strong></div>
       <div><div class="text-xs text-muted">Break In</div><strong>${formatClockValue(record?.break_in)}</strong></div>
+      <div><div class="text-xs text-muted">15-min Out</div><strong>${formatClockValue(record?.break2_out)}</strong></div>
+      <div><div class="text-xs text-muted">15-min In</div><strong>${formatClockValue(record?.break2_in)}</strong></div>
     </div>`;
 }
 
@@ -8852,6 +8878,8 @@ function fillAttendanceInputs(record) {
   setValue('attendance-time-out', record?.time_out);
   setValue('attendance-break-out', record?.break_out);
   setValue('attendance-break-in', record?.break_in);
+  setValue('attendance-break2-out', record?.break2_out);
+  setValue('attendance-break2-in', record?.break2_in);
   setValue('attendance-notes', record?.notes);
 }
 
@@ -8891,6 +8919,8 @@ async function saveAttendanceTimes() {
         time_out: document.getElementById('attendance-time-out')?.value || '',
         break_out: document.getElementById('attendance-break-out')?.value || '',
         break_in: document.getElementById('attendance-break-in')?.value || '',
+        break2_out: document.getElementById('attendance-break2-out')?.value || '',
+        break2_in: document.getElementById('attendance-break2-in')?.value || '',
         notes: document.getElementById('attendance-notes')?.value || '',
       }),
     });
@@ -9501,6 +9531,14 @@ function renderAttendanceLog() {
             <input type="time" id="att-modal-break-in" class="form-control">
           </div>
           <div class="form-group">
+            <label class="form-label">15-min Out</label>
+            <input type="time" id="att-modal-break2-out" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">15-min In</label>
+            <input type="time" id="att-modal-break2-in" class="form-control">
+          </div>
+          <div class="form-group">
             <label class="form-label">OT (minutes)</label>
             <input type="number" min="0" id="att-modal-ot-minutes" class="form-control" placeholder="0">
           </div>
@@ -9826,6 +9864,8 @@ function openAttendanceEditModal(recordId) {
   document.getElementById('att-modal-time-out').value = record.time_out || '';
   document.getElementById('att-modal-break-out').value = record.break_out || '';
   document.getElementById('att-modal-break-in').value = record.break_in || '';
+  document.getElementById('att-modal-break2-out').value = record.break2_out || '';
+  document.getElementById('att-modal-break2-in').value = record.break2_in || '';
   document.getElementById('att-modal-ot-minutes').value = record.ot_minutes || 0;
   const pctSelect = document.getElementById('att-modal-holiday-pct');
   const pct = String(Number(record.holiday_percentage || 100));
@@ -9848,6 +9888,8 @@ async function saveAttendanceFromModal() {
         time_in: document.getElementById('att-modal-time-in')?.value || '',
         break_out: document.getElementById('att-modal-break-out')?.value || '',
         break_in: document.getElementById('att-modal-break-in')?.value || '',
+        break2_out: document.getElementById('att-modal-break2-out')?.value || '',
+        break2_in: document.getElementById('att-modal-break2-in')?.value || '',
         time_out: document.getElementById('att-modal-time-out')?.value || '',
         break_minutes: Number(record.break_minutes || 0),
         ot_minutes: Math.max(0, Number(document.getElementById('att-modal-ot-minutes')?.value || 0)),

@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   time_in TEXT,
   break_out TEXT,
   break_in TEXT,
+  break2_out TEXT,
+  break2_in TEXT,
   time_out TEXT,
   break_minutes INTEGER NOT NULL DEFAULT 15,
   ot_minutes INTEGER NOT NULL DEFAULT 0,

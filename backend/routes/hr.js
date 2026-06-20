@@ -30,6 +30,16 @@ function toMinutes(value) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+// Minutes between two HH:MM punches, or null if either is missing.
+function spanMinutes(startValue, endValue) {
+  const start = toMinutes(startValue);
+  const end = toMinutes(endValue);
+  if (start === null || end === null) return null;
+  let duration = end - start;
+  if (duration < 0) duration += 24 * 60;
+  return Math.max(0, duration);
+}
+
 function calculateWorkedMinutes(record) {
   const start = toMinutes(record?.time_in);
   const end = toMinutes(record?.time_out);
@@ -37,12 +47,16 @@ function calculateWorkedMinutes(record) {
   let duration = end - start;
   if (duration < 0) duration += 24 * 60;
 
-  const breakStart = toMinutes(record?.break_out);
-  const breakEnd = toMinutes(record?.break_in);
-  let breakMinutes = Number(record?.break_minutes || DEFAULT_BREAK_MINUTES);
-  if (breakStart !== null && breakEnd !== null) {
-    breakMinutes = breakEnd - breakStart;
-    if (breakMinutes < 0) breakMinutes += 24 * 60;
+  // Two independent breaks: the 1-hour break out and a separate 15-min break.
+  // Each is measured from its own punches; if neither break was punched at all,
+  // fall back to the standard break_minutes deduction (legacy behaviour).
+  const break1 = spanMinutes(record?.break_out, record?.break_in);
+  const break2 = spanMinutes(record?.break2_out, record?.break2_in);
+  let breakMinutes;
+  if (break1 === null && break2 === null) {
+    breakMinutes = Number(record?.break_minutes || DEFAULT_BREAK_MINUTES);
+  } else {
+    breakMinutes = (break1 || 0) + (break2 || 0);
   }
 
   return Math.max(0, duration - Math.max(0, breakMinutes));
@@ -210,6 +224,8 @@ module.exports = function hrRoutes(db) {
       ['time_in', 'time_in'],
       ['break_out', 'break_out'],
       ['break_in', 'break_in'],
+      ['break2_out', 'break2_out'],
+      ['break2_in', 'break2_in'],
       ['time_out', 'time_out'],
     ]);
     const column = allowed.get(action);
@@ -228,10 +244,9 @@ module.exports = function hrRoutes(db) {
       return res.status(409).json({ error: 'You already timed in today.' });
     }
 
-    // One break per day: once a break has started, block starting another, and
-    // once it has ended, block ending again.
+    // 1-hour break out: start once, end once.
     if (column === 'break_out' && existing && existing.break_out) {
-      return res.status(409).json({ error: 'You already took your break today.' });
+      return res.status(409).json({ error: 'You already took your break out today.' });
     }
     if (column === 'break_in') {
       if (!existing || !existing.break_out) {
@@ -239,6 +254,19 @@ module.exports = function hrRoutes(db) {
       }
       if (existing.break_in) {
         return res.status(409).json({ error: 'You already ended your break today.' });
+      }
+    }
+    // 15-minute break: tracked separately, so it can be taken even after the
+    // 1-hour break has already ended. Same start-once / end-once rules.
+    if (column === 'break2_out' && existing && existing.break2_out) {
+      return res.status(409).json({ error: 'You already took your 15-minute break today.' });
+    }
+    if (column === 'break2_in') {
+      if (!existing || !existing.break2_out) {
+        return res.status(409).json({ error: 'Start your 15-minute break first.' });
+      }
+      if (existing.break2_in) {
+        return res.status(409).json({ error: 'You already ended your 15-minute break today.' });
       }
     }
 
@@ -292,7 +320,7 @@ module.exports = function hrRoutes(db) {
 
   router.put('/attendance/self', async (req, res) => {
     const today = manilaParts().date;
-    const fields = ['time_in', 'break_out', 'break_in', 'time_out'];
+    const fields = ['time_in', 'break_out', 'break_in', 'break2_out', 'break2_in', 'time_out'];
     const existing = await db.prepare(`
       SELECT *
       FROM attendance_records
@@ -323,14 +351,16 @@ module.exports = function hrRoutes(db) {
 
     if (!existing) {
       const result = await db.prepare(`
-        INSERT INTO attendance_records (user_id, work_date, time_in, break_out, break_in, time_out, break_minutes, ot_minutes, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO attendance_records (user_id, work_date, time_in, break_out, break_in, break2_out, break2_in, time_out, break_minutes, ot_minutes, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         req.currentUser.id,
         today,
         next.time_in || null,
         next.break_out || null,
         next.break_in || null,
+        next.break2_out || null,
+        next.break2_in || null,
         next.time_out || null,
         DEFAULT_BREAK_MINUTES,
         next.ot_minutes,
@@ -345,6 +375,8 @@ module.exports = function hrRoutes(db) {
       SET time_in = ?,
           break_out = ?,
           break_in = ?,
+          break2_out = ?,
+          break2_in = ?,
           time_out = ?,
           ot_minutes = ?,
           notes = ?,
@@ -354,6 +386,8 @@ module.exports = function hrRoutes(db) {
       next.time_in || null,
       next.break_out || null,
       next.break_in || null,
+      next.break2_out || null,
+      next.break2_in || null,
       next.time_out || null,
       next.ot_minutes,
       next.notes,
@@ -381,6 +415,8 @@ module.exports = function hrRoutes(db) {
       SET time_in = ?,
           break_out = ?,
           break_in = ?,
+          break2_out = ?,
+          break2_in = ?,
           time_out = ?,
           break_minutes = ?,
           ot_minutes = ?,
@@ -393,6 +429,8 @@ module.exports = function hrRoutes(db) {
       String(req.body?.time_in || '').trim() || null,
       String(req.body?.break_out || '').trim() || null,
       String(req.body?.break_in || '').trim() || null,
+      String(req.body?.break2_out || '').trim() || null,
+      String(req.body?.break2_in || '').trim() || null,
       String(req.body?.time_out || '').trim() || null,
       breakMinutes,
       otMinutes,
