@@ -57,10 +57,22 @@ class PostgresStatement {
   }
 
   async run(...params) {
-    const sql = /\bINSERT\b/i.test(this.sql) && !/\bRETURNING\b/i.test(this.sql)
-      ? `${this.sql} RETURNING id`
-      : this.sql;
-    const result = await this.pool.query(sql, params);
+    const wantsReturning = /\bINSERT\b/i.test(this.sql) && !/\bRETURNING\b/i.test(this.sql);
+    const sql = wantsReturning ? `${this.sql} RETURNING id` : this.sql;
+    let result;
+    try {
+      result = await this.pool.query(sql, params);
+    } catch (err) {
+      // Some tables are keyed by a natural primary key and have no `id` column
+      // (e.g. rts_page_sku keyed by page_name). For those, `RETURNING id` fails
+      // with undefined_column (42703); retry the original statement so upserts
+      // into id-less tables still work.
+      if (wantsReturning && err && err.code === '42703') {
+        result = await this.pool.query(this.sql, params);
+      } else {
+        throw err;
+      }
+    }
     return {
       changes: result.rowCount,
       lastInsertRowid: result.rows?.[0]?.id || 0,
