@@ -1272,6 +1272,37 @@ function inventoryRoutes(db, { dispatch } = {}) {
     res.json({ success: true, reorder_pt });
   });
 
+  // Edit an item's core details (name, sku, type, unit, cost price).
+  r.patch('/:item_id', requireInventoryWrite, async (req, res) => {
+    const item = await db.prepare('SELECT * FROM inventory WHERE item_id=?').get(req.params.item_id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    const name = (req.body?.name ?? item.name)?.toString().trim();
+    if (!name) return res.status(400).json({ error: 'Item name is required' });
+    const sku = req.body?.sku === undefined ? item.sku : (req.body.sku?.toString().trim() || null);
+    const type = req.body?.type === 'Supply' ? 'Supply' : (req.body?.type === 'Product' ? 'Product' : item.type);
+    const unit = (req.body?.unit?.toString().trim()) || item.unit || 'pcs';
+    const cost_price = req.body?.cost_price === undefined
+      ? item.cost_price
+      : (Number.parseFloat(req.body.cost_price) || 0);
+    const sell_price = req.body?.sell_price === undefined || req.body.sell_price === null || req.body.sell_price === ''
+      ? item.sell_price
+      : (Number.parseFloat(req.body.sell_price) || 0);
+    const stock = req.body?.stock === undefined || req.body.stock === null || req.body.stock === ''
+      ? item.stock
+      : Math.max(0, Number.parseInt(req.body.stock, 10) || 0);
+
+    await db.prepare(`UPDATE inventory SET name=?, sku=?, type=?, unit=?, cost_price=?, sell_price=?, stock=?, updated_at=datetime('now') WHERE item_id=?`)
+      .run(name, sku, type, unit, cost_price, sell_price, stock, req.params.item_id);
+    // Keep the audit trail intact if stock was changed from the edit popup.
+    if (stock !== item.stock) {
+      await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`)
+        .run(req.params.item_id, 'set', item.stock, stock - item.stock, stock, 'Edited via item details', req.user?.id||1);
+    }
+    if (dispatch) dispatch('inventory.updated', { item_id: req.params.item_id, name, sku, type, unit, cost_price, sell_price, stock });
+    res.json({ success: true, item_id: req.params.item_id, name, sku, type, unit, cost_price, sell_price, stock });
+  });
+
   // Toggle an item active (on) or closed (off).
   r.patch('/:item_id/active', requireInventoryWrite, async (req, res) => {
     const item = await db.prepare('SELECT * FROM inventory WHERE item_id=?').get(req.params.item_id);

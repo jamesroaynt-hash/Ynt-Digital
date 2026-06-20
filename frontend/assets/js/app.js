@@ -6244,6 +6244,36 @@ function renderInventory() {
     </div>
   </div>` : ''}
 
+  <!-- Edit Item Modal -->
+  ${canEditStock ? `<div class="modal-overlay" id="edit-inventory-modal">
+    <div class="modal">
+      <div class="modal-header"><div class="modal-title">Edit Item</div><button class="modal-close" onclick="closeModal('edit-inventory-modal')">×</button></div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-inv-id">
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Item Name <span class="required">*</span></label><input type="text" class="form-control" id="edit-inv-name" placeholder="Item name"></div>
+          <div class="form-group"><label class="form-label">SKU</label><input type="text" class="form-control" id="edit-inv-sku" placeholder="SKU-XXX"></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Type</label>
+            <select class="form-control" id="edit-inv-type"><option>Product</option><option>Supply</option></select></div>
+          <div class="form-group"><label class="form-label">Unit</label><input type="text" class="form-control" id="edit-inv-unit" placeholder="pcs, roll, bag..."></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Cost Price</label><input type="number" class="form-control" id="edit-inv-cost" placeholder="0.00"></div>
+          <div class="form-group"><label class="form-label">Sell Price</label><input type="number" class="form-control" id="edit-inv-price" placeholder="0.00"></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Current Stock</label><input type="number" class="form-control" id="edit-inv-stock" placeholder="0" min="0"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('edit-inventory-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEditItem()">Save Changes</button>
+      </div>
+    </div>
+  </div>` : ''}
+
   <!-- Stocks Update Modal -->
   ${canEditStock ? `<div class="modal-overlay" id="stocks-modal">
     <div class="modal">
@@ -6294,7 +6324,9 @@ function renderInventoryTable(items, pageScope) {
           const isActive = item.active !== 0;
           return `<tr${isActive ? '' : ' style="opacity:0.55"'}>
             <td><span class="font-mono text-xs text-muted">${item.sku}</span></td>
-            <td><div style="font-weight:500">${item.name}</div></td>
+            <td>${canManageInventoryStock()
+              ? `<button type="button" class="inv-name-edit" style="font-weight:500;background:none;border:none;padding:0;color:var(--text);cursor:pointer;text-align:left;font:inherit;font-weight:500" onclick="openEditItemModal('${escapeHtml(item.id)}')" title="Click to edit item details">${escapeHtml(item.name)}</button>`
+              : `<div style="font-weight:500">${escapeHtml(item.name)}</div>`}</td>
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
             <td><strong>${item.stock}</strong> ${item.unit}</td>
             <td>
@@ -6363,6 +6395,60 @@ function openStockModal(itemId = '') {
     const select = document.getElementById('stocks-item');
     if (select) select.value = itemId;
   }
+}
+
+// Open the Edit Item modal prefilled with the item's current details.
+function openEditItemModal(itemId) {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit inventory items.');
+    return;
+  }
+  const item = DB.inventory.find(i => i.id === itemId);
+  if (!item) return;
+  openModal('edit-inventory-modal');
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  set('edit-inv-id', item.id);
+  set('edit-inv-name', item.name || '');
+  set('edit-inv-sku', item.sku || '');
+  set('edit-inv-type', item.type || 'Product');
+  set('edit-inv-unit', item.unit || 'pcs');
+  set('edit-inv-cost', item.cost != null ? item.cost : '');
+  set('edit-inv-price', item.price != null ? item.price : '');
+  set('edit-inv-stock', item.stock != null ? item.stock : '');
+}
+
+// Save edits made in the Edit Item modal.
+async function saveEditItem() {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can edit inventory items.');
+    return;
+  }
+  const itemId = document.getElementById('edit-inv-id')?.value;
+  const item = DB.inventory.find(i => i.id === itemId);
+  if (!item) return;
+  const name = document.getElementById('edit-inv-name')?.value?.trim();
+  if (!name) { showToast('error', 'Name required', 'Please enter item name'); return; }
+  const sku = document.getElementById('edit-inv-sku')?.value?.trim() || null;
+  const type = document.getElementById('edit-inv-type')?.value || 'Product';
+  const unit = document.getElementById('edit-inv-unit')?.value?.trim() || 'pcs';
+  const cost = parseFloat(document.getElementById('edit-inv-cost')?.value || 0) || 0;
+  const priceRaw = document.getElementById('edit-inv-price')?.value;
+  const sell_price = priceRaw === '' || priceRaw == null ? null : (parseFloat(priceRaw) || 0);
+  const stock = Math.max(0, parseInt(document.getElementById('edit-inv-stock')?.value || 0, 10) || 0);
+
+  try {
+    await authorizedJsonRequest(`/inventory/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name, sku, type, unit, cost_price: cost, sell_price, stock }),
+    });
+    await refreshInventoryFromBackend();
+  } catch (error) {
+    showToast('error', 'Update failed', error.message || 'Could not update item.');
+    return;
+  }
+  closeModal('edit-inventory-modal');
+  rerenderInventoryTables();
+  showToast('success', 'Item updated', name);
 }
 
 // ─── RENDER: EXPENSES ──────────────────────────────────────
