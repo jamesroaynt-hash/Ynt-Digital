@@ -524,6 +524,57 @@ function renderRtsReturnTab() {
   </div>`;
 }
 
+// Stock History tab: audit trail of every stock update from inventory_logs.
+function renderStockHistoryTab() {
+  return `
+  <div id="stock-history-wrap">
+    <div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">Loading stock history...</div></div>
+  </div>`;
+}
+
+async function loadStockHistory() {
+  const wrap = document.getElementById('stock-history-wrap');
+  if (!wrap) return;
+  if (!getApiBase() || !getAuthToken()) {
+    wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">Connect to a server to view stock history.</div></div>`;
+    return;
+  }
+  try {
+    const rows = await authorizedJsonRequest(`/inventory/logs?limit=300&_=${Date.now()}`);
+    if (!Array.isArray(rows) || !rows.length) {
+      wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text-muted);padding:24px;">No stock updates recorded yet.</div></div>`;
+      return;
+    }
+    const actionLabel = { add: 'Add', remove: 'Remove', set: 'Set', adjustment: 'Adjustment' };
+    const bodyHtml = rows.map((r) => {
+      const change = Number(r.qty_change || 0);
+      const changeStr = change > 0 ? `+${change}` : `${change}`;
+      const changeColor = change > 0 ? 'var(--success)' : (change < 0 ? 'var(--danger)' : 'var(--text-muted)');
+      return `<tr>
+        <td style="white-space:nowrap;">${escapeHtml(formatDateTime(r.created_at))}</td>
+        <td style="font-weight:500;">${escapeHtml(r.item_name || r.item_id || '—')}</td>
+        <td>${escapeHtml(actionLabel[r.action] || r.action || '—')}</td>
+        <td style="text-align:right;">${Number(r.qty_before || 0).toLocaleString()}</td>
+        <td style="text-align:right;font-weight:600;color:${changeColor};">${changeStr}</td>
+        <td style="text-align:right;font-weight:600;">${Number(r.qty_after || 0).toLocaleString()}</td>
+        <td>${escapeHtml(r.created_by_name || 'System')}</td>
+        <td>${escapeHtml(r.notes || '')}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<div class="card">
+      <div class="card-header"><div><div class="card-title">Stock Update History</div><div class="card-subtitle">Every stock change, newest first (last 300).</div></div></div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Date</th><th>Item</th><th>Action</th><th style="text-align:right;">Before</th><th style="text-align:right;">Change</th><th style="text-align:right;">After</th><th>By</th><th>Notes</th></tr></thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  } catch (error) {
+    wrap.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--danger);padding:24px;">Failed to load: ${escapeHtml(error.message || 'error')}</div></div>`;
+  }
+}
+
 async function loadRtsReturnRecords() {
   const wrap = document.getElementById('rts-return-pages');
   if (!wrap) return;
@@ -6203,6 +6254,7 @@ function renderInventory() {
     <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-all')">All Items</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-stock-history')">Stock History</button>
   </div>
 
   <div id="tab-products" class="tab-content active">
@@ -6222,6 +6274,9 @@ function renderInventory() {
   </div>
   <div id="tab-rts-return" class="tab-content">
     ${renderRtsReturnTab()}
+  </div>
+  <div id="tab-stock-history" class="tab-content">
+    ${renderStockHistoryTab()}
   </div>
 
   <!-- Add/Edit Inventory Modal -->
@@ -9245,6 +9300,7 @@ function initPage(page) {
 
   if (page === 'inventory') {
     loadRtsReturnRecords().catch(() => {});
+    loadStockHistory().catch(() => {});
     refreshRtsPcsByProduct()
       .then((ok) => {
         if (!ok || App.currentPage !== 'inventory') return;

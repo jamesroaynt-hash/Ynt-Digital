@@ -1191,6 +1191,24 @@ function inventoryRoutes(db, { dispatch } = {}) {
     res.json(await db.prepare('SELECT * FROM inventory WHERE stock < reorder_pt').all());
   });
 
+  // Stock update history (inventory_logs) for the Inventory "Stock History" tab.
+  // Newest first. Optional ?item_id= filter; ?limit= caps rows (default 200).
+  r.get('/logs', async (req, res) => {
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 200, 1), 1000);
+    const params = [];
+    let sql = `
+      SELECT l.id, l.item_id, i.name AS item_name, i.unit,
+             l.action, l.qty_before, l.qty_change, l.qty_after,
+             l.notes, l.created_at, u.full_name AS created_by_name
+      FROM inventory_logs l
+      LEFT JOIN inventory i ON i.item_id = l.item_id
+      LEFT JOIN users u ON u.id = l.created_by`;
+    if (req.query.item_id) { sql += ' WHERE l.item_id = ?'; params.push(req.query.item_id); }
+    sql += ' ORDER BY l.id DESC LIMIT ?';
+    params.push(limit);
+    res.json(await db.prepare(sql).all(...params));
+  });
+
   // RTS Return page→SKU routing map.
   r.get('/rts-sku-map', async (req, res) => {
     res.json(await db.prepare('SELECT page_name, sku FROM rts_page_sku').all());
