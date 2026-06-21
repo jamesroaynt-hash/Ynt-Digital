@@ -7540,7 +7540,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>Page</th><th>SRP</th><th>Attempts</th><th>Confirmed By</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : 'Reason'}</th><th>Notes</th>` : ''}<th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>Page</th><th>SRP</th><th>Attempts</th><th>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Reason' : 'Confirmed By'}</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Confirmed By' : 'Reason')}</th><th>Notes</th>` : ''}<th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="${rmoTab !== 'orders' ? 13 : 11}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
@@ -11965,10 +11965,10 @@ function renderPosOrdersTable() {
         <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
-        <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
+        <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<span class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</span>` : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash)}</td>
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash))}</td>
         <td><button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button></td>` : ''}
         <td>${order.can_message
           ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
