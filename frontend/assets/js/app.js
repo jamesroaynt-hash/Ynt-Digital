@@ -4123,6 +4123,7 @@ function setDataReportTab(tab) {
     panel.classList.toggle('hidden', panel.dataset.tab !== tab);
   });
   if (tab === 'analytics') renderDataReportDashboard();
+  if (tab === 'roas') renderRoasSummaryDashboard();
   if (tab === 'sales') renderRTSRateDashboard();
 }
 
@@ -4220,6 +4221,7 @@ function renderDataReport() {
   <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--border-color);">
     <button class="dr-tab-btn ${dataReportTab === 'sales' ? 'active' : ''}" data-tab="sales" onclick="setDataReportTab('sales')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'sales' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'sales' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Sales Dashboard</button>
     <button class="dr-tab-btn ${dataReportTab === 'analytics' ? 'active' : ''}" data-tab="analytics" onclick="setDataReportTab('analytics')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'analytics' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'analytics' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Analytics</button>
+    <button class="dr-tab-btn ${dataReportTab === 'roas' ? 'active' : ''}" data-tab="roas" onclick="setDataReportTab('roas')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'roas' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'roas' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">ROAS Summary</button>
   </div>
 
   <div class="dr-tab-panel ${dataReportTab !== 'sales' ? 'hidden' : ''}" data-tab="sales">
@@ -4300,10 +4302,25 @@ function renderDataReport() {
       </div>
     </div>
     <div id="data-report-dashboard" style="margin-bottom:20px;"></div>
+  </div>
+
+  <div class="dr-tab-panel ${dataReportTab !== 'roas' ? 'hidden' : ''}" data-tab="roas">
+    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">ROAS Summary</div>
+          <div style="font-size:12px;color:var(--text-muted);">Ad-level performance from synced POS records. Uses the same time and page filters as the Analytics tab.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="refreshDataReport()">Refresh</button>
+      </div>
+    </div>
+    <div id="roas-summary-dashboard" style="margin-bottom:20px;"></div>
   </div>`;
 }
 
 function renderDataReportDashboard() {
+  renderRoasSummaryDashboard();
+
   const wrapper = document.getElementById('data-report-dashboard');
   if (!wrapper) return;
 
@@ -4313,7 +4330,7 @@ function renderDataReportDashboard() {
   }
 
   const { rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
-  const byAdId = dataReportSummary.byAdId || [];
+  const byPage = dataReportSummary.byPage || [];
   wrapper.innerHTML = `
     <section class="data-report-section">
       <div class="card-header">
@@ -4334,20 +4351,40 @@ function renderDataReportDashboard() {
 
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">By Ads ID</div><div class="card-subtitle">Orders and RTS rate grouped by ad id</div></div>
-      </div>
-      ${renderDataReportTable(byAdId, 'Ads ID', 'No ads ID data yet')}
-    </section>
-
-    <section class="data-report-section">
-      <div class="card-header">
         <div><div class="card-title">By Province/City</div><div class="card-subtitle">RTS rate grouped by province/city</div></div>
       </div>
       ${renderDataReportTable(byProvince, 'Province/City', 'No province data yet')}
     </section>
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">Page Report</div><div class="card-subtitle">Total orders, delivered, returned and RTS rate per page</div></div>
+      </div>
+      ${renderDataReportTable(byPage, 'Page', 'No page data yet')}
+    </section>
 `;
 
   renderDataReportPriceChart(byPrice);
+}
+
+function renderRoasSummaryDashboard() {
+  const wrapper = document.getElementById('roas-summary-dashboard');
+  if (!wrapper) return;
+
+  if (dataReportSummaryLoading || !dataReportSummary) {
+    wrapper.innerHTML = '<div class="loading-spinner" style="margin:48px auto;"></div>';
+    return;
+  }
+
+  const byAdId = dataReportSummary.byAdId || [];
+  wrapper.innerHTML = `
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By Ads ID</div><div class="card-subtitle">Orders and RTS rate grouped by ad id</div></div>
+      </div>
+      ${renderDataReportTable(byAdId, 'Ads ID', 'No ads ID data yet')}
+    </section>
+`;
 }
 
 async function loadConfirmedByStats() {

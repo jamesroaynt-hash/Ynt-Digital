@@ -446,6 +446,33 @@ module.exports = function integrationRoutes(db) {
         return { ...g, rtsRate: b ? ((g.returned + g.returning) / b) * 100 : 0 };
       }).sort((a, b) => b.total - a.total || b.rtsRate - a.rtsRate);
 
+      // byPage — direct column GROUP BY on page_name
+      const pageWhere = conditions.length
+        ? `WHERE (${conditions.join(' AND ')}) AND page_name IS NOT NULL AND TRIM(page_name) != ''`
+        : `WHERE page_name IS NOT NULL AND TRIM(page_name) != ''`;
+      const pageReportRows = await db.prepare(`
+        SELECT
+          page_name as label,
+          COUNT(*) as total,
+          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          COALESCE(SUM(cod), 0) as cod
+        FROM pos_orders ${pageWhere}
+        GROUP BY page_name
+        ORDER BY total DESC
+      `).all(...params);
+      const byPage = pageReportRows.map((r) => {
+        const b = Number(r.delivered) + Number(r.returned) + Number(r.returning);
+        return {
+          label: r.label,
+          total: Number(r.total), delivered: Number(r.delivered),
+          returned: Number(r.returned), returning: Number(r.returning),
+          cod: Number(r.cod),
+          rtsRate: b ? ((Number(r.returned) + Number(r.returning)) / b) * 100 : 0,
+        };
+      });
+
       // Dropdown options from full dataset (no filter applied)
       const monthRows = await db.prepare(`
         SELECT DISTINCT SUBSTR(inserted_at_remote, 1, 7) as m
@@ -468,6 +495,7 @@ module.exports = function integrationRoutes(db) {
         byConfirmed,
         byAdId,
         byProvince,
+        byPage,
         months,
         pages,
       });
