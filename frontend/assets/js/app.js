@@ -4032,6 +4032,8 @@ function renderSaleReportBarChart(orders) {
 
 let dataReportTab = 'sales';
 let dataReportAnalyticsSubTab = 'price';
+let dataReportStocksLoaded = false;
+let dataReportStocksLoading = false;
 let dataReportPreset = 'monthly';
 let dataReportDateFrom = '';
 let dataReportDateTo = '';
@@ -4343,6 +4345,7 @@ function renderDataReportDashboard() {
     ['staff', 'By Assigned Staff'],
     ['province', 'By Province/City'],
     ['page', 'Page Report'],
+    ['stocks', 'Stocks'],
   ];
   if (!subTabs.some(([v]) => v === dataReportAnalyticsSubTab)) dataReportAnalyticsSubTab = 'price';
   const active = dataReportAnalyticsSubTab;
@@ -4383,6 +4386,8 @@ function renderDataReportDashboard() {
       </div>
       ${renderDataReportTable(byPage, 'Page', 'No page data yet')}
     </section>`;
+  } else if (active === 'stocks') {
+    cardHtml = renderStockAnalyticsCard();
   }
 
   wrapper.innerHTML = `
@@ -4413,6 +4418,72 @@ function renderRoasSummaryDashboard() {
       ${renderDataReportTable(byAdId, 'Ads ID', 'No ads ID data yet')}
     </section>
 `;
+}
+
+// Stocks sub-tab data comes from the Inventory endpoints, not the POS summary:
+// item list (name/stock/price) + RTS pcs derived via the page→SKU map.
+async function loadStockAnalyticsData() {
+  if (dataReportStocksLoading) return;
+  dataReportStocksLoading = true;
+  try {
+    await Promise.all([
+      refreshInventoryFromBackend().catch(() => {}),
+      refreshRtsPcsByProduct().catch(() => {}),
+    ]);
+    dataReportStocksLoaded = true;
+  } finally {
+    dataReportStocksLoading = false;
+    if (App.currentPage === 'data-report' && dataReportTab === 'analytics' && dataReportAnalyticsSubTab === 'stocks') {
+      renderDataReportDashboard();
+    }
+  }
+}
+
+function renderStockAnalyticsCard() {
+  if (!dataReportStocksLoaded) {
+    if (!dataReportStocksLoading) loadStockAnalyticsData();
+    return `<section class="data-report-section"><div class="loading-spinner" style="margin:48px auto;"></div></section>`;
+  }
+
+  const { skuPcs, namePcs } = computeRtsPcsLookups();
+  const getRtsPcs = (item) => (item.sku && skuPcs[item.sku] != null)
+    ? Number(skuPcs[item.sku])
+    : Number(namePcs[normalizeProductKey(item.name)] || 0);
+
+  const rows = (DB.inventory || []).slice()
+    .sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0) || String(a.name).localeCompare(String(b.name)));
+
+  let body;
+  if (!rows.length) {
+    body = `<div class="empty-state data-report-empty"><h3>No stock data yet</h3><p>Add items on the Inventory page to populate this report.</p></div>`;
+  } else {
+    body = `
+    <table class="data-report-table">
+      <thead><tr>
+        <th>Product/Supplies</th><th style="text-align:right">Total Stocks</th><th style="text-align:right">RTS</th><th style="text-align:right">Price</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((item) => {
+          const rtsPcs = getRtsPcs(item);
+          const price = item.price === null || item.price === undefined ? null : Number(item.price);
+          return `<tr>
+            <td>${escapeHtml(item.name || '—')}<span style="color:var(--text-muted);font-size:11px;"> · ${escapeHtml(item.type || 'Product')}</span></td>
+            <td style="text-align:right;">${Number(item.stock || 0).toLocaleString()}</td>
+            <td style="text-align:right;" class="${rtsPcs ? 'text-danger' : ''}">${rtsPcs ? rtsPcs.toLocaleString() : '—'}</td>
+            <td style="text-align:right;">${price === null ? '—' : `₱${price.toLocaleString()}`}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  return `
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">Stocks</div><div class="card-subtitle">Total stocks, RTS pcs and price per product/supply</div></div>
+      </div>
+      ${body}
+    </section>`;
 }
 
 async function loadConfirmedByStats() {
