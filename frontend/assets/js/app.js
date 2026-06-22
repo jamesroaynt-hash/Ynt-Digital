@@ -4460,17 +4460,18 @@ function renderStockAnalyticsCard() {
     body = `
     <table class="data-report-table">
       <thead><tr>
-        <th>Product/Supplies</th><th style="text-align:right">Total Stocks</th><th style="text-align:right">RTS</th><th style="text-align:right">Price</th>
+        <th>Product/Supplies</th><th style="text-align:right">Total Stocks</th><th style="text-align:right">RTS</th><th style="text-align:right">Cost (Total)</th>
       </tr></thead>
       <tbody>
         ${rows.map((item) => {
           const rtsPcs = getRtsPcs(item);
-          const price = item.price === null || item.price === undefined ? null : Number(item.price);
+          const unitCost = Number(item.cost || 0);
+          const totalCost = unitCost * Number(item.stock || 0);
           return `<tr>
             <td>${escapeHtml(item.name || '—')}<span style="color:var(--text-muted);font-size:11px;"> · ${escapeHtml(item.type || 'Product')}</span></td>
             <td style="text-align:right;">${Number(item.stock || 0).toLocaleString()}</td>
             <td style="text-align:right;" class="${rtsPcs ? 'text-danger' : ''}">${rtsPcs ? rtsPcs.toLocaleString() : '—'}</td>
-            <td style="text-align:right;">${price === null ? '—' : `₱${price.toLocaleString()}`}</td>
+            <td style="text-align:right;">${totalCost ? `₱${totalCost.toLocaleString()}` : '—'}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -4480,7 +4481,7 @@ function renderStockAnalyticsCard() {
   return `
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">Stocks</div><div class="card-subtitle">Total stocks, RTS pcs and price per product/supply</div></div>
+        <div><div class="card-title">Stocks</div><div class="card-subtitle">Total stocks, RTS pcs and total cost (cost price × stock) per product/supply</div></div>
       </div>
       ${body}
     </section>`;
