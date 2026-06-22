@@ -4031,6 +4031,7 @@ function renderSaleReportBarChart(orders) {
 }
 
 let dataReportTab = 'sales';
+let dataReportAnalyticsSubTab = 'price';
 let dataReportPreset = 'monthly';
 let dataReportDateFrom = '';
 let dataReportDateTo = '';
@@ -4125,6 +4126,11 @@ function setDataReportTab(tab) {
   if (tab === 'analytics') renderDataReportDashboard();
   if (tab === 'roas') renderRoasSummaryDashboard();
   if (tab === 'sales') renderRTSRateDashboard();
+}
+
+function setDataReportAnalyticsSubTab(tab) {
+  dataReportAnalyticsSubTab = tab;
+  renderDataReportDashboard();
 }
 
 function setDataReportPreset(preset) {
@@ -4331,14 +4337,27 @@ function renderDataReportDashboard() {
 
   const { rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
   const byPage = dataReportSummary.byPage || [];
-  wrapper.innerHTML = `
+
+  const subTabs = [
+    ['price', 'By Price'],
+    ['staff', 'By Assigned Staff'],
+    ['province', 'By Province/City'],
+    ['page', 'Page Report'],
+  ];
+  if (!subTabs.some(([v]) => v === dataReportAnalyticsSubTab)) dataReportAnalyticsSubTab = 'price';
+  const active = dataReportAnalyticsSubTab;
+
+  let cardHtml = '';
+  if (active === 'price') {
+    cardHtml = `
     <section class="data-report-section">
       <div class="card-header">
         <div><div class="card-title">By Price (Final Amount)</div><div class="card-subtitle">RTS rate by order price range</div></div>
       </div>
       <div class="data-report-chart-wrap"><canvas id="data-report-price-chart"></canvas></div>
-    </section>
-
+    </section>`;
+  } else if (active === 'staff') {
+    cardHtml = `
     <section class="data-report-section">
       <div class="card-header">
         <div>
@@ -4347,24 +4366,33 @@ function renderDataReportDashboard() {
         </div>
       </div>
       ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet', { showCod: true })}
-    </section>
-
+    </section>`;
+  } else if (active === 'province') {
+    cardHtml = `
     <section class="data-report-section">
       <div class="card-header">
         <div><div class="card-title">By Province/City</div><div class="card-subtitle">RTS rate grouped by province/city</div></div>
       </div>
       ${renderDataReportTable(byProvince, 'Province/City', 'No province data yet')}
-    </section>
-
+    </section>`;
+  } else if (active === 'page') {
+    cardHtml = `
     <section class="data-report-section">
       <div class="card-header">
         <div><div class="card-title">Page Report</div><div class="card-subtitle">Total orders, delivered, returned and RTS rate per page</div></div>
       </div>
       ${renderDataReportTable(byPage, 'Page', 'No page data yet')}
-    </section>
+    </section>`;
+  }
+
+  wrapper.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+      ${subTabs.map(([v, l]) => `<button class="filter-pill ${active === v ? 'active' : ''}" onclick="setDataReportAnalyticsSubTab('${v}')">${l}</button>`).join('')}
+    </div>
+    ${cardHtml}
 `;
 
-  renderDataReportPriceChart(byPrice);
+  if (active === 'price') renderDataReportPriceChart(byPrice);
 }
 
 function renderRoasSummaryDashboard() {
