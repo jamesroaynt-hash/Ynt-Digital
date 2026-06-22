@@ -4529,15 +4529,20 @@ async function renderStaffMergeBody() {
     const rows = names.map((n) => {
       const canonical = map[n] || '';
       return `<tr>
+        <td style="text-align:center;"><input type="checkbox" class="staff-merge-check" value="${escapeHtml(n)}"></td>
         <td style="font-weight:500;">${escapeHtml(n)}</td>
-        <td><input type="text" class="form-control" style="width:200px;padding:4px 8px;height:auto;font-size:12px;" list="staff-merge-options" value="${escapeHtml(canonical)}" placeholder="Keep separate" onchange="saveStaffMerge('${encodeURIComponent(n)}', this.value)"></td>
+        <td><input type="text" class="form-control" style="width:180px;padding:4px 8px;height:auto;font-size:12px;" list="staff-merge-options" value="${escapeHtml(canonical)}" placeholder="Keep separate" onchange="saveStaffMerge('${encodeURIComponent(n)}', this.value)"></td>
       </tr>`;
     }).join('');
     body.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Type a target name under "Merge into" to combine a staff member into another (their orders are summed). Leave blank to keep them separate. Applies to the By Assigned Staff card only.</p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Tick multiple staff and merge them into one target at once, or set a single row's "Merge into" target. Merged staff have their orders summed. Applies to the By Assigned Staff card only.</p>
       ${datalist}
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="text" id="staff-merge-target" class="form-control" list="staff-merge-options" placeholder="Merge selected into…" style="width:220px;padding:6px 10px;height:auto;font-size:13px;">
+        <button class="btn btn-primary btn-sm" onclick="saveStaffMergeBulk()">Merge selected</button>
+      </div>
       <table class="data-report-table">
-        <thead><tr><th>Staff Name</th><th>Merge into</th></tr></thead>
+        <thead><tr><th style="text-align:center;width:32px;"><input type="checkbox" onchange="document.querySelectorAll('.staff-merge-check').forEach(c=>c.checked=this.checked)"></th><th>Staff Name</th><th>Merge into</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   } catch (err) {
@@ -4556,6 +4561,35 @@ async function saveStaffMerge(aliasEnc, canonical) {
     await refreshDataReport();
   } catch (err) {
     showToast('error', 'Save failed', err.message || 'Could not save merge.');
+  }
+}
+
+// Merge every checked staff name into one target in a single action.
+async function saveStaffMergeBulk() {
+  const target = String(document.getElementById('staff-merge-target')?.value || '').trim();
+  if (!target) {
+    showToast('warning', 'Pick a target', 'Type the name to merge the selected staff into.');
+    return;
+  }
+  const aliases = [...document.querySelectorAll('.staff-merge-check:checked')]
+    .map((c) => c.value)
+    .filter((v) => v && v !== target);
+  if (!aliases.length) {
+    showToast('warning', 'Select staff', 'Tick at least one staff name (other than the target) to merge.');
+    return;
+  }
+  try {
+    for (const alias of aliases) {
+      await authorizedJsonRequest('/integrations/google-sheets/staff-merge-map', {
+        method: 'PUT',
+        body: JSON.stringify({ alias, canonical: target }),
+      });
+    }
+    showToast('success', 'Merged', `${aliases.length} staff → ${target}`);
+    await renderStaffMergeBody();
+    await refreshDataReport();
+  } catch (err) {
+    showToast('error', 'Merge failed', err.message || 'Could not save merges.');
   }
 }
 
