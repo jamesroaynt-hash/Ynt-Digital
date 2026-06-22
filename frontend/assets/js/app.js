@@ -4362,11 +4362,12 @@ function renderDataReportDashboard() {
   } else if (active === 'staff') {
     cardHtml = `
     <section class="data-report-section">
-      <div class="card-header">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
         <div>
           <div class="card-title">By Assigned Staff</div>
           <div class="card-subtitle">Orders and RTS rate per assigned staff member</div>
         </div>
+        <button class="btn btn-secondary btn-sm" onclick="openStaffMergeModal()">Merge staff…</button>
       </div>
       ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet', { showCod: true })}
     </section>`;
@@ -4485,6 +4486,77 @@ function renderStockAnalyticsCard() {
       </div>
       ${body}
     </section>`;
+}
+
+// Persistent staff alias merge (Data Report "By Assigned Staff" only). Maps an
+// assigning_seller_name to another name so their rows combine in the report.
+async function openStaffMergeModal() {
+  let overlay = document.getElementById('staff-merge-modal');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'staff-merge-modal';
+    overlay.className = 'modal-overlay';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove('open'); };
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title">Merge Assigned Staff</div>
+        <button class="modal-close" onclick="document.getElementById('staff-merge-modal').classList.remove('open')">×</button>
+      </div>
+      <div class="modal-body" id="staff-merge-body">
+        <div class="loading-spinner" style="margin:32px auto;"></div>
+      </div>
+    </div>`;
+  overlay.classList.add('open');
+  await renderStaffMergeBody();
+}
+
+async function renderStaffMergeBody() {
+  const body = document.getElementById('staff-merge-body');
+  if (!body) return;
+  try {
+    const data = await authorizedJsonRequest(`/integrations/google-sheets/staff-merge-map?_=${Date.now()}`);
+    const names = Array.isArray(data.names) ? data.names : [];
+    const map = {};
+    (Array.isArray(data.map) ? data.map : []).forEach((m) => { if (m.alias) map[m.alias] = m.canonical || ''; });
+    if (!names.length) {
+      body.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>No assigned staff names found yet.</p></div>`;
+      return;
+    }
+    const datalist = `<datalist id="staff-merge-options">${names.map((n) => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>`;
+    const rows = names.map((n) => {
+      const canonical = map[n] || '';
+      return `<tr>
+        <td style="font-weight:500;">${escapeHtml(n)}</td>
+        <td><input type="text" class="form-control" style="width:200px;padding:4px 8px;height:auto;font-size:12px;" list="staff-merge-options" value="${escapeHtml(canonical)}" placeholder="Keep separate" onchange="saveStaffMerge('${encodeURIComponent(n)}', this.value)"></td>
+      </tr>`;
+    }).join('');
+    body.innerHTML = `
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Type a target name under "Merge into" to combine a staff member into another (their orders are summed). Leave blank to keep them separate. Applies to the By Assigned Staff card only.</p>
+      ${datalist}
+      <table class="data-report-table">
+        <thead><tr><th>Staff Name</th><th>Merge into</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch (err) {
+    body.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>Failed to load: ${escapeHtml(err.message || 'error')}</p></div>`;
+  }
+}
+
+async function saveStaffMerge(aliasEnc, canonical) {
+  const alias = decodeURIComponent(aliasEnc);
+  try {
+    await authorizedJsonRequest('/integrations/google-sheets/staff-merge-map', {
+      method: 'PUT',
+      body: JSON.stringify({ alias, canonical: String(canonical || '').trim() }),
+    });
+    showToast('success', 'Saved', `${alias} → ${String(canonical || '').trim() || '(separate)'}`);
+    await refreshDataReport();
+  } catch (err) {
+    showToast('error', 'Save failed', err.message || 'Could not save merge.');
+  }
 }
 
 async function loadConfirmedByStats() {

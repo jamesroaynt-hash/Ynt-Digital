@@ -356,16 +356,36 @@ module.exports = function integrationRoutes(db) {
         GROUP BY assigning_seller_name
         ORDER BY total DESC
       `).all(...params);
-      const byConfirmed = confirmedRows.map((r) => {
-        const b = Number(r.delivered) + Number(r.returned) + Number(r.returning);
-        return {
-          label: r.label,
-          total: Number(r.total), delivered: Number(r.delivered),
-          returned: Number(r.returned), returning: Number(r.returning),
-          cod: Number(r.cod),
-          rtsRate: b ? ((Number(r.returned) + Number(r.returning)) / b) * 100 : 0,
-        };
-      });
+      // Saved staff alias merges (Data Report only): combine rows whose
+      // assigning_seller_name is a known alias into one canonical staff entry.
+      let staffMergeMap = {};
+      try {
+        const mergeRows = await db.prepare('SELECT alias, canonical FROM staff_merge_map').all();
+        for (const m of mergeRows) {
+          const a = String(m.alias || '').trim();
+          const c = String(m.canonical || '').trim();
+          if (a && c) staffMergeMap[a] = c;
+        }
+      } catch { staffMergeMap = {}; }
+      const resolveStaff = (name) => {
+        let cur = String(name || '').trim();
+        const seen = new Set();
+        while (staffMergeMap[cur] && !seen.has(cur)) { seen.add(cur); cur = staffMergeMap[cur]; }
+        return cur || name;
+      };
+      const confirmedAgg = {};
+      for (const r of confirmedRows) {
+        const label = resolveStaff(r.label);
+        if (!confirmedAgg[label]) confirmedAgg[label] = { label, total: 0, delivered: 0, returned: 0, returning: 0, cod: 0 };
+        const g = confirmedAgg[label];
+        g.total += Number(r.total); g.delivered += Number(r.delivered);
+        g.returned += Number(r.returned); g.returning += Number(r.returning);
+        g.cod += Number(r.cod);
+      }
+      const byConfirmed = Object.values(confirmedAgg).map((g) => {
+        const b = g.delivered + g.returned + g.returning;
+        return { ...g, rtsRate: b ? ((g.returned + g.returning) / b) * 100 : 0 };
+      }).sort((a, b) => b.total - a.total);
 
       // byAdId — direct column GROUP BY on ad_id
       const adWhere = conditions.length
@@ -504,7 +524,46 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Staff alias merge map for the Data Report "By Assigned Staff" card.
+  // Returns the saved alias→canonical pairs plus the distinct staff names
+  // present in pos_orders (so the UI can offer them as merge sources).
+  router.get('/google-sheets/staff-merge-map', async (req, res) => {
+    try {
+      const map = await db.prepare('SELECT alias, canonical FROM staff_merge_map ORDER BY canonical, alias').all();
+      const nameRows = await db.prepare(
+        `SELECT DISTINCT assigning_seller_name AS name FROM pos_orders
+         WHERE assigning_seller_name IS NOT NULL AND TRIM(assigning_seller_name) != ''
+         ORDER BY assigning_seller_name`
+      ).all();
+      res.json({ map, names: nameRows.map((r) => r.name) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
+
+  // Upsert/clear a single staff alias→canonical mapping. Empty canonical
+  // (or canonical === alias) removes the mapping.
+  router.put('/google-sheets/staff-merge-map', async (req, res) => {
+    try {
+      const alias = String(req.body?.alias || '').trim();
+      const canonical = String(req.body?.canonical || '').trim();
+      if (!alias) return res.status(400).json({ error: 'alias required' });
+      if (!canonical || canonical === alias) {
+        await db.prepare('DELETE FROM staff_merge_map WHERE alias = ?').run(alias);
+        return res.json({ success: true, alias, canonical: '' });
+      }
+      await db.prepare(`
+        INSERT INTO staff_merge_map (alias, canonical, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, updated_at = datetime('now')
+      `).run(alias, canonical);
+      res.json({ success: true, alias, canonical });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   router.get('/pancake-pos/status', async (req, res) => {
     res.json(await posSync.getStatus(db));

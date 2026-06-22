@@ -602,6 +602,15 @@ function runMigrations(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  // Assigned-staff alias merge: rows whose assigning_seller_name = alias are
+  // reported under `canonical` (combined) in the Data Report By Assigned Staff card.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS staff_merge_map (
+      alias TEXT PRIMARY KEY,
+      canonical TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
   ensurePerformanceIndexes(db);
 }
 
@@ -926,6 +935,15 @@ async function runPostgresMigrations(db) {
     CREATE TABLE IF NOT EXISTS rts_page_sku (
       page_name TEXT PRIMARY KEY,
       sku TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  // Assigned-staff alias merge: rows whose assigning_seller_name = alias are
+  // reported under `canonical` (combined) in the Data Report By Assigned Staff card.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS staff_merge_map (
+      alias TEXT PRIMARY KEY,
+      canonical TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
