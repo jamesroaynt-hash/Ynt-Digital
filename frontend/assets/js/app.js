@@ -7287,7 +7287,11 @@ function renderScanComboCard(pageId, scanType) {
                 Scan
               </button>
             </div>
-            <p class="form-hint" style="margin-bottom:0;">Press Enter or click Scan to look up tracking details</p>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+              <label for="scan-date-${pageId}" style="font-size:12px;font-weight:600;color:var(--text-muted);white-space:nowrap;">Scan date</label>
+              <input type="date" class="form-control" id="scan-date-${pageId}" value="${new Date().toISOString().split('T')[0]}" style="width:170px;">
+            </div>
+            <p class="form-hint" style="margin-bottom:0;margin-top:8px;">Press Enter or click Scan to look up tracking details. Scans count toward the selected date.</p>
           </div>
           <div style="text-align:right;padding-left:24px;border-left:1px solid var(--border);align-self:stretch;display:flex;flex-direction:column;justify-content:center;">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);white-space:nowrap;">Total Scan Today</div>
@@ -12600,10 +12604,16 @@ async function performScan(pageId, scanType) {
     };
   }
 
-  // Fast local pre-check: block if this tracking was already scanned today in this session
+  // Scan date: honour the date picker if present (RTS scanner lets you back-date
+  // a scan); otherwise default to today.
   const today = new Date().toISOString().split('T')[0];
+  const dateEl = document.getElementById(`scan-date-${pageId}`);
+  const scanDate = (dateEl && dateEl.value) || today;
+
+  // Fast local pre-check: block if this tracking was already scanned on the
+  // selected date in this session
   const alreadyLocal = DB.scanRecords.some(
-    (r) => r.tracking.toLowerCase() === tracking.toLowerCase() && r.type === scanType && r.date === today
+    (r) => r.tracking.toLowerCase() === tracking.toLowerCase() && r.type === scanType && r.date === scanDate
   );
   if (alreadyLocal) {
     showToast('warning', 'Already scanned', `${tracking} was already scanned today.`);
@@ -12618,7 +12628,7 @@ async function performScan(pageId, scanType) {
     id: `SCN-${String(DB.scanRecords.length + 1).padStart(4, '0')}`,
     ...found,
     type: scanType,
-    date: today,
+    date: scanDate,
   };
 
   if (getApiBase() && getAuthToken()) {
@@ -12665,7 +12675,7 @@ async function performScan(pageId, scanType) {
         <div class="scan-field"><div class="scan-field-label">Phone Number</div><div class="scan-field-value font-mono">${found.phone}</div></div>
         ${found.product ? `<div class="scan-field"><div class="scan-field-label">Product</div><div class="scan-field-value">${escapeHtml(found.product)}</div></div>` : ''}
         ${found.province ? `<div class="scan-field"><div class="scan-field-label">Province/City</div><div class="scan-field-value">${escapeHtml(found.province)}</div></div>` : ''}
-        <div class="scan-field"><div class="scan-field-label">Attempt Date</div><div class="scan-field-value">${new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' })}</div></div>
+        <div class="scan-field"><div class="scan-field-label">Attempt Date</div><div class="scan-field-value">${new Date(scanDate + 'T00:00:00').toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' })}</div></div>
         <div class="scan-field"><div class="scan-field-label">Order Status</div><div class="scan-field-value">${statusBadge(found.status)}</div></div>
         <div class="scan-field"><div class="scan-field-label">Courier</div><div class="scan-field-value">${found.courier}</div></div>
       </div>
