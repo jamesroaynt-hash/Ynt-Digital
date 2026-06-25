@@ -7671,6 +7671,13 @@ function getRmoUndeliverableReason(order) {
   return order?.partner_reason || '';
 }
 
+// Courier / shipping partner name from partner_json. Mirrors the courier
+// extraction in pancakePosSync (partner.name → partner_name → shipping_partner_name).
+function getRmoCourier(order) {
+  const p = (order && typeof order.partner === 'object' && order.partner) || {};
+  return p.name || p.partner_name || p.shipping_partner_name || '';
+}
+
 // True when the courier reported a delivery problem for this order.
 function isOrderCourierProblem(order) {
   const status = normalizeText(order?.partner_status);
@@ -7787,7 +7794,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>Page</th><th>SRP</th><th>Attempts</th><th>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Reason' : 'Confirmed By'}</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Confirmed By' : 'Reason')}</th><th>Notes</th>` : ''}<th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>Page</th><th>SRP</th><th>Attempts</th><th>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Reason' : 'Confirmed By'}</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Confirmed By' : 'Reason')}</th>` : ''}<th>Courier</th><th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="${rmoTab !== 'orders' ? 13 : 11}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
@@ -12208,6 +12215,9 @@ function renderPosOrdersTable() {
           <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.customer_phone || 'No phone')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
+          ${(rmoTab === 'undeliverable' || rmoTab === 'returning') && getRmoUndeliverableReason(order)
+            ? `<div class="rmo-courier-note" title="Undeliverable reason">${escapeHtml(getRmoUndeliverableReason(order))}</div>`
+            : ''}
         </td>
         <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
@@ -12215,11 +12225,18 @@ function renderPosOrdersTable() {
         <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<span class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</span>` : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash))}</td>
-        <td><button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button></td>` : ''}
-        <td>${order.can_message
-          ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
-          : '<span class="rmo-muted">—</span>'}</td>
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash))}</td>` : ''}
+        <td><div class="rmo-item-main">${escapeHtml(getRmoCourier(order)) || dash}</div></td>
+        <td>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+            ${order.can_message
+              ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
+              : '<span class="rmo-muted">—</span>'}
+            ${rmoTab !== 'orders'
+              ? `<button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button>`
+              : ''}
+          </div>
+        </td>
       </tr>`;
     }
     return `<tr>
@@ -12238,7 +12255,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab !== 'orders' ? 12 : 10) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab !== 'orders' ? 12 : 11) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
   if (isRmoPage) updateRmoBulkBar();
