@@ -7678,6 +7678,29 @@ function getRmoCourier(order) {
   return p.name || p.partner_name || p.shipping_partner_name || '';
 }
 
+// Bigate J&T puts the real call-attempt detail in a `note` field rather than
+// the `reason [..]` text other couriers use.
+function isBigateJT(order) {
+  return /bigate/i.test(getRmoCourier(order) || '');
+}
+
+// Latest courier `note` from partner_json.extend_update (chronological, newest
+// last), falling back to a partner-level note. Used to surface Bigate J&T's
+// call-attempt detail under the reason.
+function getRmoCourierNote(order) {
+  const partner = order?.partner;
+  if (!partner || typeof partner !== 'object') return '';
+  const updates = partner.extend_update;
+  if (Array.isArray(updates)) {
+    for (let i = updates.length - 1; i >= 0; i--) {
+      const entry = updates[i];
+      const note = entry && typeof entry === 'object' && typeof entry.note === 'string' ? entry.note.trim() : '';
+      if (note) return note;
+    }
+  }
+  return typeof partner.note === 'string' ? partner.note.trim() : '';
+}
+
 // True when the courier reported a delivery problem for this order.
 function isOrderCourierProblem(order) {
   const status = normalizeText(order?.partner_status);
@@ -12215,8 +12238,8 @@ function renderPosOrdersTable() {
           <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.customer_phone || 'No phone')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
-          ${(rmoTab === 'undeliverable' || rmoTab === 'returning') && getRmoUndeliverableReason(order)
-            ? `<div class="rmo-courier-note" title="Undeliverable reason">${escapeHtml(getRmoUndeliverableReason(order))}</div>`
+          ${(rmoTab === 'undeliverable' || rmoTab === 'returning') && isBigateJT(order) && getRmoCourierNote(order)
+            ? `<div class="rmo-courier-note" title="Courier note">${escapeHtml(getRmoCourierNote(order))}</div>`
             : ''}
         </td>
         <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
