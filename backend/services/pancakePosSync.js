@@ -1222,6 +1222,14 @@ function getPosSprintorInfo(item = {}) {
       if (match) return { name: match[1].trim(), tel: match[2].trim() };
     }
   }
+  // Bigate stores the rider in partner_json as delivery_name / delivery_tel
+  // rather than the `】sprinter【name:tel】` status string other couriers use.
+  const partner = item?.partner || {};
+  const deliveryName = stringOrNull(partner.delivery_name);
+  const deliveryTel = stringOrNull(partner.delivery_tel);
+  if (deliveryName || deliveryTel) {
+    return { name: deliveryName, tel: deliveryTel };
+  }
   return { name: null, tel: null };
 }
 

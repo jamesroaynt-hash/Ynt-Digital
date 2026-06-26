@@ -4239,7 +4239,7 @@ function renderDataReport() {
       <div class="rts-filter-bar">
         <div class="rts-filter-group">
           <div class="rts-filter-label">Time Filter</div>
-          <div class="table-filters">
+          <div class="table-filters" id="rts-rate-filter-group">
             <button class="filter-pill ${rtsRateFilter === 'all' ? 'active' : ''}" onclick="setRTSRateFilter('all',this)">All Time</button>
             <button class="filter-pill ${rtsRateFilter === 'weekly' ? 'active' : ''}" onclick="setRTSRateFilter('weekly',this)">Weekly</button>
             <button class="filter-pill ${rtsRateFilter === 'monthly' ? 'active' : ''}" onclick="setRTSRateFilter('monthly',this)">Monthly</button>
@@ -7682,6 +7682,21 @@ function getRmoCourier(order) {
 // the `reason [..]` text other couriers use.
 function isBigateJT(order) {
   return /bigate/i.test(getRmoCourier(order) || '');
+}
+
+// Rider (sprinter) name + phone. Most couriers embed it in partner.extend_update
+// as `】sprinter【name:tel】` (already parsed into sprinter_name/sprinter_tel).
+// Bigate instead stores it in partner_json as delivery_name / delivery_tel, so
+// fall back to those when the sprinter fields are empty.
+function getRmoRider(order) {
+  let name = order?.sprinter_name || '';
+  let tel = order?.sprinter_tel || '';
+  if (!name || !tel) {
+    const p = (order && typeof order.partner === 'object' && order.partner) || {};
+    name = name || p.delivery_name || '';
+    tel = tel || p.delivery_tel || '';
+  }
+  return { name, tel };
 }
 
 // Latest courier `note` from partner_json.extend_update (chronological, newest
@@ -11365,7 +11380,10 @@ function setSalesMonthFilter() {
 
 function setRTSRateFilter(filter, btn) {
   rtsRateFilter = filter;
-  document.querySelectorAll('#rts-rate-filter-group .filter-pill').forEach((pill) => pill.classList.remove('active'));
+  // Clear the active state from the clicked pill's own group (works whether the
+  // pills live in the standalone RTS Rate page or the Sales Dashboard tab).
+  const pillGroup = btn?.parentElement || document.getElementById('rts-rate-filter-group');
+  pillGroup?.querySelectorAll('.filter-pill').forEach((pill) => pill.classList.remove('active'));
   btn?.classList.add('active');
   const customRange = document.getElementById('rts-rate-custom-range');
   if (customRange) customRange.classList.toggle('hidden', filter !== 'custom');
@@ -12248,8 +12266,9 @@ function renderPosOrdersTable() {
           <div class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || ''}</div>
         </td>
         <td>
-          <div class="rmo-item-main">${escapeHtml(order.sprinter_name || 'Unassigned rider')}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.sprinter_tel || 'No rider phone')}</div>
+          ${(() => { const rider = getRmoRider(order); return `
+          <div class="rmo-item-main">${escapeHtml(rider.name || 'Unassigned rider')}</div>
+          <div class="rmo-item-sub">${escapeHtml(rider.tel || 'No rider phone')}</div>`; })()}
           ${isOrderCourierProblem(order) ? `<div class="rmo-courier-note" title="Courier status">${escapeHtml(order.courier_note || 'Delivery problem')}</div>` : ''}
         </td>
         <td>
