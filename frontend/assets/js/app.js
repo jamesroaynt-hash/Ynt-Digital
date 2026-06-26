@@ -7734,13 +7734,6 @@ function copyRmoField(el) {
   }
 }
 
-// True when the courier reported a delivery problem for this order.
-function isOrderCourierProblem(order) {
-  const status = normalizeText(order?.partner_status);
-  const note = String(order?.courier_note || '').toLowerCase();
-  return status === 'undeliverable' || note.includes('fail');
-}
-
 function renderRmoManagement() {
   const { posProductOptions, posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
   const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
@@ -12269,7 +12262,6 @@ function renderPosOrdersTable() {
           ${(() => { const rider = getRmoRider(order); return `
           <div class="rmo-item-main">${escapeHtml(rider.name || 'Unassigned rider')}</div>
           <div class="rmo-item-sub">${escapeHtml(rider.tel || 'No rider phone')}</div>`; })()}
-          ${isOrderCourierProblem(order) ? `<div class="rmo-courier-note" title="Courier status">${escapeHtml(order.courier_note || 'Delivery problem')}</div>` : ''}
         </td>
         <td>
           <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
@@ -12279,10 +12271,10 @@ function renderPosOrdersTable() {
         <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
-        <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<span class="rmo-item-sub">${escapeHtml(getRmoReasonDisplay(order)) || dash}</span>` : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
+        <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? (getRmoReasonDisplay(order) ? `<span class="rmo-reason-text">${escapeHtml(getRmoReasonDisplay(order))}</span>` : dash) : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (escapeHtml(getRmoReasonDisplay(order)) || dash))}</td>` : ''}
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (getRmoReasonDisplay(order) ? `<span class="rmo-reason-text">${escapeHtml(getRmoReasonDisplay(order))}</span>` : dash))}</td>` : ''}
         <td><div class="rmo-item-main">${escapeHtml(getRmoCourier(order)) || dash}</div></td>
         <td>
           <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
