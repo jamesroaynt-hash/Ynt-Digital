@@ -3010,6 +3010,15 @@ tfoot td {
   line-height: 1.35;
 }
 
+.rmo-copy {
+  cursor: copy;
+}
+
+.rmo-copy:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
 .rmo-tag-line {
   margin-top: 8px;
   display: flex;

@@ -10,7 +10,7 @@ const App = {
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
   Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -7701,6 +7701,24 @@ function getRmoCourierNote(order) {
   return typeof partner.note === 'string' ? partner.note.trim() : '';
 }
 
+// Reason shown in the RMO "Reason" column: the courier `reason [..]` text when
+// present, otherwise Bigate J&T's call-attempt `note` (e.g. "The call is Turned
+// Off."), which it uses in place of a reason.
+function getRmoReasonDisplay(order) {
+  return getRmoUndeliverableReason(order) || (isBigateJT(order) ? getRmoCourierNote(order) : '');
+}
+
+// Copy a clickable RMO field (customer name, phone, tracking) to the clipboard.
+function copyRmoField(el) {
+  const text = el?.dataset?.copy || '';
+  if (!text) return;
+  const label = el?.dataset?.copyLabel || 'Value';
+  const done = () => showToast('success', 'Copied', `${label} copied to clipboard.`);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => {});
+  }
+}
+
 // True when the courier reported a delivery problem for this order.
 function isOrderCourierProblem(order) {
   const status = normalizeText(order?.partner_status);
@@ -12226,7 +12244,7 @@ function renderPosOrdersTable() {
           : '<span class="rmo-muted" title="No Messenger contact for this order">—</span>'}</td>
         <td>
           <div class="rmo-item-main">${escapeHtml(product)}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - ${escapeHtml(order.tracking_no)}` : ''}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - <span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>` : ''}</div>
           <div class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || ''}</div>
         </td>
         <td>
@@ -12235,20 +12253,17 @@ function renderPosOrdersTable() {
           ${isOrderCourierProblem(order) ? `<div class="rmo-courier-note" title="Courier status">${escapeHtml(order.courier_note || 'Delivery problem')}</div>` : ''}
         </td>
         <td>
-          <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.customer_phone || 'No phone')}</div>
+          <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
+          <div class="rmo-item-sub rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div>
           <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
-          ${(rmoTab === 'undeliverable' || rmoTab === 'returning') && isBigateJT(order) && getRmoCourierNote(order)
-            ? `<div class="rmo-courier-note" title="Courier note">${escapeHtml(getRmoCourierNote(order))}</div>`
-            : ''}
         </td>
         <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
-        <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<span class="rmo-item-sub">${escapeHtml(getRmoUndeliverableReason(order)) || dash}</span>` : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
+        <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<span class="rmo-item-sub">${escapeHtml(getRmoReasonDisplay(order)) || dash}</span>` : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (escapeHtml(getRmoUndeliverableReason(order)) || dash))}</td>` : ''}
+        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (escapeHtml(getRmoReasonDisplay(order)) || dash))}</td>` : ''}
         <td><div class="rmo-item-main">${escapeHtml(getRmoCourier(order)) || dash}</div></td>
         <td>
           <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
