@@ -7791,7 +7791,7 @@ function renderRmoManagement() {
     <div class="rmo-filter-bar">
       <div class="rmo-search">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-        <input type="text" placeholder="Search by order #, tracking code, customer, or phone" id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
+        <input type="text" placeholder="Search order #, tracking, or phone — separate multiple with spaces" id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
       </div>
       <select class="rmo-select" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
         <option value="all">All Statuses</option>

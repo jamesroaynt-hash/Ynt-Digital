@@ -629,9 +629,20 @@ function ordersRoutes(db, { dispatch } = {}) {
     let where = "WHERE customer_phone IS NOT NULL AND customer_phone != ''";
 
     if (search) {
-      where += ` AND (LOWER(COALESCE(external_id,'')) LIKE ? OR LOWER(COALESCE(tracking_no,'')) LIKE ? OR LOWER(COALESCE(customer_phone,'')) LIKE ?)`;
-      const q = `%${String(search).toLowerCase()}%`;
-      params.push(q, q, q);
+      // Allow searching several order #s / tracking codes / phones at once by
+      // separating them with spaces — each term is matched (OR) so a paste of
+      // multiple tracking numbers returns all of them.
+      const terms = String(search).toLowerCase().split(/\s+/).filter(Boolean).slice(0, 50);
+      if (terms.length) {
+        const perTerm = terms.map(() =>
+          `(LOWER(COALESCE(external_id,'')) LIKE ? OR LOWER(COALESCE(tracking_no,'')) LIKE ? OR LOWER(COALESCE(customer_phone,'')) LIKE ?)`
+        );
+        where += ` AND (${perTerm.join(' OR ')})`;
+        for (const term of terms) {
+          const q = `%${term}%`;
+          params.push(q, q, q);
+        }
+      }
     }
 
     if (product && product !== 'all') {
