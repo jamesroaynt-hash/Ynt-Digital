@@ -684,14 +684,14 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     rawPayloadForStorage(item)
   );
 
-  // Permanent pickup log: when an order carries a "pick up" tag (case-insensitive,
-  // any tag containing "pick up"), record it once with the Manila day. ON CONFLICT
+  // Permanent pickup log: when an order carries a "Picked up" tag (case-insensitive,
+  // any tag containing "picked up"), record it once with the Manila day. ON CONFLICT
   // keeps it idempotent across sync cycles. Best-effort — never block the upsert.
   const tagText = (Array.isArray(item?.tags || item?.customer_tags) ? (item.tags || item.customer_tags) : [])
     .map((t) => (typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')))
     .join(' ')
     .toLowerCase();
-  if (tagText.includes('pick up')) {
+  if (tagText.includes('picked up')) {
     try {
       await db.prepare(`
         INSERT INTO pickup_log (shop_id, external_id, page_name, note_product, pickup_date)

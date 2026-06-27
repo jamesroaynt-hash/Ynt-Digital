@@ -466,7 +466,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   });
 
   // Pickup updates grouped by page, for the Daily Pickup → Pickup Status tab.
-  // Reads the permanent pickup_log (one row per order tagged "pick up", written
+  // Reads the permanent pickup_log (one row per order tagged "picked up", written
   // at sync time) so counts survive later tag changes and the 30-day pos_orders
   // retention. Mirrors the RTS Scan per-page summary: one row per page with the
   // count of pickups and the pcs rolled up from the leading number on the

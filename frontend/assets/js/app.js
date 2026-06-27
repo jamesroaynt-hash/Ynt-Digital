@@ -7164,7 +7164,7 @@ function renderPickupStatusPanel() {
   return `
     <div class="card">
       <div class="card-header" style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-        <div><div class="card-title">Pickup Status Updates</div><div class="card-subtitle">Orders tagged "Pick Up", grouped by page · pcs from leading number in product</div></div>
+        <div><div class="card-title">Pickup Status Updates</div><div class="card-subtitle">Orders tagged "Picked up", grouped by page · pcs from leading number in product</div></div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div style="display:inline-flex;gap:6px;">
             <button class="btn btn-primary btn-sm" data-pickup-range="today" onclick="setPickupStatusRange('today')">Today</button>
