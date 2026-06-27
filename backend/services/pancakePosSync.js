@@ -683,6 +683,30 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     adsSource,
     rawPayloadForStorage(item)
   );
+
+  // Permanent pickup log: when an order carries a "pick up" tag (case-insensitive,
+  // any tag containing "pick up"), record it once with the Manila day. ON CONFLICT
+  // keeps it idempotent across sync cycles. Best-effort — never block the upsert.
+  const tagText = (Array.isArray(item?.tags || item?.customer_tags) ? (item.tags || item.customer_tags) : [])
+    .map((t) => (typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')))
+    .join(' ')
+    .toLowerCase();
+  if (tagText.includes('pick up')) {
+    try {
+      await db.prepare(`
+        INSERT INTO pickup_log (shop_id, external_id, page_name, note_product, pickup_date)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(shop_id, external_id) DO NOTHING
+      `).run(
+        resolvedShopId,
+        externalId,
+        pageName || null,
+        noteProduct || null,
+        normalizeDateString(item?.updated_at || item?.inserted_at)
+      );
+    } catch { /* pickup log is best-effort */ }
+  }
+
   return externalId;
 }
 

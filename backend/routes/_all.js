@@ -465,6 +465,48 @@ function ordersRoutes(db, { dispatch } = {}) {
     res.json({ total, total_cod, status_counts: rows });
   });
 
+  // Pickup updates grouped by page, for the Daily Pickup → Pickup Status tab.
+  // Reads the permanent pickup_log (one row per order tagged "pick up", written
+  // at sync time) so counts survive later tag changes and the 30-day pos_orders
+  // retention. Mirrors the RTS Scan per-page summary: one row per page with the
+  // count of pickups and the pcs rolled up from the leading number on the
+  // product name ("2 Niacinamide" → 2, none → 1). Dated by pickup_date.
+  r.get('/pos-orders/pickup-summary', async (req, res) => {
+    const { date_from, date_to } = req.query;
+    const where = ['1=1'];
+    const params = [];
+    if (date_from) { where.push(`pickup_date >= ?`); params.push(date_from); }
+    if (date_to)   { where.push(`pickup_date <= ?`); params.push(date_to); }
+
+    const rows = await db.prepare(`
+      SELECT page_name, note_product
+      FROM pickup_log
+      WHERE ${where.join(' AND ')}
+    `).all(...params);
+
+    const extractLeadingPcs = (name) => {
+      const m = String(name || '').match(/^\s*(\d+)/);
+      return m ? Math.min(10000, parseInt(m[1], 10)) : 1;
+    };
+    const byPage = new Map(); // page -> { pickups, pcs }
+    let totalPickups = 0;
+    let totalPcs = 0;
+    for (const row of rows) {
+      const page = row.page_name || 'Unknown';
+      const pcs = extractLeadingPcs(row.note_product);
+      const cur = byPage.get(page) || { pickups: 0, pcs: 0 };
+      cur.pickups += 1;
+      cur.pcs += pcs;
+      byPage.set(page, cur);
+      totalPickups += 1;
+      totalPcs += pcs;
+    }
+    const by_page = Array.from(byPage, ([page, v]) => ({ page, pickups: v.pickups, pcs: v.pcs }))
+      .sort((a, b) => b.pickups - a.pickups);
+
+    res.json({ total: totalPickups, total_pcs: totalPcs, by_page });
+  });
+
   async function getPosOrdersVersion() {
     const row = await db.prepare(`
       SELECT MAX(updated_at) AS max_updated, COUNT(*) AS total

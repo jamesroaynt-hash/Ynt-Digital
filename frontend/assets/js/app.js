@@ -7091,6 +7091,12 @@ function renderDailyPickup() {
     <div class="page-title"><h1>Daily Pickup</h1><p>Log daily product pickups for delivery dispatch.</p></div>
   </div>
 
+  <div class="tabs" style="margin-bottom:16px;">
+    <button class="tab-btn active" onclick="switchTab(this,'pickup-tab-log')">Log Pickup</button>
+    <button class="tab-btn" onclick="switchTab(this,'pickup-tab-status'); loadPickupStatusSummary()">Pickup Status</button>
+  </div>
+
+  <div id="pickup-tab-log" class="tab-content active">
   <div style="display:grid; grid-template-columns:420px 1fr; gap:20px; align-items:start;">
     <div class="card" style="position:sticky; top:80px;">
       <div class="card-header"><div class="card-title">Log Pickup</div></div>
@@ -7143,7 +7149,114 @@ function renderDailyPickup() {
         </table>
       </div>
     </div>
+  </div>
+  </div>
+
+  <div id="pickup-tab-status" class="tab-content">
+    ${renderPickupStatusPanel()}
   </div>`;
+}
+
+// Pickup Status tab: per-page count of orders moved to "Waiting for pickup" plus
+// pcs (leading number on product name, same rule as RTS Scan). Date-filtered by
+// the day the status was updated. Driven by /orders/pos-orders/pickup-summary.
+function renderPickupStatusPanel() {
+  return `
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div><div class="card-title">Pickup Status Updates</div><div class="card-subtitle">Orders tagged "Pick Up", grouped by page · pcs from leading number in product</div></div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="display:inline-flex;gap:6px;">
+            <button class="btn btn-primary btn-sm" data-pickup-range="today" onclick="setPickupStatusRange('today')">Today</button>
+            <button class="btn btn-secondary btn-sm" data-pickup-range="yesterday" onclick="setPickupStatusRange('yesterday')">Yesterday</button>
+          </div>
+          <input type="date" class="form-control" id="pickup-status-date" style="width:170px;" onchange="setPickupStatusDate()">
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Page</th><th style="text-align:right;">Total Pick Up</th><th style="text-align:right;">Pcs</th></tr></thead>
+          <tbody id="pickup-status-summary">
+            <tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</td></tr>
+          </tbody>
+          <tfoot id="pickup-status-summary-foot"></tfoot>
+        </table>
+      </div>
+    </div>`;
+}
+
+// Honours the Today/Yesterday toggle and the custom date picker, defaulting to
+// today. Mirrors loadScanPageSummary().
+async function loadPickupStatusSummary() {
+  const bodyEl = document.getElementById('pickup-status-summary');
+  const footEl = document.getElementById('pickup-status-summary-foot');
+  if (!bodyEl) return;
+  try {
+    const range = window._pickupStatusRange || 'today';
+    let dateStr;
+    let emptyMsg;
+    if (range === 'custom') {
+      dateStr = document.getElementById('pickup-status-date')?.value;
+      emptyMsg = 'No pickups on this date.';
+    } else {
+      const d = new Date();
+      if (range === 'yesterday') d.setDate(d.getDate() - 1);
+      dateStr = normalizeDateString(d);
+      emptyMsg = range === 'yesterday' ? 'No pickups yesterday.' : 'No pickups today.';
+    }
+    if (!dateStr) { dateStr = normalizeDateString(new Date()); }
+    const params = new URLSearchParams({ date_from: dateStr, date_to: dateStr });
+
+    const data = await authorizedJsonRequest(`/orders/pos-orders/pickup-summary?${params}`);
+    const total = Number(data?.total || 0);
+    const byPage = Array.isArray(data?.by_page) ? data.by_page : [];
+    const totalPcs = Number(data?.total_pcs || 0);
+
+    bodyEl.innerHTML = byPage.length
+      ? byPage.map((p) => `<tr>
+          <td>${escapeHtml(p.page || 'Unknown')}</td>
+          <td style="text-align:right;">${Number(p.pickups || 0).toLocaleString()}</td>
+          <td style="text-align:right;">${Number(p.pcs || 0).toLocaleString()}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">${emptyMsg}</td></tr>`;
+    if (footEl) {
+      footEl.innerHTML = byPage.length
+        ? `<tr style="font-weight:700;border-top:2px solid var(--border,#e5e7eb);">
+            <td>TOTAL</td>
+            <td style="text-align:right;">${total.toLocaleString()}</td>
+            <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
+          </tr>`
+        : '';
+    }
+  } catch {
+    bodyEl.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load.</td></tr>';
+    if (footEl) footEl.innerHTML = '';
+  }
+}
+
+function setPickupStatusRange(range) {
+  window._pickupStatusRange = range;
+  const dateEl = document.getElementById('pickup-status-date');
+  if (dateEl) dateEl.value = '';
+  document.querySelectorAll('button[data-pickup-range]').forEach((b) => {
+    const on = b.dataset.pickupRange === range;
+    b.classList.toggle('btn-primary', on);
+    b.classList.toggle('btn-secondary', !on);
+  });
+  loadPickupStatusSummary().catch(() => {});
+}
+
+// Picking a custom date overrides the Today/Yesterday toggle; clearing it
+// falls back to Today.
+function setPickupStatusDate() {
+  const val = document.getElementById('pickup-status-date')?.value;
+  if (!val) { setPickupStatusRange('today'); return; }
+  window._pickupStatusRange = 'custom';
+  document.querySelectorAll('button[data-pickup-range]').forEach((b) => {
+    b.classList.remove('btn-primary');
+    b.classList.add('btn-secondary');
+  });
+  loadPickupStatusSummary().catch(() => {});
 }
 
 // ─── RENDER: SCANNING ──────────────────────────────────────
