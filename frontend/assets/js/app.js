@@ -2333,6 +2333,7 @@ function renderApiConnections() {
               <th onclick="setPosPagesSort('name')">Name <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('shop')">Shop <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('owner')">Owner <span class="pp-sort">⇅</span></th>
+              <th onclick="setPosPagesSort('enabled')">Status <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('lastSync')">Last Sync <span class="pp-sort">⇅</span></th>
               <th>Action</th>
             </tr>
@@ -13522,6 +13523,7 @@ function getPosPagesRows() {
     shop: c.shopName || c.name || (c.shopId || c.shop_id ? `Shop ${c.shopId || c.shop_id}` : '—'),
     shopId: c.shopId || c.shop_id || '',
     owner: c.owner || '—',
+    enabled: c.enabled !== false,
     lastSync: c.lastSyncedAt || c.last_synced_at || c.lastSync || pos.lastCollectedAt || pos.lastSavedAt || null,
   }));
   if (posPagesSearch) {
@@ -13556,6 +13558,11 @@ function renderPancakePagesTable() {
         <td class="pp-name">${escapeHtml(r.name)}</td>
         <td>${escapeHtml(r.shop)}</td>
         <td>${escapeHtml(r.owner)}</td>
+        <td>
+          <button class="pos-status-toggle ${r.enabled ? 'is-active' : 'is-off'}" type="button" onclick="togglePosPageEnabled(event, '${escapeHtml(String(r.id))}')" title="Click to ${r.enabled ? 'turn off' : 'turn on'} syncing for this page">
+            <span class="pos-status-dot"></span>${r.enabled ? 'Active' : 'Off'}
+          </button>
+        </td>
         <td>${r.lastSync ? escapeHtml(new Date(r.lastSync).toLocaleString()) : '—'}</td>
         <td>
           <button class="btn btn-secondary btn-sm" type="button" data-pos-sync-id="${escapeHtml(r.id)}" onclick="syncPancakePosPage(event, '${escapeHtml(String(r.id))}')">Sync</button>
@@ -13563,7 +13570,7 @@ function renderPancakePagesTable() {
           <span class="pos-page-sync-status" data-pos-sync-status="${escapeHtml(r.id)}"></span>
         </td>
       </tr>`).join('')
-    : `<tr><td colspan="5" class="pp-empty">No pages yet. Click “Add New Page” to connect a shop.</td></tr>`;
+    : `<tr><td colspan="6" class="pp-empty">No pages yet. Click “Add New Page” to connect a shop.</td></tr>`;
 
   const used = document.getElementById('pos-pages-used');
   if (used) used.textContent = `${total}/15 PAGES USED`;
@@ -13614,6 +13621,27 @@ function setPosPageSyncButton(connectionId, text = 'Sync', disabled = false) {
   button.disabled = Boolean(disabled);
   button.textContent = text;
   return button;
+}
+
+// Flip a page's Active/Off status straight from the table row (no modal).
+// A disabled page is skipped by the backend sync (collectPosData filters on enabled).
+function togglePosPageEnabled(event, id) {
+  if (event) event.stopPropagation();
+  const state = getIntegrationState();
+  const pos = state.pancakePos;
+  const conns = Array.isArray(pos.connections) ? pos.connections : [];
+  const conn = conns.find((c) => String(c.id) === String(id));
+  if (!conn) return;
+  const nextEnabled = !(conn.enabled !== false);
+  conn.enabled = nextEnabled;
+  pos.enabled = conns.some((c) => c.enabled !== false);
+  pos.lastSavedAt = new Date().toISOString();
+  saveIntegrationState(state);
+  renderPancakePagesTable();
+  syncPancakePosConfigToBackend(pos)
+    .then(() => showToast('success', nextEnabled ? 'Page active' : 'Page turned off',
+      `${conn.name || conn.shopName || 'Page'} will ${nextEnabled ? 'now sync' : 'no longer sync'}.`))
+    .catch(() => showToast('warning', 'Saved locally', 'Saved in the dashboard config; backend not reachable.'));
 }
 
 function openPosPageModal(id) {

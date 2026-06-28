@@ -3885,6 +3885,33 @@ tfoot td {
 .pos-page-sync-status.is-info { color: #7eaaff; }
 .pos-page-sync-status.is-success { color: var(--success); }
 .pos-page-sync-status.is-error { color: var(--danger); }
+.pos-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: filter 0.14s, background 0.14s;
+}
+.pos-status-toggle:hover { filter: brightness(1.12); }
+.pos-status-toggle .pos-status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+}
+.pos-status-toggle.is-active {
+  color: var(--success);
+  background: rgba(46, 196, 129, 0.12);
+  border-color: rgba(46, 196, 129, 0.3);
+}
+.pos-status-toggle.is-off {
+  color: var(--text-muted);
+  background: rgba(140, 150, 170, 0.12);
+  border-color: rgba(140, 150, 170, 0.28);
+}
 .pp-empty { text-align: center; color: var(--text-muted); padding: 36px 16px !important; cursor: default; }
 
 .pages-foot {
