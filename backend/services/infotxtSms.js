@@ -187,17 +187,23 @@ async function sendSms(db, { number, message }) {
     });
     const res = await fetch(url, options);
     const body = await res.text().catch(() => '');
+    const raw = body.slice(0, 300);
     let json = null;
     try { json = JSON.parse(body); } catch { /* non-JSON response */ }
     if (!res.ok) {
-      return { ok: false, status: 'failed', error: `HTTP ${res.status}: ${body.slice(0, 200)}`, phone };
+      return { ok: false, status: 'failed', error: `HTTP ${res.status}: ${raw}`, raw, phone };
     }
-    // InfoTXT success is {"status":"00","smsid":"…"}; anything else is an error.
-    if (json && String(json.status) === '00') {
-      return { ok: true, status: 'sent', smsid: json.smsid || null, phone };
+    // InfoTXT success is {"status":"00","smsid":"…"}. Tolerate key-casing variants.
+    const gwStatus = json ? (json.status ?? json.Status ?? json.STATUS) : undefined;
+    const gwSmsId = json ? (json.smsid ?? json.smsId ?? json.SMSID ?? json.sms_id) : undefined;
+    const gwError = json ? (json.error ?? json.Error ?? json.message) : undefined;
+    if (json && (String(gwStatus) === '00' || gwSmsId)) {
+      return { ok: true, status: 'sent', smsid: gwSmsId || null, phone };
     }
-    const err = json ? (json.error || `gateway status ${json.status}`) : (body.slice(0, 200) || 'unknown response');
-    return { ok: false, status: 'failed', error: err, phone };
+    const err = json
+      ? (gwError || `gateway status ${gwStatus ?? 'none'} — ${raw}`)
+      : (raw || 'empty response');
+    return { ok: false, status: 'failed', error: err, raw, phone };
   } catch (err) {
     return { ok: false, status: 'failed', error: err.message, phone };
   }
