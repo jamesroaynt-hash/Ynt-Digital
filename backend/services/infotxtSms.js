@@ -63,7 +63,12 @@ async function getConfigWithKey(db) {
 async function saveConfig(db, payload = {}) {
   const current = await getConfigRow(db);
   const enabled = boolToInt(payload.enabled);
-  const endpoint = stringOrNull(payload.endpoint || payload.base_url) || current?.base_url || DEFAULT_ENDPOINT;
+  // A cleared endpoint field resets to the known-good default (send.php) rather
+  // than silently keeping a previous (possibly wrong) value.
+  const endpointProvided = payload.endpoint !== undefined || payload.base_url !== undefined;
+  const endpoint = endpointProvided
+    ? (stringOrNull(payload.endpoint || payload.base_url) || DEFAULT_ENDPOINT)
+    : (current?.base_url || DEFAULT_ENDPOINT);
   const userId = stringOrNull(payload.user_id) || current?.page_id || null;
   // SIM is optional and clearable: honour an explicitly-sent blank.
   const sim = payload.sim !== undefined ? stringOrNull(payload.sim) : (current?.name || null);
