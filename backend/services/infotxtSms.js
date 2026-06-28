@@ -156,6 +156,18 @@ function normalizePhPhone(raw) {
   return d;
 }
 
+// Case-insensitive lookup of the first matching key in a flat object.
+function pickKey(obj, ...names) {
+  if (!obj || typeof obj !== 'object') return undefined;
+  const lower = {};
+  for (const k of Object.keys(obj)) lower[k.toLowerCase()] = obj[k];
+  for (const n of names) {
+    const v = lower[n.toLowerCase()];
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+}
+
 function renderTemplate(template, ctx = {}) {
   return String(template || '').replace(/\{(\w+)\}/g, (_, key) => {
     const v = ctx[key];
@@ -193,15 +205,18 @@ async function sendSms(db, { number, message }) {
     if (!res.ok) {
       return { ok: false, status: 'failed', error: `HTTP ${res.status}: ${raw}`, raw, phone };
     }
-    // InfoTXT success is {"status":"00","smsid":"…"}. Tolerate key-casing variants.
-    const gwStatus = json ? (json.status ?? json.Status ?? json.STATUS) : undefined;
-    const gwSmsId = json ? (json.smsid ?? json.smsId ?? json.SMSID ?? json.sms_id) : undefined;
-    const gwError = json ? (json.error ?? json.Error ?? json.message) : undefined;
-    if (json && (String(gwStatus) === '00' || gwSmsId)) {
-      return { ok: true, status: 'sent', smsid: gwSmsId || null, phone };
+    // InfoTXT success is {"status":"00","smsid":"…"}. Look up keys
+    // case-insensitively so any casing (status/Status, smsid/SMSID) is matched.
+    const gwStatus = pickKey(json, 'status');
+    const gwSmsId = pickKey(json, 'smsid', 'sms_id', 'id');
+    const gwError = pickKey(json, 'error', 'message');
+    // Only a real smsid (or explicit status 00 WITH an smsid) counts as sent.
+    // A status with no smsid is treated as not-sent so failures aren't masked.
+    if (json && gwSmsId && String(gwStatus) === '00') {
+      return { ok: true, status: 'sent', smsid: gwSmsId, raw, phone };
     }
     const err = json
-      ? (gwError || `gateway status ${gwStatus ?? 'none'} — ${raw}`)
+      ? (gwError || `gateway status ${gwStatus ?? 'none'}, no smsid`)
       : (raw || 'empty response');
     return { ok: false, status: 'failed', error: err, raw, phone };
   } catch (err) {

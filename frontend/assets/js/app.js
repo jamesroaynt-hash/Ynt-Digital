@@ -14032,7 +14032,8 @@ async function sendSmsTest() {
     const okMsg = `Sent to ${data.phone || number}${data.smsid ? ` (id ${data.smsid})` : ''}.`;
     if (resultEl) {
       resultEl.style.color = ok ? 'var(--success)' : 'var(--danger)';
-      resultEl.textContent = ok ? okMsg : `Failed: ${data.error || data.status || 'unknown'}`;
+      const head = ok ? okMsg : `Failed: ${data.error || data.status || 'unknown'}`;
+      resultEl.innerHTML = `${escapeHtml(head)}${data.raw ? `<br><span style="color:var(--text-muted);font-size:12px;">Gateway response: <code>${escapeHtml(String(data.raw))}</code></span>` : ''}`;
     }
     showToast(ok ? 'success' : 'error', ok ? 'Test sent' : 'Test failed', ok ? okMsg : (data.error || 'Send failed.'));
   } catch (e) {
