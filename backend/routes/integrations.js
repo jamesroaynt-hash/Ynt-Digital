@@ -1,6 +1,7 @@
 const express = require('express');
 const posSync = require('../services/pancakePosSync');
 const googleSheetsSync = require('../services/googleSheetsSync');
+const infotxtSms = require('../services/infotxtSms');
 
 module.exports = function integrationRoutes(db) {
   const router = express.Router();
@@ -542,6 +543,63 @@ module.exports = function integrationRoutes(db) {
   });
 
   router.use(requireAdmin);
+
+  // ─── InfoTXT SMS automation (tag → message rules) ─────────
+  router.get('/infotxt/config', async (req, res) => {
+    try {
+      res.json(await infotxtSms.getConfig(db));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/config', async (req, res) => {
+    try {
+      res.json(await infotxtSms.saveConfig(db, req.body || {}));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get('/infotxt/rules', async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.listRules(db) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.put('/infotxt/rules', async (req, res) => {
+    try {
+      res.json(await infotxtSms.upsertRule(db, req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules/delete', async (req, res) => {
+    try {
+      res.json(await infotxtSms.deleteRule(db, req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.get('/infotxt/log', async (req, res) => {
+    try {
+      res.json({ log: await infotxtSms.listSendLog(db, { limit: req.query.limit }) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/test', async (req, res) => {
+    try {
+      res.json(await infotxtSms.sendTest(db, req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
 
   // Upsert/clear a single staff alias→canonical mapping. Empty canonical
   // (or canonical === alias) removes the mapping.

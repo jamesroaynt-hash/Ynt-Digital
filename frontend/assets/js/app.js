@@ -2300,6 +2300,7 @@ function renderApiConnections() {
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-sms'); loadSmsSettings()">InfoTXT SMS</button>
   </div>
 
   <div id="api-tab-pos" class="tab-content active">
@@ -2694,6 +2695,124 @@ if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
         </div>
       </div>
     </section>
+  </div>
+
+  <div id="api-tab-sms" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">InfoTXT SMS</div>
+          <div class="card-subtitle">Text the customer automatically when a POS order gains one of the tags below. Each tag has its own message and Active/Off switch.</div>
+        </div>
+        <span class="badge" id="sms-status-badge">—</span>
+      </div>
+      <div class="card-body">
+        <div class="int-panel">
+          <div class="int-section-label">Gateway connection</div>
+          <div class="form-grid two-col">
+            <div class="form-group">
+              <label class="form-label">Send-SMS Endpoint URL</label>
+              <input type="text" class="form-control mono-input" id="sms-endpoint" placeholder="https://ph.myinfotxt.com/api/send">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sender ID / Mask</label>
+              <input type="text" class="form-control" id="sms-sender" placeholder="e.g. YNT">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <input type="text" class="form-control mono-input" id="sms-api-key" placeholder="Enter InfoTXT API key">
+          </div>
+          <div class="int-status-box">
+            <div>
+              <div class="int-section-label" style="margin:0 0 3px;">SMS Automation</div>
+              <div class="int-status-copy">Master switch — when off, no texts are sent</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="sms-enabled">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+            <button class="btn btn-primary" type="button" onclick="saveSmsConfig()">Save Connection</button>
+            <button class="btn btn-secondary" type="button" onclick="openSmsTest()">Send Test SMS</button>
+          </div>
+        </div>
+
+        <div class="int-panel" style="margin-top:16px;">
+          <div class="card-header" style="padding:0 0 12px;">
+            <div>
+              <div class="int-section-label" style="margin:0;">Tag → Message Rules</div>
+              <div class="int-status-copy">Sent once per order per tag. Placeholders: {name} {phone} {order_ref} {cod} {product} {rider} {rider_number} {tag}</div>
+            </div>
+            <button class="btn int-add-page" type="button" onclick="openSmsRuleModal()">+ Add Tag Rule</button>
+          </div>
+          <div class="pages-table-wrap">
+            <table class="pages-table">
+              <thead>
+                <tr><th>Tag</th><th>Message</th><th>Send</th><th>Action</th></tr>
+              </thead>
+              <tbody id="sms-rules-body"><tr><td colspan="4" class="pp-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="modal-overlay" id="sms-rule-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" id="sms-rule-modal-title">Add Tag Rule</div>
+          <button class="modal-close" onclick="closeModal('sms-rule-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label req">Tag</label>
+            <input type="text" class="form-control" id="sms-rule-tag" placeholder="e.g. Picked up">
+            <div class="field-help">Matched against the order's tags (case-insensitive, substring).</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label req">Message</label>
+            <textarea class="form-control" id="sms-rule-message" rows="4" placeholder="Hi {name}, your order {order_ref} has been picked up and is on the way!"></textarea>
+          </div>
+          <div class="int-status-box">
+            <div><div class="int-status-copy">Active — send for this tag</div></div>
+            <label class="switch">
+              <input type="checkbox" id="sms-rule-enabled" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" onclick="closeModal('sms-rule-modal')">Cancel</button>
+          <button class="btn btn-primary" type="button" onclick="saveSmsRuleFromModal()">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="sms-test-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Send Test SMS</div>
+          <button class="modal-close" onclick="closeModal('sms-test-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label req">Mobile Number</label>
+            <input type="text" class="form-control mono-input" id="sms-test-number" placeholder="09171234567">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Message</label>
+            <textarea class="form-control" id="sms-test-message" rows="3">InfoTXT test message from YNT Dashboard.</textarea>
+          </div>
+          <div id="sms-test-result" style="font-size:13px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" onclick="closeModal('sms-test-modal')">Close</button>
+          <button class="btn btn-primary" type="button" onclick="sendSmsTest()">Send</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   `;
@@ -13738,6 +13857,179 @@ async function fetchShopsForModal() {
     showToast('success', 'POS shops loaded', `Found ${shops.length} shop(s). Filled Shop ID.`);
   } catch (e) {
     showToast('error', 'Get POS Shops failed', e.message || 'Could not load shops from Pancake POS.');
+  }
+}
+
+// ─── InfoTXT SMS automation (Integrations → InfoTXT SMS) ───
+let smsRules = [];
+let editingSmsTag = null;
+
+async function loadSmsSettings() {
+  try {
+    const [cfg, rulesResp] = await Promise.all([
+      authorizedJsonRequest('/integrations/infotxt/config'),
+      authorizedJsonRequest('/integrations/infotxt/rules'),
+    ]);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+    set('sms-endpoint', cfg.endpoint || '');
+    set('sms-sender', cfg.sender_id || '');
+    const keyEl = document.getElementById('sms-api-key');
+    if (keyEl) keyEl.placeholder = cfg.has_api_key ? 'Saved key — leave blank to keep it' : 'Enter InfoTXT API key';
+    const enEl = document.getElementById('sms-enabled');
+    if (enEl) enEl.checked = Boolean(cfg.enabled);
+    const badge = document.getElementById('sms-status-badge');
+    if (badge) {
+      const ready = cfg.enabled && cfg.has_api_key && cfg.endpoint;
+      badge.textContent = cfg.enabled ? (ready ? 'Active' : 'On — incomplete setup') : 'Off';
+      badge.className = `badge ${cfg.enabled ? (ready ? 'badge-success' : 'badge-warning') : 'badge-gray'}`;
+    }
+    smsRules = Array.isArray(rulesResp.rules) ? rulesResp.rules : [];
+    renderSmsRules();
+  } catch (e) {
+    showToast('error', 'Could not load InfoTXT settings', e.message || 'Request failed.');
+  }
+}
+
+function renderSmsRules() {
+  const body = document.getElementById('sms-rules-body');
+  if (!body) return;
+  body.innerHTML = smsRules.length
+    ? smsRules.map((r) => `<tr>
+        <td class="pp-name">${escapeHtml(r.tag)}</td>
+        <td style="max-width:340px; white-space:normal; color:var(--text-muted);">${escapeHtml(r.message || '')}</td>
+        <td>
+          <button class="pos-status-toggle ${r.enabled ? 'is-active' : 'is-off'}" type="button" onclick="toggleSmsRule(event, '${escapeHtml(String(r.tag))}')">
+            <span class="pos-status-dot"></span>${r.enabled ? 'Active' : 'Off'}
+          </button>
+        </td>
+        <td>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="openSmsRuleModal('${escapeHtml(String(r.tag))}')">Edit</button>
+          <button class="btn btn-danger btn-sm" type="button" onclick="deleteSmsRule(event, '${escapeHtml(String(r.tag))}')">Delete</button>
+        </td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" class="pp-empty">No tag rules yet. Click “Add Tag Rule” to create one.</td></tr>`;
+}
+
+async function toggleSmsRule(event, tag) {
+  if (event) event.stopPropagation();
+  const rule = smsRules.find((r) => String(r.tag) === String(tag));
+  if (!rule) return;
+  const next = !rule.enabled;
+  rule.enabled = next; // optimistic
+  renderSmsRules();
+  try {
+    await authorizedJsonRequest('/integrations/infotxt/rules', {
+      method: 'PUT',
+      body: JSON.stringify({ tag: rule.tag, message: rule.message, enabled: next }),
+    });
+    showToast('success', next ? 'Tag active' : 'Tag turned off', `"${rule.tag}" will ${next ? 'now text' : 'no longer text'} customers.`);
+  } catch (e) {
+    rule.enabled = !next; // revert
+    renderSmsRules();
+    showToast('error', 'Update failed', e.message || 'Could not save.');
+  }
+}
+
+function openSmsRuleModal(tag) {
+  editingSmsTag = tag || null;
+  const rule = tag ? smsRules.find((r) => String(r.tag) === String(tag)) : null;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+  set('sms-rule-tag', rule?.tag || '');
+  set('sms-rule-message', rule?.message || '');
+  const enEl = document.getElementById('sms-rule-enabled');
+  if (enEl) enEl.checked = rule ? Boolean(rule.enabled) : true;
+  const tagInput = document.getElementById('sms-rule-tag');
+  if (tagInput) tagInput.disabled = Boolean(tag); // tag is the key — don't rename in edit
+  const title = document.getElementById('sms-rule-modal-title');
+  if (title) title.textContent = tag ? 'Edit Tag Rule' : 'Add Tag Rule';
+  openModal('sms-rule-modal');
+}
+
+async function saveSmsRuleFromModal() {
+  const tag = (document.getElementById('sms-rule-tag')?.value || '').trim();
+  const message = (document.getElementById('sms-rule-message')?.value || '').trim();
+  const enabled = Boolean(document.getElementById('sms-rule-enabled')?.checked);
+  if (!tag || !message) {
+    showToast('error', 'Missing details', 'Tag and Message are both required.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/integrations/infotxt/rules', {
+      method: 'PUT',
+      body: JSON.stringify({ tag, message, enabled }),
+    });
+    closeModal('sms-rule-modal');
+    editingSmsTag = null;
+    await loadSmsSettings();
+    showToast('success', 'Rule saved', `"${tag}" saved.`);
+  } catch (e) {
+    showToast('error', 'Save failed', e.message || 'Could not save the rule.');
+  }
+}
+
+async function deleteSmsRule(event, tag) {
+  if (event) event.stopPropagation();
+  if (!confirm(`Delete the SMS rule for tag "${tag}"?`)) return;
+  try {
+    await authorizedJsonRequest('/integrations/infotxt/rules/delete', {
+      method: 'POST',
+      body: JSON.stringify({ tag }),
+    });
+    smsRules = smsRules.filter((r) => String(r.tag) !== String(tag));
+    renderSmsRules();
+    showToast('success', 'Rule deleted', `"${tag}" removed.`);
+  } catch (e) {
+    showToast('error', 'Delete failed', e.message || 'Could not delete.');
+  }
+}
+
+async function saveSmsConfig() {
+  const payload = {
+    endpoint: (document.getElementById('sms-endpoint')?.value || '').trim(),
+    sender_id: (document.getElementById('sms-sender')?.value || '').trim(),
+    api_key: (document.getElementById('sms-api-key')?.value || '').trim(),
+    enabled: Boolean(document.getElementById('sms-enabled')?.checked),
+  };
+  try {
+    await authorizedJsonRequest('/integrations/infotxt/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    const keyEl = document.getElementById('sms-api-key');
+    if (keyEl) keyEl.value = '';
+    await loadSmsSettings();
+    showToast('success', 'Saved', 'InfoTXT connection saved.');
+  } catch (e) {
+    showToast('error', 'Save failed', e.message || 'Could not save connection.');
+  }
+}
+
+function openSmsTest() {
+  const r = document.getElementById('sms-test-result');
+  if (r) r.textContent = '';
+  openModal('sms-test-modal');
+}
+
+async function sendSmsTest() {
+  const number = (document.getElementById('sms-test-number')?.value || '').trim();
+  const message = (document.getElementById('sms-test-message')?.value || '').trim();
+  const resultEl = document.getElementById('sms-test-result');
+  if (!number) { showToast('error', 'Number required', 'Enter a mobile number.'); return; }
+  if (resultEl) resultEl.textContent = 'Sending…';
+  try {
+    const data = await authorizedJsonRequest('/integrations/infotxt/test', {
+      method: 'POST',
+      body: JSON.stringify({ number, message }),
+    });
+    const ok = data.ok || data.status === 'sent';
+    if (resultEl) {
+      resultEl.style.color = ok ? 'var(--success)' : 'var(--danger)';
+      resultEl.textContent = ok ? `Sent to ${data.phone || number}.` : `Failed: ${data.error || data.status || 'unknown'}`;
+    }
+    showToast(ok ? 'success' : 'error', ok ? 'Test sent' : 'Test failed', ok ? `Sent to ${data.phone || number}.` : (data.error || 'Send failed.'));
+  } catch (e) {
+    if (resultEl) { resultEl.style.color = 'var(--danger)'; resultEl.textContent = `Failed: ${e.message}`; }
+    showToast('error', 'Test failed', e.message || 'Request failed.');
   }
 }
 
