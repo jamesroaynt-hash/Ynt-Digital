@@ -8,14 +8,16 @@
 // Config is stored as a single row in integration_settings (provider 'infotxt'):
 //   enabled   → master on/off
 //   base_url  → InfoTXT send-SMS endpoint
-//   api_key   → InfoTXT API key
-//   name      → registered Sender ID / mask
+//   api_key   → InfoTXT ApiKey
+//   page_id   → InfoTXT UserID
+//   name      → SIM slot (optional)
 //
-// NOTE: InfoTXT does not publish its HTTP API. The actual request shape lives in
-// ONE place — buildSendRequest() below — so once the real endpoint/params are
-// confirmed, only that function needs adjusting.
+// Implements the InfoTXT Cloud API v2.2 Send SMS endpoint
+// (GET https://api.myinfotxt.com/v2/send.php?UserID=&ApiKey=&Mobile=&SMS=&SIM=).
+// Success is JSON {"status":"00","smsid":"…"}; any other status is an error.
 
 const PROVIDER = 'infotxt';
+const DEFAULT_ENDPOINT = 'https://api.myinfotxt.com/v2/send.php';
 
 function stringOrNull(value) {
   if (value === undefined || value === null) return null;
@@ -39,7 +41,8 @@ async function getConfig(db) {
   return {
     enabled: Boolean(row?.enabled),
     endpoint: row?.base_url || '',
-    sender_id: row?.name || '',
+    user_id: row?.page_id || '',
+    sim: row?.name || '',
     has_api_key: Boolean(row?.api_key),
     notes: row?.notes || '',
   };
@@ -51,7 +54,8 @@ async function getConfigWithKey(db) {
   return {
     enabled: Boolean(row?.enabled),
     endpoint: row?.base_url || '',
-    sender_id: row?.name || '',
+    user_id: row?.page_id || '',
+    sim: row?.name || '',
     api_key: row?.api_key || '',
   };
 }
@@ -59,24 +63,25 @@ async function getConfigWithKey(db) {
 async function saveConfig(db, payload = {}) {
   const current = await getConfigRow(db);
   const enabled = boolToInt(payload.enabled);
-  const endpoint = stringOrNull(payload.endpoint || payload.base_url) || current?.base_url || null;
-  const senderId = stringOrNull(payload.sender_id || payload.name) || current?.name || null;
+  const endpoint = stringOrNull(payload.endpoint || payload.base_url) || current?.base_url || DEFAULT_ENDPOINT;
+  const userId = stringOrNull(payload.user_id) || current?.page_id || null;
+  // SIM is optional and clearable: honour an explicitly-sent blank.
+  const sim = payload.sim !== undefined ? stringOrNull(payload.sim) : (current?.name || null);
   const notes = payload.notes !== undefined ? String(payload.notes || '') : (current?.notes || '');
   // Blank api_key means "keep the saved one".
-  const incomingKey = stringOrNull(payload.api_key);
-  const apiKey = incomingKey || current?.api_key || null;
+  const apiKey = stringOrNull(payload.api_key) || current?.api_key || null;
 
   if (current) {
     await db.prepare(`
       UPDATE integration_settings
-      SET enabled = ?, base_url = ?, name = ?, api_key = ?, notes = ?, updated_at = datetime('now')
+      SET enabled = ?, base_url = ?, page_id = ?, name = ?, api_key = ?, notes = ?, updated_at = datetime('now')
       WHERE provider = ? AND connection_id = ''
-    `).run(enabled, endpoint, senderId, apiKey, notes, PROVIDER);
+    `).run(enabled, endpoint, userId, sim, apiKey, notes, PROVIDER);
   } else {
     await db.prepare(`
-      INSERT INTO integration_settings (provider, connection_id, name, enabled, base_url, api_key, sync_mode, notes)
-      VALUES (?, '', ?, ?, ?, ?, 'push_only', ?)
-    `).run(PROVIDER, senderId, enabled, endpoint, apiKey, notes);
+      INSERT INTO integration_settings (provider, connection_id, page_id, name, enabled, base_url, api_key, sync_mode, notes)
+      VALUES (?, '', ?, ?, ?, ?, ?, 'push_only', ?)
+    `).run(PROVIDER, userId, sim, enabled, endpoint, apiKey, notes);
   }
   return getConfig(db);
 }
@@ -158,33 +163,41 @@ function renderTemplate(template, ctx = {}) {
   });
 }
 
-// ─── Sender (the one InfoTXT-specific piece) ───────────────
-// Build the actual HTTP request to InfoTXT. CONFIRM against InfoTXT's real API
-// and adjust the URL/params/method here only.
-function buildSendRequest({ endpoint, apiKey, senderId, number, message }) {
-  const url = new URL(endpoint);
-  url.searchParams.set('apikey', apiKey);
-  url.searchParams.set('number', number);
-  url.searchParams.set('message', message);
-  if (senderId) url.searchParams.set('sender', senderId);
+// ─── Sender (InfoTXT Cloud API v2.2 Send SMS) ──────────────
+function buildSendRequest({ endpoint, userId, apiKey, sim, mobile, message }) {
+  const url = new URL(endpoint || DEFAULT_ENDPOINT);
+  url.searchParams.set('UserID', userId);
+  url.searchParams.set('ApiKey', apiKey);
+  url.searchParams.set('Mobile', mobile);
+  url.searchParams.set('SMS', message);
+  if (sim) url.searchParams.set('SIM', sim);
   return { url: url.toString(), options: { method: 'GET', signal: AbortSignal.timeout(15000) } };
 }
 
 async function sendSms(db, { number, message }) {
   const cfg = await getConfigWithKey(db);
-  if (!cfg.endpoint || !cfg.api_key) {
-    return { ok: false, status: 'skipped', error: 'InfoTXT endpoint/api key not configured' };
+  if (!cfg.api_key || !cfg.user_id) {
+    return { ok: false, status: 'skipped', error: 'InfoTXT UserID/ApiKey not configured' };
   }
   const phone = normalizePhPhone(number);
   if (!phone) return { ok: false, status: 'skipped', error: 'no/invalid phone' };
   try {
     const { url, options } = buildSendRequest({
-      endpoint: cfg.endpoint, apiKey: cfg.api_key, senderId: cfg.sender_id, number: phone, message,
+      endpoint: cfg.endpoint, userId: cfg.user_id, apiKey: cfg.api_key, sim: cfg.sim, mobile: phone, message,
     });
     const res = await fetch(url, options);
     const body = await res.text().catch(() => '');
-    if (!res.ok) return { ok: false, status: 'failed', error: `HTTP ${res.status}: ${body.slice(0, 200)}`, phone };
-    return { ok: true, status: 'sent', body: body.slice(0, 200), phone };
+    let json = null;
+    try { json = JSON.parse(body); } catch { /* non-JSON response */ }
+    if (!res.ok) {
+      return { ok: false, status: 'failed', error: `HTTP ${res.status}: ${body.slice(0, 200)}`, phone };
+    }
+    // InfoTXT success is {"status":"00","smsid":"…"}; anything else is an error.
+    if (json && String(json.status) === '00') {
+      return { ok: true, status: 'sent', smsid: json.smsid || null, phone };
+    }
+    const err = json ? (json.error || `gateway status ${json.status}`) : (body.slice(0, 200) || 'unknown response');
+    return { ok: false, status: 'failed', error: err, phone };
   } catch (err) {
     return { ok: false, status: 'failed', error: err.message, phone };
   }

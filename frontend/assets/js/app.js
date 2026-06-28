@@ -2711,17 +2711,22 @@ if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
           <div class="int-section-label">Gateway connection</div>
           <div class="form-grid two-col">
             <div class="form-group">
-              <label class="form-label">Send-SMS Endpoint URL</label>
-              <input type="text" class="form-control mono-input" id="sms-endpoint" placeholder="https://ph.myinfotxt.com/api/send">
+              <label class="form-label req">UserID</label>
+              <input type="text" class="form-control mono-input" id="sms-userid" placeholder="Your Infotxt Cloud UserID (e.g. 2)">
             </div>
             <div class="form-group">
-              <label class="form-label">Sender ID / Mask</label>
-              <input type="text" class="form-control" id="sms-sender" placeholder="e.g. YNT">
+              <label class="form-label">SIM slot (optional)</label>
+              <input type="text" class="form-control mono-input" id="sms-sim" placeholder="Leave blank for default">
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">API Key</label>
-            <input type="text" class="form-control mono-input" id="sms-api-key" placeholder="Enter InfoTXT API key">
+            <label class="form-label req">API Key</label>
+            <input type="text" class="form-control mono-input" id="sms-api-key" placeholder="Enter InfoTXT API Key">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Send-SMS Endpoint URL</label>
+            <input type="text" class="form-control mono-input" id="sms-endpoint" placeholder="https://api.myinfotxt.com/v2/send.php">
+            <div class="field-help">Default: <code>https://api.myinfotxt.com/v2/send.php</code> — leave as-is unless InfoTXT tells you otherwise.</div>
           </div>
           <div class="int-status-box">
             <div>
@@ -13872,14 +13877,15 @@ async function loadSmsSettings() {
     ]);
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
     set('sms-endpoint', cfg.endpoint || '');
-    set('sms-sender', cfg.sender_id || '');
+    set('sms-userid', cfg.user_id || '');
+    set('sms-sim', cfg.sim || '');
     const keyEl = document.getElementById('sms-api-key');
-    if (keyEl) keyEl.placeholder = cfg.has_api_key ? 'Saved key — leave blank to keep it' : 'Enter InfoTXT API key';
+    if (keyEl) keyEl.placeholder = cfg.has_api_key ? 'Saved key — leave blank to keep it' : 'Enter InfoTXT API Key';
     const enEl = document.getElementById('sms-enabled');
     if (enEl) enEl.checked = Boolean(cfg.enabled);
     const badge = document.getElementById('sms-status-badge');
     if (badge) {
-      const ready = cfg.enabled && cfg.has_api_key && cfg.endpoint;
+      const ready = cfg.enabled && cfg.has_api_key && cfg.user_id;
       badge.textContent = cfg.enabled ? (ready ? 'Active' : 'On — incomplete setup') : 'Off';
       badge.className = `badge ${cfg.enabled ? (ready ? 'badge-success' : 'badge-warning') : 'badge-gray'}`;
     }
@@ -13986,7 +13992,8 @@ async function deleteSmsRule(event, tag) {
 async function saveSmsConfig() {
   const payload = {
     endpoint: (document.getElementById('sms-endpoint')?.value || '').trim(),
-    sender_id: (document.getElementById('sms-sender')?.value || '').trim(),
+    user_id: (document.getElementById('sms-userid')?.value || '').trim(),
+    sim: (document.getElementById('sms-sim')?.value || '').trim(),
     api_key: (document.getElementById('sms-api-key')?.value || '').trim(),
     enabled: Boolean(document.getElementById('sms-enabled')?.checked),
   };
@@ -14022,11 +14029,12 @@ async function sendSmsTest() {
       body: JSON.stringify({ number, message }),
     });
     const ok = data.ok || data.status === 'sent';
+    const okMsg = `Sent to ${data.phone || number}${data.smsid ? ` (id ${data.smsid})` : ''}.`;
     if (resultEl) {
       resultEl.style.color = ok ? 'var(--success)' : 'var(--danger)';
-      resultEl.textContent = ok ? `Sent to ${data.phone || number}.` : `Failed: ${data.error || data.status || 'unknown'}`;
+      resultEl.textContent = ok ? okMsg : `Failed: ${data.error || data.status || 'unknown'}`;
     }
-    showToast(ok ? 'success' : 'error', ok ? 'Test sent' : 'Test failed', ok ? `Sent to ${data.phone || number}.` : (data.error || 'Send failed.'));
+    showToast(ok ? 'success' : 'error', ok ? 'Test sent' : 'Test failed', ok ? okMsg : (data.error || 'Send failed.'));
   } catch (e) {
     if (resultEl) { resultEl.style.color = 'var(--danger)'; resultEl.textContent = `Failed: ${e.message}`; }
     showToast('error', 'Test failed', e.message || 'Request failed.');
