@@ -220,8 +220,17 @@ async function sendSms(db, { number, message }) {
     if (json && gwSmsId && String(gwStatus) === '00') {
       return { ok: true, status: 'sent', smsid: gwSmsId, raw, phone };
     }
+    // status:null + smsid "NULL" means InfoTXT authenticated the request but the
+    // physical SIM/device never dispatched it — a device-side failure, not a
+    // credential/parameter problem (those return numeric statuses 01–05 + error).
+    const dispatchFailed = json
+      && (gwStatus === null || gwStatus === undefined)
+      && (gwSmsId == null || String(gwSmsId).toUpperCase() === 'NULL');
     const err = json
-      ? (gwError || `gateway status ${gwStatus ?? 'none'}, no smsid`)
+      ? (gwError
+          || (dispatchFailed
+            ? 'InfoTXT could not dispatch — check the SIM/device is online and has load, and the correct SIM is selected'
+            : `gateway status ${gwStatus ?? 'none'}, no smsid`))
       : (raw || 'empty response');
     return { ok: false, status: 'failed', error: err, raw, phone };
   } catch (err) {
