@@ -6256,6 +6256,14 @@ function renderMarketingCenter() {
       <div class="card-header" style="flex-wrap:wrap;gap:10px;">
         <div><div class="card-title">Recent Entries</div><div class="card-subtitle">Latest ad spend logs by product.${marketingManager ? '' : ' Only Sales & Marketing TL can add or edit entries.'}</div></div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          ${(() => {
+            const products = [...new Set(state.entries.map((e) => e.page).filter(Boolean))].sort();
+            const cur = window.mktRecentFilter?.product || '';
+            return `<select id="mkt-recent-product" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;max-width:180px;">
+              <option value=""${cur ? '' : ' selected'} style="background:#0f172a;color:#fff;">All products</option>
+              ${products.map((p) => `<option value="${escapeHtml(p)}"${cur === p ? ' selected' : ''} style="background:#0f172a;color:#fff;">${escapeHtml(p)}</option>`).join('')}
+            </select>`;
+          })()}
           <input type="date" class="form-control" id="mkt-recent-from" value="${window.mktRecentFilter?.from || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
           <span style="font-size:12px;color:var(--text-muted);">—</span>
           <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
@@ -6274,6 +6282,7 @@ function renderMarketingCenter() {
               ${(() => {
                 const rf = window.mktRecentFilter || {};
                 let filtered = state.entries.slice();
+                if (rf.product) filtered = filtered.filter((e) => (e.page || '') === rf.product);
                 if (rf.from) filtered = filtered.filter((e) => (e.date || '') >= rf.from);
                 if (rf.to) filtered = filtered.filter((e) => (e.date || '') <= rf.to);
                 return filtered.reverse().slice(0, window.mktRecentLimit || 10);
@@ -11862,7 +11871,8 @@ async function updateMarketingEntrySpend(id, value) {
 function applyMarketingRecentFilter() {
   const from = document.getElementById('mkt-recent-from')?.value || '';
   const to = document.getElementById('mkt-recent-to')?.value || '';
-  window.mktRecentFilter = { from, to };
+  const product = document.getElementById('mkt-recent-product')?.value || '';
+  window.mktRecentFilter = { from, to, product };
   navigateTo('marketing-center');
   setTimeout(() => {
     const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
@@ -11871,7 +11881,7 @@ function applyMarketingRecentFilter() {
 }
 
 function clearMarketingRecentFilter() {
-  window.mktRecentFilter = { from: '', to: '' };
+  window.mktRecentFilter = { from: '', to: '', product: '' };
   navigateTo('marketing-center');
   setTimeout(() => {
     const tab = document.querySelector('.erp-tabs .tab-btn[onclick*="mkt-entries"]');
