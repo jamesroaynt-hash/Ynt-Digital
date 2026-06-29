@@ -2419,7 +2419,7 @@ function renderApiConnections() {
           </div>
           <div class="form-group">
             <label class="form-label req">Page Name</label>
-            <input type="text" class="form-control" id="pancake-pos-shop-name" placeholder="e.g. My Store Page" value="${escapeHtml(posSettings.shopName || '')}">
+            <input type="text" class="form-control" id="pancake-pos-shop-name" placeholder="e.g. My Store Page" autocomplete="off" value="${escapeHtml(posSettings.shopName || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Owner</label>
