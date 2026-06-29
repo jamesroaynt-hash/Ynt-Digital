@@ -3501,6 +3501,102 @@ function renderHR() {
   </div>`;
 }
 
+// ─── Philippine holidays ───────────────────────────────────
+// Fixed-date holidays recur every year; Holy Week (from Easter) and National
+// Heroes Day (last Monday of August) are computed; lunar/Islamic holidays vary
+// by official proclamation so they're listed per year in PH_MOVABLE_BY_YEAR.
+const PH_MOVABLE_BY_YEAR = {
+  2025: {
+    '2025-01-29': { name: 'Chinese New Year', type: 'Special Non-Working' },
+    '2025-03-31': { name: "Eid'l Fitr", type: 'Regular Holiday' },
+    '2025-06-06': { name: "Eid'l Adha", type: 'Regular Holiday' },
+  },
+  2026: {
+    '2026-02-17': { name: 'Chinese New Year', type: 'Special Non-Working' },
+    '2026-03-20': { name: "Eid'l Fitr", type: 'Regular Holiday' },
+    '2026-05-27': { name: "Eid'l Adha", type: 'Regular Holiday' },
+  },
+  2027: {
+    '2027-02-06': { name: 'Chinese New Year', type: 'Special Non-Working' },
+    '2027-03-10': { name: "Eid'l Fitr", type: 'Regular Holiday' },
+    '2027-05-16': { name: "Eid'l Adha", type: 'Regular Holiday' },
+  },
+};
+
+// Easter Sunday (Gregorian computus) → { month (1-12), day }.
+function computusEaster(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { month, day };
+}
+
+const _phHolidayCache = {};
+function phHolidaysForYear(year) {
+  if (_phHolidayCache[year]) return _phHolidayCache[year];
+  const map = {};
+  const pad = (n) => String(n).padStart(2, '0');
+  const add = (mo, da, name, type) => { map[`${year}-${pad(mo)}-${pad(da)}`] = { name, type }; };
+  // Fixed Regular Holidays
+  add(1, 1, "New Year's Day", 'Regular Holiday');
+  add(4, 9, 'Araw ng Kagitingan', 'Regular Holiday');
+  add(5, 1, 'Labor Day', 'Regular Holiday');
+  add(6, 12, 'Independence Day', 'Regular Holiday');
+  add(11, 30, 'Bonifacio Day', 'Regular Holiday');
+  add(12, 25, 'Christmas Day', 'Regular Holiday');
+  add(12, 30, 'Rizal Day', 'Regular Holiday');
+  // Fixed Special (Non-Working) Days
+  add(8, 21, 'Ninoy Aquino Day', 'Special Non-Working');
+  add(11, 1, "All Saints' Day", 'Special Non-Working');
+  add(11, 2, "All Souls' Day", 'Special Non-Working');
+  add(12, 8, 'Immaculate Conception', 'Special Non-Working');
+  add(12, 24, 'Christmas Eve', 'Special Non-Working');
+  add(12, 31, 'Last Day of the Year', 'Special Non-Working');
+  // National Heroes Day — last Monday of August
+  const aug = new Date(year, 7, 31);
+  while (aug.getDay() !== 1) aug.setDate(aug.getDate() - 1);
+  add(8, aug.getDate(), 'National Heroes Day', 'Regular Holiday');
+  // Holy Week — relative to Easter Sunday
+  const e = computusEaster(year);
+  const easter = new Date(year, e.month - 1, e.day);
+  const rel = (offset) => { const d = new Date(easter); d.setDate(d.getDate() + offset); return d; };
+  [[-3, 'Maundy Thursday', 'Regular Holiday'], [-2, 'Good Friday', 'Regular Holiday'], [-1, 'Black Saturday', 'Special Non-Working']]
+    .forEach(([off, name, type]) => { const d = rel(off); add(d.getMonth() + 1, d.getDate(), name, type); });
+  // Movable lunar/Islamic holidays (per official proclamation)
+  Object.assign(map, PH_MOVABLE_BY_YEAR[year] || {});
+  _phHolidayCache[year] = map;
+  return map;
+}
+
+// Returns { name, type } if the YYYY-MM-DD date is a PH holiday, else null.
+function getPhHoliday(dateStr) {
+  const s = String(dateStr || '').slice(0, 10);
+  const m = s.match(/^(\d{4})-\d{2}-\d{2}$/);
+  if (!m) return null;
+  return phHolidaysForYear(Number(m[1]))[s] || null;
+}
+
+// Small pill marking a date as a PH holiday (Regular = amber, Special = violet).
+function phHolidayBadge(dateStr) {
+  const h = getPhHoliday(dateStr);
+  if (!h) return '';
+  const regular = h.type === 'Regular Holiday';
+  const color = regular ? '#b45309' : '#7c3aed';
+  const bg = regular ? '#fef3c7' : '#ede9fe';
+  return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${escapeHtml(h.type)}">🇵🇭 ${escapeHtml(h.name)}</span>`;
+}
+
 function renderAttendance() {
   const today = normalizeDateString(new Date());
   return `
@@ -9130,7 +9226,7 @@ function renderTimeClockStatus(record, date) {
   if (!wrapper) return;
   wrapper.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:left;">
-      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong></div>
+      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong> ${phHolidayBadge(date || normalizeDateString(new Date()))}</div>
       <div><div class="text-xs text-muted">Break</div><strong>${Number(record?.break_minutes || 15)} mins</strong></div>
       <div><div class="text-xs text-muted">Time In</div><strong>${formatClockValue(record?.time_in)}</strong></div>
       <div><div class="text-xs text-muted">Break Out</div><strong>${formatClockValue(record?.break_out)}</strong></div>
@@ -9513,7 +9609,7 @@ function renderAttendanceClockStatus(record, date) {
   wrapper.className = '';
   wrapper.innerHTML = `
     <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; text-align:left;">
-      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong></div>
+      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong> ${phHolidayBadge(date || normalizeDateString(new Date()))}</div>
       <div><div class="text-xs text-muted">Break</div><strong>${Number(record?.break_minutes || 15)} mins</strong></div>
       <div><div class="text-xs text-muted">Time In</div><strong>${formatClockValue(record?.time_in)}</strong></div>
       <div><div class="text-xs text-muted">Time Out</div><strong>${formatClockValue(record?.time_out)}</strong></div>
@@ -10461,7 +10557,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
 
             return `
             <tr onclick="openAttendanceEditModal(${record.id})" style="cursor:pointer;" title="Click to edit">
-              <td><strong>${escapeHtml(record.work_date || '')}</strong></td>
+              <td><strong>${escapeHtml(record.work_date || '')}</strong>${getPhHoliday(record.work_date) ? `<div style="margin-top:3px;">${phHolidayBadge(record.work_date)}</div>` : ''}</td>
               <td>${escapeHtml(record.full_name || '')}${scheduleHtml}</td>
               <td>${timeTxt(record.time_in)}</td>
               <td>${timeTxt(record.break_out)}</td>
