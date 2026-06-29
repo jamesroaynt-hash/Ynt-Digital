@@ -503,9 +503,39 @@ function computeRtsPcsLookups() {
   return { skuPcs, namePcs };
 }
 
+// RTS pcs for one item, honoring the page→SKU mapping (SKU wins, name fallback).
+function itemRtsPcs(item, lookups) {
+  const { skuPcs, namePcs } = lookups || computeRtsPcsLookups();
+  return (item.sku && skuPcs[item.sku] != null)
+    ? Number(skuPcs[item.sku])
+    : Number(namePcs[normalizeProductKey(item.name)] || 0);
+}
+
+// Effective stock = managed stock + RTS pcs (returned items back in the warehouse).
+function inventoryEffectiveStock(item, lookups) {
+  return Number(item.stock || 0) + itemRtsPcs(item, lookups);
+}
+
+// Products tab honors the search box (item name or SKU); other tabs are unfiltered.
+function inventoryProductsFiltered() {
+  const q = (document.getElementById('inv-products-search')?.value || '').trim().toLowerCase();
+  let items = DB.inventory.filter(i => i.type === 'Product');
+  if (q) {
+    items = items.filter(i =>
+      String(i.name || '').toLowerCase().includes(q) ||
+      String(i.sku || '').toLowerCase().includes(q));
+  }
+  return items;
+}
+
+function filterInventoryProducts() {
+  const container = document.querySelector('#tab-products .table-container');
+  if (container) container.innerHTML = renderInventoryTable(inventoryProductsFiltered());
+}
+
 function rerenderInventoryTables() {
   const tabs = {
-    'tab-products': DB.inventory.filter(i => i.type === 'Product'),
+    'tab-products': inventoryProductsFiltered(),
     'tab-supplies': DB.inventory.filter(i => i.type === 'Supply'),
     'tab-all': DB.inventory,
   };
@@ -6582,7 +6612,8 @@ function renderCSR() {
 }
 
 function renderInventory() {
-  const lowStock = DB.inventory.filter(i => i.stock < i.reorder);
+  const rtsLookups = computeRtsPcsLookups();
+  const lowStock = DB.inventory.filter(i => inventoryEffectiveStock(i, rtsLookups) < i.reorder);
   const canEditStock = canManageInventoryStock();
 
   return `
@@ -6626,6 +6657,9 @@ function renderInventory() {
   </div>
 
   <div id="tab-products" class="tab-content active">
+    <div style="margin-bottom:12px;">
+      <input type="text" id="inv-products-search" class="form-control" style="max-width:320px;" placeholder="Search by item name or SKU..." oninput="filterInventoryProducts()">
+    </div>
     <div class="table-container">
       ${renderInventoryTable(DB.inventory.filter(i => i.type === 'Product'))}
     </div>
@@ -6744,14 +6778,21 @@ function renderInventoryTable(items, pageScope) {
       ? Number(skuPcs[item.sku])
       : Number(namePcs[normalizeProductKey(item.name)] || 0);
   }
+  // Column totals shown in the footer (effective stock, RTS pcs, total orders).
+  const totalStock = items.reduce((s, it) => s + Number(it.stock || 0) + getRtsPcs(it), 0);
+  const totalRts = items.reduce((s, it) => s + getRtsPcs(it), 0);
+  const totalOrders = items.reduce((s, it) => s + Number(it.totalOrders || 0), 0);
   return `
     <table>
       <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Total stock added (item creation + stock-update adds)">Total Orders</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
-          const badge = item.stock >= item.reorder ? 'badge-success' : item.stock >= item.reorder * 0.5 ? 'badge-warning' : 'badge-danger';
-          const badgeText = item.stock >= item.reorder ? 'OK' : item.stock >= item.reorder * 0.5 ? 'Low' : 'Critical';
           const rtsPcs = getRtsPcs(item);
+          // RTS pcs are returned items physically back in the warehouse, so they
+          // count toward total stock (and the OK/Low/Critical status).
+          const effectiveStock = Number(item.stock || 0) + rtsPcs;
+          const badge = effectiveStock >= item.reorder ? 'badge-success' : effectiveStock >= item.reorder * 0.5 ? 'badge-warning' : 'badge-danger';
+          const badgeText = effectiveStock >= item.reorder ? 'OK' : effectiveStock >= item.reorder * 0.5 ? 'Low' : 'Critical';
           const isActive = item.active !== 0;
           return `<tr${isActive ? '' : ' style="opacity:0.55"'}>
             <td><span class="font-mono text-xs text-muted">${item.sku}</span></td>
@@ -6759,7 +6800,7 @@ function renderInventoryTable(items, pageScope) {
               ? `<button type="button" class="inv-name-edit" style="font-weight:500;background:none;border:none;padding:0;color:var(--text);cursor:pointer;text-align:left;font:inherit;font-weight:500" onclick="openEditItemModal('${escapeHtml(item.id)}')" title="Click to edit item details">${escapeHtml(item.name)}</button>`
               : `<div style="font-weight:500">${escapeHtml(item.name)}</div>`}</td>
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
-            <td><strong>${item.stock}</strong> ${item.unit}</td>
+            <td${rtsPcs ? ` title="Base ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
             <td>
               ${canManageInventoryStock()
                 ? `<input type="number" class="form-control" style="width:78px;padding:4px 8px;height:auto;font-size:13px" value="${item.reorder}" min="0" onchange="updateReorderPoint('${escapeHtml(item.id)}', this.value)" title="Editable reorder point">`
@@ -6785,6 +6826,16 @@ function renderInventoryTable(items, pageScope) {
           </tr>`;
         }).join('') : '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
+      ${items.length ? `<tfoot>
+        <tr style="font-weight:700;border-top:2px solid var(--border)">
+          <td colspan="3" style="text-align:right">Totals</td>
+          <td><strong>${totalStock.toLocaleString()}</strong></td>
+          <td></td>
+          <td>${totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—'}</td>
+          <td>${totalOrders ? `<strong>${totalOrders.toLocaleString()}</strong>` : '—'}</td>
+          <td colspan="4"></td>
+        </tr>
+      </tfoot>` : ''}
     </table>`;
 }
 
