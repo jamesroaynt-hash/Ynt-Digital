@@ -516,10 +516,10 @@ function inventoryEffectiveStock(item, lookups) {
   return Number(item.stock || 0) + itemRtsPcs(item, lookups);
 }
 
-// Products tab honors the search box (item name or SKU); other tabs are unfiltered.
+// Active-products tab honors the search box (item name or SKU); other tabs unfiltered.
 function inventoryProductsFiltered() {
   const q = (document.getElementById('inv-products-search')?.value || '').trim().toLowerCase();
-  let items = DB.inventory.filter(i => i.type === 'Product');
+  let items = DB.inventory.filter(i => i.type === 'Product' && i.active !== 0);
   if (q) {
     items = items.filter(i =>
       String(i.name || '').toLowerCase().includes(q) ||
@@ -529,16 +529,14 @@ function inventoryProductsFiltered() {
 }
 
 function filterInventoryProducts() {
-  const container = document.querySelector('#tab-products .table-container');
+  const container = document.querySelector('#tab-active .table-container');
   if (container) container.innerHTML = renderInventoryTable(inventoryProductsFiltered());
 }
 
 function rerenderInventoryTables() {
   const tabs = {
-    'tab-products': inventoryProductsFiltered(),
+    'tab-active': inventoryProductsFiltered(),
     'tab-supplies': DB.inventory.filter(i => i.type === 'Supply'),
-    'tab-all': DB.inventory,
-    'tab-active': DB.inventory.filter(i => i.type === 'Product' && i.active !== 0),
     'tab-inactive': DB.inventory.filter(i => i.type === 'Product' && i.active === 0),
   };
   Object.entries(tabs).forEach(([id, items]) => {
@@ -6651,36 +6649,24 @@ function renderInventory() {
   </div>
 
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'tab-products')">Products</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-all')">All Items</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-active')">Active</button>
+    <button class="tab-btn active" onclick="switchTab(this,'tab-active')">Active</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-inactive')">Not Active</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-stock-history')">Stock History</button>
   </div>
 
-  <div id="tab-products" class="tab-content active">
+  <div id="tab-active" class="tab-content active">
     <div style="margin-bottom:12px;">
       <input type="text" id="inv-products-search" class="form-control" style="max-width:320px;" placeholder="Search by item name or SKU..." oninput="filterInventoryProducts()">
     </div>
     <div class="table-container">
-      ${renderInventoryTable(DB.inventory.filter(i => i.type === 'Product'))}
+      ${renderInventoryTable(inventoryProductsFiltered())}
     </div>
   </div>
   <div id="tab-supplies" class="tab-content">
     <div class="table-container">
       ${renderInventoryTable(DB.inventory.filter(i => i.type === 'Supply'))}
-    </div>
-  </div>
-  <div id="tab-all" class="tab-content">
-    <div class="table-container">
-      ${renderInventoryTable(DB.inventory)}
-    </div>
-  </div>
-  <div id="tab-active" class="tab-content">
-    <div class="table-container">
-      ${renderInventoryTable(DB.inventory.filter(i => i.type === 'Product' && i.active !== 0))}
     </div>
   </div>
   <div id="tab-inactive" class="tab-content">
