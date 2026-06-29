@@ -538,6 +538,8 @@ function rerenderInventoryTables() {
     'tab-products': inventoryProductsFiltered(),
     'tab-supplies': DB.inventory.filter(i => i.type === 'Supply'),
     'tab-all': DB.inventory,
+    'tab-active': DB.inventory.filter(i => i.type === 'Product' && i.active !== 0),
+    'tab-inactive': DB.inventory.filter(i => i.type === 'Product' && i.active === 0),
   };
   Object.entries(tabs).forEach(([id, items]) => {
     const container = document.querySelector(`#${id} .table-container`);
@@ -6652,6 +6654,8 @@ function renderInventory() {
     <button class="tab-btn active" onclick="switchTab(this,'tab-products')">Products</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-all')">All Items</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-active')">Active</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-inactive')">Not Active</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-stock-history')">Stock History</button>
   </div>
@@ -6672,6 +6676,16 @@ function renderInventory() {
   <div id="tab-all" class="tab-content">
     <div class="table-container">
       ${renderInventoryTable(DB.inventory)}
+    </div>
+  </div>
+  <div id="tab-active" class="tab-content">
+    <div class="table-container">
+      ${renderInventoryTable(DB.inventory.filter(i => i.type === 'Product' && i.active !== 0))}
+    </div>
+  </div>
+  <div id="tab-inactive" class="tab-content">
+    <div class="table-container">
+      ${renderInventoryTable(DB.inventory.filter(i => i.type === 'Product' && i.active === 0))}
     </div>
   </div>
   <div id="tab-rts-return" class="tab-content">
