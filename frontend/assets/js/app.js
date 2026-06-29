@@ -6778,13 +6778,13 @@ function renderInventoryTable(items, pageScope) {
       ? Number(skuPcs[item.sku])
       : Number(namePcs[normalizeProductKey(item.name)] || 0);
   }
-  // Column totals shown in the footer (effective stock, RTS pcs, total orders).
-  const totalStock = items.reduce((s, it) => s + Number(it.stock || 0) + getRtsPcs(it), 0);
+  // Column totals shown in the footer (base stock, RTS pcs, combined total).
+  const totalBaseStock = items.reduce((s, it) => s + Number(it.stock || 0), 0);
   const totalRts = items.reduce((s, it) => s + getRtsPcs(it), 0);
-  const totalOrders = items.reduce((s, it) => s + Number(it.totalOrders || 0), 0);
+  const totalStock = totalBaseStock + totalRts;
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th>Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Total stock added (item creation + stock-update adds)">Total Orders</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const rtsPcs = getRtsPcs(item);
@@ -6800,14 +6800,14 @@ function renderInventoryTable(items, pageScope) {
               ? `<button type="button" class="inv-name-edit" style="font-weight:500;background:none;border:none;padding:0;color:var(--text);cursor:pointer;text-align:left;font:inherit;font-weight:500" onclick="openEditItemModal('${escapeHtml(item.id)}')" title="Click to edit item details">${escapeHtml(item.name)}</button>`
               : `<div style="font-weight:500">${escapeHtml(item.name)}</div>`}</td>
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
-            <td${rtsPcs ? ` title="Base ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
+            <td><strong>${Number(item.stock || 0).toLocaleString()}</strong> ${item.unit}</td>
+            <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
+            <td${rtsPcs ? ` title="Stock ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
             <td>
               ${canManageInventoryStock()
                 ? `<input type="number" class="form-control" style="width:78px;padding:4px 8px;height:auto;font-size:13px" value="${item.reorder}" min="0" onchange="updateReorderPoint('${escapeHtml(item.id)}', this.value)" title="Editable reorder point">`
                 : `<span>${item.reorder}</span>`}
             </td>
-            <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
-            <td>${Number(item.totalOrders || 0) ? `<strong>${Number(item.totalOrders).toLocaleString()}</strong> ${item.unit}` : '<span class="text-xs text-muted">—</span>'}</td>
             <td>₱${item.cost}</td>
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
@@ -6829,11 +6829,10 @@ function renderInventoryTable(items, pageScope) {
       ${items.length ? `<tfoot>
         <tr style="font-weight:700;border-top:2px solid var(--border)">
           <td colspan="3" style="text-align:right">Totals</td>
-          <td><strong>${totalStock.toLocaleString()}</strong></td>
-          <td></td>
+          <td><strong>${totalBaseStock.toLocaleString()}</strong></td>
           <td>${totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—'}</td>
-          <td>${totalOrders ? `<strong>${totalOrders.toLocaleString()}</strong>` : '—'}</td>
-          <td colspan="4"></td>
+          <td><strong>${totalStock.toLocaleString()}</strong></td>
+          <td colspan="5"></td>
         </tr>
       </tfoot>` : ''}
     </table>`;
