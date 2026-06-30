@@ -538,6 +538,26 @@ module.exports = function hrRoutes(db) {
     res.status(201).json({ advance });
   });
 
+  router.patch('/cash-advances/:id/paid', requireHrManager, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid cash advance id' });
+
+    const existing = await db.prepare('SELECT id FROM cash_advances WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Cash advance not found' });
+
+    const paid = req.body?.paid ? 1 : 0;
+    await db.prepare(`
+      UPDATE cash_advances
+      SET paid = ?,
+          paid_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(paid, paid, id);
+
+    const advance = await db.prepare('SELECT * FROM cash_advances WHERE id = ?').get(id);
+    res.json({ advance });
+  });
+
   router.get('/leave-requests', async (req, res) => {
     const today = manilaParts().date;
     const from = normalizeDate(req.query?.from, today);

@@ -21,7 +21,7 @@ const NAV_ACCESS = {
   'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
-let hrState = { users: [], summary: [], attendance: [], advances: [] };
+let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
 let attendanceState = { today: null, date: '', advances: [], leaves: [], activeTab: 'clock' };
 let posUsersState = { users: [], total: 0, page: 1, perPage: 50, search: '', loading: false };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
@@ -3325,6 +3325,8 @@ function renderOwnAccountSection() {
 function renderHR() {
   const today = normalizeDateString(new Date());
   const monthStart = today.slice(0, 8) + '01';
+  const curDay = new Date().getDate();
+  const defaultPeriod = curDay <= 15 ? '1' : '2';
   return `
   <div class="page-header">
     <div class="page-title">
@@ -3342,18 +3344,32 @@ function renderHR() {
     <div class="card-body">
       <div class="form-grid-3">
         <div class="form-group">
-          <label class="form-label">From</label>
-          <input type="date" id="hr-date-from" class="form-control" value="${monthStart}">
+          <label class="form-label">Month</label>
+          <select id="hr-month-filter" class="form-control" onchange="applyHRMonthPeriod()">
+            ${buildHRMonthOptions()}
+          </select>
         </div>
         <div class="form-group">
-          <label class="form-label">To</label>
-          <input type="date" id="hr-date-to" class="form-control" value="${today}">
+          <label class="form-label">Period</label>
+          <select id="hr-period-filter" class="form-control" onchange="applyHRMonthPeriod()">
+            <option value="1"${defaultPeriod === '1' ? ' selected' : ''}>1 - 15</option>
+            <option value="2"${defaultPeriod === '2' ? ' selected' : ''}>16 - End</option>
+            <option value="0">Whole month</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label">User</label>
           <select id="hr-user-filter" class="form-control">
             <option value="">All users</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">From</label>
+          <input type="date" id="hr-date-from" class="form-control" value="${monthStart}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">To</label>
+          <input type="date" id="hr-date-to" class="form-control" value="${today}">
         </div>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
@@ -10116,6 +10132,38 @@ function getHRFilters() {
   };
 }
 
+// Build "YYYY-MM" month options for the last 12 months (current month first).
+function buildHRMonthOptions() {
+  const now = new Date();
+  const opts = [];
+  for (let i = 0; i < 12; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    opts.push(`<option value="${value}"${i === 0 ? ' selected' : ''}>${label}</option>`);
+  }
+  return opts.join('');
+}
+
+// Translate the Month + Period (1-15 / 16-End / Whole) selectors into From/To dates, then reload.
+function applyHRMonthPeriod() {
+  const month = document.getElementById('hr-month-filter')?.value || '';
+  const period = document.getElementById('hr-period-filter')?.value || '0';
+  const fromEl = document.getElementById('hr-date-from');
+  const toEl = document.getElementById('hr-date-to');
+  if (!month || !fromEl || !toEl) return loadHRDashboard();
+  const [year, mon] = month.split('-').map(Number);
+  const lastDay = new Date(year, mon, 0).getDate();
+  const mm = String(mon).padStart(2, '0');
+  let fromDay = 1;
+  let toDay = lastDay;
+  if (period === '1') { fromDay = 1; toDay = 15; }
+  else if (period === '2') { fromDay = 16; toDay = lastDay; }
+  fromEl.value = `${year}-${mm}-${String(fromDay).padStart(2, '0')}`;
+  toEl.value = `${year}-${mm}-${String(toDay).padStart(2, '0')}`;
+  return loadHRDashboard();
+}
+
 function populateHRUserSelects() {
   const options = [
     '<option value="">All users</option>',
@@ -10147,7 +10195,7 @@ async function initHRPage() {
   } catch (error) {
     showToast('error', 'Users unavailable', error.message || 'Could not load HR users.');
   }
-  await loadHRDashboard();
+  await applyHRMonthPeriod();
 }
 
 // Attendance edits live on both the HR/Payroll page and the Attendance Log page.
@@ -10198,6 +10246,7 @@ function renderAttendanceLog() {
 
   <div class="tabs" style="margin-bottom:16px;">
     <button class="tab-btn active" onclick="switchTab(this,'al-tab-log')">Attendance Log</button>
+    <button class="tab-btn" onclick="switchTab(this,'al-tab-ca'); loadHRCashAdvances();">Cash Advances</button>
     <button class="tab-btn" onclick="switchTab(this,'al-tab-announcements'); loadHRAnnouncements();">Announcements</button>
     <button class="tab-btn" onclick="switchTab(this,'al-tab-ot'); loadHRPendingOT();">Overtime Approvals</button>
   </div>
@@ -10207,6 +10256,18 @@ function renderAttendanceLog() {
       <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Click any row to edit. Days under 4 hrs do not count toward salary.</div></div></div>
       <div class="card-body" id="al-attendance-wrap">
         <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="al-tab-ca" class="tab-content">
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">Cash Advances</div><div class="card-subtitle">All cash advances in the selected date range. Mark each as Paid or Not Paid.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadHRCashAdvances()">Refresh</button>
+      </div>
+      <div class="card-body" id="al-ca-wrap">
+        <div class="empty-state"><h3>Loading cash advances</h3><p>Pulling records.</p></div>
       </div>
     </div>
   </div>
@@ -10378,8 +10439,85 @@ async function loadAttendanceLogDashboard() {
     }
 
     renderHRAttendanceTable('al-attendance-wrap');
+    if (document.getElementById('al-tab-ca')?.classList.contains('active')) {
+      loadHRCashAdvances().catch(() => {});
+    }
   } catch (error) {
     showToast('error', 'Attendance log failed', error.message || 'Could not load attendance log.');
+  }
+}
+
+async function loadHRCashAdvances() {
+  if (!canManageHR()) return;
+  const wrap = document.getElementById('al-ca-wrap');
+  if (!wrap) return;
+  const { from, to, userId } = getAttendanceLogFilters();
+  const query = new URLSearchParams({ from, to, _: Date.now().toString() });
+  if (userId) query.set('user_id', userId);
+  try {
+    const data = await authorizedJsonRequest(`/hr/cash-advances?${query.toString()}`);
+    hrState.cashAdvances = Array.isArray(data?.advances) ? data.advances : [];
+    renderHRCashAdvances();
+  } catch (error) {
+    wrap.innerHTML = '<div class="empty-state"><h3>Cash advances unavailable</h3><p>Could not load records.</p></div>';
+    showToast('error', 'Cash advances failed', error.message || 'Could not load cash advances.');
+  }
+}
+
+function renderHRCashAdvances() {
+  const wrap = document.getElementById('al-ca-wrap');
+  if (!wrap) return;
+  const rows = hrState.cashAdvances || [];
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No cash advances</h3><p>No cash advances in this date range.</p></div>';
+    return;
+  }
+  const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const unpaid = rows.filter((r) => !Number(r.paid)).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  wrap.innerHTML = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
+      <div>Total: <strong>${formatPHP(total)}</strong></div>
+      <div>Unpaid: <strong style="color:var(--error-color,#dc2626);">${formatPHP(unpaid)}</strong></div>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Date</th><th>Name</th><th>Amount</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map((r) => {
+            const paid = !!Number(r.paid);
+            const badge = paid
+              ? '<span class="badge" style="background:#dcfce7;color:#166534;">Paid</span>'
+              : '<span class="badge" style="background:#fee2e2;color:#991b1b;">Not Paid</span>';
+            const btn = paid
+              ? `<button class="btn btn-secondary btn-sm" onclick="toggleCashAdvancePaid(${r.id}, false)">Mark Not Paid</button>`
+              : `<button class="btn btn-primary btn-sm" onclick="toggleCashAdvancePaid(${r.id}, true)">Mark Paid</button>`;
+            return `
+              <tr>
+                <td>${escapeHtml(r.advance_date || '')}</td>
+                <td><strong>${escapeHtml(r.full_name || r.username || 'User')}</strong></td>
+                <td>${formatPHP(r.amount)}</td>
+                <td>${escapeHtml(r.reason || '')}</td>
+                <td>${badge}</td>
+                <td style="text-align:right;">${btn}</td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function toggleCashAdvancePaid(id, paid) {
+  try {
+    await authorizedJsonRequest(`/hr/cash-advances/${id}/paid`, {
+      method: 'PATCH',
+      body: JSON.stringify({ paid: paid ? 1 : 0 }),
+    });
+    const row = (hrState.cashAdvances || []).find((r) => Number(r.id) === Number(id));
+    if (row) row.paid = paid ? 1 : 0;
+    renderHRCashAdvances();
+    showToast('success', 'Cash advance updated', paid ? 'Marked as paid.' : 'Marked as not paid.');
+  } catch (error) {
+    showToast('error', 'Update failed', error.message || 'Could not update cash advance.');
   }
 }
 

@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS cash_advances (
   amount REAL NOT NULL DEFAULT 0,
   reason TEXT,
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'deducted', 'void')),
+  paid INTEGER NOT NULL DEFAULT 0,
+  paid_at TEXT,
   created_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
