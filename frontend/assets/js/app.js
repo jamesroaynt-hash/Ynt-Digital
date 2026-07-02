@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'chat', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'chat', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'chat', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'chat', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'chat', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'chat', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'chat', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'chat', 'attendance', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'chat', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'chat', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
@@ -134,7 +134,6 @@ function loadPage(page) {
   // Render page content
   const renderFns = {
     home: renderHome,
-    chat: renderChat,
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
     'rmo-management': renderRmoManagement,
@@ -167,7 +166,6 @@ function loadPage(page) {
 
 const pageNames = {
   home: 'Home',
-  chat: 'Team Chat',
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
@@ -3203,30 +3201,51 @@ function clearHRAnnouncementForm() {
 }
 
 // ─── TEAM CHAT ─────────────────────────────────────────────
-// Single shared group channel for all dashboard users. The frontend polls the
-// backend for new messages (GET /chat?after=<lastId>) every few seconds while
-// the page is open; polling stops automatically when the user navigates away.
-const chatState = { messages: [], lastId: 0, pollTimer: null, sending: false };
+// Single shared group channel for all dashboard users, surfaced as a floating
+// popup (launcher button bottom-right + panel). A background poll runs while the
+// user is signed in so the launcher shows an unread badge; the popup polls the
+// same GET /chat?after=<lastId> and clears unread while it is open.
+const chatState = { messages: [], lastId: 0, pollTimer: null, sending: false, open: false, unread: 0, loaded: false };
 
-function renderChat() {
-  return `
-    <div class="page-header">
-      <div class="page-title">
-        <h1>Team Chat</h1>
-        <p>Shared group chat for everyone on the dashboard.</p>
-      </div>
-    </div>
-    <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 220px);min-height:420px;">
-      <div id="chat-messages" style="flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
-        <div class="empty-state" style="margin:auto;color:var(--text-muted);font-size:13px;">Loading messages…</div>
-      </div>
-      <div style="border-top:1px solid var(--border);padding:12px 14px;display:flex;gap:10px;align-items:flex-end;">
-        <textarea id="chat-input" rows="1" placeholder="Write a message… (Enter to send, Shift+Enter for a new line)"
-          oninput="autoGrowChatInput(this)" onkeydown="handleChatInputKey(event)"
-          style="flex:1;resize:none;max-height:140px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;background:var(--surface);color:var(--text-primary);"></textarea>
-        <button class="btn btn-primary" onclick="sendChatMessage()" style="flex-shrink:0;">Send</button>
-      </div>
-    </div>`;
+function updateChatBadge() {
+  const badge = document.getElementById('chat-launcher-badge');
+  if (!badge) return;
+  if (chatState.unread > 0 && !chatState.open) {
+    badge.textContent = chatState.unread > 99 ? '99+' : String(chatState.unread);
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function toggleChatPopup() {
+  if (chatState.open) closeChatPopup();
+  else openChatPopup();
+}
+
+function openChatPopup() {
+  const popup = document.getElementById('chat-popup');
+  if (!popup) return;
+  chatState.open = true;
+  chatState.unread = 0;
+  updateChatBadge();
+  popup.style.display = 'flex';
+  document.getElementById('chat-launcher')?.classList.add('active');
+  renderChatMessages();
+  if (!chatState.loaded) {
+    loadChatMessages();
+  } else {
+    const wrap = document.getElementById('chat-messages');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+  setTimeout(() => document.getElementById('chat-input')?.focus(), 50);
+}
+
+function closeChatPopup() {
+  chatState.open = false;
+  const popup = document.getElementById('chat-popup');
+  if (popup) popup.style.display = 'none';
+  document.getElementById('chat-launcher')?.classList.remove('active');
 }
 
 function chatInitials(name) {
@@ -3255,7 +3274,7 @@ function chatMessageHtml(msg) {
   const delBtn = canDelete
     ? `<button onclick="deleteChatMessage(${msg.id})" title="Delete" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:12px;padding:0 2px;line-height:1;">✕</button>`
     : '';
-  const bubbleBg = mine ? 'var(--primary, #6d5efc)' : 'var(--surface-muted, #f1f2f6)';
+  const bubbleBg = mine ? 'var(--accent)' : 'var(--surface-2)';
   const bubbleColor = mine ? '#fff' : 'var(--text-primary)';
   const avatar = `<span style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background:${chatAvatarColor(msg.user_id || author)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;">${escapeHtml(chatInitials(author))}</span>`;
   return `
@@ -3284,7 +3303,7 @@ function renderChatMessages() {
   if (nearBottom) wrap.scrollTop = wrap.scrollHeight;
 }
 
-function ingestChatMessages(rows, { replace = false } = {}) {
+function ingestChatMessages(rows, { replace = false, countUnread = false } = {}) {
   if (replace) chatState.messages = [];
   const known = new Set(chatState.messages.map((m) => m.id));
   let added = false;
@@ -3294,8 +3313,15 @@ function ingestChatMessages(rows, { replace = false } = {}) {
     known.add(row.id);
     added = true;
     if (row.id > chatState.lastId) chatState.lastId = row.id;
+    // Count messages from other people as unread when the popup is closed.
+    if (countUnread && !chatState.open && !(App.user && Number(row.user_id) === Number(App.user.id))) {
+      chatState.unread += 1;
+    }
   });
-  if (added || replace) renderChatMessages();
+  if (added || replace) {
+    if (chatState.open) renderChatMessages();
+    updateChatBadge();
+  }
 }
 
 async function loadChatMessages() {
@@ -3303,6 +3329,7 @@ async function loadChatMessages() {
     const result = await authorizedJsonRequest('/chat');
     const rows = Array.isArray(result?.data) ? result.data : [];
     chatState.lastId = 0;
+    chatState.loaded = true;
     ingestChatMessages(rows, { replace: true });
     const wrap = document.getElementById('chat-messages');
     if (wrap) wrap.scrollTop = wrap.scrollHeight;
@@ -3313,17 +3340,19 @@ async function loadChatMessages() {
 }
 
 async function pollChatMessages() {
-  if (App.currentPage !== 'chat') { stopChatPolling(); return; }
+  if (!App.user) { stopChatPolling(); return; }
   try {
     const result = await authorizedJsonRequest(`/chat?after=${chatState.lastId}`);
     const rows = Array.isArray(result?.data) ? result.data : [];
-    if (rows.length) ingestChatMessages(rows);
+    if (rows.length) ingestChatMessages(rows, { countUnread: true });
   } catch { /* transient network errors are ignored; next tick retries */ }
 }
 
 function startChatPolling() {
   stopChatPolling();
-  chatState.pollTimer = setInterval(pollChatMessages, 4000);
+  // Background heartbeat so the unread badge stays fresh; the query is tiny
+  // (only rows newer than lastId), so a modest interval keeps egress low.
+  chatState.pollTimer = setInterval(pollChatMessages, 8000);
 }
 
 function stopChatPolling() {
@@ -3379,10 +3408,17 @@ async function deleteChatMessage(id) {
   }
 }
 
-function initChatPage() {
+// Called once after sign-in. Seeds the message list and lastId (silently, so
+// existing history is not counted as unread), then starts the background poll.
+function initChatWidget() {
+  if (!App.user) return;
   chatState.messages = [];
   chatState.lastId = 0;
-  loadChatMessages().then(() => startChatPolling());
+  chatState.unread = 0;
+  chatState.open = false;
+  chatState.loaded = false;
+  updateChatBadge();
+  loadChatMessages().finally(() => startChatPolling());
 }
 
 function renderTimeClockCard() {
@@ -10035,9 +10071,6 @@ function initCharts(page) {
 function initPage(page) {
   setTimeout(() => initCharts(page), 50);
 
-  if (page !== 'chat') stopChatPolling();
-  if (page === 'chat') initChatPage();
-
   if (page === 'home') {
     const today = new Date().toISOString().split('T')[0];
     const homeDateFromInput = document.getElementById('home-date-from');
@@ -15967,6 +16000,7 @@ async function init() {
   });
 
   startPosOrdersAutoRefresh();
+  initChatWidget();
 }
 
 window.addEventListener('DOMContentLoaded', init);

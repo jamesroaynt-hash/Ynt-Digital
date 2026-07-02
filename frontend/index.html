@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/Images/yntlogo.png?v=20260603">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=20260607-kpi-mobile">
+<link rel="stylesheet" href="assets/css/main.css?v=20260702-chat-popup">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -60,13 +60,6 @@
               <path d="M2 6.5L8 2l6 4.5V14a.5.5 0 01-.5.5h-4V10H6.5v4.5h-4A.5.5 0 012 14V6.5z"/>
             </svg>
             Home
-          </a>
-
-          <a class="nav-item" data-page="chat" onclick="navigateTo('chat')">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v6a1.5 1.5 0 01-1.5 1.5H6l-3 3v-3H3.5A1.5 1.5 0 012 9.5z"/>
-            </svg>
-            Team Chat
           </a>
 
           <a class="nav-item" data-page="data-report" onclick="navigateTo('data-report')">
@@ -293,12 +286,38 @@
       </main>
     </div>
 
+    <!-- TEAM CHAT POPUP -->
+    <button id="chat-launcher" class="chat-launcher" title="Team Chat" onclick="toggleChatPopup()">
+      <img src="/Images/yntlogo.png" alt="Team Chat" class="chat-launcher-logo">
+      <span class="chat-launcher-status"></span>
+      <span id="chat-launcher-badge" class="chat-launcher-badge" style="display:none;">0</span>
+    </button>
+    <div id="chat-popup" class="chat-popup" style="display:none;">
+      <div class="chat-popup-header">
+        <div>
+          <div class="chat-popup-title">Team Chat</div>
+          <div class="chat-popup-sub">Everyone on the dashboard</div>
+        </div>
+        <button class="chat-popup-close" onclick="closeChatPopup()" title="Close">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
+      <div id="chat-messages" class="chat-popup-body"></div>
+      <div class="chat-popup-input">
+        <textarea id="chat-input" rows="1" placeholder="Write a message…"
+          oninput="autoGrowChatInput(this)" onkeydown="handleChatInputKey(event)"></textarea>
+        <button class="btn btn-primary chat-send-btn" onclick="sendChatMessage()" title="Send">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8l12-5-4.5 12-2.5-5z"/><path d="M7 11l7-8"/></svg>
+        </button>
+      </div>
+    </div>
+
   </div>
   <!-- /app-shell -->
 
 </div>
 <!-- /app-root -->
 
-  <script src="assets/js/app.js?v=20260612-incremental-orders"></script>
+  <script src="assets/js/app.js?v=20260702-chat-popup"></script>
 </body>
 </html>
