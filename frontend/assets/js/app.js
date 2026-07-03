@@ -5838,7 +5838,7 @@ function renderAdspendRoas() {
       const o = obd[date] || { orders: 0, delivered: 0, returned: 0, returning: 0, amount: 0 };
       const spend = sbd[date] || 0;
       const roas = spend > 0 ? o.amount / spend : 0;
-      const cpp = spend > 0 ? o.orders / spend : 0;
+      const cpp = o.orders > 0 ? spend / o.orders : 0;
       const rtsBase = o.delivered + o.returned + o.returning;
       const rtsRate = rtsBase > 0 ? ((o.returned + o.returning) / rtsBase) * 100 : 0;
       return { date, orders: o.orders, delivered: o.delivered, returned: o.returned, returning: o.returning, amount: o.amount, spend, roas, cpp, rtsRate };
@@ -5852,7 +5852,7 @@ function renderAdspendRoas() {
       spend: rws.reduce((s, r) => s + r.spend, 0),
     };
     tot.roas = tot.spend > 0 ? tot.amount / tot.spend : 0;
-    tot.cpp = tot.spend > 0 ? tot.orders / tot.spend : 0;
+    tot.cpp = tot.orders > 0 ? tot.spend / tot.orders : 0;
     tot.rtsBase = tot.delivered + tot.returned + tot.returning;
     tot.rtsRate = tot.rtsBase > 0 ? ((tot.returned + tot.returning) / tot.rtsBase) * 100 : 0;
     return { rows: rws, totals: tot };
