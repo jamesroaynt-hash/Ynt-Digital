@@ -3728,6 +3728,19 @@ function renderHR() {
           <label class="form-label">Daily Rate (PHP)</label>
           <input type="number" min="0" step="0.01" id="payroll-modal-rate" class="form-control" placeholder="0.00">
         </div>
+        <div class="form-group">
+          <label class="form-label">Day Off (paid rest day)</label>
+          <select id="payroll-modal-day-off" class="form-control">
+            <option value="-1">None</option>
+            <option value="0">Sunday</option>
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button class="btn btn-primary" style="flex:1;" onclick="savePayrollRate()">Save Rate</button>
           <button class="btn btn-secondary" onclick="printPayslipFromModal()">Print Payslip</button>
@@ -10940,17 +10953,20 @@ function openPayrollEditModal(userId) {
   document.getElementById('payroll-modal-title').textContent = user.full_name || user.username || 'User';
   document.getElementById('payroll-modal-role').textContent = formatRoleLabel(user.role);
   document.getElementById('payroll-modal-rate').value = Number(user.daily_rate || 0);
+  const dayOffSelect = document.getElementById('payroll-modal-day-off');
+  if (dayOffSelect) dayOffSelect.value = String(Number.isInteger(Number(user.day_off)) ? Number(user.day_off) : -1);
   openModal('payroll-edit-modal');
 }
 
 async function savePayrollRate() {
   const userId = Number(document.getElementById('payroll-modal-user-id')?.value || 0);
   const dailyRate = Number(document.getElementById('payroll-modal-rate')?.value || 0);
+  const dayOff = Number(document.getElementById('payroll-modal-day-off')?.value ?? -1);
   if (!userId) return;
   try {
     await authorizedJsonRequest(`/hr/users/${userId}/rate`, {
       method: 'PATCH',
-      body: JSON.stringify({ daily_rate: dailyRate }),
+      body: JSON.stringify({ daily_rate: dailyRate, day_off: dayOff }),
     });
     closeModal('payroll-edit-modal');
     showToast('success', 'Rate saved', 'Daily rate was updated.');
@@ -11352,6 +11368,7 @@ async function printPayslip(userId) {
         <tr><th>Base Pay</th><td>${formatPHP(totals.base_pay)}</td></tr>
         <tr><th>OT (${formatMinutes(totals.ot_minutes)})</th><td>${formatPHP(totals.ot_pay)}</td></tr>
         <tr><th>Holiday Pay</th><td>${formatPHP(totals.holiday_pay)}</td></tr>
+        ${Number(totals.rest_days || 0) > 0 ? `<tr><th>Rest Day Pay (${Number(totals.rest_days)})</th><td>${formatPHP(totals.rest_day_pay)}</td></tr>` : ''}
         <tr><th>Cash Advances</th><td>-${formatPHP(totals.cash_advances)}</td></tr>
         <tr><th class="total">Net Pay</th><td class="total">${formatPHP(totals.net_pay)}</td></tr>
       </tbody></table>

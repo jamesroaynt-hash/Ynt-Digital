@@ -86,8 +86,30 @@ function payableOtMinutes(record, approvedMap) {
   return Math.min(approved, earnedOt);
 }
 
-function calculatePayroll(users, attendance, advances, approvedOtMap) {
+// Enumerate every calendar date in [from, to] inclusive, returning the date
+// string plus its weekday (0=Sunday..6=Saturday). UTC math keeps the weekday
+// stable regardless of server timezone.
+function enumerateDates(from, to) {
+  const out = [];
+  const parse = (s) => {
+    const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  };
+  const start = parse(from);
+  const end = parse(to);
+  if (start === null || end === null || start > end) return out;
+  const DAY = 86400000;
+  for (let t = start; t <= end; t += DAY) {
+    const d = new Date(t);
+    const date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    out.push({ date, weekday: d.getUTCDay() });
+  }
+  return out;
+}
+
+function calculatePayroll(users, attendance, advances, approvedOtMap, range) {
   const byUser = new Map();
+  const workedDatesByUser = new Map();
   users.forEach((user) => {
     byUser.set(Number(user.id), {
       user,
@@ -97,10 +119,13 @@ function calculatePayroll(users, attendance, advances, approvedOtMap) {
       base_pay: 0,
       ot_pay: 0,
       holiday_pay: 0,
+      rest_days: 0,
+      rest_day_pay: 0,
       cash_advances: 0,
       gross_pay: 0,
       net_pay: 0,
     });
+    workedDatesByUser.set(Number(user.id), new Set());
   });
 
   attendance.forEach((record) => {
@@ -119,6 +144,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap) {
     if (workedMinutes > 0) {
       summary.days_worked += 1;
       summary.base_pay += proratedBase;
+      workedDatesByUser.get(userId).add(String(record.work_date));
       if (holidayPercentage > 100) {
         summary.holiday_pay += proratedBase * ((holidayPercentage - 100) / 100);
       }
@@ -128,13 +154,32 @@ function calculatePayroll(users, attendance, advances, approvedOtMap) {
     summary.ot_pay += perMinuteRate > 0 ? perMinuteRate * otMinutes * 1.25 : 0;
   });
 
+  // Paid rest days: for each user with a permanent day off, pay one daily rate
+  // for every rest-day date in the period that has no attendance (worked rest
+  // days are already paid through their attendance record above).
+  if (range && range.from && range.to) {
+    const calendar = enumerateDates(range.from, range.to);
+    byUser.forEach((summary, userId) => {
+      const dayOff = Number(summary.user.day_off);
+      if (!Number.isInteger(dayOff) || dayOff < 0 || dayOff > 6) return;
+      const dailyRate = Number(summary.user.daily_rate || 0);
+      if (dailyRate <= 0) return;
+      const workedDates = workedDatesByUser.get(userId);
+      calendar.forEach(({ date, weekday }) => {
+        if (weekday !== dayOff || workedDates.has(date)) return;
+        summary.rest_days += 1;
+        summary.rest_day_pay += dailyRate;
+      });
+    });
+  }
+
   advances.forEach((advance) => {
     const summary = byUser.get(Number(advance.user_id));
     if (summary) summary.cash_advances += Number(advance.amount || 0);
   });
 
   byUser.forEach((summary) => {
-    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay;
+    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay + summary.rest_day_pay;
     summary.net_pay = summary.gross_pay - summary.cash_advances;
   });
 
@@ -164,7 +209,7 @@ function normalizeTime(value) {
 
 async function getActiveUser(db, userId) {
   return db.prepare(`
-    SELECT id, username, full_name, role, daily_rate, is_active
+    SELECT id, username, full_name, role, daily_rate, day_off, is_active
     FROM users
     WHERE id = ? AND is_active = 1
   `).get(userId);
@@ -198,7 +243,7 @@ module.exports = function hrRoutes(db) {
     const where = requestedId > 0 ? 'WHERE is_active = 1 AND id = ?' : 'WHERE is_active = 1';
     const params = requestedId > 0 ? [requestedId] : [];
     return db.prepare(`
-      SELECT id, username, full_name, role, daily_rate
+      SELECT id, username, full_name, role, daily_rate, day_off
       FROM users
       ${where}
       ORDER BY full_name COLLATE NOCASE ASC
@@ -478,7 +523,7 @@ module.exports = function hrRoutes(db) {
       WHERE status = 'approved' AND user_id IN (${placeholders}) AND work_date BETWEEN ? AND ?
     `).all(...ids, from, to);
 
-    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt)) });
+    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), { from, to }) });
   });
 
   router.get('/cash-advances', async (req, res) => {
@@ -626,6 +671,9 @@ module.exports = function hrRoutes(db) {
   router.patch('/users/:id/rate', requireHrManager, async (req, res) => {
     const userId = Number(req.params.id);
     const dailyRate = normalizeMoney(req.body?.daily_rate);
+    // day_off: 0=Sunday..6=Saturday, or -1 for none. Anything out of range = none.
+    const rawDayOff = Number(req.body?.day_off);
+    const dayOff = Number.isInteger(rawDayOff) && rawDayOff >= 0 && rawDayOff <= 6 ? rawDayOff : -1;
     if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user id' });
 
     const user = await getActiveUser(db, userId);
@@ -634,9 +682,10 @@ module.exports = function hrRoutes(db) {
     await db.prepare(`
       UPDATE users
       SET daily_rate = ?,
+          day_off = ?,
           updated_at = datetime('now')
       WHERE id = ?
-    `).run(dailyRate, userId);
+    `).run(dailyRate, dayOff, userId);
 
     const updated = await getActiveUser(db, userId);
     res.json({ user: updated });
@@ -669,7 +718,7 @@ module.exports = function hrRoutes(db) {
       WHERE status = 'approved' AND user_id = ? AND work_date BETWEEN ? AND ?
     `).all(userId, from, to);
     const approvedOtMap = buildApprovedOtMap(approvedOt);
-    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap);
+    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, { from, to });
 
     res.json({
       payslip: {
