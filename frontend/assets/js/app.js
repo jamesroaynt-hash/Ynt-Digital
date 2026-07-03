@@ -10871,7 +10871,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
     return;
   }
 
-  const timeTxt = (v) => v ? escapeHtml(v) : '<span style="color:var(--text-muted)">—</span>';
+  const timeTxt = (v) => v ? escapeHtml(formatClock12(v)) : '<span style="color:var(--text-muted)">—</span>';
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table" style="cursor:pointer;">
