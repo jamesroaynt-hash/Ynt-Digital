@@ -11356,7 +11356,11 @@ async function printPayslip(userId) {
         <tr><th class="total">Net Pay</th><td class="total">${formatPHP(totals.net_pay)}</td></tr>
       </tbody></table>
       <table><thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>OT</th><th>Holiday %</th></tr></thead><tbody>
-        ${(slip.attendance || []).map((record) => `<tr><td>${escapeHtml(record.work_date || '')}</td><td>${escapeHtml(record.time_in || '')}</td><td>${escapeHtml(record.time_out || '')}</td><td>${formatMinutes(record.calculated_ot_minutes || record.ot_minutes)}</td><td>${Number(record.holiday_percentage || 100)}%</td></tr>`).join('')}
+        ${(slip.attendance || []).map((record) => {
+          const holidayPct = Number(record.holiday_percentage || 100);
+          const isHoliday = holidayPct > 100;
+          return `<tr><td>${escapeHtml(record.work_date || '')}</td><td>${escapeHtml(formatClock12(record.time_in))}</td><td>${escapeHtml(formatClock12(record.time_out))}</td><td>${formatMinutes(record.payable_ot_minutes || 0)}</td><td>${isHoliday ? holidayPct : 0}%</td></tr>`;
+        }).join('')}
       </tbody></table>
       </body></html>`);
     win.document.close();

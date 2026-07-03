@@ -668,7 +668,8 @@ module.exports = function hrRoutes(db) {
       FROM overtime_requests
       WHERE status = 'approved' AND user_id = ? AND work_date BETWEEN ? AND ?
     `).all(userId, from, to);
-    const [payroll] = calculatePayroll([user], attendance, advances, buildApprovedOtMap(approvedOt));
+    const approvedOtMap = buildApprovedOtMap(approvedOt);
+    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap);
 
     res.json({
       payslip: {
@@ -679,6 +680,7 @@ module.exports = function hrRoutes(db) {
           ...record,
           worked_minutes: calculateWorkedMinutes(record),
           calculated_ot_minutes: calculateOtMinutes(record),
+          payable_ot_minutes: payableOtMinutes(record, approvedOtMap),
         })),
         cash_advances: advances,
         totals: payroll,
