@@ -774,11 +774,26 @@ module.exports = function integrationRoutes(db) {
       if (!old_name || !new_name || old_name === new_name) {
         return res.status(400).json({ error: 'old_name and new_name are required and must differ.' });
       }
+      const from = old_name.trim();
+      const to = new_name.trim();
+      // Rename the orders (source_sheet is the page identity for Sheet Records).
       const result = await db.prepare(
         `UPDATE google_orders SET source_sheet = ?, updated_at = datetime('now')
          WHERE source_sheet = ?`
-      ).run(new_name.trim(), old_name.trim());
-      res.json({ updated: result.changes, old_name, new_name: new_name.trim() });
+      ).run(to, from);
+      // Also move the ad-spend rows: Ad Spend ROAS joins orders to spend by
+      // page NAME (marketing_entries.page === google_orders.source_sheet), so a
+      // rename that touches only orders would orphan the spend under the old name.
+      const spendResult = await db.prepare(
+        `UPDATE marketing_entries SET page = ?, updated_at = datetime('now')
+         WHERE page = ?`
+      ).run(to, from);
+      res.json({
+        updated: result.changes,
+        spend_updated: spendResult.changes,
+        old_name: from,
+        new_name: to,
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

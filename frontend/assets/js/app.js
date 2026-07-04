@@ -15273,7 +15273,8 @@ async function confirmRenameSource() {
       body: JSON.stringify({ old_name: oldName, new_name: newName }),
     });
     document.getElementById('ynt-rename-source-modal')?.remove();
-    showToast('success', 'Source renamed', `${result.updated} record${result.updated !== 1 ? 's' : ''} updated from "${oldName}" to "${newName}".`);
+    const spendNote = result.spend_updated ? ` and ${result.spend_updated} ad-spend row${result.spend_updated !== 1 ? 's' : ''}` : '';
+    showToast('success', 'Source renamed', `${result.updated} record${result.updated !== 1 ? 's' : ''}${spendNote} updated from "${oldName}" to "${newName}".`);
     // Reset dropdown and reload
     const sel = document.getElementById('sheet-records-sheet-filter');
     if (sel) { [...sel.options].forEach(o => { if (o.value === oldName) o.remove(); }); sel.value = 'all'; }
