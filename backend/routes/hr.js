@@ -30,14 +30,17 @@ function toMinutes(value) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-// Minutes between two HH:MM punches, or null if either is missing.
+// Length of a break given its two HH:MM punches, or null if either is missing.
+// A break is the SHORTER arc between the two punches, so it stays correct when
+// the out/in punches are entered in reverse order (out later than in) and when
+// a break legitimately crosses midnight on a night shift — instead of a
+// reversed pair ballooning to ~23h and wiping out the whole worked day.
 function spanMinutes(startValue, endValue) {
   const start = toMinutes(startValue);
   const end = toMinutes(endValue);
   if (start === null || end === null) return null;
-  let duration = end - start;
-  if (duration < 0) duration += 24 * 60;
-  return Math.max(0, duration);
+  const raw = Math.abs(end - start);
+  return Math.min(raw, 24 * 60 - raw);
 }
 
 function calculateWorkedMinutes(record) {
