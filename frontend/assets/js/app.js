@@ -56,6 +56,8 @@ let authMode = 'login';
 let salesBarChart = null;
 let salesDonutChart = null;
 let homeDonutChart = null;
+let homeAnRevChart = null;
+let homeAnStatusChart = null;
 
 // Draws percentage labels in the middle of each arc segment for doughnut/pie charts.
 // Skips slices < 4% so labels don't crowd tiny segments.
@@ -2969,6 +2971,62 @@ function renderHome() {
   const kpiSeries = getHomeKpiSeries();
   const lowStock = DB.inventory.filter((i) => i.stock < (i.reorder ?? i.reorder_pt ?? 0)).length;
 
+  // The orders/sales dashboard on Home is limited to these roles. Everyone else
+  // just sees the welcome header. (UI gate — the RMO/report pages already enforce
+  // their own page-level role access.)
+  const ORDERS_HOME_ROLES = ['administrator', 'hr', 'logistics', 'sales and marketing', 'sales and marketing tl'];
+  const canSeeOrdersHome = ORDERS_HOME_ROLES.includes(normalizeText(normalizeRoleName(App.user?.role)));
+
+  const ordersDashboard = !canSeeOrdersHome ? renderHomeAnalytics() : `
+  <div class="home-filter-bar">
+    <div class="home-period-row">
+      ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['last30', 'Last 30 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
+        `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
+      <span class="home-period-hint">Custom range below</span>
+    </div>
+    <div class="home-filter-grid">
+      <div class="hf-field"><label>From</label><input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()"></div>
+      <div class="hf-field"><label>To</label><input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()"></div>
+      <div class="hf-field"><label>Page</label>
+        <select class="form-control" id="home-source-filter" onchange="applyHomeFilters()">
+          <option value="all">All</option>
+          ${sourceOptions.map((s) => `<option value="${escapeHtml(s)}" ${homeSourceFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="hf-field"><label>Product</label>
+        <select class="form-control" id="home-product-filter" onchange="applyHomeFilters()">
+          <option value="all">All</option>
+          ${getHomeProductOptions().map((p) => `<option value="${escapeHtml(p)}" ${homeProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="hf-field"><label>CSR</label>
+        <select class="form-control" id="home-csr-filter" onchange="applyHomeFilters()">
+          <option value="all">All</option>
+          ${getHomeCsrOptions().map((c) => `<option value="${escapeHtml(c)}" ${homeCsrFilter === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="hf-field hf-reset">
+        <label>&nbsp;</label>
+        <button class="btn btn-secondary btn-sm" onclick="resetHomeFilters()">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="home-summary-grid" id="home-summary-tiles">
+    <div class="empty-state" style="grid-column:1/-1;padding:16px;color:var(--text-muted);font-size:13px;">Loading summary…</div>
+  </div>
+
+  <div class="home-status-head">
+    <div>
+      <h2 class="home-status-title">Orders by Status</h2>
+      <p class="home-status-hint">Tap a card to open it in RMO Management, filtered to that status.</p>
+    </div>
+  </div>
+  <div class="home-status-grid" id="home-status-cards">
+    <div class="empty-state" style="grid-column:1/-1;padding:20px;color:var(--text-muted);font-size:13px;">Loading order statuses…</div>
+  </div>
+  `;
+
   return `
   <div class="page-header">
     <div class="page-title">
@@ -2977,131 +3035,8 @@ function renderHome() {
     </div>
   </div>
 
-  <div class="kpi-grid">
-    <div class="kpi-card kpi-violet">
-      <div class="kpi-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M9 3v4M15 3v4M4 11h16"/></svg>
-      </div>
-      <div class="kpi-main">
-        <div class="kpi-value">${total.toLocaleString()}</div>
-        <div class="kpi-label">Total Orders</div>
-        ${kpiDelta(kpiSeries.orders)}
-      </div>
-      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(kpiSeries.orders)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </div>
-    <div class="kpi-card kpi-blue">
-      <div class="kpi-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>
-      </div>
-      <div class="kpi-main">
-        <div class="kpi-value">${delivered.toLocaleString()}</div>
-        <div class="kpi-label">Delivered Orders</div>
-        ${kpiDelta(kpiSeries.delivered)}
-      </div>
-      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(kpiSeries.delivered)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </div>
-    <div class="kpi-card kpi-amber">
-      <div class="kpi-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="8" cy="14" r="1.2"/></svg>
-      </div>
-      <div class="kpi-main">
-        <div class="kpi-value">₱${totalCOD.toLocaleString()}</div>
-        <div class="kpi-label">COD Revenue</div>
-        ${kpiDelta(kpiSeries.cod)}
-      </div>
-      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(kpiSeries.cod)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </div>
-    <div class="kpi-card kpi-rose">
-      <div class="kpi-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l3-3h12l3 3M3 7v12a2 2 0 002 2h14a2 2 0 002-2V7M3 7h18M9 11a3 3 0 006 0"/></svg>
-      </div>
-      <div class="kpi-main">
-        <div class="kpi-value">${lowStock}</div>
-        <div class="kpi-label">Low Stock Items</div>
-        <div class="kpi-delta neutral">Items below reorder point</div>
-      </div>
-      <svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath([2, 3, 2, 4, 3, 5, lowStock || 4])}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </div>
-  </div>
-
-  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px;">
-    <div class="card home-chart-card">
-      <div class="card-header">
-        <div><div class="card-title">Order Status Overview</div><div class="card-subtitle" id="home-status-subtitle">Filtered order data</div></div>
-      </div>
-      <div class="home-chart-filters">
-        <div class="table-filters" id="home-order-filter-group">
-          <button class="filter-pill ${homeOrderFilter === 'all' ? 'active' : ''}" onclick="setHomeOrderFilter('all',this)">All Time</button>
-          <button class="filter-pill ${homeOrderFilter === 'today' ? 'active' : ''}" onclick="setHomeOrderFilter('today',this)">Today</button>
-          <button class="filter-pill ${homeOrderFilter === 'weekly' ? 'active' : ''}" onclick="setHomeOrderFilter('weekly',this)">Weekly</button>
-          <button class="filter-pill ${homeOrderFilter === 'monthly' ? 'active' : ''}" onclick="setHomeOrderFilter('monthly',this)">Monthly</button>
-          <button class="filter-pill ${homeOrderFilter === 'custom' ? 'active' : ''}" onclick="setHomeOrderFilter('custom',this)">Custom</button>
-        </div>
-        <select class="form-control home-sheet-filter" id="home-source-filter" onchange="setHomeSourceFilter()">
-          <option value="all">All Pages</option>
-          ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${homeSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
-        </select>
-        <div class="home-custom-range ${homeOrderFilter === 'custom' ? '' : 'hidden'}" id="home-custom-range">
-          <input type="date" class="form-control" id="home-date-from">
-          <input type="date" class="form-control" id="home-date-to">
-          <button class="btn btn-secondary btn-sm" onclick="applyHomeCustomRange()">Apply</button>
-        </div>
-      </div>
-      <div class="card-body home-chart-body">
-        <div class="empty-state hidden" id="home-donut-empty" style="padding:24px;"><h3>No matching orders</h3><p>Try another period or sheet filter.</p></div>
-        <canvas id="home-donut-chart"></canvas>
-      </div>
-    </div>
-    <div class="card home-chart-card">
-      <div class="card-header"><div><div class="card-title">RTS Percentage</div><div class="card-subtitle">Delivered, returned, returning, and shipped</div></div></div>
-      <div class="card-body home-chart-body">
-        <div class="empty-state hidden" id="home-rts-empty" style="padding:24px;"><h3>No delivery status data</h3><p>Delivered, shipped, returning, or returned orders will appear here.</p></div>
-        <canvas id="home-rts-bar-chart"></canvas>
-      </div>
-    </div>
-    <div class="card home-announce-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">📢 Announcements</div>
-          <div class="card-subtitle">Latest from HR & management</div>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="loadHomeAnnouncements()">↻</button>
-      </div>
-      <div id="home-announcements" class="card-body home-announce-body">
-        <div class="empty-state" style="padding:16px 0;color:var(--text-muted);font-size:13px;">Loading…</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card pi-overview">
-    <div class="card-header">
-      <div><div class="card-title">📦 Product &amp; Inventory Overview</div><div class="card-subtitle">Top product lines by inventory value</div></div>
-      <button class="btn btn-ghost btn-sm" onclick="navigateTo('inventory')">View Inventory →</button>
-    </div>
-    <div class="card-body">
-      <div class="pi-grid">
-        ${getHomeInventoryLines().map((line, idx) => {
-          const tones = ['pi-violet', 'pi-blue', 'pi-teal', 'pi-rose'];
-          const spark = buildSparklinePath([line.value * 0.55, line.value * 0.7, line.value * 0.62, line.value * 0.82, line.value * 0.78, line.value * 0.95, line.value]);
-          return `
-          <div class="pi-card ${tones[idx % tones.length]}">
-            <div class="pi-head">
-              <span class="pi-badge">${initialsFromName(line.name)}</span>
-              <div class="pi-value-wrap">
-                <div class="pi-value">${formatPesoCompact(line.value)}</div>
-                <div class="pi-vlabel">Inventory Value</div>
-              </div>
-            </div>
-            <div class="pi-name">${escapeHtml(line.name)}</div>
-            <div class="pi-foot">
-              <span class="pi-items">${Number(line.items || 0).toLocaleString()} Items</span>
-              <svg class="pi-spark" viewBox="0 0 80 26" preserveAspectRatio="none"><path d="${spark}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>
-  </div>`;
+  ${ordersDashboard}
+  `;
 }
 
 async function loadHomeAnnouncements() {
@@ -5825,6 +5760,10 @@ function renderAdspendRoas() {
   // Build daily ROAS rows + totals for one page ('all' = every page combined).
   function buildRoasData(pageName) {
     const fOrders = DB.sheetRecordsForReport.filter((o) => {
+      // Exclude "Awaiting print" (Pancake wait_print, status 12) from ROAS order
+      // counts. It shares the "Waiting for pickup" display status with pending/
+      // waitting, so filter on the raw status_name to drop only wait_print.
+      if (o.status_name === 'wait_print') return false;
       if (!ADSPEND_ALLOWED_STATUSES.has(o.status)) return false;
       if (o.date < adspendDateFrom || o.date > adspendDateTo) return false;
       if (pageName !== 'all' && (o.sourceSheet || 'Manual') !== pageName) return false;
@@ -11671,6 +11610,8 @@ let recordsSummaryState = { total: 0, totalCod: 0, statusCounts: [], loading: fa
 let posRawPage = 1;
 let homeOrderFilter = 'all';
 let homeSourceFilter = 'all';
+let homeProductFilter = 'all';
+let homeCsrFilter = 'all';
 let homeDateFrom = '';
 let homeDateTo = '';
 const HOME_STATUS_CHART_ITEMS = [
@@ -11712,10 +11653,16 @@ function getFilteredHomeOrders() {
 
   if (homeOrderFilter === 'today') {
     data = data.filter((order) => String(order.date || '').slice(0, 10) === today);
-  } else if (homeOrderFilter === 'weekly') {
+  } else if (homeOrderFilter === 'yesterday') {
+    const y = normalizeDateString(getDateDaysAgo(1));
+    data = data.filter((order) => String(order.date || '').slice(0, 10) === y);
+  } else if (homeOrderFilter === 'last7' || homeOrderFilter === 'weekly') {
     const week = getDateDaysAgo(6);
     data = data.filter((order) => new Date(order.date) >= week);
-  } else if (homeOrderFilter === 'monthly') {
+  } else if (homeOrderFilter === 'last30') {
+    const month = getDateDaysAgo(29);
+    data = data.filter((order) => new Date(order.date) >= month);
+  } else if (homeOrderFilter === 'month' || homeOrderFilter === 'monthly') {
     data = data.filter((order) => String(order.date || '').startsWith(today.slice(0, 7)));
   } else if (homeOrderFilter === 'custom') {
     if (homeDateFrom) data = data.filter((order) => order.date >= homeDateFrom);
@@ -11725,8 +11672,22 @@ function getFilteredHomeOrders() {
   if (homeSourceFilter !== 'all') {
     data = data.filter((order) => (order.sourceSheet || 'Sheets') === homeSourceFilter);
   }
+  if (homeProductFilter !== 'all') {
+    data = data.filter((order) => (order.product || '') === homeProductFilter);
+  }
+  if (homeCsrFilter !== 'all') {
+    data = data.filter((order) => (order.assigning_seller_name || order.confirmed_by || '') === homeCsrFilter);
+  }
 
   return data;
+}
+
+// Distinct option lists for the Home filter dropdowns (from the loaded report set).
+function getHomeProductOptions() {
+  return [...new Set(DB.sheetRecordsForReport.map((o) => (o.product || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+function getHomeCsrOptions() {
+  return [...new Set(DB.sheetRecordsForReport.map((o) => (o.assigning_seller_name || o.confirmed_by || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
 function getHomeFilterLabel() {
@@ -11763,8 +11724,203 @@ function getHomeRtsDistribution(orders) {
   };
 }
 
+// Home "Orders by Status" cards. Each maps to a real RMO status so a click can
+// deep-link into RMO Management pre-filtered. Amount = COD sum for that status,
+// computed from the same period/page-filtered set the donut uses.
+// match: 'all' = every order; array = sum of those display statuses; tag = orders
+// carrying that tag. rmoTab/rmoStatus deep-link the card into RMO Management.
+const HOME_STATUS_TILES = [
+  { label: 'Total Sales', tone: 'blue',   match: 'all',                                              rmoTab: 'orders',     rmoStatus: 'all' },
+  { label: 'New',         tone: 'indigo', match: ['New'],                                            rmoTab: 'orders',     rmoStatus: 'New' },
+  { label: 'Confirmed',   tone: 'sky',    match: ['Confirmed'],                                      rmoTab: 'orders',     rmoStatus: 'Confirmed' },
+  { label: 'For Pickup',  tone: 'teal',   match: ['Waiting for pickup'],                             rmoTab: 'orders',     rmoStatus: 'Waiting for pickup' },
+  { label: 'Shipped Out', tone: 'violet', match: ['Shipped'],                                        rmoTab: 'orders',     rmoStatus: 'Shipped' },
+  { label: 'Delivered',   tone: 'green',  match: ['Delivered'],                                      rmoTab: 'orders',     rmoStatus: 'Delivered' },
+  { label: 'Returning',   tone: 'orange', match: ['Returning'],                                      rmoTab: 'returning',  rmoStatus: 'all' },
+  { label: 'Returned',    tone: 'red',    match: ['Returned'],                                       rmoTab: 'orders',     rmoStatus: 'Returned' },
+  { label: 'Canceled',    tone: 'slate',  match: ['Canceled'],                                       rmoTab: 'orders',     rmoStatus: 'Canceled' },
+  { label: 'On Delivery', tone: 'cyan',   tag: 'on delivery',                                        rmoTab: 'delivering', rmoStatus: 'all' },
+  { label: 'Fulfilled',   tone: 'green',  match: ['Shipped', 'Delivered', 'Returning', 'Returned'],  rmoTab: 'orders',     rmoStatus: 'all' },
+  { label: 'Unfulfilled', tone: 'amber',  match: ['New', 'Confirmed', 'Waiting for pickup'],         rmoTab: 'orders',     rmoStatus: 'all' },
+];
+
+// Analytics-style Home for non-orders roles (CSR/RMO/Trainee/etc.): KPI tiles +
+// a revenue-by-month area chart + an order-status donut. Uses only order/revenue
+// data those roles can already access (no Expenses — that page is role-restricted).
+function renderHomeAnalytics() {
+  const orders = DB.sheetRecordsForReport || [];
+  const total = orders.length;
+  const delivered = orders.filter((o) => getOrderStatusKey(o.status) === 'delivered').length;
+  const revenue = orders.reduce((s, o) => s + Number(o.cod || 0), 0);
+  const rts = orders.filter((o) => getOrderStatusKey(o.status) === 'returned').length;
+  const rtsPct = total ? (rts / total) * 100 : 0;
+  const s = getHomeKpiSeries();
+  const iOrders = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M9 3v4M15 3v4M4 11h16"/></svg>';
+  const iTruck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>';
+  const iCash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="8" cy="14" r="1.2"/></svg>';
+  const iReturn = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l3-3h12l3 3M3 7v12a2 2 0 002 2h14a2 2 0 002-2V7M3 7h18M9 11a3 3 0 006 0"/></svg>';
+  const spark = (series) => `<svg class="kpi-spark" viewBox="0 0 80 30" preserveAspectRatio="none"><path d="${buildSparklinePath(series)}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const tile = (icon, tone, value, label, series) => `
+    <div class="kpi-card kpi-${tone}">
+      <div class="kpi-icon">${icon}</div>
+      <div class="kpi-main">
+        <div class="kpi-value">${value}</div>
+        <div class="kpi-label">${label}</div>
+        ${kpiDelta(series)}
+      </div>
+      ${spark(series)}
+    </div>`;
+  return `
+  <div class="kpi-grid">
+    ${tile(iOrders, 'violet', total.toLocaleString(), 'Total Orders', s.orders)}
+    ${tile(iTruck, 'blue', delivered.toLocaleString(), 'Delivered Orders', s.delivered)}
+    ${tile(iCash, 'amber', formatPesoCompact(revenue), 'COD Revenue', s.cod)}
+    ${tile(iReturn, 'rose', `${rtsPct.toFixed(1)}%`, 'RTS Rate', s.delivered)}
+  </div>
+
+  <div class="home-an-grid">
+    <div class="card home-an-main">
+      <div class="card-header"><div><div class="card-title">Total Revenue</div><div class="card-subtitle">COD revenue by month</div></div></div>
+      <div class="card-body"><canvas id="home-an-revenue"></canvas></div>
+    </div>
+    <div class="card home-an-side">
+      <div class="card-header"><div><div class="card-title">Orders by Status</div><div class="card-subtitle">Delivery status mix</div></div></div>
+      <div class="card-body"><canvas id="home-an-status"></canvas></div>
+    </div>
+  </div>`;
+}
+
+function renderHomeAnalyticsCharts() {
+  const orders = DB.sheetRecordsForReport || [];
+  const revCanvas = document.getElementById('home-an-revenue');
+  if (revCanvas) {
+    const byMonth = {};
+    for (const o of orders) {
+      const m = String(o.date || '').slice(0, 7);
+      if (!m) continue;
+      byMonth[m] = (byMonth[m] || 0) + Number(o.cod || 0);
+    }
+    const months = Object.keys(byMonth).sort();
+    const labels = months.map((m) => {
+      const [y, mm] = m.split('-').map(Number);
+      return `${new Date(y, mm - 1, 1).toLocaleString('en-US', { month: 'short' })} ${String(y).slice(2)}`;
+    });
+    const data = months.map((m) => byMonth[m]);
+    homeAnRevChart = upsertChart(homeAnRevChart, revCanvas, data.length > 0, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'COD Revenue',
+          data,
+          borderColor: '#8b5cf6',
+          backgroundColor: 'rgba(139, 92, 246, 0.15)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 3,
+          pointBackgroundColor: '#8b5cf6',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: (v) => `₱${Number(v).toLocaleString()}` } },
+          x: { grid: { display: false } },
+        },
+      },
+    });
+  }
+  const stCanvas = document.getElementById('home-an-status');
+  if (stCanvas) {
+    const dist = getHomeRtsDistribution(orders);
+    const totalC = dist.counts.reduce((a, b) => a + b, 0);
+    homeAnStatusChart = upsertChart(homeAnStatusChart, stCanvas, totalC > 0, {
+      type: 'doughnut',
+      data: { labels: dist.labels, datasets: [{ data: dist.counts, backgroundColor: dist.colors, borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, cutout: '62%' },
+    });
+  }
+}
+
+function renderHomeStatusCards() {
+  const wrap = document.getElementById('home-status-cards');
+  if (!wrap) return;
+  const orders = getFilteredHomeOrders();
+  const total = orders.length;
+  const agg = {};
+  let totalCod = 0;
+  for (const o of orders) {
+    const cod = Number(o.cod || 0);
+    totalCod += cod;
+    const st = o.status || 'Unknown';
+    if (!agg[st]) agg[st] = { count: 0, cod: 0 };
+    agg[st].count += 1;
+    agg[st].cod += cod;
+  }
+  const peso = (n) => `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const boxIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>';
+  const tileValue = (tile) => {
+    if (tile.match === 'all') return { count: total, cod: totalCod };
+    if (tile.tag) {
+      const needle = tile.tag.toLowerCase();
+      let count = 0;
+      let cod = 0;
+      for (const o of orders) {
+        if (String(o.tags || '').toLowerCase().includes(needle)) { count += 1; cod += Number(o.cod || 0); }
+      }
+      return { count, cod };
+    }
+    let count = 0;
+    let cod = 0;
+    for (const s of (tile.match || [])) {
+      if (agg[s]) { count += agg[s].count; cod += agg[s].cod; }
+    }
+    return { count, cod };
+  };
+  wrap.innerHTML = HOME_STATUS_TILES.map((tile) => {
+    const { count, cod } = tileValue(tile);
+    const pct = total ? (count / total) * 100 : 0;
+    const tab = tile.rmoTab || 'orders';
+    const status = String(tile.rmoStatus ?? 'all').replace(/'/g, "\\'");
+    return `
+      <div class="home-status-card hsc-${tile.tone}" role="button" tabindex="0"
+        onclick="openRmoFromCard('${tab}','${status}')"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openRmoFromCard('${tab}','${status}');}"
+        title="Open ${escapeHtml(tile.label)} in RMO Management">
+        <div class="hsc-top">
+          <span class="hsc-label">${escapeHtml(tile.label)}</span>
+          <span class="hsc-icon">${boxIcon}</span>
+        </div>
+        <span class="hsc-value">${peso(cod)}</span>
+        <span class="hsc-sub">${count.toLocaleString()} orders · ${pct.toFixed(1)}%</span>
+      </div>`;
+  }).join('');
+}
+
+// Deep-link from a Home status card into RMO Management, pre-filtered. tab picks
+// the RMO tab ('orders' | 'delivering' | 'returning'); status sets the status
+// dropdown for the 'orders' tab. initPage('rmo-management') then fetches with
+// these applied (navigateTo enforces page access).
+function openRmoFromCard(tab, status) {
+  rmoTab = tab || 'orders';
+  posOrdersStatusFilter = status || 'all';
+  posOrdersReasonFilter = 'all';
+  posOrdersTagFilter = 'all';
+  posOrdersProductFilter = 'all';
+  posOrdersPageFilter = 'all';
+  posOrdersAttemptFilter = 'all';
+  posOrdersPeriod = 'all';
+  posRawPage = 1;
+  navigateTo('rmo-management');
+}
+
 function renderHomeOrderCharts() {
+  renderHomeSummaryTiles();
+  renderHomeStatusCards();
   if (typeof Chart === 'undefined') return;
+  renderHomeAnalyticsCharts();
 
   const orders = getFilteredHomeOrders();
   const subtitle = document.getElementById('home-status-subtitle');
@@ -11858,6 +12014,60 @@ function applyHomeCustomRange() {
   homeDateFrom = document.getElementById('home-date-from')?.value || '';
   homeDateTo = document.getElementById('home-date-to')?.value || '';
   renderHomeOrderCharts();
+}
+
+// Home top filter bar (period presets + Page/Product/CSR dropdowns + Reset).
+function setHomePeriod(period, btn) {
+  homeOrderFilter = period;
+  document.querySelectorAll('.home-period-row .filter-pill').forEach((p) => p.classList.remove('active'));
+  btn?.classList.add('active');
+  renderHomeOrderCharts();
+}
+
+function applyHomeFilters() {
+  homeSourceFilter = document.getElementById('home-source-filter')?.value || 'all';
+  homeProductFilter = document.getElementById('home-product-filter')?.value || 'all';
+  homeCsrFilter = document.getElementById('home-csr-filter')?.value || 'all';
+  renderHomeOrderCharts();
+}
+
+function resetHomeFilters() {
+  homeOrderFilter = 'all';
+  homeSourceFilter = 'all';
+  homeProductFilter = 'all';
+  homeCsrFilter = 'all';
+  homeDateFrom = '';
+  homeDateTo = '';
+  loadPage('home');
+}
+
+// Filtered summary tiles that mirror the reference (Gross Sales, Total Orders,
+// Delivered, RTS Orders, RTS %, Avg Order Value) — recomputed from the same
+// filtered set the status cards and charts use.
+function renderHomeSummaryTiles() {
+  const wrap = document.getElementById('home-summary-tiles');
+  if (!wrap) return;
+  const orders = getFilteredHomeOrders();
+  const total = orders.length;
+  const grossSales = orders.reduce((s, o) => s + Number(o.cod || 0), 0);
+  const delivered = orders.filter((o) => getOrderStatusKey(o.status) === 'delivered').length;
+  const rts = orders.filter((o) => getOrderStatusKey(o.status) === 'returned').length;
+  const rtsPct = total ? (rts / total) * 100 : 0;
+  const aov = total ? grossSales / total : 0;
+  const peso = (n) => `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const tiles = [
+    { label: 'Gross Sales', value: peso(grossSales) },
+    { label: 'Total Orders', value: total.toLocaleString() },
+    { label: 'Delivered Orders', value: delivered.toLocaleString() },
+    { label: 'RTS Orders', value: rts.toLocaleString() },
+    { label: 'RTS %', value: `${rtsPct.toFixed(1)}%` },
+    { label: 'Avg Order Value', value: peso(aov) },
+  ];
+  wrap.innerHTML = tiles.map((t) => `
+    <div class="home-summary-tile">
+      <div class="hst-label">${t.label}</div>
+      <div class="hst-value">${t.value}</div>
+    </div>`).join('');
 }
 
 function renderSalesSummaryCards(data) {
