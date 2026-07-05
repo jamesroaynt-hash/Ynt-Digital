@@ -472,10 +472,10 @@ function ordersRoutes(db, { dispatch } = {}) {
   // count of pickups and the pcs rolled up from the leading number on the
   // product name ("2 Niacinamide" → 2, none → 1). Dated by pickup_date.
   r.get('/pos-orders/pickup-summary', async (req, res) => {
-    if (await posIntegrationHidden()) return res.json({ total: 0, total_pcs: 0, by_page: [] });
     const { date_from, date_to } = req.query;
-    const where = ['1=1'];
-    const params = [];
+    const vis = await posVisibilityFilter();
+    const where = ['1=1', vis.clause];
+    const params = [...vis.params];
     if (date_from) { where.push(`pickup_date >= ?`); params.push(date_from); }
     if (date_to)   { where.push(`pickup_date <= ?`); params.push(date_to); }
 
@@ -517,18 +517,36 @@ function ordersRoutes(db, { dispatch } = {}) {
     return `${row?.max_updated || ''}:${row?.total || 0}`;
   }
 
-  // "Hide when off": when the Pancake POS integration is toggled off in Settings →
-  // Integrations, its orders stay in pos_orders but disappear from every dashboard
-  // read below (RMO pages, Home, ROAS Summary, RTS Rate, Marketing Center, CSR —
-  // all derive from these endpoints). Toggle it back on and everything reappears;
-  // nothing is ever deleted. Fails OPEN (shows data) if the status lookup errors,
-  // so a settings glitch can never blank the dashboard.
-  async function posIntegrationHidden() {
+  // "Hide when off": individual POS pages toggled Off in Settings → Integrations —
+  // and the whole integration when its master switch is off — drop out of every
+  // dashboard read below (RMO pages, Home, ROAS Summary, RTS Rate, Marketing
+  // Center, CSR all derive from these endpoints). Their orders stay in pos_orders
+  // / pickup_log and reappear the moment the page is toggled back on; nothing is
+  // ever deleted. Returns a SQL fragment to AND into a WHERE over any table with a
+  // `shop_id` column: '1=0' hides everything (master off), 'shop_id NOT IN (...)'
+  // hides just the disabled pages, '1=1' hides nothing. integration_settings is a
+  // tiny table, so this is two cheap SELECTs — not the heavy getStatus() GROUP BY.
+  // Fails OPEN (shows everything) if the lookup errors, so a settings glitch can
+  // never blank the dashboard.
+  async function posVisibilityFilter() {
     try {
-      const status = await pancakePosSync.getStatus(db);
-      return status && status.enabled === false;
+      const globalRow = await db.prepare(
+        "SELECT enabled FROM integration_settings WHERE provider = 'pancake_pos' AND connection_id = ''"
+      ).get();
+      if (globalRow && Number(globalRow.enabled) === 0) {
+        return { clause: '1=0', params: [] };
+      }
+      const hiddenRows = await db.prepare(
+        "SELECT page_id FROM integration_settings"
+        + " WHERE provider = 'pancake_pos' AND connection_id != '' AND enabled = 0"
+        + " AND page_id IS NOT NULL AND page_id != ''"
+      ).all();
+      const hidden = hiddenRows.map((row) => String(row.page_id));
+      if (!hidden.length) return { clause: '1=1', params: [] };
+      const placeholders = hidden.map(() => '?').join(',');
+      return { clause: `COALESCE(shop_id, '') NOT IN (${placeholders})`, params: hidden };
     } catch {
-      return false;
+      return { clause: '1=1', params: [] };
     }
   }
 
@@ -538,14 +556,14 @@ function ordersRoutes(db, { dispatch } = {}) {
 
   // Lightweight lookup by external_id list — used by CSR records live status.
   r.get('/pos-orders/by-ids', async (req, res) => {
-    if (await posIntegrationHidden()) return res.json({ data: [] });
     const raw = String(req.query.ids || '');
     const ids = raw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
     if (!ids.length) return res.json({ data: [] });
+    const vis = await posVisibilityFilter();
     const placeholders = ids.map(() => '?').join(',');
     const rows = await db.prepare(
-      `SELECT external_id, status_name, tracking_no FROM pos_orders WHERE external_id IN (${placeholders})`
-    ).all(...ids);
+      `SELECT external_id, status_name, tracking_no FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
+    ).all(...ids, ...vis.params);
     res.json({
       data: rows.map((row) => ({
         id: row.external_id,
@@ -556,17 +574,17 @@ function ordersRoutes(db, { dispatch } = {}) {
   });
 
   r.get('/pos-orders/dashboard', async (req, res) => {
-    if (await posIntegrationHidden()) return res.json({ version: await getPosOrdersVersion(), data: [] });
+    const vis = await posVisibilityFilter();
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
              cod, assigning_seller_name, status_name, attempts,
              shipping_address_json
       FROM pos_orders
-      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+      WHERE customer_phone IS NOT NULL AND customer_phone != '' AND ${vis.clause}
       ORDER BY inserted_at_remote DESC
       LIMIT 200
-    `).all();
+    `).all(...vis.params);
 
     const statusMap = {
       new: 'New',
@@ -614,21 +632,13 @@ function ordersRoutes(db, { dispatch } = {}) {
     const pageNum = Math.max(1, Number(req.query.page) || 1);
     const offset = (pageNum - 1) * perPage;
 
-    // POS toggled off → empty report so ROAS / RTS / Marketing / CSR / Home blank out.
-    if (await posIntegrationHidden()) {
-      return res.json({
-        version: await getPosOrdersVersion(),
-        page: pageNum,
-        per_page: perPage,
-        total: 0,
-        pages: 1,
-        records: [],
-      });
-    }
+    // Hide orders from POS pages toggled Off (ROAS / RTS / Marketing / CSR / Home
+    // all derive from this dataset, so they blank out for those pages too).
+    const vis = await posVisibilityFilter();
 
     const totalRow = await db.prepare(
-      `SELECT COUNT(*) AS c FROM pos_orders WHERE customer_phone IS NOT NULL AND customer_phone != ''`
-    ).get();
+      `SELECT COUNT(*) AS c FROM pos_orders WHERE customer_phone IS NOT NULL AND customer_phone != '' AND ${vis.clause}`
+    ).get(...vis.params);
     const total = Number(totalRow?.c || 0);
 
     const rows = await db.prepare(`
@@ -636,10 +646,10 @@ function ordersRoutes(db, { dispatch } = {}) {
              customer_name, customer_phone, note_product, tags_json,
              cod, assigning_seller_name, status_name, attempts, shipping_address_json
       FROM pos_orders
-      WHERE customer_phone IS NOT NULL AND customer_phone != ''
+      WHERE customer_phone IS NOT NULL AND customer_phone != '' AND ${vis.clause}
       ORDER BY inserted_at_remote DESC, id DESC
       LIMIT ? OFFSET ?
-    `).all(perPage, offset);
+    `).all(...vis.params, perPage, offset);
 
     const statusMap = {
       new: 'New',
@@ -696,21 +706,14 @@ function ordersRoutes(db, { dispatch } = {}) {
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));
     const pageNum = Math.max(1, Number(page) || 1);
     const offset = (pageNum - 1) * perPage;
-
-    if (await posIntegrationHidden()) {
-      return res.json({
-        data: [],
-        status_counts: [],
-        partner_counts: { undeliverable: 0, problematic: 0 },
-        filter_options: { products: [], pages: [], tags: [], reasons: [] },
-        total: 0,
-        page: pageNum,
-        per_page: perPage,
-      });
-    }
     const params = [];
 
-    let where = "WHERE customer_phone IS NOT NULL AND customer_phone != ''";
+    // Hide orders from POS pages toggled Off (or all POS orders when the master
+    // switch is off → '1=0' makes every sub-query below return empty). Injected at
+    // the base WHERE so every count/list/filter query in this handler inherits it.
+    const vis = await posVisibilityFilter();
+    let where = `WHERE customer_phone IS NOT NULL AND customer_phone != '' AND ${vis.clause}`;
+    params.push(...vis.params);
 
     if (search) {
       // Allow searching several order #s / tracking codes / phones at once by
