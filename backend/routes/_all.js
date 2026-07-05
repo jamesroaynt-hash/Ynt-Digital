@@ -472,6 +472,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   // count of pickups and the pcs rolled up from the leading number on the
   // product name ("2 Niacinamide" → 2, none → 1). Dated by pickup_date.
   r.get('/pos-orders/pickup-summary', async (req, res) => {
+    if (await posIntegrationHidden()) return res.json({ total: 0, total_pcs: 0, by_page: [] });
     const { date_from, date_to } = req.query;
     const where = ['1=1'];
     const params = [];
@@ -516,12 +517,28 @@ function ordersRoutes(db, { dispatch } = {}) {
     return `${row?.max_updated || ''}:${row?.total || 0}`;
   }
 
+  // "Hide when off": when the Pancake POS integration is toggled off in Settings →
+  // Integrations, its orders stay in pos_orders but disappear from every dashboard
+  // read below (RMO pages, Home, ROAS Summary, RTS Rate, Marketing Center, CSR —
+  // all derive from these endpoints). Toggle it back on and everything reappears;
+  // nothing is ever deleted. Fails OPEN (shows data) if the status lookup errors,
+  // so a settings glitch can never blank the dashboard.
+  async function posIntegrationHidden() {
+    try {
+      const status = await pancakePosSync.getStatus(db);
+      return status && status.enabled === false;
+    } catch {
+      return false;
+    }
+  }
+
   r.get('/pos-orders/version', async (req, res) => {
     res.json({ version: await getPosOrdersVersion() });
   });
 
   // Lightweight lookup by external_id list — used by CSR records live status.
   r.get('/pos-orders/by-ids', async (req, res) => {
+    if (await posIntegrationHidden()) return res.json({ data: [] });
     const raw = String(req.query.ids || '');
     const ids = raw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
     if (!ids.length) return res.json({ data: [] });
@@ -539,6 +556,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   });
 
   r.get('/pos-orders/dashboard', async (req, res) => {
+    if (await posIntegrationHidden()) return res.json({ version: await getPosOrdersVersion(), data: [] });
     const rows = await db.prepare(`
       SELECT external_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
@@ -595,6 +613,18 @@ function ordersRoutes(db, { dispatch } = {}) {
     const perPage = Math.max(1, Math.min(5000, Number(req.query.per_page) || 1000));
     const pageNum = Math.max(1, Number(req.query.page) || 1);
     const offset = (pageNum - 1) * perPage;
+
+    // POS toggled off → empty report so ROAS / RTS / Marketing / CSR / Home blank out.
+    if (await posIntegrationHidden()) {
+      return res.json({
+        version: await getPosOrdersVersion(),
+        page: pageNum,
+        per_page: perPage,
+        total: 0,
+        pages: 1,
+        records: [],
+      });
+    }
 
     const totalRow = await db.prepare(
       `SELECT COUNT(*) AS c FROM pos_orders WHERE customer_phone IS NOT NULL AND customer_phone != ''`
@@ -666,6 +696,18 @@ function ordersRoutes(db, { dispatch } = {}) {
     const perPage = Math.max(1, Math.min(100, Number(per_page) || 50));
     const pageNum = Math.max(1, Number(page) || 1);
     const offset = (pageNum - 1) * perPage;
+
+    if (await posIntegrationHidden()) {
+      return res.json({
+        data: [],
+        status_counts: [],
+        partner_counts: { undeliverable: 0, problematic: 0 },
+        filter_options: { products: [], pages: [], tags: [], reasons: [] },
+        total: 0,
+        page: pageNum,
+        per_page: perPage,
+      });
+    }
     const params = [];
 
     let where = "WHERE customer_phone IS NOT NULL AND customer_phone != ''";
