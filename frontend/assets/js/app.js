@@ -11748,7 +11748,40 @@ const HOME_STATUS_TILES = [
 // a revenue-by-month area chart + an order-status donut. Uses only order/revenue
 // data those roles can already access (no Expenses — that page is role-restricted).
 function renderHomeAnalytics() {
-  const orders = DB.sheetRecordsForReport || [];
+  return `
+  <div class="home-filter-bar">
+    <div class="home-period-row">
+      ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
+        `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
+      <span class="home-period-hint">Custom range below</span>
+    </div>
+    <div class="home-filter-grid">
+      <div class="hf-field"><label>From</label><input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()"></div>
+      <div class="hf-field"><label>To</label><input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()"></div>
+    </div>
+  </div>
+
+  <div class="kpi-grid" id="home-an-kpis">
+    <div class="empty-state" style="grid-column:1/-1;padding:16px;color:var(--text-muted);font-size:13px;">Loading…</div>
+  </div>
+
+  <div class="home-an-grid">
+    <div class="card home-an-main">
+      <div class="card-header"><div><div class="card-title">Total Revenue</div><div class="card-subtitle">COD revenue by month</div></div></div>
+      <div class="card-body"><canvas id="home-an-revenue"></canvas></div>
+    </div>
+    <div class="card home-an-side">
+      <div class="card-header"><div><div class="card-title">Orders by Status</div><div class="card-subtitle">Delivery status mix</div></div></div>
+      <div class="card-body"><canvas id="home-an-status"></canvas></div>
+    </div>
+  </div>`;
+}
+
+// KPI tiles for the analytics Home — respects the period filter (getFilteredHomeOrders).
+function renderHomeAnalyticsKpis() {
+  const wrap = document.getElementById('home-an-kpis');
+  if (!wrap) return;
+  const orders = getFilteredHomeOrders();
   const total = orders.length;
   const delivered = orders.filter((o) => getOrderStatusKey(o.status) === 'delivered').length;
   const revenue = orders.reduce((s, o) => s + Number(o.cod || 0), 0);
@@ -11770,24 +11803,11 @@ function renderHomeAnalytics() {
       </div>
       ${spark(series)}
     </div>`;
-  return `
-  <div class="kpi-grid">
+  wrap.innerHTML = `
     ${tile(iOrders, 'violet', total.toLocaleString(), 'Total Orders', s.orders)}
     ${tile(iTruck, 'blue', delivered.toLocaleString(), 'Delivered Orders', s.delivered)}
     ${tile(iCash, 'amber', formatPesoCompact(revenue), 'COD Revenue', s.cod)}
-    ${tile(iReturn, 'rose', `${rtsPct.toFixed(1)}%`, 'RTS Rate', s.delivered)}
-  </div>
-
-  <div class="home-an-grid">
-    <div class="card home-an-main">
-      <div class="card-header"><div><div class="card-title">Total Revenue</div><div class="card-subtitle">COD revenue by month</div></div></div>
-      <div class="card-body"><canvas id="home-an-revenue"></canvas></div>
-    </div>
-    <div class="card home-an-side">
-      <div class="card-header"><div><div class="card-title">Orders by Status</div><div class="card-subtitle">Delivery status mix</div></div></div>
-      <div class="card-body"><canvas id="home-an-status"></canvas></div>
-    </div>
-  </div>`;
+    ${tile(iReturn, 'rose', `${rtsPct.toFixed(1)}%`, 'RTS Rate', s.delivered)}`;
 }
 
 function renderHomeAnalyticsCharts() {
@@ -11834,7 +11854,7 @@ function renderHomeAnalyticsCharts() {
   }
   const stCanvas = document.getElementById('home-an-status');
   if (stCanvas) {
-    const dist = getHomeRtsDistribution(orders);
+    const dist = getHomeRtsDistribution(getFilteredHomeOrders());
     const totalC = dist.counts.reduce((a, b) => a + b, 0);
     homeAnStatusChart = upsertChart(homeAnStatusChart, stCanvas, totalC > 0, {
       type: 'doughnut',
@@ -11919,6 +11939,7 @@ function openRmoFromCard(tab, status) {
 function renderHomeOrderCharts() {
   renderHomeSummaryTiles();
   renderHomeStatusCards();
+  renderHomeAnalyticsKpis();
   if (typeof Chart === 'undefined') return;
   renderHomeAnalyticsCharts();
 
