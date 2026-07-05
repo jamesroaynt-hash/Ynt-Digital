@@ -388,10 +388,13 @@ module.exports = function integrationRoutes(db) {
         return { ...g, rtsRate: b ? ((g.returned + g.returning) / b) * 100 : 0 };
       }).sort((a, b) => b.total - a.total);
 
-      // byAdId — direct column GROUP BY on ad_id
+      // byAdId — direct column GROUP BY on ad_id. Exclude only 'wait_print'
+      // (awaiting/waiting for print) from ROAS order counts; 'pending'/'waitting'
+      // (waiting for pickup) are still included. COALESCE keeps NULL-status rows.
+      const adBase = "ad_id IS NOT NULL AND TRIM(ad_id) != '' AND COALESCE(status_name,'') != 'wait_print'";
       const adWhere = conditions.length
-        ? `WHERE (${conditions.join(' AND ')}) AND ad_id IS NOT NULL AND TRIM(ad_id) != ''`
-        : `WHERE ad_id IS NOT NULL AND TRIM(ad_id) != ''`;
+        ? `WHERE (${conditions.join(' AND ')}) AND ${adBase}`
+        : `WHERE ${adBase}`;
       const adRows = await db.prepare(`
         SELECT
           ad_id as label,
