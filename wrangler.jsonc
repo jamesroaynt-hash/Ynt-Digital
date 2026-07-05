@@ -3,6 +3,7 @@
   "name": "ynt-digital",
   "compatibility_date": "2026-06-12",
   "main": "worker.js",
+  "workers_dev": false,
   "assets": {
     "directory": "frontend",
     "binding": "ASSETS"
