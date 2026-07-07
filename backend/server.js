@@ -230,10 +230,28 @@ async function createApp() {
     res.setHeader('Pragma', 'no-cache');
     next();
   });
+  // Canonical host: the dashboard lives on the Cloudflare Worker at
+  // www.ynterp.work. The apex (ynterp.work) is the backend and only serves the
+  // frontend as a fallback, which caused stale-cache confusion. Redirect apex
+  // page requests to www so there is a single dashboard URL. /api is left alone
+  // — the Worker proxies www/api → apex/api, so redirecting it would loop.
+  app.use((req, res, next) => {
+    const host = (req.headers.host || '').toLowerCase().split(':')[0];
+    const isPageRequest = (req.method === 'GET' || req.method === 'HEAD')
+      && !req.path.startsWith('/api');
+    if (host === 'ynterp.work' && isPageRequest) {
+      return res.redirect(301, `https://www.ynterp.work${req.originalUrl}`);
+    }
+    return next();
+  });
   attachDatabaseBackupMiddleware(app, backupScheduler);
   const staticCacheHeaders = {
     setHeaders(res, filePath) {
-      if (filePath.endsWith('.html')) {
+      // HTML and the app bundle (app.js / main.css) keep stable filenames but
+      // change contents on every deploy, so they must revalidate — otherwise a
+      // browser that cached them serves a week-old dashboard. Truly static
+      // assets (images, fonts) can still cache long.
+      if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
         res.setHeader('Cache-Control', 'no-cache');
         return;
       }
