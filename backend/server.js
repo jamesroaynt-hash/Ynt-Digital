@@ -88,12 +88,17 @@ const PANCAKE_POS_SYNC_PAGE_SIZE = Math.max(
 // every real change, and the unchanged tail is skipped at upsert anyway. This
 // caps Pancake fetch size, memory, and sync time per cycle. Manual/backfill
 // syncs don't use this window, so full history re-pulls are unaffected.
-// Default 2 pages: genuinely-changed orders sort to the front (updated_at_desc),
-// so 2×100 catches real changes while keeping peak memory low. Raise via env if
-// a shop legitimately churns >200 orders between cycles.
+// Default 5 pages (500 orders): genuinely-changed orders sort to the front
+// (updated_at_desc), so this catches every real change AND lets a backlog
+// self-heal — if a shop was frozen/paused and up to ~500 of its orders changed
+// meanwhile, the next cycles sweep them in without a manual backfill. The
+// skip-unchanged upsert guard means the extra pages add Pancake fetch + a
+// per-order existence read, but NOT write egress (unchanged rows are skipped).
+// Lower via env (PANCAKE_POS_SYNC_MAX_PAGES) if Supabase read egress climbs;
+// raise it if a shop legitimately churns >500 orders between cycles.
 const PANCAKE_POS_SYNC_MAX_PAGES = Math.max(
   1,
-  Math.min(20, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 2))
+  Math.min(20, Number(process.env.PANCAKE_POS_SYNC_MAX_PAGES || 5))
 );
 
 // Shared security state
