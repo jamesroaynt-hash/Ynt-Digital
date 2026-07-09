@@ -1701,7 +1701,19 @@ async function cleanupMalformedDashboardOrders(db, { force = false } = {}) {
   return cleanupInflight;
 }
 
-async function normalizeSourceSheets(db) {
+// Throttle the automatic per-cycle normalize. This is a broad bulk UPDATE across
+// the orders table and is the largest single-statement lock footprint in the
+// interval sync — running it every cycle is the main generator of deadlocks
+// against concurrent order writers (webhooks / UI edits / other sync passes).
+// It only has real work to do after a connection rename, which is rare, so an
+// hourly cadence loses nothing. Manual callers (the rename endpoint / script)
+// pass { force: true } so a rename still normalizes immediately.
+const NORMALIZE_THROTTLE_MS = 60 * 60 * 1000;
+let normalizeLastRunAt = 0;
+
+async function normalizeSourceSheets(db, { force = false } = {}) {
+  if (!force && Date.now() - normalizeLastRunAt < NORMALIZE_THROTTLE_MS) return 0;
+  normalizeLastRunAt = Date.now();
   // Unify source_sheet for all POS-linked dashboard orders that share the same shop_id + page_id,
   // using the current connection name as the canonical name.
   const connections = await getSavedConnections(db);

@@ -40,6 +40,33 @@ class SqliteClient {
   }
 }
 
+// Transient serialization errors Postgres resolves by retry: deadlock_detected
+// (40P01) and serialization_failure (40001). Every statement issued through this
+// layer is a single autocommit query, so a failure leaves no partial transaction
+// behind — re-running the exact same statement is safe and idempotent. Retrying
+// here (with jittered backoff) keeps the background POS sync and concurrent
+// request handlers from aborting a whole cycle when two writers briefly contend
+// on the same `orders` rows in opposite lock order.
+const DB_RETRY_CODES = new Set(['40P01', '40001']);
+const DB_MAX_RETRIES = 4;
+
+async function queryWithRetry(pool, sql, params) {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await pool.query(sql, params);
+    } catch (err) {
+      if (err && DB_RETRY_CODES.has(err.code) && attempt < DB_MAX_RETRIES) {
+        attempt += 1;
+        const backoffMs = 40 * attempt + Math.floor(Math.random() * 60);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 class PostgresStatement {
   constructor(pool, sql) {
     this.pool = pool;
@@ -47,12 +74,12 @@ class PostgresStatement {
   }
 
   async all(...params) {
-    const result = await this.pool.query(this.sql, params);
+    const result = await queryWithRetry(this.pool, this.sql, params);
     return result.rows;
   }
 
   async get(...params) {
-    const result = await this.pool.query(this.sql, params);
+    const result = await queryWithRetry(this.pool, this.sql, params);
     return result.rows[0] || null;
   }
 
@@ -61,14 +88,14 @@ class PostgresStatement {
     const sql = wantsReturning ? `${this.sql} RETURNING id` : this.sql;
     let result;
     try {
-      result = await this.pool.query(sql, params);
+      result = await queryWithRetry(this.pool, sql, params);
     } catch (err) {
       // Some tables are keyed by a natural primary key and have no `id` column
       // (e.g. rts_page_sku keyed by page_name). For those, `RETURNING id` fails
       // with undefined_column (42703); retry the original statement so upserts
       // into id-less tables still work.
       if (wantsReturning && err && err.code === '42703') {
-        result = await this.pool.query(this.sql, params);
+        result = await queryWithRetry(this.pool, this.sql, params);
       } else {
         throw err;
       }

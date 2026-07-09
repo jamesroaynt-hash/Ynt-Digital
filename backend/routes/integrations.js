@@ -755,7 +755,7 @@ module.exports = function integrationRoutes(db) {
 
   router.post('/pancake-pos/normalize-sources', async (req, res) => {
     try {
-      const normalized = await posSync.normalizeSourceSheets(db);
+      const normalized = await posSync.normalizeSourceSheets(db, { force: true });
       res.json({ normalized });
     } catch (error) {
       res.status(500).json({ error: error.message });

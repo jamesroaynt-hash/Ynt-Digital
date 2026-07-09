@@ -7,5 +7,5 @@ const db = createDatabaseClient({
 });
 
 process.stderr.write('Normalizing source sheets...\n');
-const normalized = await normalizeSourceSheets(db);
+const normalized = await normalizeSourceSheets(db, { force: true });
 process.stderr.write(`Normalized: ${normalized} orders updated\n`);
