@@ -50,17 +50,14 @@ function calculateWorkedMinutes(record) {
   let duration = end - start;
   if (duration < 0) duration += 24 * 60;
 
-  // Two independent breaks: the 1-hour break out and a separate 15-min break.
-  // Each is measured from its own punches; if neither break was punched at all,
-  // fall back to the standard break_minutes deduction (legacy behaviour).
-  const break1 = spanMinutes(record?.break_out, record?.break_in);
-  const break2 = spanMinutes(record?.break2_out, record?.break2_in);
-  let breakMinutes;
-  if (break1 === null && break2 === null) {
-    breakMinutes = Number(record?.break_minutes || DEFAULT_BREAK_MINUTES);
-  } else {
-    breakMinutes = (break1 || 0) + (break2 || 0);
-  }
+  // Only the 1-hour lunch (break_out/break_in) is unpaid and deducted. The
+  // separate 15-min break (break2_out/break2_in) is a PAID break and never
+  // reduces worked hours. If the lunch was never punched, fall back to the
+  // standard break_minutes deduction (legacy behaviour).
+  const lunch = spanMinutes(record?.break_out, record?.break_in);
+  const breakMinutes = lunch === null
+    ? Number(record?.break_minutes || DEFAULT_BREAK_MINUTES)
+    : lunch;
 
   return Math.max(0, duration - Math.max(0, breakMinutes));
 }
