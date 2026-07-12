@@ -300,6 +300,8 @@ function mapBackendInventoryItem(row) {
     stock: Number(row.stock || 0),
     reorder: Number(row.reorder_pt || 0),
     totalOrders: Number(row.total_orders || 0),
+    inQty: Number(row.in_qty || 0),
+    outQty: Number(row.out_qty || 0),
     unit: row.unit || 'pcs',
     cost: Number(row.cost_price || 0),
     price: row.sell_price === null || row.sell_price === undefined ? null : Number(row.sell_price),
@@ -4897,16 +4899,20 @@ function renderStockAnalyticsCard() {
     body = `
     <table class="data-report-table">
       <thead><tr>
-        <th>Product/Supplies</th><th style="text-align:right">Total Stocks</th><th style="text-align:right">RTS</th><th style="text-align:right">Cost (Total)</th>
+        <th>Product/Supplies</th><th style="text-align:right">Total Stocks</th><th style="text-align:right" title="Total quantity added (restocked) over time">In-Stocks</th><th style="text-align:right" title="Total quantity removed over time">Out-Stocks</th><th style="text-align:right">RTS</th><th style="text-align:right">Cost (Total)</th>
       </tr></thead>
       <tbody>
         ${rows.map((item) => {
           const rtsPcs = getRtsPcs(item);
           const unitCost = Number(item.cost || 0);
           const totalCost = unitCost * Number(item.stock || 0);
+          const inQty = Number(item.inQty || 0);
+          const outQty = Number(item.outQty || 0);
           return `<tr>
             <td>${escapeHtml(item.name || '—')}<span style="color:var(--text-muted);font-size:11px;"> · ${escapeHtml(item.type || 'Product')}</span></td>
             <td style="text-align:right;">${Number(item.stock || 0).toLocaleString()}</td>
+            <td style="text-align:right;" class="${inQty ? 'text-success' : ''}">${inQty ? inQty.toLocaleString() : '—'}</td>
+            <td style="text-align:right;" class="${outQty ? 'text-danger' : ''}">${outQty ? outQty.toLocaleString() : '—'}</td>
             <td style="text-align:right;" class="${rtsPcs ? 'text-danger' : ''}">${rtsPcs ? rtsPcs.toLocaleString() : '—'}</td>
             <td style="text-align:right;">${totalCost ? `₱${totalCost.toLocaleString()}` : '—'}</td>
           </tr>`;
@@ -4918,7 +4924,7 @@ function renderStockAnalyticsCard() {
   return `
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">Stocks</div><div class="card-subtitle">Total stocks, RTS pcs and total cost (cost price × stock) per product/supply</div></div>
+        <div><div class="card-title">Stocks</div><div class="card-subtitle">Total stocks, in/out quantities, RTS pcs and total cost (cost price × stock) per product/supply</div></div>
       </div>
       ${body}
     </section>`;

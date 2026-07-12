@@ -1278,7 +1278,9 @@ function inventoryRoutes(db, { dispatch } = {}) {
           NULLIF((SELECT SUM(l.qty_change) FROM inventory_logs l WHERE l.item_id = i.item_id AND l.action = 'add'), 0),
           i.stock,
           0
-        ) AS total_orders
+        ) AS total_orders,
+        COALESCE((SELECT SUM(l.qty_change) FROM inventory_logs l WHERE l.item_id = i.item_id AND l.action = 'add'), 0) AS in_qty,
+        COALESCE((SELECT SUM(l.qty_change) FROM inventory_logs l WHERE l.item_id = i.item_id AND l.action = 'remove'), 0) AS out_qty
       FROM inventory i`;
     const params = [];
     if (type) { sql += ' WHERE i.type=?'; params.push(type); }
