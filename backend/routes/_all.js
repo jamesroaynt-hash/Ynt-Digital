@@ -1915,6 +1915,95 @@ function csrRoutes(db) {
   return r;
 }
 
+/* ─── ODZ FINDER ──────────────────────────────────────────── */
+// Reference list of delivery areas flagged as ODZ (out of delivery zone) or a
+// Settlement pick-up area, so RMO can look up an area's status by Province /
+// City / Barangay.
+function odzRoutes(db) {
+  const r = express.Router();
+  const ALLOWED_STATUS = new Set(['ODZ', 'Settlement']);
+
+  const normStatus = (value) => {
+    const s = String(value || '').trim();
+    if (/^settle/i.test(s)) return 'Settlement';
+    if (/^odz/i.test(s) || /out.*delivery/i.test(s)) return 'ODZ';
+    return ALLOWED_STATUS.has(s) ? s : 'ODZ';
+  };
+
+  r.get('/', async (req, res) => {
+    const { search, status, page = 1, per_page = 25 } = req.query;
+    let sql = 'SELECT * FROM odz_areas WHERE 1=1';
+    const params = [];
+    if (status && ALLOWED_STATUS.has(status)) { sql += ' AND status = ?'; params.push(status); }
+    if (search) {
+      sql += ' AND (province LIKE ? OR city LIKE ? OR brgy LIKE ?)';
+      const q = `%${search}%`;
+      params.push(q, q, q);
+    }
+    const total = (await db.prepare(`SELECT COUNT(*) AS c ${sql.slice(sql.indexOf('FROM'))}`).get(...params)).c;
+    const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 25));
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    sql += ' ORDER BY province, city, brgy LIMIT ? OFFSET ?';
+    params.push(perPage, (pageNum - 1) * perPage);
+    res.json({ data: await db.prepare(sql).all(...params), total });
+  });
+
+  r.post('/', async (req, res) => {
+    const { province, city, brgy, status } = req.body || {};
+    const p = String(province || '').trim();
+    const c = String(city || '').trim();
+    const b = String(brgy || '').trim();
+    if (!p && !c && !b) return res.status(400).json({ error: 'Province, City or Brgy is required' });
+    const result = await db.prepare(
+      'INSERT INTO odz_areas (province, city, brgy, status, created_by) VALUES (?,?,?,?,?)',
+    ).run(p, c, b, normStatus(status), req.user?.id || null);
+    res.status(201).json({ id: Number(result.lastInsertRowid) || null });
+  });
+
+  r.patch('/:id', async (req, res) => {
+    const existing = await db.prepare('SELECT * FROM odz_areas WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Area not found' });
+    const province = req.body?.province === undefined ? existing.province : String(req.body.province || '').trim();
+    const city = req.body?.city === undefined ? existing.city : String(req.body.city || '').trim();
+    const brgy = req.body?.brgy === undefined ? existing.brgy : String(req.body.brgy || '').trim();
+    const status = req.body?.status === undefined ? existing.status : normStatus(req.body.status);
+    await db.prepare(`UPDATE odz_areas SET province=?, city=?, brgy=?, status=?, updated_at=datetime('now') WHERE id=?`)
+      .run(province, city, brgy, status, req.params.id);
+    res.json({ success: true });
+  });
+
+  r.delete('/:id', async (req, res) => {
+    await db.prepare('DELETE FROM odz_areas WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  });
+
+  // Bulk import from an uploaded Excel/CSV file (parsed client-side into rows).
+  r.post('/import', async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'No rows to import' });
+    let imported = 0;
+    const failed_rows = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const raw = rows[index] || {};
+      try {
+        const province = String(raw.province ?? raw.Province ?? '').trim();
+        const city = String(raw.city ?? raw.City ?? '').trim();
+        const brgy = String(raw.brgy ?? raw.Brgy ?? raw.barangay ?? raw.Barangay ?? '').trim();
+        const status = normStatus(raw.status ?? raw.Status);
+        if (!province && !city && !brgy) throw new Error('Empty row');
+        await db.prepare('INSERT INTO odz_areas (province, city, brgy, status, created_by) VALUES (?,?,?,?,?)')
+          .run(province, city, brgy, status, req.user?.id || null);
+        imported += 1;
+      } catch (error) {
+        failed_rows.push({ row_number: index + 2, error: error.message });
+      }
+    }
+    res.status(201).json({ imported, failed_rows });
+  });
+
+  return r;
+}
+
 module.exports = ordersRoutes;
 module.exports.ordersRoutes    = ordersRoutes;
 module.exports.inventoryRoutes = inventoryRoutes;
@@ -1922,3 +2011,4 @@ module.exports.expensesRoutes  = expensesRoutes;
 module.exports.pickupsRoutes   = pickupsRoutes;
 module.exports.scansRoutes     = scansRoutes;
 module.exports.csrRoutes       = csrRoutes;
+module.exports.odzRoutes       = odzRoutes;

@@ -9,16 +9,16 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'rmo-management', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'rmo-management', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
@@ -139,6 +139,7 @@ function loadPage(page) {
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
     'rmo-management': renderRmoManagement,
+    'odz-finder': renderOdzFinder,
     creatives: renderCreatives,
     'adspend-roas': renderAdspendRoas,
     csr: renderCSR,
@@ -171,6 +172,7 @@ const pageNames = {
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
+  'odz-finder': 'ODZ Finder',
   creatives: 'Ad Creatives',
   'adspend-roas': 'ROAS Summary',
   csr: 'CSR Records',
@@ -6911,6 +6913,266 @@ function renderCSR() {
   </div>`;
 }
 
+// ─── ODZ FINDER ────────────────────────────────────────────
+// Reference lookup of delivery areas flagged as ODZ (out of delivery zone) or
+// a Settlement pick-up area. Server-backed (odz_areas) with search-driven,
+// paginated listing so large area lists stay responsive.
+let odzState = { data: [], total: 0, page: 1, perPage: 25, search: '', status: '' };
+let odzSearchTimer = null;
+
+function odzStatusBadge(status) {
+  const s = String(status || '').trim();
+  if (/^settle/i.test(s)) return '<span class="badge badge-success">Settlement</span>';
+  return '<span class="badge badge-danger">ODZ</span>';
+}
+
+function renderOdzFinder() {
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>ODZ Finder</h1><p>Look up whether an area is an ODZ (out of delivery zone) or a Settlement pick-up area.</p></div>
+    <div class="page-actions">
+      <button class="btn btn-secondary" onclick="startOdzImport()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
+        Import Excel
+      </button>
+      <button class="btn btn-primary" onclick="openOdzModal()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+        Add Entry
+      </button>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <div class="table-toolbar">
+      <div class="table-search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        <input type="text" placeholder="Search province, city, barangay..." id="odz-search" value="${escapeHtml(odzState.search)}" oninput="onOdzSearchInput(this.value)">
+      </div>
+      <div class="table-filters">
+        <button class="filter-pill ${odzState.status === '' ? 'active' : ''}" onclick="setOdzStatusFilter('', this)">All</button>
+        <button class="filter-pill ${odzState.status === 'ODZ' ? 'active' : ''}" onclick="setOdzStatusFilter('ODZ', this)">ODZ</button>
+        <button class="filter-pill ${odzState.status === 'Settlement' ? 'active' : ''}" onclick="setOdzStatusFilter('Settlement', this)">Settlement</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="odz-table">
+        <thead><tr><th>Province</th><th>City</th><th>Brgy</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="odz-tbody"></tbody>
+      </table>
+    </div>
+    <div class="table-pagination" id="odz-pagination"></div>
+  </div>
+
+  <div class="modal-overlay" id="odz-entry-modal">
+    <div class="modal">
+      <div class="modal-header"><div class="modal-title" id="odz-modal-title">Add ODZ Entry</div><button class="modal-close" onclick="closeModal('odz-entry-modal')">×</button></div>
+      <div class="modal-body">
+        <input type="hidden" id="odz-edit-id">
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Province</label><input type="text" class="form-control" id="odz-province" placeholder="e.g. Cavite"></div>
+          <div class="form-group"><label class="form-label">City</label><input type="text" class="form-control" id="odz-city" placeholder="e.g. Bacoor"></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Brgy</label><input type="text" class="form-control" id="odz-brgy" placeholder="e.g. Molino IV"></div>
+          <div class="form-group"><label class="form-label">Status <span class="required">*</span></label>
+            <select class="form-control" id="odz-status">
+              <option value="ODZ">ODZ</option>
+              <option value="Settlement">Settlement</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-help">ODZ = out of delivery zone. Settlement = pick-up area.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('odz-entry-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveOdzEntry()">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function loadOdzAreas() {
+  const params = new URLSearchParams({ page: odzState.page, per_page: odzState.perPage });
+  if (odzState.search) params.set('search', odzState.search);
+  if (odzState.status) params.set('status', odzState.status);
+  try {
+    const result = await authorizedJsonRequest(`/odz?${params.toString()}`);
+    odzState.data = Array.isArray(result?.data) ? result.data : [];
+    odzState.total = Number(result?.total || 0);
+  } catch (error) {
+    odzState.data = [];
+    odzState.total = 0;
+    const tbody = document.getElementById('odz-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--danger)">Load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+    return;
+  }
+  renderOdzTable();
+}
+
+function renderOdzTable() {
+  const tbody = document.getElementById('odz-tbody');
+  if (!tbody) return;
+  if (!odzState.data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No areas found. Add an entry or import from Excel.</td></tr>';
+  } else {
+    tbody.innerHTML = odzState.data.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.province || '—')}</td>
+        <td>${escapeHtml(row.city || '—')}</td>
+        <td>${escapeHtml(row.brgy || '—')}</td>
+        <td>${odzStatusBadge(row.status)}</td>
+        <td>
+          <button class="btn btn-secondary btn-sm" onclick="openOdzModal(${row.id})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteOdzEntry(${row.id})">Delete</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  const pagination = document.getElementById('odz-pagination');
+  if (pagination) {
+    const totalPages = Math.max(1, Math.ceil(odzState.total / odzState.perPage));
+    if (odzState.page > totalPages) odzState.page = totalPages;
+    pagination.innerHTML = `
+      <span>${odzState.total} area${odzState.total === 1 ? '' : 's'}</span>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="gotoOdzPage(${odzState.page - 1})" ${odzState.page <= 1 ? 'disabled' : ''}>‹</button>
+        ${renderPaginationButtons(odzState.page, totalPages, 'gotoOdzPage')}
+        <button class="page-btn" onclick="gotoOdzPage(${odzState.page + 1})" ${odzState.page >= totalPages ? 'disabled' : ''}>›</button>
+      </div>`;
+  }
+}
+
+function onOdzSearchInput(value) {
+  odzState.search = value;
+  odzState.page = 1;
+  clearTimeout(odzSearchTimer);
+  odzSearchTimer = setTimeout(() => { loadOdzAreas(); }, 250);
+}
+
+function setOdzStatusFilter(status, btn) {
+  odzState.status = status;
+  odzState.page = 1;
+  if (btn) {
+    btn.closest('.table-filters')?.querySelectorAll('.filter-pill').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  loadOdzAreas();
+}
+
+function gotoOdzPage(page) {
+  odzState.page = page;
+  loadOdzAreas();
+}
+
+function openOdzModal(id) {
+  const editId = document.getElementById('odz-edit-id');
+  const title = document.getElementById('odz-modal-title');
+  const row = id ? odzState.data.find((r) => r.id === id) : null;
+  if (editId) editId.value = row ? row.id : '';
+  if (title) title.textContent = row ? 'Edit ODZ Entry' : 'Add ODZ Entry';
+  document.getElementById('odz-province').value = row?.province || '';
+  document.getElementById('odz-city').value = row?.city || '';
+  document.getElementById('odz-brgy').value = row?.brgy || '';
+  document.getElementById('odz-status').value = /^settle/i.test(row?.status || '') ? 'Settlement' : 'ODZ';
+  openModal('odz-entry-modal');
+}
+
+async function saveOdzEntry() {
+  const id = document.getElementById('odz-edit-id').value;
+  const payload = {
+    province: document.getElementById('odz-province').value.trim(),
+    city: document.getElementById('odz-city').value.trim(),
+    brgy: document.getElementById('odz-brgy').value.trim(),
+    status: document.getElementById('odz-status').value,
+  };
+  if (!payload.province && !payload.city && !payload.brgy) {
+    showToast('warning', 'Missing area', 'Enter at least a Province, City or Brgy.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest(id ? `/odz/${id}` : '/odz', {
+      method: id ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    closeModal('odz-entry-modal');
+    showToast('success', 'Saved', id ? 'Area updated.' : 'Area added.');
+    await loadOdzAreas();
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save the area.');
+  }
+}
+
+async function deleteOdzEntry(id) {
+  if (!confirm('Delete this area?')) return;
+  try {
+    await authorizedJsonRequest(`/odz/${id}`, { method: 'DELETE' });
+    showToast('success', 'Deleted', 'Area removed.');
+    // Step back a page if the last row on the current page was removed.
+    if (odzState.data.length === 1 && odzState.page > 1) odzState.page -= 1;
+    await loadOdzAreas();
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete the area.');
+  }
+}
+
+function startOdzImport() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls,.csv';
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (file) importOdzFile(file);
+  };
+  input.click();
+}
+
+// Parse the chosen Excel/CSV file into {province, city, brgy, status} rows.
+// Uses SheetJS (loaded globally as XLSX) for real .xlsx/.xls; falls back to the
+// shared CSV parser when the workbook library is unavailable.
+async function importOdzFile(file) {
+  try {
+    let rows = [];
+    const isCsv = /\.csv$/i.test(file.name);
+    if (!isCsv && typeof XLSX !== 'undefined') {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const records = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      rows = records.map(normalizeOdzImportRow);
+    } else {
+      rows = parseCsvText(await file.text()).map(normalizeOdzImportRow);
+    }
+    rows = rows.filter((r) => r.province || r.city || r.brgy);
+    if (!rows.length) {
+      showToast('warning', 'Import skipped', 'No area rows found. Expected columns: Province, City, Brgy, Status.');
+      return;
+    }
+    const result = await authorizedJsonRequest('/odz/import', { method: 'POST', body: JSON.stringify({ rows }) });
+    const failed = Array.isArray(result?.failed_rows) ? result.failed_rows.length : 0;
+    showToast('success', 'Import complete', `Imported ${result?.imported || 0}${failed ? `, skipped ${failed}` : ''}.`);
+    odzState.page = 1;
+    await loadOdzAreas();
+  } catch (error) {
+    showToast('error', 'Import failed', error.message || 'Could not import the file.');
+  }
+}
+
+// Map a spreadsheet row's headers (any case, with/without spaces) to our fields.
+function normalizeOdzImportRow(raw) {
+  const get = (...keys) => {
+    for (const key of Object.keys(raw || {})) {
+      const norm = key.toString().trim().toLowerCase();
+      if (keys.includes(norm)) return String(raw[key] ?? '').trim();
+    }
+    return '';
+  };
+  return {
+    province: get('province', 'prov'),
+    city: get('city', 'municipality', 'city/municipality'),
+    brgy: get('brgy', 'barangay', 'bgy'),
+    status: get('status', 'zone', 'type'),
+  };
+}
+
 function renderInventory() {
   const rtsLookups = computeRtsPcsLookups();
   const lowStock = DB.inventory.filter(i => inventoryEffectiveStock(i, rtsLookups) < i.reorder);
@@ -10150,6 +10412,11 @@ function initPage(page) {
         const tbody = document.getElementById('rec-pos-orders-tbody');
         if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
+  }
+
+  if (page === 'odz-finder') {
+    odzState.page = 1;
+    loadOdzAreas().catch(() => {});
   }
 
   if (page === 'view-records') {

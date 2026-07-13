@@ -326,6 +326,7 @@ async function createApp() {
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));
   app.use('/api/scans', authMiddleware, require('./routes/scans')(db));
   app.use('/api/csr', authMiddleware, require('./routes/csr')(db));
+  app.use('/api/odz', authMiddleware, require('./routes/odz')(db));
   const integrationsRouter = require('./routes/integrations')(db);
   app.use('/api/integrations', authMiddleware, integrationsRouter);
   app.use('/api/public/integrations', integrationsRouter.publicRouter);
