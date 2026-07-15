@@ -68,6 +68,42 @@ function calculateOtMinutes(record) {
   return Math.max(0, calculateWorkedMinutes(record) - STANDARD_DAY_MINUTES);
 }
 
+// Resolve the daily rate in effect on a given work date from a user's rate
+// history (rows sorted ascending by effective_from). Falls back to the user's
+// current daily_rate when no dated entry covers the date. Date strings are
+// 'YYYY-MM-DD', so lexical comparison is chronological. This is what keeps past
+// payroll frozen: changing a rate today inserts a row dated today, so earlier
+// work dates still resolve to the older rate.
+function rateOnDate(historyRows, workDate, fallbackRate) {
+  let rate = null;
+  for (const row of historyRows || []) {
+    if (String(row.effective_from) <= String(workDate)) rate = Number(row.daily_rate || 0);
+    else break;
+  }
+  return rate !== null ? rate : Number(fallbackRate || 0);
+}
+
+// Load rate history for a set of user ids into a Map<userId, rows[]>, each
+// user's rows sorted ascending by effective_from so rateOnDate can scan them.
+async function loadRateHistoryMap(db, userIds) {
+  const map = new Map();
+  const ids = (userIds || []).map(Number).filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) return map;
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db.prepare(`
+    SELECT user_id, daily_rate, effective_from
+    FROM user_rate_history
+    WHERE user_id IN (${placeholders})
+    ORDER BY user_id ASC, effective_from ASC
+  `).all(...ids);
+  rows.forEach((row) => {
+    const uid = Number(row.user_id);
+    if (!map.has(uid)) map.set(uid, []);
+    map.get(uid).push(row);
+  });
+  return map;
+}
+
 function approvedOtKey(userId, workDate) { return `${userId}|${workDate}`; }
 
 function buildApprovedOtMap(rows) {
@@ -107,7 +143,7 @@ function enumerateDates(from, to) {
   return out;
 }
 
-function calculatePayroll(users, attendance, advances, approvedOtMap, range) {
+function calculatePayroll(users, attendance, advances, approvedOtMap, range, rateHistory) {
   const byUser = new Map();
   const workedDatesByUser = new Map();
   users.forEach((user) => {
@@ -133,7 +169,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range) {
     const summary = byUser.get(userId);
     if (!summary) return;
 
-    const dailyRate = Number(summary.user.daily_rate || 0);
+    const dailyRate = rateOnDate(rateHistory && rateHistory.get(userId), record.work_date, summary.user.daily_rate);
     const workedMinutes = calculateWorkedMinutes(record);
     const otMinutes = payableOtMinutes(record, approvedOtMap);
     const holidayPercentage = Number(record.holiday_percentage || 100);
@@ -162,11 +198,12 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range) {
     byUser.forEach((summary, userId) => {
       const dayOff = Number(summary.user.day_off);
       if (!Number.isInteger(dayOff) || dayOff < 0 || dayOff > 6) return;
-      const dailyRate = Number(summary.user.daily_rate || 0);
-      if (dailyRate <= 0) return;
+      const rows = rateHistory && rateHistory.get(userId);
       const workedDates = workedDatesByUser.get(userId);
       calendar.forEach(({ date, weekday }) => {
         if (weekday !== dayOff || workedDates.has(date)) return;
+        const dailyRate = rateOnDate(rows, date, summary.user.daily_rate);
+        if (dailyRate <= 0) return;
         summary.rest_days += 1;
         summary.rest_day_pay += dailyRate;
       });
@@ -523,7 +560,8 @@ module.exports = function hrRoutes(db) {
       WHERE status = 'approved' AND user_id IN (${placeholders}) AND work_date BETWEEN ? AND ?
     `).all(...ids, from, to);
 
-    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), { from, to }) });
+    const rateHistory = await loadRateHistoryMap(db, ids);
+    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), { from, to }, rateHistory) });
   });
 
   router.get('/cash-advances', async (req, res) => {
@@ -687,6 +725,19 @@ module.exports = function hrRoutes(db) {
       WHERE id = ?
     `).run(dailyRate, dayOff, userId);
 
+    // Record the new rate as effective from the chosen day (defaults to today,
+    // Manila) so payroll BEFORE that date stays frozen at whatever rate applied
+    // then. Upsert on (user_id, effective_from) so multiple changes on the same
+    // effective day just correct that day's entry rather than stacking rows.
+    const effectiveFrom = normalizeDate(req.body?.effective_from, manilaParts().date);
+    await db.prepare(`
+      INSERT INTO user_rate_history (user_id, daily_rate, effective_from, created_by)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, effective_from) DO UPDATE SET
+        daily_rate = excluded.daily_rate,
+        created_by = excluded.created_by
+    `).run(userId, dailyRate, effectiveFrom, req.currentUser.id);
+
     const updated = await getActiveUser(db, userId);
     res.json({ user: updated });
   });
@@ -718,7 +769,8 @@ module.exports = function hrRoutes(db) {
       WHERE status = 'approved' AND user_id = ? AND work_date BETWEEN ? AND ?
     `).all(userId, from, to);
     const approvedOtMap = buildApprovedOtMap(approvedOt);
-    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, { from, to });
+    const rateHistory = await loadRateHistoryMap(db, [userId]);
+    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, { from, to }, rateHistory);
 
     res.json({
       payslip: {
@@ -730,6 +782,7 @@ module.exports = function hrRoutes(db) {
           worked_minutes: calculateWorkedMinutes(record),
           calculated_ot_minutes: calculateOtMinutes(record),
           payable_ot_minutes: payableOtMinutes(record, approvedOtMap),
+          ot_approved: approvedOtMap.has(approvedOtKey(Number(record.user_id), String(record.work_date))),
         })),
         cash_advances: advances,
         totals: payroll,

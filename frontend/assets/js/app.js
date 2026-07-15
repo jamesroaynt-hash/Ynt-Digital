@@ -3668,6 +3668,11 @@ function renderHR() {
           <input type="number" min="0" step="0.01" id="payroll-modal-rate" class="form-control" placeholder="0.00">
         </div>
         <div class="form-group">
+          <label class="form-label">Effective From</label>
+          <input type="date" id="payroll-modal-effective-from" class="form-control">
+          <div class="field-help">New rate applies from this day onward. Payroll before this date keeps the old rate.</div>
+        </div>
+        <div class="form-group">
           <label class="form-label">Day Off (paid rest day)</label>
           <select id="payroll-modal-day-off" class="form-control">
             <option value="-1">None</option>
@@ -10019,8 +10024,12 @@ function renderMyWorkHours(payslip) {
             const worked = Number(r.worked_minutes || 0);
             const ot = Number(r.calculated_ot_minutes || r.ot_minutes || 0);
             const complete = r.time_in && r.time_out;
+            const otApproved = Boolean(r.ot_approved);
+            const otApprovedIcon = otApproved
+              ? ' <span title="Overtime approved for this date" style="color:var(--success,#16a34a);font-weight:700;">✓</span>'
+              : '';
             return `<tr>
-              <td><strong>${escapeHtml(r.work_date || '')}</strong></td>
+              <td><strong>${escapeHtml(r.work_date || '')}</strong>${otApprovedIcon}</td>
               <td class="font-mono text-xs">${r.time_in ? escapeHtml(formatClock12(r.time_in)) : '—'}</td>
               <td class="font-mono text-xs">${r.break_out ? escapeHtml(formatClock12(r.break_out)) : '—'}</td>
               <td class="font-mono text-xs">${r.break_in ? escapeHtml(formatClock12(r.break_in)) : '—'}</td>
@@ -11165,6 +11174,8 @@ function openPayrollEditModal(userId) {
   document.getElementById('payroll-modal-title').textContent = user.full_name || user.username || 'User';
   document.getElementById('payroll-modal-role').textContent = formatRoleLabel(user.role);
   document.getElementById('payroll-modal-rate').value = Number(user.daily_rate || 0);
+  const effectiveEl = document.getElementById('payroll-modal-effective-from');
+  if (effectiveEl) effectiveEl.value = normalizeDateString(new Date());
   const dayOffSelect = document.getElementById('payroll-modal-day-off');
   if (dayOffSelect) dayOffSelect.value = String(Number.isInteger(Number(user.day_off)) ? Number(user.day_off) : -1);
   openModal('payroll-edit-modal');
@@ -11174,11 +11185,12 @@ async function savePayrollRate() {
   const userId = Number(document.getElementById('payroll-modal-user-id')?.value || 0);
   const dailyRate = Number(document.getElementById('payroll-modal-rate')?.value || 0);
   const dayOff = Number(document.getElementById('payroll-modal-day-off')?.value ?? -1);
+  const effectiveFrom = document.getElementById('payroll-modal-effective-from')?.value || '';
   if (!userId) return;
   try {
     await authorizedJsonRequest(`/hr/users/${userId}/rate`, {
       method: 'PATCH',
-      body: JSON.stringify({ daily_rate: dailyRate, day_off: dayOff }),
+      body: JSON.stringify({ daily_rate: dailyRate, day_off: dayOff, effective_from: effectiveFrom }),
     });
     closeModal('payroll-edit-modal');
     showToast('success', 'Rate saved', 'Daily rate was updated.');
