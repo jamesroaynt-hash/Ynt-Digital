@@ -1923,11 +1923,30 @@ function odzRoutes(db) {
   const r = express.Router();
   const ALLOWED_STATUS = new Set(['ODZ', 'Settlement']);
 
+  // Only Admin / RMO / Logistics may add, edit, import or delete areas. Everyone
+  // else has read-only lookup access (the GET route stays open).
+  const MANAGE_ROLES = new Set(['administrator', 'admin', 'rmo', 'rmo tl', 'logistics']);
+  const requireManage = (req, res, next) => {
+    const role = String(req.user?.role || '').trim().toLowerCase();
+    if (!MANAGE_ROLES.has(role)) return res.status(403).json({ error: 'Not allowed' });
+    next();
+  };
+
   const normStatus = (value) => {
     const s = String(value || '').trim();
     if (/^settle/i.test(s)) return 'Settlement';
     if (/^odz/i.test(s) || /out.*delivery/i.test(s)) return 'ODZ';
     return ALLOWED_STATUS.has(s) ? s : 'ODZ';
+  };
+
+  // Look up an existing area with the same Province / City / Brgy (case-
+  // insensitive) so we never store a duplicate row. Optionally exclude a row id
+  // (used when editing an existing entry).
+  const findDuplicate = async (province, city, brgy, excludeId = null) => {
+    let sql = 'SELECT id FROM odz_areas WHERE LOWER(province)=LOWER(?) AND LOWER(city)=LOWER(?) AND LOWER(brgy)=LOWER(?)';
+    const params = [province, city, brgy];
+    if (excludeId != null) { sql += ' AND id <> ?'; params.push(excludeId); }
+    return db.prepare(sql).get(...params);
   };
 
   r.get('/', async (req, res) => {
@@ -1948,41 +1967,61 @@ function odzRoutes(db) {
     res.json({ data: await db.prepare(sql).all(...params), total });
   });
 
-  r.post('/', async (req, res) => {
+  r.post('/', requireManage, async (req, res) => {
     const { province, city, brgy, status } = req.body || {};
     const p = String(province || '').trim();
     const c = String(city || '').trim();
     const b = String(brgy || '').trim();
-    if (!p && !c && !b) return res.status(400).json({ error: 'Province, City or Brgy is required' });
+    if (!c) return res.status(400).json({ error: 'City is required' });
+    const dup = await findDuplicate(p, c, b);
+    if (dup) return res.status(409).json({ error: 'This area already exists', id: dup.id });
     const result = await db.prepare(
       'INSERT INTO odz_areas (province, city, brgy, status, created_by) VALUES (?,?,?,?,?)',
     ).run(p, c, b, normStatus(status), req.user?.id || null);
     res.status(201).json({ id: Number(result.lastInsertRowid) || null });
   });
 
-  r.patch('/:id', async (req, res) => {
+  r.patch('/:id', requireManage, async (req, res) => {
     const existing = await db.prepare('SELECT * FROM odz_areas WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Area not found' });
     const province = req.body?.province === undefined ? existing.province : String(req.body.province || '').trim();
     const city = req.body?.city === undefined ? existing.city : String(req.body.city || '').trim();
     const brgy = req.body?.brgy === undefined ? existing.brgy : String(req.body.brgy || '').trim();
     const status = req.body?.status === undefined ? existing.status : normStatus(req.body.status);
+    if (!city) return res.status(400).json({ error: 'City is required' });
+    const dup = await findDuplicate(province, city, brgy, existing.id);
+    if (dup) return res.status(409).json({ error: 'This area already exists' });
     await db.prepare(`UPDATE odz_areas SET province=?, city=?, brgy=?, status=?, updated_at=datetime('now') WHERE id=?`)
       .run(province, city, brgy, status, req.params.id);
     res.json({ success: true });
   });
 
-  r.delete('/:id', async (req, res) => {
+  // Bulk delete: remove several areas selected via the row checkboxes at once.
+  r.post('/bulk-delete', requireManage, async (req, res) => {
+    const ids = Array.isArray(req.body?.ids)
+      ? [...new Set(req.body.ids.map((v) => parseInt(v, 10)).filter(Number.isInteger))]
+      : [];
+    if (!ids.length) return res.status(400).json({ error: 'No areas selected' });
+    const placeholders = ids.map(() => '?').join(',');
+    await db.prepare(`DELETE FROM odz_areas WHERE id IN (${placeholders})`).run(...ids);
+    res.json({ success: true, deleted: ids.length });
+  });
+
+  r.delete('/:id', requireManage, async (req, res) => {
     await db.prepare('DELETE FROM odz_areas WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   });
 
   // Bulk import from an uploaded Excel/CSV file (parsed client-side into rows).
-  r.post('/import', async (req, res) => {
+  r.post('/import', requireManage, async (req, res) => {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: 'No rows to import' });
     let imported = 0;
+    let skipped = 0;
     const failed_rows = [];
+    // Track locations already handled in this file so duplicates within the same
+    // upload are skipped too, not just those already in the table.
+    const seen = new Set();
     for (let index = 0; index < rows.length; index += 1) {
       const raw = rows[index] || {};
       try {
@@ -1990,7 +2029,10 @@ function odzRoutes(db) {
         const city = String(raw.city ?? raw.City ?? '').trim();
         const brgy = String(raw.brgy ?? raw.Brgy ?? raw.barangay ?? raw.Barangay ?? '').trim();
         const status = normStatus(raw.status ?? raw.Status);
-        if (!province && !city && !brgy) throw new Error('Empty row');
+        if (!city) { skipped += 1; continue; }
+        const key = `${province}|${city}|${brgy}`.toLowerCase();
+        if (seen.has(key) || (await findDuplicate(province, city, brgy))) { skipped += 1; continue; }
+        seen.add(key);
         await db.prepare('INSERT INTO odz_areas (province, city, brgy, status, created_by) VALUES (?,?,?,?,?)')
           .run(province, city, brgy, status, req.user?.id || null);
         imported += 1;
@@ -1998,7 +2040,7 @@ function odzRoutes(db) {
         failed_rows.push({ row_number: index + 2, error: error.message });
       }
     }
-    res.status(201).json({ imported, failed_rows });
+    res.status(201).json({ imported, skipped, failed_rows });
   });
 
   return r;

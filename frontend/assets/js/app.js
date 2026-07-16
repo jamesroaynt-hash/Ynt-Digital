@@ -6922,7 +6922,7 @@ function renderCSR() {
 // Reference lookup of delivery areas flagged as ODZ (out of delivery zone) or
 // a Settlement pick-up area. Server-backed (odz_areas) with search-driven,
 // paginated listing so large area lists stay responsive.
-let odzState = { data: [], total: 0, page: 1, perPage: 25, search: '', status: '' };
+let odzState = { data: [], total: 0, page: 1, perPage: 25, search: '', status: '', selected: new Set() };
 let odzSearchTimer = null;
 
 function odzStatusBadge(status) {
@@ -6932,10 +6932,15 @@ function odzStatusBadge(status) {
 }
 
 function renderOdzFinder() {
+  const canManage = canManageOdz();
   return `
   <div class="page-header">
     <div class="page-title"><h1>ODZ Finder</h1><p>Look up whether an area is an ODZ (out of delivery zone) or a Settlement pick-up area.</p></div>
-    <div class="page-actions">
+    ${canManage ? `<div class="page-actions">
+      <button class="btn btn-danger" id="odz-bulk-delete" style="display:none" onclick="deleteSelectedOdz()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M6 4V2.5h4V4M4 4l.7 9h6.6L12 4"/></svg>
+        Delete Selected<span id="odz-bulk-count"></span>
+      </button>
       <button class="btn btn-secondary" onclick="startOdzImport()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
         Import Excel
@@ -6944,7 +6949,7 @@ function renderOdzFinder() {
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
         Add Entry
       </button>
-    </div>
+    </div>` : ''}
   </div>
 
   <div class="table-container">
@@ -6961,7 +6966,7 @@ function renderOdzFinder() {
     </div>
     <div style="overflow-x:auto;">
       <table id="odz-table">
-        <thead><tr><th>Province</th><th>City</th><th>Brgy</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr>${canManage ? '<th style="width:36px;text-align:center"><input type="checkbox" id="odz-select-all" onclick="toggleOdzSelectAll(this.checked)"></th>' : ''}<th>Province</th><th>City</th><th>Brgy</th><th>Status</th>${canManage ? '<th>Actions</th>' : ''}</tr></thead>
         <tbody id="odz-tbody"></tbody>
       </table>
     </div>
@@ -6975,7 +6980,7 @@ function renderOdzFinder() {
         <input type="hidden" id="odz-edit-id">
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Province</label><input type="text" class="form-control" id="odz-province" placeholder="e.g. Cavite"></div>
-          <div class="form-group"><label class="form-label">City</label><input type="text" class="form-control" id="odz-city" placeholder="e.g. Bacoor"></div>
+          <div class="form-group"><label class="form-label">City <span class="required">*</span></label><input type="text" class="form-control" id="odz-city" placeholder="e.g. Bacoor"></div>
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Brgy</label><input type="text" class="form-control" id="odz-brgy" placeholder="e.g. Molino IV"></div>
@@ -7017,21 +7022,26 @@ async function loadOdzAreas() {
 function renderOdzTable() {
   const tbody = document.getElementById('odz-tbody');
   if (!tbody) return;
+  const canManage = canManageOdz();
+  const colCount = canManage ? 6 : 4;
   if (!odzState.data.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">No areas found. Add an entry or import from Excel.</td></tr>';
+    const hint = canManage ? ' Add an entry or import from Excel.' : '';
+    tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;padding:32px;color:var(--text-muted)">No areas found.${hint}</td></tr>`;
   } else {
     tbody.innerHTML = odzState.data.map((row) => `
       <tr>
+        ${canManage ? `<td style="text-align:center"><input type="checkbox" class="odz-row-check" ${odzState.selected.has(row.id) ? 'checked' : ''} onchange="toggleOdzRow(${row.id}, this.checked)"></td>` : ''}
         <td>${escapeHtml(row.province || '—')}</td>
         <td>${escapeHtml(row.city || '—')}</td>
         <td>${escapeHtml(row.brgy || '—')}</td>
         <td>${odzStatusBadge(row.status)}</td>
-        <td>
+        ${canManage ? `<td>
           <button class="btn btn-secondary btn-sm" onclick="openOdzModal(${row.id})">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deleteOdzEntry(${row.id})">Delete</button>
-        </td>
+        </td>` : ''}
       </tr>`).join('');
   }
+  if (canManage) updateOdzBulkBar();
 
   const pagination = document.getElementById('odz-pagination');
   if (pagination) {
@@ -7090,8 +7100,8 @@ async function saveOdzEntry() {
     brgy: document.getElementById('odz-brgy').value.trim(),
     status: document.getElementById('odz-status').value,
   };
-  if (!payload.province && !payload.city && !payload.brgy) {
-    showToast('warning', 'Missing area', 'Enter at least a Province, City or Brgy.');
+  if (!payload.city) {
+    showToast('warning', 'City required', 'Enter a City for this area.');
     return;
   }
   try {
@@ -7112,11 +7122,59 @@ async function deleteOdzEntry(id) {
   try {
     await authorizedJsonRequest(`/odz/${id}`, { method: 'DELETE' });
     showToast('success', 'Deleted', 'Area removed.');
+    odzState.selected.delete(id);
     // Step back a page if the last row on the current page was removed.
     if (odzState.data.length === 1 && odzState.page > 1) odzState.page -= 1;
     await loadOdzAreas();
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete the area.');
+  }
+}
+
+// ── Multi-select for bulk delete ──
+function toggleOdzRow(id, checked) {
+  if (checked) odzState.selected.add(id); else odzState.selected.delete(id);
+  updateOdzBulkBar();
+}
+
+function toggleOdzSelectAll(checked) {
+  odzState.data.forEach((row) => {
+    if (checked) odzState.selected.add(row.id); else odzState.selected.delete(row.id);
+  });
+  document.querySelectorAll('.odz-row-check').forEach((cb) => { cb.checked = checked; });
+  updateOdzBulkBar();
+}
+
+// Sync the "Delete Selected" button and the header select-all checkbox with the
+// current selection.
+function updateOdzBulkBar() {
+  const count = odzState.selected.size;
+  const btn = document.getElementById('odz-bulk-delete');
+  if (btn) btn.style.display = count ? '' : 'none';
+  const countEl = document.getElementById('odz-bulk-count');
+  if (countEl) countEl.textContent = count ? ` (${count})` : '';
+  const all = document.getElementById('odz-select-all');
+  if (all) {
+    const visible = odzState.data.length;
+    const selectedVisible = odzState.data.filter((row) => odzState.selected.has(row.id)).length;
+    all.checked = visible > 0 && selectedVisible === visible;
+    all.indeterminate = selectedVisible > 0 && selectedVisible < visible;
+  }
+}
+
+async function deleteSelectedOdz() {
+  const ids = [...odzState.selected];
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} selected area${ids.length === 1 ? '' : 's'}?`)) return;
+  try {
+    await authorizedJsonRequest('/odz/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+    showToast('success', 'Deleted', `${ids.length} area${ids.length === 1 ? '' : 's'} removed.`);
+    odzState.selected.clear();
+    const totalPages = Math.max(1, Math.ceil((odzState.total - ids.length) / odzState.perPage));
+    if (odzState.page > totalPages) odzState.page = totalPages;
+    await loadOdzAreas();
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not delete the selected areas.');
   }
 }
 
@@ -7153,7 +7211,9 @@ async function importOdzFile(file) {
     }
     const result = await authorizedJsonRequest('/odz/import', { method: 'POST', body: JSON.stringify({ rows }) });
     const failed = Array.isArray(result?.failed_rows) ? result.failed_rows.length : 0;
-    showToast('success', 'Import complete', `Imported ${result?.imported || 0}${failed ? `, skipped ${failed}` : ''}.`);
+    // Backend skips rows with no city or that duplicate an existing area.
+    const skipped = (Number(result?.skipped) || 0) + failed;
+    showToast('success', 'Import complete', `Imported ${result?.imported || 0}${skipped ? `, skipped ${skipped}` : ''}.`);
     odzState.page = 1;
     await loadOdzAreas();
   } catch (error) {
@@ -9023,6 +9083,13 @@ function canManageHR() {
 
 function isLogisticsUser() {
   return normalizeText(normalizeRoleName(App.user?.role)) === 'logistics';
+}
+
+// Who may add / edit / import / delete ODZ areas. Everyone else gets read-only
+// lookup.
+function canManageOdz() {
+  const role = normalizeText(normalizeRoleName(App.user?.role));
+  return isAdminUser() || isLogisticsUser() || role === 'rmo' || role === 'rmo tl';
 }
 
 function canManageInventoryStock() {
