@@ -6928,6 +6928,7 @@ let odzSearchTimer = null;
 function odzStatusBadge(status) {
   const s = String(status || '').trim();
   if (/^settle/i.test(s)) return '<span class="badge badge-success">Settlement</span>';
+  if (/^pick/i.test(s)) return '<span class="badge badge-warning">Pick up</span>';
   return '<span class="badge badge-danger">ODZ</span>';
 }
 
@@ -6962,6 +6963,7 @@ function renderOdzFinder() {
         <button class="filter-pill ${odzState.status === '' ? 'active' : ''}" onclick="setOdzStatusFilter('', this)">All</button>
         <button class="filter-pill ${odzState.status === 'ODZ' ? 'active' : ''}" onclick="setOdzStatusFilter('ODZ', this)">ODZ</button>
         <button class="filter-pill ${odzState.status === 'Settlement' ? 'active' : ''}" onclick="setOdzStatusFilter('Settlement', this)">Settlement</button>
+        <button class="filter-pill ${odzState.status === 'Pick up' ? 'active' : ''}" onclick="setOdzStatusFilter('Pick up', this)">Pick up</button>
       </div>
     </div>
     <div style="overflow-x:auto;">
@@ -6988,10 +6990,11 @@ function renderOdzFinder() {
             <select class="form-control" id="odz-status">
               <option value="ODZ">ODZ</option>
               <option value="Settlement">Settlement</option>
+              <option value="Pick up">Pick up</option>
             </select>
           </div>
         </div>
-        <div class="field-help">ODZ = out of delivery zone. Settlement = pick-up area.</div>
+        <div class="field-help">ODZ = out of delivery zone. Settlement / Pick up = pick-up area.</div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeModal('odz-entry-modal')">Cancel</button>
@@ -7088,7 +7091,8 @@ function openOdzModal(id) {
   document.getElementById('odz-province').value = row?.province || '';
   document.getElementById('odz-city').value = row?.city || '';
   document.getElementById('odz-brgy').value = row?.brgy || '';
-  document.getElementById('odz-status').value = /^settle/i.test(row?.status || '') ? 'Settlement' : 'ODZ';
+  document.getElementById('odz-status').value = /^settle/i.test(row?.status || '') ? 'Settlement'
+    : /^pick/i.test(row?.status || '') ? 'Pick up' : 'ODZ';
   openModal('odz-entry-modal');
 }
 

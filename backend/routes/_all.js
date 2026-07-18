@@ -1921,7 +1921,7 @@ function csrRoutes(db) {
 // City / Barangay.
 function odzRoutes(db) {
   const r = express.Router();
-  const ALLOWED_STATUS = new Set(['ODZ', 'Settlement']);
+  const ALLOWED_STATUS = new Set(['ODZ', 'Settlement', 'Pick up']);
 
   // Only Admin / RMO / Logistics may add, edit, import or delete areas. Everyone
   // else has read-only lookup access (the GET route stays open).
@@ -1935,6 +1935,7 @@ function odzRoutes(db) {
   const normStatus = (value) => {
     const s = String(value || '').trim();
     if (/^settle/i.test(s)) return 'Settlement';
+    if (/^pick/i.test(s)) return 'Pick up';
     if (/^odz/i.test(s) || /out.*delivery/i.test(s)) return 'ODZ';
     return ALLOWED_STATUS.has(s) ? s : 'ODZ';
   };
