@@ -10022,6 +10022,65 @@ async function loadHRPendingOT() {
   }
 }
 
+// Which OT sub-tab is active in the HR Overtime card ('pending' | 'history').
+let hrOtSubtab = 'pending';
+
+function switchOTSubtab(which) {
+  hrOtSubtab = which === 'history' ? 'history' : 'pending';
+  const pending = document.getElementById('hr-ot-request-list');
+  const history = document.getElementById('hr-ot-history-list');
+  const pBtn = document.getElementById('ot-subtab-pending-btn');
+  const hBtn = document.getElementById('ot-subtab-history-btn');
+  const showHistory = hrOtSubtab === 'history';
+  if (pending) pending.style.display = showHistory ? 'none' : '';
+  if (history) history.style.display = showHistory ? '' : 'none';
+  if (pBtn) pBtn.className = `btn btn-sm ${showHistory ? 'btn-secondary' : 'btn-primary'}`;
+  if (hBtn) hBtn.className = `btn btn-sm ${showHistory ? 'btn-primary' : 'btn-secondary'}`;
+  if (showHistory) loadHROTHistory(); else loadHRPendingOT();
+}
+
+// Refresh whichever OT sub-tab is currently showing.
+function refreshOTPanel() {
+  if (hrOtSubtab === 'history') loadHROTHistory(); else loadHRPendingOT();
+}
+
+// All OT requests across users (approved/rejected/pending), newest first, so HR
+// has a record of past OT keyed to the work date it was requested for.
+async function loadHROTHistory() {
+  const wrap = document.getElementById('hr-ot-history-list');
+  if (!wrap) return;
+  try {
+    const result = await authorizedJsonRequest('/hr/ot-requests');
+    const rows = Array.isArray(result?.data) ? result.data : [];
+    if (!rows.length) {
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:14px 0;">No OT requests yet.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="data-table" style="font-size:13px;">
+        <thead><tr><th>User</th><th>Work Date</th><th>Hours</th><th>Status</th><th>Reviewer</th><th>Reviewed</th><th>Reason</th></tr></thead>
+        <tbody>
+          ${rows.map((r) => {
+            const cls = r.status === 'approved' ? 'badge-success' : r.status === 'rejected' ? 'badge-danger' : 'badge-warning';
+            const hours = (Number(r.requested_minutes || 0) / 60).toFixed(2);
+            const reviewed = r.reviewed_at ? escapeHtml(String(r.reviewed_at).slice(0, 10)) : '—';
+            return `<tr>
+              <td><strong>${escapeHtml(r.user_name || '')}</strong></td>
+              <td>${escapeHtml(r.work_date || '')}</td>
+              <td>${hours}h</td>
+              <td><span class="badge ${cls}">${escapeHtml(r.status)}</span></td>
+              <td>${escapeHtml(r.reviewer_name || '—')}</td>
+              <td>${reviewed}</td>
+              <td style="max-width:220px;white-space:normal;">${escapeHtml(r.reason || '-')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    wrap.innerHTML = `<div style="color:var(--text-muted);">Failed: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
 async function reviewOTRequest(id, status) {
   try {
     await authorizedJsonRequest(`/hr/ot-requests/${id}`, {
@@ -10029,7 +10088,7 @@ async function reviewOTRequest(id, status) {
       body: JSON.stringify({ status }),
     });
     showToast('success', `Request ${status}`, `#${id}`);
-    loadHRPendingOT();
+    refreshOTPanel();
     if (App.currentPage === 'hr') loadHRDashboard();
   } catch (err) {
     showToast('error', 'Update failed', err.message);
@@ -10835,11 +10894,20 @@ function renderAttendanceLog() {
   <div id="al-tab-ot" class="tab-content">
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Overtime Approvals</div><div class="card-subtitle">Approved hours count toward pay. Pending and rejected do not.</div></div>
-        <button class="btn btn-ghost btn-sm" onclick="loadHRPendingOT()">Refresh</button>
+        <div><div class="card-title">Overtime</div><div class="card-subtitle">Approved hours count toward pay on the OT's work date. Pending and rejected do not.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="refreshOTPanel()">Refresh</button>
       </div>
-      <div class="card-body" id="hr-ot-request-list">
-        <div style="color:var(--text-muted);font-size:13px;">Loading OT requests...</div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn btn-sm btn-primary" id="ot-subtab-pending-btn" onclick="switchOTSubtab('pending')">Pending Approvals</button>
+          <button class="btn btn-sm btn-secondary" id="ot-subtab-history-btn" onclick="switchOTSubtab('history')">Request History</button>
+        </div>
+        <div id="hr-ot-request-list">
+          <div style="color:var(--text-muted);font-size:13px;">Loading OT requests...</div>
+        </div>
+        <div id="hr-ot-history-list" style="display:none;">
+          <div style="color:var(--text-muted);font-size:13px;">Loading OT history...</div>
+        </div>
       </div>
     </div>
   </div>
