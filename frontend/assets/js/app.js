@@ -11261,7 +11261,9 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
         <tbody>
           ${hrState.attendance.map((record) => {
             const workedMins = Number(record.worked_minutes || 0);
-            const otMins = Number(record.calculated_ot_minutes || record.ot_minutes || 0);
+            const otApproved = !!record.ot_approved;
+            const payableOt = Number(record.payable_ot_minutes || 0);
+            const earnedOt = Number(record.calculated_ot_minutes || record.ot_minutes || 0);
             const qualifies = workedMins >= 240;
             const holidayPct = Number(record.holiday_percentage || 100);
             const dailyRate = Number(record.daily_rate || 0);
@@ -11305,7 +11307,11 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
               <td>${timeTxt(record.break_in)}</td>
               <td>${timeTxt(record.time_out)}</td>
               <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-              <td>${otMins > 0 ? `<span class="badge badge-warning">${formatMinutes(otMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+              <td>${otApproved && payableOt > 0
+                ? `<span class="badge badge-success" title="Approved OT (paid)">${formatMinutes(payableOt)}</span>`
+                : (earnedOt > 0
+                  ? `<span style="color:var(--text-muted);font-size:11px;" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
+                  : '<span style="color:var(--text-muted)">—</span>')}</td>
               <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong>${(record.rate_override !== null && record.rate_override !== undefined) ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day">custom</span>' : ''}</td>
             </tr>`;
           }).join('')}

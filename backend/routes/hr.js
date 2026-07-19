@@ -407,6 +407,15 @@ module.exports = function hrRoutes(db) {
     // (u.daily_rate from the join is only the current-rate fallback.)
     const rateHistory = await loadRateHistoryMap(db, ids);
 
+    // Approved OT for these users/dates so the table can show the OT that will
+    // actually be PAID (approved + earned), not just raw hours clocked past 8h.
+    const approvedOt = await db.prepare(`
+      SELECT user_id, work_date, requested_minutes
+      FROM overtime_requests
+      WHERE status = 'approved' AND user_id IN (${placeholders}) AND work_date BETWEEN ? AND ?
+    `).all(...ids, from, to);
+    const approvedOtMap = buildApprovedOtMap(approvedOt);
+
     res.json({
       records: records.map((record) => ({
         ...record,
@@ -414,6 +423,8 @@ module.exports = function hrRoutes(db) {
         daily_rate: rateForRecord(record, rateHistory.get(Number(record.user_id)), record.daily_rate),
         worked_minutes: calculateWorkedMinutes(record),
         calculated_ot_minutes: calculateOtMinutes(record),
+        payable_ot_minutes: payableOtMinutes(record, approvedOtMap),
+        ot_approved: approvedOtMap.has(approvedOtKey(Number(record.user_id), String(record.work_date))),
       })),
     });
   });
