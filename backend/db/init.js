@@ -332,6 +332,9 @@ function runMigrations(db) {
   ensureColumn(db, 'expenses', 'classification', "TEXT NOT NULL DEFAULT 'OPEX'");
   ensureColumn(db, 'attendance_records', 'break2_out', 'TEXT');
   ensureColumn(db, 'attendance_records', 'break2_in', 'TEXT');
+  // Per-day rate override: NULL = use the effective-dated rate; a number overrides
+  // the daily rate for THIS date only (one-off correction / special-rate day).
+  ensureColumn(db, 'attendance_records', 'rate_override', 'REAL');
   ensureColumn(db, 'cash_advances', 'paid', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'cash_advances', 'paid_at', 'TEXT');
   db.exec(`
@@ -763,6 +766,9 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'expenses', 'classification', "TEXT NOT NULL DEFAULT 'OPEX'");
   await ensureColumnAsync(db, 'attendance_records', 'break2_out', 'TEXT');
   await ensureColumnAsync(db, 'attendance_records', 'break2_in', 'TEXT');
+  // Per-day rate override: NULL = use the effective-dated rate; a number overrides
+  // the daily rate for THIS date only (one-off correction / special-rate day).
+  await ensureColumnAsync(db, 'attendance_records', 'rate_override', 'REAL');
   await ensureColumnAsync(db, 'cash_advances', 'paid', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'cash_advances', 'paid_at', 'TEXT');
   await db.exec(`

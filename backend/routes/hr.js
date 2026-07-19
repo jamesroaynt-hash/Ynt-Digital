@@ -104,6 +104,17 @@ async function loadRateHistoryMap(db, userIds) {
   return map;
 }
 
+// Resolve the daily rate for a specific attendance record: a per-day override
+// (rate_override) wins over the effective-dated history, which wins over the
+// user's current daily_rate. Keeps the Work Hours table and payroll in agreement.
+function rateForRecord(record, historyRows, fallbackRate) {
+  const override = record && record.rate_override;
+  if (override !== null && override !== undefined && override !== '' && Number.isFinite(Number(override))) {
+    return Number(override);
+  }
+  return rateOnDate(historyRows, record && record.work_date, fallbackRate);
+}
+
 function approvedOtKey(userId, workDate) { return `${userId}|${workDate}`; }
 
 function buildApprovedOtMap(rows) {
@@ -169,7 +180,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
     const summary = byUser.get(userId);
     if (!summary) return;
 
-    const dailyRate = rateOnDate(rateHistory && rateHistory.get(userId), record.work_date, summary.user.daily_rate);
+    const dailyRate = rateForRecord(record, rateHistory && rateHistory.get(userId), summary.user.daily_rate);
     const workedMinutes = calculateWorkedMinutes(record);
     const otMinutes = payableOtMinutes(record, approvedOtMap);
     const holidayPercentage = Number(record.holiday_percentage || 100);
@@ -391,9 +402,16 @@ module.exports = function hrRoutes(db) {
       ORDER BY a.work_date DESC, u.full_name COLLATE NOCASE ASC
     `).all(...ids, from, to);
 
+    // Resolve each row's daily_rate the same way payroll does: per-day override
+    // first, then the effective-dated history, then the user's current rate.
+    // (u.daily_rate from the join is only the current-rate fallback.)
+    const rateHistory = await loadRateHistoryMap(db, ids);
+
     res.json({
       records: records.map((record) => ({
         ...record,
+        rate_override: record.rate_override == null ? null : Number(record.rate_override),
+        daily_rate: rateForRecord(record, rateHistory.get(Number(record.user_id)), record.daily_rate),
         worked_minutes: calculateWorkedMinutes(record),
         calculated_ot_minutes: calculateOtMinutes(record),
       })),
@@ -492,6 +510,16 @@ module.exports = function hrRoutes(db) {
     const holidayPercentage = Math.max(100, Number(req.body?.holiday_percentage || 100));
     const holidayType = String(req.body?.holiday_type || 'Regular day').trim() || 'Regular day';
 
+    // Per-day rate override: blank/omitted clears it (revert to effective-dated
+    // rate); a non-negative number overrides the rate for this date only.
+    let rateOverride = null;
+    const rawOverride = req.body?.rate_override;
+    if (rawOverride !== undefined && rawOverride !== null && String(rawOverride).trim() !== '') {
+      const n = Number(rawOverride);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: 'Daily rate override must be a non-negative number' });
+      rateOverride = n;
+    }
+
     await db.prepare(`
       UPDATE attendance_records
       SET time_in = ?,
@@ -505,6 +533,7 @@ module.exports = function hrRoutes(db) {
           holiday_type = ?,
           holiday_percentage = ?,
           notes = ?,
+          rate_override = ?,
           updated_at = datetime('now')
       WHERE id = ?
     `).run(
@@ -519,6 +548,7 @@ module.exports = function hrRoutes(db) {
       holidayType,
       holidayPercentage,
       String(req.body?.notes || '').trim() || null,
+      rateOverride,
       id,
     );
 

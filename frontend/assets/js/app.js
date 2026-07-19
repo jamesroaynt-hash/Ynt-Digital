@@ -10896,6 +10896,11 @@ function renderAttendanceLog() {
           </div>
         </div>
         <div class="form-group">
+          <label class="form-label">Daily Salary — this day only (PHP)</label>
+          <input type="number" min="0" step="0.01" id="att-modal-rate-override" class="form-control" placeholder="Standard rate">
+          <div class="field-help">Overrides the pay for THIS date only. Leave blank to use the standard effective-dated rate.</div>
+        </div>
+        <div class="form-group">
           <label class="form-label">Notes</label>
           <textarea id="att-modal-notes" class="form-control" rows="2" placeholder="Optional note"></textarea>
         </div>
@@ -11233,7 +11238,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
               <td>${timeTxt(record.time_out)}</td>
               <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td>${otMins > 0 ? `<span class="badge badge-warning">${formatMinutes(otMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-              <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong></td>
+              <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong>${(record.rate_override !== null && record.rate_override !== undefined) ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day">custom</span>' : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -11325,6 +11330,8 @@ function openAttendanceEditModal(recordId) {
   if ([...pctSelect.options].some((o) => o.value === pct)) pctSelect.value = pct;
   else pctSelect.value = '100';
   document.getElementById('att-modal-notes').value = record.notes || '';
+  const overrideEl = document.getElementById('att-modal-rate-override');
+  if (overrideEl) overrideEl.value = (record.rate_override === null || record.rate_override === undefined) ? '' : record.rate_override;
   openModal('edit-attendance-modal');
 }
 
@@ -11349,6 +11356,7 @@ async function saveAttendanceFromModal() {
         holiday_type: holidayPercentage > 100 ? (record.holiday_type || 'Holiday') : 'Regular day',
         holiday_percentage: holidayPercentage,
         notes: document.getElementById('att-modal-notes')?.value || '',
+        rate_override: document.getElementById('att-modal-rate-override')?.value ?? '',
       }),
     });
     closeModal('edit-attendance-modal');
