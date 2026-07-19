@@ -717,15 +717,7 @@ module.exports = function hrRoutes(db) {
     const user = await getActiveUser(db, userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    await db.prepare(`
-      UPDATE users
-      SET daily_rate = ?,
-          day_off = ?,
-          updated_at = datetime('now')
-      WHERE id = ?
-    `).run(dailyRate, dayOff, userId);
-
-    // Record the new rate as effective from the chosen day (defaults to today,
+    // Record the rate as effective from the chosen day (defaults to today,
     // Manila) so payroll BEFORE that date stays frozen at whatever rate applied
     // then. Upsert on (user_id, effective_from) so multiple changes on the same
     // effective day just correct that day's entry rather than stacking rows.
@@ -738,8 +730,47 @@ module.exports = function hrRoutes(db) {
         created_by = excluded.created_by
     `).run(userId, dailyRate, effectiveFrom, req.currentUser.id);
 
+    // Derive users.daily_rate ("current" rate) from the FULL history as of today
+    // rather than blindly storing the submitted amount. This keeps daily_rate in
+    // sync with the history payroll actually reads, and removes two footguns:
+    //   1. Recording an OLD rate at an earlier date (to freeze past payroll) no
+    //      longer overwrites the present rate — correcting history is one safe
+    //      step, not a rate-down-then-rate-back-up dance.
+    //   2. A future-dated raise doesn't inflate today's pay before it takes
+    //      effect; today still resolves to the rate currently in force.
+    const today = manilaParts().date;
+    const historyRows = await db.prepare(`
+      SELECT daily_rate, effective_from
+      FROM user_rate_history
+      WHERE user_id = ?
+      ORDER BY effective_from ASC
+    `).all(userId);
+    const currentRate = rateOnDate(historyRows, today, dailyRate);
+
+    await db.prepare(`
+      UPDATE users
+      SET daily_rate = ?,
+          day_off = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(currentRate, dayOff, userId);
+
     const updated = await getActiveUser(db, userId);
     res.json({ user: updated });
+  });
+
+  // Recorded rate history for a user, oldest first, so the payroll edit modal can
+  // show what rate applies from when (and make a wrong/backfilled entry visible).
+  router.get('/users/:id/rate-history', requireHrManager, async (req, res) => {
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user id' });
+    const history = await db.prepare(`
+      SELECT daily_rate, effective_from
+      FROM user_rate_history
+      WHERE user_id = ?
+      ORDER BY effective_from ASC
+    `).all(userId);
+    res.json({ history });
   });
 
   router.get('/payslip', async (req, res) => {

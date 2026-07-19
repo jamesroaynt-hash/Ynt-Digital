@@ -3670,7 +3670,11 @@ function renderHR() {
         <div class="form-group">
           <label class="form-label">Effective From</label>
           <input type="date" id="payroll-modal-effective-from" class="form-control">
-          <div class="field-help">New rate applies from this day onward. Payroll before this date keeps the old rate.</div>
+          <div class="field-help">New rate applies from this day onward. Payroll before this date keeps the old rate. To record a PAST rate, enter the old amount with an earlier date — it won't change the current rate.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Recorded Rate History</label>
+          <div id="payroll-modal-rate-history" class="field-help" style="line-height:1.6;">—</div>
         </div>
         <div class="form-group">
           <label class="form-label">Day Off (paid rest day)</label>
@@ -11237,7 +11241,26 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
     </div>`;
 }
 
-function openPayrollEditModal(userId) {
+// Render a user's recorded rate history (oldest first) into the payroll modal,
+// marking the entry currently in force so a wrong/backfilled row is obvious.
+function renderRateHistoryList(rows) {
+  const el = document.getElementById('payroll-modal-rate-history');
+  if (!el) return;
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  if (!list.length) { el.textContent = 'No recorded changes yet.'; return; }
+  const today = normalizeDateString(new Date());
+  let currentIdx = -1;
+  list.forEach((row, i) => { if (String(row.effective_from) <= today) currentIdx = i; });
+  el.innerHTML = list.map((row, i) => {
+    const isCurrent = i === currentIdx;
+    const label = String(row.effective_from) === '1970-01-01' ? 'From start' : escapeHtml(String(row.effective_from));
+    return `<div style="display:flex;justify-content:space-between;${isCurrent ? 'color:var(--text);font-weight:600;' : ''}">
+      <span>${label}</span><span>${formatPHP(Number(row.daily_rate || 0))}${isCurrent ? ' · current' : ''}</span>
+    </div>`;
+  }).join('');
+}
+
+async function openPayrollEditModal(userId) {
   const item = (hrState.summary || []).find((s) => Number(s.user?.id) === Number(userId));
   if (!item) return;
   const user = item.user || {};
@@ -11249,7 +11272,15 @@ function openPayrollEditModal(userId) {
   if (effectiveEl) effectiveEl.value = normalizeDateString(new Date());
   const dayOffSelect = document.getElementById('payroll-modal-day-off');
   if (dayOffSelect) dayOffSelect.value = String(Number.isInteger(Number(user.day_off)) ? Number(user.day_off) : -1);
+  const histEl = document.getElementById('payroll-modal-rate-history');
+  if (histEl) histEl.textContent = 'Loading…';
   openModal('payroll-edit-modal');
+  try {
+    const data = await authorizedJsonRequest(`/hr/users/${userId}/rate-history`);
+    renderRateHistoryList(data.history || []);
+  } catch (error) {
+    if (histEl) histEl.textContent = 'Could not load history.';
+  }
 }
 
 async function savePayrollRate() {
