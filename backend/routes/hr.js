@@ -569,7 +569,8 @@ module.exports = function hrRoutes(db) {
     const today = manilaParts().date;
     const from = normalizeDate(req.query?.from, today);
     const to = normalizeDate(req.query?.to, from);
-    const users = await listUsersForScope(req);
+    // Administrators aren't paid employees, so keep them out of the payroll list.
+    const users = (await listUsersForScope(req)).filter((u) => String(u.role || '').trim() !== 'Administrator');
     if (!users.length) return res.json({ summary: [] });
 
     const ids = users.map((user) => Number(user.id));
