@@ -25,6 +25,26 @@ function ordersRoutes(db, { dispatch } = {}) {
     return text ? text : null;
   }
 
+  // SRP (suggested retail price) for a POS order = sum of each line item's
+  // retail_price × quantity. Pancake stores the line items in items_json
+  // (order_details); retail_price is the per-unit catalog price and is
+  // independent of the COD collected, so returned/undeliverable orders (cod = 0)
+  // still report a real SRP. Falls back through variation_info / price so it
+  // survives Pancake payload shape differences.
+  function computePosOrderSrp(itemsJson) {
+    const items = parseJsonObject(itemsJson, []);
+    if (!Array.isArray(items) || !items.length) return 0;
+    let total = 0;
+    for (const it of items) {
+      if (!it || typeof it !== 'object') continue;
+      const info = it.variation_info && typeof it.variation_info === 'object' ? it.variation_info : {};
+      const unit = Number(it.retail_price ?? info.retail_price ?? it.price ?? 0) || 0;
+      const qty = Number(it.quantity ?? it.qty ?? 1) || 0;
+      total += unit * qty;
+    }
+    return total;
+  }
+
   // POS timestamps are stored in UTC; the business day is Manila (UTC+8). Convert
   // before slicing the calendar date so early-morning Manila orders don't display
   // (or sort) under the previous day.
@@ -912,7 +932,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason
+             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason, items_json
       FROM pos_orders ${where}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
@@ -947,6 +967,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         tags: parseJsonObject(row.tags_json, []),
         attempts: row.attempts,
         cod: row.cod,
+        srp: computePosOrderSrp(row.items_json),
         assigning_seller_name: row.assigning_seller_name,
         status_name: row.status_name,
         sprinter_name: row.sprinter_name,

@@ -13743,7 +13743,7 @@ function renderPosOrdersTable() {
           <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
         </td>
         <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
-        <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
+        <td class="rmo-money">${Number(order.srp || 0) ? `&#8369;${Number(order.srp || 0).toLocaleString()}` : dash}</td>
         <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
         <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? (getRmoReasonDisplay(order) ? `<span class="rmo-reason-text">${escapeHtml(getRmoReasonDisplay(order))}</span>` : dash) : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
@@ -16373,7 +16373,7 @@ function exportRmoCSV() {
       o.external_id || '', o.tracking_no || '', formatPosTimestamp(o.inserted_at || o.date) || '',
       o.note_product || '', o.sprinter_name || '', o.sprinter_tel || '',
       o.customer_name || '', o.customer_phone || '', o.page_name || '',
-      Number(o.cod || 0), Number(o.attempts || 0), o.assigning_seller_name || '',
+      Number(o.srp || 0), Number(o.attempts || 0), o.assigning_seller_name || '',
       tags, status,
     ];
     if (isExtra) cells.push(rmoTab === 'delivering' ? (formatPosTimestamp(o.updated_at) || '') : (getRmoUndeliverableReason(o) || ''));
