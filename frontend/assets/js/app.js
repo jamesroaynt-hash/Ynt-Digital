@@ -2352,6 +2352,12 @@ function renderApiConnections() {
         </div>
       </div>
 
+      <div class="pages-status-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
+        <button class="filter-pill active" id="pos-status-tab-all" type="button" onclick="setPosPagesStatusFilter('all', this)">All <span id="pos-status-count-all" style="opacity:.65;">0</span></button>
+        <button class="filter-pill" id="pos-status-tab-active" type="button" onclick="setPosPagesStatusFilter('active', this)">Active <span id="pos-status-count-active" style="opacity:.65;">0</span></button>
+        <button class="filter-pill" id="pos-status-tab-off" type="button" onclick="setPosPagesStatusFilter('off', this)">Off <span id="pos-status-count-off" style="opacity:.65;">0</span></button>
+      </div>
+
       <div class="pages-toolbar">
         <div class="pages-search">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg>
@@ -5862,52 +5868,41 @@ function renderAdspendRoas() {
             <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">ROAS SUMMARY</th>
           </tr>
           <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th style="padding:10px 14px;text-align:left;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">DELIVERED</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RETURNED</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS AMOUNT</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">AD SPENT</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">CPP</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">RTS RATE</th>
-            <th style="padding:10px 14px;text-align:right;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">DELIVERED</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">RETURNED</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS AMOUNT</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">AD SPENT</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">CPP</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">RTS RATE</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
           </tr>
         </thead>
         <tbody>
           ${displayRows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
-            <td style="padding:10px 14px;font-weight:500;font-size:13px;">${row.date}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.amount)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(row.spend)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-weight:500;font-size:13px;">${row.date}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${row.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(row.amount)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(row.spend)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
           <tr style="background:rgba(245,158,11,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
-            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.orders.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.delivered.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.returned.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.amount)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.spend)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.orders > 0 && tot.spend > 0 ? fmt(tot.cpp) : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.rtsBase > 0 ? tot.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
-          </tr>
-          <tr style="background:rgba(16,185,129,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(16,185,129,0.28);">
-            <td style="padding:10px 14px;font-size:13px;letter-spacing:.5px;">AVERAGE</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(tot.orders / rowCount).toFixed(2)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(tot.delivered / rowCount).toFixed(2)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${(tot.returned / rowCount).toFixed(2)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.amount / rowCount)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;">${fmt(tot.spend / rowCount)}</td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
-            <td style="padding:10px 14px;text-align:right;font-size:13px;"></td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.returned.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(tot.amount)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(tot.spend)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.orders > 0 && tot.spend > 0 ? fmt(tot.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.rtsBase > 0 ? tot.rtsRate.toFixed(1) + '%' : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
           </tr>
         </tfoot>
       </table>
@@ -14872,6 +14867,7 @@ async function loadPosOwnerOptions() {
 
 // ─── Pancake POS Pages (table + modal) ─────────────────────
 let posPagesSearch = '';
+let posPagesStatusFilter = 'all'; // 'all' | 'active' | 'off'
 let posPagesPage = 1;
 let posPagesPerPage = 10;
 let posPagesSort = { key: 'name', dir: 'asc' };
@@ -14888,6 +14884,8 @@ function getPosPagesRows() {
     enabled: c.enabled !== false,
     lastSync: c.lastSyncedAt || c.last_synced_at || c.lastSync || pos.lastCollectedAt || pos.lastSavedAt || null,
   }));
+  if (posPagesStatusFilter === 'active') rows = rows.filter((r) => r.enabled);
+  else if (posPagesStatusFilter === 'off') rows = rows.filter((r) => !r.enabled);
   if (posPagesSearch) {
     const q = posPagesSearch.toLowerCase();
     rows = rows.filter((r) => r.name.toLowerCase().includes(q)
@@ -14932,10 +14930,23 @@ function renderPancakePagesTable() {
           <span class="pos-page-sync-status" data-pos-sync-status="${escapeHtml(r.id)}"></span>
         </td>
       </tr>`).join('')
-    : `<tr><td colspan="6" class="pp-empty">No pages yet. Click “Add New Page” to connect a shop.</td></tr>`;
+    : `<tr><td colspan="6" class="pp-empty">${(posPagesStatusFilter !== 'all' || posPagesSearch) ? 'No pages match this filter.' : 'No pages yet. Click “Add New Page” to connect a shop.'}</td></tr>`;
+
+  // Status-tab counts + active state come from the full connection list, so they
+  // stay correct regardless of the current search / status filter.
+  const conns = getIntegrationState().pancakePos.connections || [];
+  const activeCount = conns.filter((c) => c.enabled !== false).length;
+  const setCount = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
+  setCount('pos-status-count-all', conns.length);
+  setCount('pos-status-count-active', activeCount);
+  setCount('pos-status-count-off', conns.length - activeCount);
+  ['all', 'active', 'off'].forEach((k) => {
+    const tab = document.getElementById('pos-status-tab-' + k);
+    if (tab) tab.classList.toggle('active', posPagesStatusFilter === k);
+  });
 
   const used = document.getElementById('pos-pages-used');
-  if (used) used.textContent = `${total}/15 PAGES USED`;
+  if (used) used.textContent = `${conns.length}/15 PAGES USED`;
   const info = document.getElementById('pos-pages-info');
   if (info) info.textContent = total
     ? `Showing ${start + 1} to ${Math.min(start + posPagesPerPage, total)} of ${total} entries`
@@ -14949,6 +14960,13 @@ function renderPancakePagesTable() {
 }
 
 function setPosPagesSearch(v) { posPagesSearch = v || ''; posPagesPage = 1; renderPancakePagesTable(); }
+function setPosPagesStatusFilter(v, btn) {
+  posPagesStatusFilter = v || 'all';
+  posPagesPage = 1;
+  document.querySelectorAll('.pages-status-tabs .filter-pill').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderPancakePagesTable();
+}
 function setPosPagesPerPage(v) { posPagesPerPage = Math.max(1, parseInt(v, 10) || 10); posPagesPage = 1; renderPancakePagesTable(); }
 function setPosPagesSort(key) {
   if (posPagesSort.key === key) posPagesSort.dir = posPagesSort.dir === 'asc' ? 'desc' : 'asc';
