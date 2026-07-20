@@ -501,6 +501,18 @@ const PANCAKE_STATUS_NAME = {
   9: 'pending', 12: 'wait_print',
 };
 
+// Price-unit normalization. These POS shops are configured in Pancake with every
+// monetary value ×100 (e.g. ₱39,800 arrives instead of ₱398 for a 1-bottle order):
+//   715088462  = "GoutEase V2"
+//   1636064823 = "VeingGuard Main Branch"
+// Their real, correctly-priced counterparts ("GoutEase Advance Herbal Spray",
+// "VeinGuard") send pesos. Without this, COD, the RMO SRP column and the ROAS
+// Orders Amount are all 100× too high, and the automatic sync keeps re-importing
+// the raw ×100 values (a one-time DB fix gets overwritten). Divide by 100 at
+// ingest instead. Remove a shop id from this set once its Pancake prices are
+// corrected at the source, or these orders will read 100× too low.
+const PRICE_SCALE_X100_SHOPS = new Set(['715088462', '1636064823']);
+
 async function upsertOrder(db, shopId, item, connectionName = null) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
@@ -601,6 +613,26 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     }
   }
 
+  // Scale ×100-configured shops back to pesos (see PRICE_SCALE_X100_SHOPS).
+  const priceDivisor = PRICE_SCALE_X100_SHOPS.has(String(resolvedShopId)) ? 100 : 1;
+  const scaleMoney = (value) => { const n = numberOrNull(value); return n == null ? n : n / priceDivisor; };
+  const orderItemsForStorage = item?.order_details || item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || [];
+  const itemsForStorage = (priceDivisor === 1 || !Array.isArray(orderItemsForStorage))
+    ? orderItemsForStorage
+    : orderItemsForStorage.map((it) => {
+      if (!it || typeof it !== 'object') return it;
+      const scaled = { ...it };
+      if (typeof scaled.retail_price === 'number') scaled.retail_price /= priceDivisor;
+      if (typeof scaled.price === 'number') scaled.price /= priceDivisor;
+      if (scaled.variation_info && typeof scaled.variation_info === 'object') {
+        const vi = { ...scaled.variation_info };
+        if (typeof vi.retail_price === 'number') vi.retail_price /= priceDivisor;
+        if (typeof vi.retail_price_original === 'number') vi.retail_price_original /= priceDivisor;
+        scaled.variation_info = vi;
+      }
+      return scaled;
+    });
+
   await db.prepare(`
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
@@ -659,10 +691,10 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     customerPhone,
     stringOrNull(item?.bill_email || item?.customer?.email || item?.email),
     stringOrNull(item?.page_id),
-    numberOrNull(item?.shipping_fee),
-    numberOrNull(item?.cod),
-    numberOrNull(item?.cash),
-    numberOrNull(item?.total_discount),
+    scaleMoney(item?.shipping_fee),
+    scaleMoney(item?.cod),
+    scaleMoney(item?.cash),
+    scaleMoney(item?.total_discount),
     stringOrNull(item?.note),
     attempts,
     trackingNo || null,
@@ -672,7 +704,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     stringOrNull(assigningSeller?.name),
     sprinterName,
     sprinterTel,
-    safeJson(item?.order_details || item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || []),
+    safeJson(itemsForStorage),
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(partner || null),
     safeJson(shippingAddress || null),
