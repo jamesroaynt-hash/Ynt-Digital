@@ -5854,7 +5854,8 @@ function renderAdspendRoas() {
   // Shared by the ROAS Summary tab and the per-page All Pages tab.
   function roasTableHtml(displayRows, tot, rowCount) {
     return `
-    <div class="table-container" style="overflow-x:auto;">
+    <div style="padding:16px 20px 20px;">
+    <div class="table-container" style="overflow-x:auto;border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;">
       <table style="width:100%;border-collapse:collapse;min-width:920px;">
         <thead>
           <tr style="background:var(--primary,#3b82f6);color:#fff;">
@@ -5910,6 +5911,7 @@ function renderAdspendRoas() {
           </tr>
         </tfoot>
       </table>
+    </div>
     </div>`;
   }
 
