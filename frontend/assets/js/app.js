@@ -5864,19 +5864,19 @@ function renderAdspendRoas() {
     <div class="table-container" style="overflow-x:auto;border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;">
       <table style="width:100%;border-collapse:collapse;min-width:920px;">
         <thead>
-          <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:700;">ROAS SUMMARY</th>
+          <tr style="background:var(--surface-3,#f1f5f9);color:var(--text-primary,#0f172a);">
+            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:800;">ROAS SUMMARY</th>
           </tr>
-          <tr style="background:var(--primary,#3b82f6);color:#fff;">
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">DATE</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">DELIVERED</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">RETURNED</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">ORDERS AMOUNT</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">AD SPENT</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">CPP</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">RTS RATE</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:700;letter-spacing:.5px;">ROAS</th>
+          <tr style="background:var(--surface-3,#f1f5f9);color:var(--text-primary,#0f172a);border-bottom:1px solid var(--border-strong,#cbd5e1);">
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">DATE</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">DELIVERED</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">RETURNED</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">ORDERS AMOUNT</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">AD SPENT</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">CPP</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">RTS RATE</th>
+            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">ROAS</th>
           </tr>
         </thead>
         <tbody>
@@ -6925,6 +6925,11 @@ function renderCSR() {
 // paginated listing so large area lists stay responsive.
 let odzState = { data: [], total: 0, page: 1, perPage: 25, search: '', status: '', selected: new Set() };
 let odzSearchTimer = null;
+// Search tab: a focused, search-only lookup separate from the managed list so
+// typing here never disturbs the All Areas table's paging/filters.
+let odzTab = 'search';
+let odzQuick = { search: '', results: [], loading: false };
+let odzQuickTimer = null;
 
 function odzStatusBadge(status) {
   const s = String(status || '').trim();
@@ -6938,7 +6943,7 @@ function renderOdzFinder() {
   return `
   <div class="page-header">
     <div class="page-title"><h1>ODZ Finder</h1><p>Look up whether an area is an ODZ (out of delivery zone) or a Settlement pick-up area.</p></div>
-    ${canManage ? `<div class="page-actions">
+    ${canManage ? `<div class="page-actions" id="odz-header-actions" style="${odzTab === 'list' ? '' : 'display:none;'}">
       <button class="btn btn-danger" id="odz-bulk-delete" style="display:none" onclick="deleteSelectedOdz()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M6 4V2.5h4V4M4 4l.7 9h6.6L12 4"/></svg>
         Delete Selected<span id="odz-bulk-count"></span>
@@ -6954,6 +6959,22 @@ function renderOdzFinder() {
     </div>` : ''}
   </div>
 
+  <div class="table-filters" style="margin-bottom:16px;">
+    <button class="filter-pill odz-tab-btn ${odzTab === 'search' ? 'active' : ''}" data-tab="search" onclick="setOdzTab('search')">Search</button>
+    <button class="filter-pill odz-tab-btn ${odzTab === 'list' ? 'active' : ''}" data-tab="list" onclick="setOdzTab('list')">All Areas</button>
+  </div>
+
+  <div id="odz-panel-search" style="${odzTab === 'search' ? '' : 'display:none;'}">
+    <div style="max-width:640px;margin:8px auto 0;">
+      <div class="table-search" style="width:100%;">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        <input type="text" placeholder="Search province, city, or barangay..." id="odz-quick-search" value="${escapeHtml(odzQuick.search)}" oninput="onOdzQuickSearch(this.value)">
+      </div>
+      <div id="odz-quick-results" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <div id="odz-panel-list" style="${odzTab === 'list' ? '' : 'display:none;'}">
   <div class="table-container">
     <div class="table-toolbar">
       <div class="table-search">
@@ -6974,6 +6995,7 @@ function renderOdzFinder() {
       </table>
     </div>
     <div class="table-pagination" id="odz-pagination"></div>
+  </div>
   </div>
 
   <div class="modal-overlay" id="odz-entry-modal">
@@ -7066,6 +7088,75 @@ function onOdzSearchInput(value) {
   odzState.page = 1;
   clearTimeout(odzSearchTimer);
   odzSearchTimer = setTimeout(() => { loadOdzAreas(); }, 250);
+}
+
+// Switch between the Search tab (search-only lookup) and All Areas (managed
+// list). Panels stay in the DOM; we just toggle visibility like the other
+// tabbed pages, and lazy-load the list the first time it's opened.
+function setOdzTab(tab) {
+  odzTab = tab;
+  const searchPanel = document.getElementById('odz-panel-search');
+  const listPanel = document.getElementById('odz-panel-list');
+  if (searchPanel) searchPanel.style.display = tab === 'search' ? '' : 'none';
+  if (listPanel) listPanel.style.display = tab === 'list' ? '' : 'none';
+  const actions = document.getElementById('odz-header-actions');
+  if (actions) actions.style.display = tab === 'list' ? '' : 'none';
+  document.querySelectorAll('.odz-tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  if (tab === 'search') {
+    document.getElementById('odz-quick-search')?.focus();
+  } else if (!odzState.data.length) {
+    loadOdzAreas().catch(() => {});
+  }
+}
+
+function onOdzQuickSearch(value) {
+  odzQuick.search = value;
+  clearTimeout(odzQuickTimer);
+  if (!value.trim()) { odzQuick.results = []; renderOdzQuickResults(); return; }
+  odzQuickTimer = setTimeout(() => { loadOdzQuick(); }, 250);
+}
+
+async function loadOdzQuick() {
+  const term = odzQuick.search.trim();
+  if (!term) { odzQuick.results = []; renderOdzQuickResults(); return; }
+  odzQuick.loading = true;
+  renderOdzQuickResults();
+  try {
+    const params = new URLSearchParams({ page: 1, per_page: 25, search: term });
+    const result = await authorizedJsonRequest(`/odz?${params.toString()}`);
+    odzQuick.results = Array.isArray(result?.data) ? result.data : [];
+  } catch {
+    odzQuick.results = [];
+  } finally {
+    odzQuick.loading = false;
+    renderOdzQuickResults();
+  }
+}
+
+function renderOdzQuickResults() {
+  const box = document.getElementById('odz-quick-results');
+  if (!box) return;
+  if (odzQuick.loading) {
+    box.innerHTML = '<div class="loading-spinner" style="margin:24px auto;"></div>';
+    return;
+  }
+  const term = odzQuick.search.trim();
+  if (!term) {
+    box.innerHTML = '<div class="empty-state" style="padding:24px;text-align:center;color:var(--text-muted);">Type a province, city, or barangay to check its delivery zone.</div>';
+    return;
+  }
+  if (!odzQuick.results.length) {
+    box.innerHTML = `<div class="empty-state" style="padding:24px;text-align:center;color:var(--text-muted);">No matching ODZ / pick-up area for “${escapeHtml(term)}”.</div>`;
+    return;
+  }
+  box.innerHTML = odzQuick.results.map((row) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--surface);">
+      <div style="min-width:0;">
+        <div style="font-weight:600;color:var(--text-primary);">${escapeHtml([row.brgy, row.city].filter(Boolean).join(', ') || row.city || '—')}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(row.province || '')}</div>
+      </div>
+      ${odzStatusBadge(row.status)}
+    </div>`).join('');
 }
 
 function setOdzStatusFilter(status, btn) {
@@ -10557,6 +10648,8 @@ function initPage(page) {
   if (page === 'odz-finder') {
     odzState.page = 1;
     loadOdzAreas().catch(() => {});
+    renderOdzQuickResults();
+    if (odzTab === 'search') document.getElementById('odz-quick-search')?.focus();
   }
 
   if (page === 'view-records') {
