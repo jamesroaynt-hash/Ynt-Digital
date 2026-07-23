@@ -10544,12 +10544,14 @@ function renderCalculators() {
   <div class="table-filters" style="margin-bottom:20px;">
     <button class="filter-pill calc-tab-btn ${calcTab === 'forecaster' ? 'active' : ''}" data-tab="forecaster" onclick="setCalcTab('forecaster')">Sales Forecaster</button>
     <button class="filter-pill calc-tab-btn ${calcTab === 'roas' ? 'active' : ''}" data-tab="roas" onclick="setCalcTab('roas')">Break-Even ROAS</button>
+    <button class="filter-pill calc-tab-btn ${calcTab === 'roastarget' ? 'active' : ''}" data-tab="roastarget" onclick="setCalcTab('roastarget')">ROAS Target</button>
     <button class="filter-pill calc-tab-btn ${calcTab === 'markup' ? 'active' : ''}" data-tab="markup" onclick="setCalcTab('markup')">Markup</button>
     <button class="filter-pill calc-tab-btn ${calcTab === 'discount' ? 'active' : ''}" data-tab="discount" onclick="setCalcTab('discount')">Discount Impact</button>
   </div>
 
   <div id="calc-panel-forecaster" style="${calcTab === 'forecaster' ? '' : 'display:none;'}">${renderForecasterPanel()}</div>
   <div id="calc-panel-roas" style="${calcTab === 'roas' ? '' : 'display:none;'}">${renderRoasPanel()}</div>
+  <div id="calc-panel-roastarget" style="${calcTab === 'roastarget' ? '' : 'display:none;'}">${renderRoasTargetPanel()}</div>
   <div id="calc-panel-markup" style="${calcTab === 'markup' ? '' : 'display:none;'}">${renderMarkupPanel()}</div>
   <div id="calc-panel-discount" style="${calcTab === 'discount' ? '' : 'display:none;'}">${renderDiscountPanel()}</div>
   `;
@@ -10557,7 +10559,7 @@ function renderCalculators() {
 
 function setCalcTab(tab) {
   calcTab = tab;
-  ['forecaster', 'roas', 'markup', 'discount'].forEach((t) => {
+  ['forecaster', 'roas', 'roastarget', 'markup', 'discount'].forEach((t) => {
     const p = document.getElementById(`calc-panel-${t}`);
     if (p) p.style.display = (t === tab) ? '' : 'none';
   });
@@ -10567,6 +10569,7 @@ function setCalcTab(tab) {
 function recalcAllCalculators() {
   if (document.getElementById('fc-b-clicks')) recalcForecaster();
   if (document.getElementById('roas-price')) recalcRoas();
+  if (document.getElementById('rt-adspend')) recalcRoasTarget();
   if (document.getElementById('mk-cogs')) recalcMarkup();
   if (document.getElementById('ds-price')) recalcDiscount();
 }
@@ -10775,6 +10778,58 @@ function recalcRoas() {
   set('roas-net', calcPeso(netProfit));
   set('roas-margin', `${margin.toFixed(2)}%`);
   set('roas-roas', netProfit > 0 ? `${beRoas.toFixed(2)}x` : '—');
+}
+
+// ─── 2b. ROAS Target (Ad Spend → Sales / Orders) ───────────
+function renderRoasTargetPanel() {
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+    <div class="card"><div class="card-body">
+      <div style="text-align:right;margin-bottom:8px;"><span class="stat-badge up">BASIC TOOL</span></div>
+      <div class="form-group"><label class="form-label">Ad Spend (₱)</label><input type="number" class="form-control" id="rt-adspend" value="50000" oninput="recalcRoasTarget()"></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Target ROAS (x)</label><input type="number" step="0.01" class="form-control" id="rt-roas" value="6" oninput="recalcRoasTarget()"></div>
+        <div class="form-group"><label class="form-label">Selling Price / AOV (₱)</label><input type="number" class="form-control" id="rt-price" value="700" oninput="recalcRoasTarget()"></div>
+      </div>
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Number of Persons</label><input type="number" class="form-control" id="rt-persons" value="3" oninput="recalcRoasTarget()"><div class="field-help">Staff / agents sharing the order load.</div></div>
+    </div></div>
+
+    <div class="card"><div class="card-body">
+      <div class="card-title" style="margin-bottom:14px;">ⓘ How we calculated this</div>
+      <div style="${CALC_STEP}"><span><b>Step 1: Total Gross Sales</b><br><i style="color:var(--text-muted);font-size:12px;">Ad Spend × ROAS</i></span><span style="${CALC_RESULT}" id="rt-s1">₱300,000.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: Orders Needed</b><br><i style="color:var(--text-muted);font-size:12px;">Gross Sales ÷ Selling Price</i></span><span style="font-weight:700;" id="rt-s2">429 Orders</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: Orders per Person</b><br><i style="color:var(--text-muted);font-size:12px;">Orders ÷ Persons</i></span><span style="font-weight:700;" id="rt-s3">143 Orders</span></div>
+      <div style="${CALC_TIP}">
+        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"This is the sales volume your ad spend must return to hit your target ROAS. Divide by your team size to set a realistic per-person order quota for the day or campaign."</div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stats-grid" style="margin-top:20px;">
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Total Gross Sales Needed</div><div class="stat-value" style="color:var(--success);font-size:24px;" id="rt-gross">₱300,000.00</div></div>
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Orders Needed</div><div class="stat-value" id="rt-orders">429 Orders</div></div>
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Orders per Person</div><div class="stat-value" id="rt-perperson">143 Orders</div></div>
+  </div>`;
+}
+
+function recalcRoasTarget() {
+  const adspend = calcNum('rt-adspend');
+  const roas = calcNum('rt-roas');
+  const price = calcNum('rt-price');
+  const persons = calcNum('rt-persons');
+  const grossSales = adspend * roas;
+  const orders = price ? grossSales / price : 0;
+  const perPerson = persons ? orders / persons : 0;
+  const ordersFmt = (n) => `${Math.ceil(n || 0).toLocaleString()} Orders`;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('rt-s1', calcPeso(grossSales));
+  set('rt-s2', price ? ordersFmt(orders) : '—');
+  set('rt-s3', persons ? ordersFmt(perPerson) : '—');
+  set('rt-gross', calcPeso(grossSales));
+  set('rt-orders', price ? ordersFmt(orders) : '—');
+  set('rt-perperson', persons ? ordersFmt(perPerson) : '—');
 }
 
 // ─── 3. Markup Calculator ──────────────────────────────────
