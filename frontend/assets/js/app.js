@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -17,8 +17,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
@@ -150,6 +150,7 @@ function loadPage(page) {
     training: renderTraining,
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
+    calculators: renderCalculators,
     'rts-rate': renderRTSRate,
     'data-report': renderDataReport,
     scanning: renderScanning,
@@ -183,6 +184,7 @@ const pageNames = {
   training: 'Training',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
+  calculators: 'Calculators',
   'rts-rate': 'Sale Report',
   'data-report': 'Sales Dashboard',
   scanning: 'Scan Orders',
@@ -9226,7 +9228,7 @@ function refreshSidebarAccess() {
 
   const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
   const hasRmo = ['rmo-management'].some((page) => accessiblePages.has(page));
-  const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
+  const hasOperations = ['daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
@@ -10518,6 +10520,381 @@ function initCharts(page) {
   }
 }
 
+// ─── CALCULATORS (Operations) ──────────────────────────────
+// Client-side profit / scaling calculators. All manual input, no backend.
+let calcTab = 'forecaster';
+let forecasterLock = 'revenue'; // 'revenue' | 'clicks'
+
+function calcPeso(n) {
+  return `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function calcNum(id) {
+  const el = document.getElementById(id);
+  if (!el) return 0;
+  const v = parseFloat(String(el.value).replace(/,/g, ''));
+  return Number.isFinite(v) ? v : 0;
+}
+
+function renderCalculators() {
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>Calculators</h1><p>Manual profit &amp; scaling calculators for pricing, break-even, targets, and flash-sale impact.</p></div>
+  </div>
+
+  <div class="table-filters" style="margin-bottom:20px;">
+    <button class="filter-pill calc-tab-btn ${calcTab === 'forecaster' ? 'active' : ''}" data-tab="forecaster" onclick="setCalcTab('forecaster')">Sales Forecaster</button>
+    <button class="filter-pill calc-tab-btn ${calcTab === 'roas' ? 'active' : ''}" data-tab="roas" onclick="setCalcTab('roas')">Break-Even ROAS</button>
+    <button class="filter-pill calc-tab-btn ${calcTab === 'markup' ? 'active' : ''}" data-tab="markup" onclick="setCalcTab('markup')">Markup</button>
+    <button class="filter-pill calc-tab-btn ${calcTab === 'discount' ? 'active' : ''}" data-tab="discount" onclick="setCalcTab('discount')">Discount Impact</button>
+  </div>
+
+  <div id="calc-panel-forecaster" style="${calcTab === 'forecaster' ? '' : 'display:none;'}">${renderForecasterPanel()}</div>
+  <div id="calc-panel-roas" style="${calcTab === 'roas' ? '' : 'display:none;'}">${renderRoasPanel()}</div>
+  <div id="calc-panel-markup" style="${calcTab === 'markup' ? '' : 'display:none;'}">${renderMarkupPanel()}</div>
+  <div id="calc-panel-discount" style="${calcTab === 'discount' ? '' : 'display:none;'}">${renderDiscountPanel()}</div>
+  `;
+}
+
+function setCalcTab(tab) {
+  calcTab = tab;
+  ['forecaster', 'roas', 'markup', 'discount'].forEach((t) => {
+    const p = document.getElementById(`calc-panel-${t}`);
+    if (p) p.style.display = (t === tab) ? '' : 'none';
+  });
+  document.querySelectorAll('.calc-tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+}
+
+function recalcAllCalculators() {
+  if (document.getElementById('fc-b-clicks')) recalcForecaster();
+  if (document.getElementById('roas-price')) recalcRoas();
+  if (document.getElementById('mk-cogs')) recalcMarkup();
+  if (document.getElementById('ds-price')) recalcDiscount();
+}
+
+// Shared inline style bits so the panels read consistently.
+const CALC_STEP = 'background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;';
+const CALC_TIP = 'background:var(--success-soft);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-top:14px;';
+const CALC_RESULT = 'color:var(--success);font-weight:700;font-family:\'DM Mono\',monospace;';
+
+// ─── 1. Target Sales Forecaster ────────────────────────────
+function renderForecasterPanel() {
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1.15fr;gap:20px;align-items:start;">
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div class="card"><div class="card-body">
+        <div class="card-title" style="margin-bottom:2px;">📊 Baseline Performance</div>
+        <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Last 30 days data</div>
+        <div class="form-group">
+          <label class="form-label">Product Clicks</label>
+          <input type="number" class="form-control" id="fc-b-clicks" value="53130" oninput="recalcForecaster()">
+        </div>
+        <div class="form-grid-2" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label">CVR (%)</label><input type="number" step="0.01" class="form-control" id="fc-b-cvr" value="2.3" oninput="recalcForecaster()"></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label">AOV (₱)</label><input type="number" class="form-control" id="fc-b-aov" value="467" oninput="recalcForecaster()"></div>
+        </div>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <div class="card-title" style="margin-bottom:2px;">➕ Target Performance</div>
+        <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Your goal numbers</div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label" style="color:var(--success);">Conversion Rate (%)</label><input type="number" step="0.01" class="form-control" id="fc-t-cvr" value="3" oninput="recalcForecaster()"></div>
+          <div class="form-group"><label class="form-label" style="color:var(--success);">Avg Order Value (₱)</label><input type="number" class="form-control" id="fc-t-aov" value="700" oninput="recalcForecaster()"></div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="color:var(--success);">Target Revenue (₱)</label>
+          <input type="number" class="form-control" id="fc-t-revenue" value="1500000" oninput="recalcForecaster()">
+          <div class="field-help">Disabled while Product Clicks is locked (auto-computed).</div>
+        </div>
+      </div></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div class="card"><div class="card-body">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+          <div>
+            <div class="card-title">Current vs Target</div>
+            <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;">Your numbers, side by side</div>
+          </div>
+          <span class="stat-badge up" id="fc-growth">2.6× GROWTH</span>
+        </div>
+        <div style="overflow-x:auto;margin-top:14px;">
+          <table style="width:100%;">
+            <thead><tr>
+              <th style="text-transform:uppercase;font-size:11px;">Metric</th>
+              <th style="text-transform:uppercase;font-size:11px;text-align:right;">Current</th>
+              <th style="text-transform:uppercase;font-size:11px;text-align:right;color:var(--success);">Target</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td>Product Clicks</td>
+                <td style="text-align:right;font-weight:600;" id="fc-cur-clicks">53,130</td>
+                <td style="text-align:right;">
+                  <span style="${CALC_RESULT}" id="fc-tgt-clicks">71,429</span>
+                  <span class="calc-lock ${forecasterLock === 'clicks' ? 'on' : ''}" title="Lock Product Clicks" onclick="setForecasterLock('clicks')" style="cursor:pointer;margin-left:6px;">${forecasterLock === 'clicks' ? '🔒' : '🔓'}</span>
+                </td>
+              </tr>
+              <tr>
+                <td>Conversion Rate</td>
+                <td style="text-align:right;font-weight:600;" id="fc-cur-cvr">2.3%</td>
+                <td style="text-align:right;color:var(--success);font-weight:600;" id="fc-tgt-cvr">3%</td>
+              </tr>
+              <tr>
+                <td>Avg Order Value</td>
+                <td style="text-align:right;font-weight:600;" id="fc-cur-aov">₱467.00</td>
+                <td style="text-align:right;color:var(--success);font-weight:600;" id="fc-tgt-aov">₱700.00</td>
+              </tr>
+              <tr style="background:var(--success-soft);">
+                <td style="font-weight:700;">Monthly Revenue</td>
+                <td style="text-align:right;font-weight:700;" id="fc-cur-rev">₱570,669.33</td>
+                <td style="text-align:right;">
+                  <span style="${CALC_RESULT}" id="fc-tgt-rev">₱1,500,000.00</span>
+                  <span class="calc-lock ${forecasterLock === 'revenue' ? 'on' : ''}" title="Lock Target Revenue" onclick="setForecasterLock('revenue')" style="cursor:pointer;margin-left:6px;">${forecasterLock === 'revenue' ? '🔒' : '🔓'}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="field-help" style="margin-top:12px;">Fill in your <b style="color:var(--success);">Target</b> inputs on the left. Tap a lock 🔒 to hold either the Product Clicks or the Target Revenue — the other recalculates as you adjust your CVR &amp; AOV.</div>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <div class="card-title" style="margin-bottom:14px;">Scaling Roadmap <span class="stat-badge" style="float:right;">CALCULATIONS</span></div>
+        <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Baseline</div>
+        <div style="${CALC_STEP}"><span style="font-family:'DM Mono',monospace;font-size:12.5px;" id="fc-road-base">53,130 clicks × 2.3% CVR × ₱467.00 = <span style="${CALC_RESULT}">₱570,669.33</span></span></div>
+        <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;">Target</div>
+        <div style="${CALC_STEP}"><span style="font-family:'DM Mono',monospace;font-size:12.5px;" id="fc-road-target">71,429 clicks × 3% CVR × ₱700.00 = <span style="${CALC_RESULT}">₱1,500,000.00</span></span></div>
+      </div></div>
+    </div>
+  </div>`;
+}
+
+function setForecasterLock(which) {
+  forecasterLock = which;
+  document.getElementById('main-page-content').innerHTML = renderCalculators();
+  setCalcTab('forecaster');
+  recalcAllCalculators();
+}
+
+function recalcForecaster() {
+  const bClicks = calcNum('fc-b-clicks');
+  const bCvr = calcNum('fc-b-cvr');
+  const bAov = calcNum('fc-b-aov');
+  const tCvr = calcNum('fc-t-cvr');
+  const tAov = calcNum('fc-t-aov');
+  const baseRev = bClicks * (bCvr / 100) * bAov;
+
+  const revInput = document.getElementById('fc-t-revenue');
+  let tClicks;
+  let tRev;
+  if (forecasterLock === 'clicks') {
+    tClicks = bClicks;
+    tRev = bClicks * (tCvr / 100) * tAov;
+    if (revInput) { revInput.disabled = true; revInput.value = tRev ? tRev.toFixed(2) : ''; }
+  } else {
+    if (revInput) revInput.disabled = false;
+    tRev = calcNum('fc-t-revenue');
+    const denom = (tCvr / 100) * tAov;
+    tClicks = denom ? tRev / denom : 0;
+  }
+  const growth = baseRev ? tRev / baseRev : 0;
+  const intFmt = (n) => Math.round(n || 0).toLocaleString();
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('fc-growth', `${growth.toFixed(1)}× GROWTH`);
+  set('fc-cur-clicks', intFmt(bClicks));
+  set('fc-tgt-clicks', intFmt(tClicks));
+  set('fc-cur-cvr', `${bCvr}%`);
+  set('fc-tgt-cvr', `${tCvr}%`);
+  set('fc-cur-aov', calcPeso(bAov));
+  set('fc-tgt-aov', calcPeso(tAov));
+  set('fc-cur-rev', calcPeso(baseRev));
+  set('fc-tgt-rev', calcPeso(tRev));
+
+  const roadBase = document.getElementById('fc-road-base');
+  if (roadBase) roadBase.innerHTML = `${intFmt(bClicks)} clicks × ${bCvr}% CVR × ${calcPeso(bAov)} = <span style="${CALC_RESULT}">${calcPeso(baseRev)}</span>`;
+  const roadTgt = document.getElementById('fc-road-target');
+  if (roadTgt) roadTgt.innerHTML = `${intFmt(tClicks)} clicks × ${tCvr}% CVR × ${calcPeso(tAov)} = <span style="${CALC_RESULT}">${calcPeso(tRev)}</span>`;
+}
+
+// ─── 2. Quick Break-Even ROAS ──────────────────────────────
+function renderRoasPanel() {
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+    <div class="card"><div class="card-body">
+      <div style="text-align:right;margin-bottom:8px;"><span class="stat-badge up">BASIC TOOL</span></div>
+      <div class="form-group"><label class="form-label">Selling Price / AOV (₱)</label><input type="number" class="form-control" id="roas-price" value="300" oninput="recalcRoas()"></div>
+      <div class="form-group"><label class="form-label">Product Cost / COGS (₱)</label><input type="number" class="form-control" id="roas-cogs" value="125" oninput="recalcRoas()"></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Platform Fees (%)</label><input type="number" step="0.01" class="form-control" id="roas-fees" value="19" oninput="recalcRoas()"></div>
+        <div class="form-group"><label class="form-label">Other Costs/CPP/CAC (₱)</label><input type="number" class="form-control" id="roas-other" value="50" oninput="recalcRoas()"></div>
+      </div>
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Packaging &amp; Misc Costs (₱)</label><input type="number" class="form-control" id="roas-pack" value="20" oninput="recalcRoas()"></div>
+    </div></div>
+
+    <div class="card"><div class="card-body">
+      <div class="card-title" style="margin-bottom:14px;">ⓘ How we calculated this</div>
+      <div style="${CALC_STEP}flex-direction:column;align-items:stretch;">
+        <div style="font-weight:600;margin-bottom:8px;">Step 1: Total Deductions</div>
+        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:12.5px;"><span style="color:var(--text-secondary);">Platform Fee Deduction:</span><span id="roas-s1-fee">₱57.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:12.5px;margin-top:4px;"><span style="font-weight:600;">Total Costs:</span><span style="font-weight:600;" id="roas-s1-total">₱252.00</span></div>
+      </div>
+      <div style="${CALC_STEP}"><span><b>Step 2: Net Profit</b><br><i style="color:var(--text-muted);font-size:12px;">Price − Costs</i></span><span style="font-family:'DM Mono',monospace;" id="roas-s2">₱48.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: Break-Even ROAS</b><br><i style="color:var(--text-muted);font-size:12px;">Price ÷ Profit</i></span><span style="font-family:'DM Mono',monospace;" id="roas-s3">6.25x</span></div>
+      <div style="${CALC_TIP}">
+        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"Your Break-Even ROAS is your absolute floor. If your FB/TikTok Ads ROAS drops below this number, you are losing money on every sale. Always aim for at least +1.0x above this metric."</div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stats-grid" style="margin-top:20px;">
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Net Profit</div><div class="stat-value" id="roas-net">₱48.00</div></div>
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Margin</div><div class="stat-value" id="roas-margin">16.00%</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Break-Even ROAS</div><div class="stat-value" style="color:var(--success);" id="roas-roas">6.25x</div></div>
+  </div>`;
+}
+
+function recalcRoas() {
+  const price = calcNum('roas-price');
+  const cogs = calcNum('roas-cogs');
+  const feesPct = calcNum('roas-fees');
+  const other = calcNum('roas-other');
+  const pack = calcNum('roas-pack');
+  const feeAmt = price * (feesPct / 100);
+  const totalCosts = cogs + feeAmt + other + pack;
+  const netProfit = price - totalCosts;
+  const margin = price ? (netProfit / price) * 100 : 0;
+  const beRoas = netProfit > 0 ? price / netProfit : 0;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('roas-s1-fee', calcPeso(feeAmt));
+  set('roas-s1-total', calcPeso(totalCosts));
+  set('roas-s2', calcPeso(netProfit));
+  set('roas-s3', netProfit > 0 ? `${beRoas.toFixed(2)}x` : '—');
+  set('roas-net', calcPeso(netProfit));
+  set('roas-margin', `${margin.toFixed(2)}%`);
+  set('roas-roas', netProfit > 0 ? `${beRoas.toFixed(2)}x` : '—');
+}
+
+// ─── 3. Markup Calculator ──────────────────────────────────
+function renderMarkupPanel() {
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div class="card"><div class="card-body">
+        <div style="text-align:right;margin-bottom:8px;"><span class="stat-badge up">BASIC TOOL</span></div>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Product Cost / COGS (₱)</label><input type="number" class="form-control" id="mk-cogs" value="700" oninput="recalcMarkup()"></div>
+          <div class="form-group"><label class="form-label">Misc/Shipping Costs (₱)</label><input type="number" class="form-control" id="mk-misc" value="70" oninput="recalcMarkup()"></div>
+        </div>
+        <div class="form-grid-2" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label">Platform Fees (%)</label><input type="number" step="0.01" class="form-control" id="mk-fees" value="16" oninput="recalcMarkup()"></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label">Desired Margin (%)</label><input type="number" step="0.01" class="form-control" id="mk-margin" value="10" oninput="recalcMarkup()"></div>
+        </div>
+      </div></div>
+      <div class="stats-grid" style="margin-bottom:0;">
+        <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Net Profit Amount</div><div class="stat-value" id="mk-net">₱104.05</div></div>
+        <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Platform Fees</div><div class="stat-value" id="mk-fee-amt">₱166.49</div></div>
+      </div>
+      <div class="card green" style="text-align:center;"><div class="card-body">
+        <div class="stat-label" style="color:var(--success);">Target Selling Price</div>
+        <div style="font-size:34px;font-weight:800;color:var(--success);letter-spacing:-.5px;margin-top:4px;" id="mk-price">₱1,040.54</div>
+      </div></div>
+    </div>
+
+    <div class="card"><div class="card-body">
+      <div class="card-title" style="margin-bottom:14px;">ⓘ How we calculated this</div>
+      <div style="${CALC_STEP}"><span><b>Step 1: Calculate Total Percentages</b><br><i style="color:var(--text-muted);font-size:12px;">Fees % + Margin %</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s1">26.0%</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: Base Multiplier</b><br><i style="color:var(--text-muted);font-size:12px;">100% − Total %</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s2">0.7400</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: Target Selling Price</b><br><i style="color:var(--text-muted);font-size:12px;">Total Costs ÷ Multiplier</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s3">₱1,040.54</span></div>
+      <div style="${CALC_TIP}">
+        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"Platform fees are calculated based on your final selling price, not your product cost. This calculator uses the margin-based pricing formula to ensure your fees don't eat into your targeted profit."</div>
+      </div>
+    </div></div>
+  </div>`;
+}
+
+function recalcMarkup() {
+  const cogs = calcNum('mk-cogs');
+  const misc = calcNum('mk-misc');
+  const feesPct = calcNum('mk-fees');
+  const marginPct = calcNum('mk-margin');
+  const totalCosts = cogs + misc;
+  const totalPct = feesPct + marginPct;
+  const multiplier = 1 - (totalPct / 100);
+  const price = multiplier > 0 ? totalCosts / multiplier : 0;
+  const netProfit = price * (marginPct / 100);
+  const feeAmt = price * (feesPct / 100);
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('mk-s1', `${totalPct.toFixed(1)}%`);
+  set('mk-s2', multiplier.toFixed(4));
+  set('mk-s3', multiplier > 0 ? calcPeso(price) : '—');
+  set('mk-net', calcPeso(netProfit));
+  set('mk-fee-amt', calcPeso(feeAmt));
+  set('mk-price', multiplier > 0 ? calcPeso(price) : '—');
+}
+
+// ─── 4. Discount & Flash Sale Impact ───────────────────────
+function renderDiscountPanel() {
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+    <div class="card"><div class="card-body">
+      <div style="text-align:right;margin-bottom:8px;"><span class="stat-badge up">BASIC TOOL</span></div>
+      <div class="form-group"><label class="form-label">Original Selling Price (₱)</label><input type="number" class="form-control" id="ds-price" value="700" oninput="recalcDiscount()"></div>
+      <div class="form-group"><label class="form-label">Total Cost Per Unit (₱)</label><input type="number" class="form-control" id="ds-cost" value="450" oninput="recalcDiscount()"><div class="field-help">Includes COGS, packaging, and platform fees.</div></div>
+      <div class="form-grid-2" style="margin-bottom:0;">
+        <div class="form-group" style="margin-bottom:0;"><label class="form-label">Discount to Offer (%)</label><input type="number" step="0.01" class="form-control" id="ds-discount" value="20" oninput="recalcDiscount()"></div>
+        <div class="form-group" style="margin-bottom:0;"><label class="form-label">Regular Daily Volume</label><input type="number" class="form-control" id="ds-volume" value="100" oninput="recalcDiscount()"></div>
+      </div>
+    </div></div>
+
+    <div class="card"><div class="card-body">
+      <div class="card-title" style="margin-bottom:14px;">How we calculated this</div>
+      <div style="${CALC_STEP}"><span><b>Step 1: Original Profit</b><br><i style="color:var(--text-muted);font-size:12px;">(Original Price − Total Cost)</i></span><span style="${CALC_RESULT}" id="ds-s1">₱250.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: New Selling Price</b><br><i style="color:var(--text-muted);font-size:12px;">(Original Price − Discount Amount)</i></span><span style="${CALC_RESULT}" id="ds-s2">₱560.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: New Profit per Unit</b><br><i style="color:var(--text-muted);font-size:12px;">(New Selling Price − Total Cost)</i></span><span style="${CALC_RESULT}" id="ds-s3">₱110.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 4: Target Volume</b><br><i style="color:var(--text-muted);font-size:12px;">(Original Total Profit ÷ New Profit per Unit)</i></span><span style="font-weight:700;" id="ds-s4">228 Units</span></div>
+      <div style="${CALC_TIP}">
+        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"A small discount doesn't mean a small impact. Because discounts eat directly into your profit margin, you often need to sell 50% to 100% more units just to make the same amount of money you would on a normal day!"</div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="stats-grid" style="margin-top:20px;">
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Extra Volume Needed</div><div class="stat-value" style="color:var(--danger);" id="ds-extra">+128%</div></div>
+    <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">New Profit per Unit</div><div class="stat-value" id="ds-newprofit">₱110.00</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Required Sales Volume</div><div class="stat-value" style="color:var(--success);font-size:26px;" id="ds-required">228 Units</div><div class="stat-meta">Target units to break even on total profit</div></div>
+  </div>`;
+}
+
+function recalcDiscount() {
+  const price = calcNum('ds-price');
+  const cost = calcNum('ds-cost');
+  const discountPct = calcNum('ds-discount');
+  const volume = calcNum('ds-volume');
+  const origProfit = price - cost;
+  const discountAmt = price * (discountPct / 100);
+  const newPrice = price - discountAmt;
+  const newProfit = newPrice - cost;
+  const origTotalProfit = origProfit * volume;
+  const targetVolume = newProfit > 0 ? origTotalProfit / newProfit : 0;
+  const extraPct = volume ? ((targetVolume - volume) / volume) * 100 : 0;
+  const unitsFmt = (n) => `${Math.ceil(n || 0).toLocaleString()} Units`;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('ds-s1', calcPeso(origProfit));
+  set('ds-s2', calcPeso(newPrice));
+  set('ds-s3', calcPeso(newProfit));
+  set('ds-s4', newProfit > 0 ? unitsFmt(targetVolume) : '—');
+  set('ds-extra', newProfit > 0 ? `${extraPct >= 0 ? '+' : ''}${Math.round(extraPct)}%` : '—');
+  set('ds-newprofit', calcPeso(newProfit));
+  set('ds-required', newProfit > 0 ? unitsFmt(targetVolume) : '—');
+}
+
 // ─── PAGE INIT ─────────────────────────────────────────────
 function initPage(page) {
   setTimeout(() => initCharts(page), 50);
@@ -10699,6 +11076,10 @@ function initPage(page) {
         refreshInventoryNamePicker();
       })
       .catch(() => {});
+  }
+
+  if (page === 'calculators') {
+    recalcAllCalculators();
   }
 
   if (page === 'scanning' || page === 'rts-scanning') {
