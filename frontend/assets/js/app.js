@@ -10,13 +10,13 @@ const App = {
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
   Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'data-report', 'view-records', 'profile'],
+  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
