@@ -6521,7 +6521,6 @@ function renderMarketingCenter() {
     }
     return { ...member, pages: memberPages, ...agg };
   });
-  const latestStandups = (state.standups || []).slice().reverse().slice(0, 8);
 
   return `
   <div class="erp-command-center">
@@ -6547,8 +6546,8 @@ function renderMarketingCenter() {
     const mktTabs = [
       ['mkt-pages', 'Pages', true],
       ['mkt-entries', 'Daily Entry', true],
+      ['mkt-creatives', 'Creatives', true],
       ['mkt-team', 'Team', true],
-      ['mkt-standup', 'Daily Standup', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
     ];
     const validIds = mktTabs.filter(([, , show]) => show).map(([id]) => id);
@@ -6790,37 +6789,8 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div id="mkt-standup" class="tab-content${lastMarketingTab === 'mkt-standup' ? ' active' : ''}">
-    <div style="display:grid; grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr); gap:20px; align-items:start;">
-      <div class="card erp-card">
-        <div class="card-header"><div><div class="card-title">Daily Standup Log</div><div class="card-subtitle">Yesterday score, today priority, blockers.</div></div></div>
-        <div class="card-body">
-          <div class="form-grid-2">
-            <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-control" id="mkt-standup-date" value="${normalizeDateString(new Date())}"></div>
-            <div class="form-group"><label class="form-label">Owner</label><select class="form-control" id="mkt-standup-owner">${state.team.map((member) => `<option value="${escapeHtml(member.name)}">${escapeHtml(member.name)}</option>`).join('')}</select></div>
-          </div>
-          <div class="form-group"><label class="form-label">Yesterday Score</label><input type="text" class="form-control" id="mkt-standup-yesterday" placeholder="Wins / numbers / learning"></div>
-          <div class="form-group"><label class="form-label">Today Priority</label><input type="text" class="form-control" id="mkt-standup-today" placeholder="Top priority"></div>
-          <div class="form-group"><label class="form-label">Blockers</label><input type="text" class="form-control" id="mkt-standup-blockers" placeholder="None"></div>
-          <button class="btn btn-primary" onclick="addMarketingStandup()">Log Standup</button>
-        </div>
-      </div>
-      <div class="card erp-card">
-        <div class="card-header"><div><div class="card-title">Standup Records</div><div class="card-subtitle">Latest team check-ins.</div></div></div>
-        <div class="card-body">
-          <div class="erp-mini-list">
-            ${latestStandups.length ? latestStandups.map((item, reverseIndex) => {
-              const index = (state.standups || []).length - 1 - reverseIndex;
-              return `<div>
-                <span><strong>${escapeHtml(item.date)}</strong> - ${escapeHtml(item.owner)}</span>
-                <button class="btn btn-ghost btn-sm" onclick="deleteMarketingStandup(${index})">Delete</button>
-                <small>${escapeHtml(item.today || '')}${item.blockers ? ` | Blocker: ${escapeHtml(item.blockers)}` : ''}</small>
-              </div>`;
-            }).join('') : '<div><span>No standups yet.</span><strong>Ready</strong></div>'}
-          </div>
-        </div>
-      </div>
-    </div>
+  <div id="mkt-creatives" class="tab-content${lastMarketingTab === 'mkt-creatives' ? ' active' : ''}">
+    ${renderCreatives()}
   </div>
 
   <div id="mkt-adaccounts" class="tab-content${lastMarketingTab === 'mkt-adaccounts' ? ' active' : ''}">
