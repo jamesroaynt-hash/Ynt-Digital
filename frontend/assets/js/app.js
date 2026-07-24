@@ -6385,6 +6385,14 @@ function renderCreatives() {
   </div>`;
 }
 
+// Pages-tab filter state (Today / Yesterday / Monthly / Custom + Month + Page),
+// independent of the shared marketing filter bar above the tabs.
+let mktPagesPreset = 'monthly';
+let mktPagesMonth = '';
+let mktPagesPage = 'all';
+let mktPagesFrom = '';
+let mktPagesTo = '';
+
 function renderMarketingCenter() {
   const now = new Date();
   if (!window.mktFilter) {
@@ -6430,18 +6438,54 @@ function renderMarketingCenter() {
   const posRtsRate = posRtsBase ? (posCounts.returned + posCounts.returning) / posRtsBase : 0;
   const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
   const byDay = getMarketingDailyTotals(entries);
-  // Pages tab: total orders (from live POS/sheet records) + total ad spend
-  // (from manual entries), per active page, within the current time filter.
-  const mktPageOrderCounts = {};
-  sheetOrdersInRange.forEach((o) => {
+  // ── Pages tab: uses its OWN filter (below), not the shared filter above. ──
+  const mpMonthOptions = [...new Set([
+    ...(DB.sheetRecordsForReport || []).map((o) => String(o.date || '').slice(0, 7)),
+    ...state.entries.map((e) => String(e.date || '').slice(0, 7)),
+  ].filter((m) => /^\d{4}-\d{2}$/.test(m)))].sort((a, b) => b.localeCompare(a));
+  if (mktPagesPreset === 'monthly' && !mktPagesMonth) {
+    mktPagesMonth = mpMonthOptions[0] || normalizeDateString(new Date()).slice(0, 7);
+  }
+  const mpToday = normalizeDateString(new Date());
+  let mpFrom;
+  let mpTo;
+  if (mktPagesPreset === 'today') {
+    mpFrom = mpTo = mpToday;
+  } else if (mktPagesPreset === 'yesterday') {
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    mpFrom = mpTo = normalizeDateString(y);
+  } else if (mktPagesPreset === 'custom') {
+    mpFrom = mktPagesFrom || '0000-01-01';
+    mpTo = mktPagesTo || '9999-12-31';
+  } else {
+    const m = mktPagesMonth || mpToday.slice(0, 7);
+    const [yy, mm] = m.split('-').map(Number);
+    mpFrom = `${m}-01`;
+    mpTo = normalizeDateString(new Date(yy, mm, 0)); // last day of the month
+  }
+  const mpPageSel = mktPagesPage || 'all';
+  const mpOrderCounts = {};
+  (DB.sheetRecordsForReport || []).forEach((o) => {
+    const d = String(o.date || '');
+    if (d < mpFrom || d > mpTo) return;
     const pg = o.sourceSheet || 'Sheets';
-    mktPageOrderCounts[pg] = (mktPageOrderCounts[pg] || 0) + 1;
+    if (mpPageSel !== 'all' && pg !== mpPageSel) return;
+    mpOrderCounts[pg] = (mpOrderCounts[pg] || 0) + 1;
   });
-  const mktSpendByPage = {};
-  byPage.forEach((r) => { mktSpendByPage[r.page] = r.spend; });
-  const mktPagesRows = [...new Set([...getPosSourceOptions(), ...Object.keys(mktSpendByPage)])]
+  const mpSpendByPage = {};
+  state.entries.forEach((e) => {
+    const d = String(e.date || '');
+    if (d < mpFrom || d > mpTo) return;
+    const pg = e.page || '';
+    if (!pg || (mpPageSel !== 'all' && pg !== mpPageSel)) return;
+    mpSpendByPage[pg] = (mpSpendByPage[pg] || 0) + Number(e.spend || 0);
+  });
+  const mpPageUniverse = mpPageSel !== 'all'
+    ? [mpPageSel]
+    : [...new Set([...getPosSourceOptions(), ...Object.keys(mpSpendByPage)])];
+  const mktPagesRows = mpPageUniverse
     .filter(Boolean)
-    .map((page) => ({ page, orders: mktPageOrderCounts[page] || 0, spend: mktSpendByPage[page] || 0 }))
+    .map((page) => ({ page, orders: mpOrderCounts[page] || 0, spend: mpSpendByPage[page] || 0 }))
     .sort((a, b) => b.orders - a.orders || b.spend - a.spend);
   const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
   const monthSpendTarget = Number(state.targets.spend || 0) * 31;
@@ -6561,9 +6605,40 @@ function renderMarketingCenter() {
         </div>
       </div>
     </div>` : ''}
+    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
+      <div class="rts-filter-bar">
+        <div class="rts-filter-group">
+          <div class="rts-filter-label">Time Filter</div>
+          <div class="table-filters">
+            ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']]
+              .map(([v, l]) => `<button class="filter-pill ${mktPagesPreset === v ? 'active' : ''}" onclick="setMktPagesPreset('${v}')">${l}</button>`).join('')}
+          </div>
+        </div>
+        <div class="rts-filter-group ${mktPagesPreset === 'monthly' ? '' : 'hidden'}">
+          <div class="rts-filter-label">Month</div>
+          <select class="form-control" id="mkt-pages-month" onchange="setMktPagesMonth()" style="min-width:160px;height:34px;font-size:13px;">
+            ${mpMonthOptions.length
+              ? mpMonthOptions.map((m) => `<option value="${m}"${mktPagesMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
+              : `<option value="${escapeHtml(mktPagesMonth)}">${escapeHtml(monthLabel(mktPagesMonth))}</option>`}
+          </select>
+        </div>
+        <div class="rts-filter-group rts-sheet-filter">
+          <label class="rts-filter-label" for="mkt-pages-page">Page Filter</label>
+          <select class="form-control" id="mkt-pages-page" onchange="setMktPagesPageFilter()">
+            <option value="all">All Pages</option>
+            ${getPosSourceOptions().map((p) => `<option value="${escapeHtml(p)}"${mpPageSel === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="rts-custom-range ${mktPagesPreset === 'custom' ? '' : 'hidden'}">
+          <input type="date" class="form-control" id="mkt-pages-from" value="${mktPagesFrom}">
+          <input type="date" class="form-control" id="mkt-pages-to" value="${mktPagesTo}">
+          <button class="btn btn-secondary btn-sm" onclick="applyMktPagesCustomRange()">Apply</button>
+        </div>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Active Pages</div><div class="card-subtitle">Total orders and ad spend per page for ${filterFrom} — ${filterTo}.${marketingManager ? ' Use “Add Ad Spend” to log a daily entry.' : ''}</div></div>
+        <div><div class="card-title">Active Pages</div><div class="card-subtitle">Total orders and ad spend per page for ${mpFrom} — ${mpTo}.${marketingManager ? ' Use “Add Ad Spend” to log a daily entry.' : ''}</div></div>
       </div>
       <div class="table-container">
         <table class="data-table">
@@ -13598,6 +13673,31 @@ function openMarketingEntryModal() {
 
 function closeMarketingEntryModal() {
   closeModal('mkt-entry-modal');
+}
+
+// Pages-tab filter handlers (Today / Yesterday / Monthly / Custom + Month + Page).
+function setMktPagesPreset(preset) {
+  mktPagesPreset = preset;
+  lastMarketingTab = 'mkt-pages';
+  navigateTo('marketing-center');
+}
+function setMktPagesMonth() {
+  mktPagesMonth = document.getElementById('mkt-pages-month')?.value || '';
+  mktPagesPreset = 'monthly';
+  lastMarketingTab = 'mkt-pages';
+  navigateTo('marketing-center');
+}
+function setMktPagesPageFilter() {
+  mktPagesPage = document.getElementById('mkt-pages-page')?.value || 'all';
+  lastMarketingTab = 'mkt-pages';
+  navigateTo('marketing-center');
+}
+function applyMktPagesCustomRange() {
+  mktPagesFrom = document.getElementById('mkt-pages-from')?.value || '';
+  mktPagesTo = document.getElementById('mkt-pages-to')?.value || '';
+  mktPagesPreset = 'custom';
+  lastMarketingTab = 'mkt-pages';
+  navigateTo('marketing-center');
 }
 
 // Pages tab: quick "Add Ad Spend" for a single page → one daily marketing entry.
