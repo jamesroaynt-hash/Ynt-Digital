@@ -9333,8 +9333,8 @@ function refreshSidebarAccess() {
   });
 
   const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr'].some((page) => accessiblePages.has(page));
-  const hasRmo = ['rmo-management'].some((page) => accessiblePages.has(page));
-  const hasOperations = ['daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasRmo = ['rmo-management', 'odz-finder', 'calculators'].some((page) => accessiblePages.has(page));
+  const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
