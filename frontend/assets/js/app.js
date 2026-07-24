@@ -6465,12 +6465,16 @@ function renderMarketingCenter() {
   }
   const mpPageSel = mktPagesPage || 'all';
   const mpOrderCounts = {};
+  const mpSalesByPage = {}; // gross delivered sales (COD) per page, for ROAS
   (DB.sheetRecordsForReport || []).forEach((o) => {
     const d = String(o.date || '');
     if (d < mpFrom || d > mpTo) return;
     const pg = o.sourceSheet || 'Sheets';
     if (mpPageSel !== 'all' && pg !== mpPageSel) return;
     mpOrderCounts[pg] = (mpOrderCounts[pg] || 0) + 1;
+    if (getOrderStatusKey(o.status) === 'delivered') {
+      mpSalesByPage[pg] = (mpSalesByPage[pg] || 0) + Number(o.cod || 0);
+    }
   });
   const mpSpendByPage = {};
   state.entries.forEach((e) => {
@@ -6485,7 +6489,12 @@ function renderMarketingCenter() {
     : [...new Set([...getPosSourceOptions(), ...Object.keys(mpSpendByPage)])];
   const mktPagesRows = mpPageUniverse
     .filter(Boolean)
-    .map((page) => ({ page, orders: mpOrderCounts[page] || 0, spend: mpSpendByPage[page] || 0 }))
+    .map((page) => {
+      const orders = mpOrderCounts[page] || 0;
+      const spend = mpSpendByPage[page] || 0;
+      const sales = mpSalesByPage[page] || 0;
+      return { page, orders, spend, sales, roas: spend ? sales / spend : 0 };
+    })
     .sort((a, b) => b.orders - a.orders || b.spend - a.spend);
   const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
   const monthSpendTarget = Number(state.targets.spend || 0) * 31;
@@ -6644,24 +6653,33 @@ function renderMarketingCenter() {
         <table class="data-table">
           <thead><tr>
             <th>Page</th>
-            <th style="text-align:right;">Total Orders</th>
-            <th style="text-align:right;">Total Ad Spend</th>
-            ${marketingManager ? '<th></th>' : ''}
+            <th style="text-align:center;">Total Orders</th>
+            <th style="text-align:center;">Total Ad Spend</th>
+            <th style="text-align:center;">ROAS</th>
+            ${marketingManager ? '<th style="text-align:center;"></th>' : ''}
           </tr></thead>
           <tbody>
             ${mktPagesRows.length ? mktPagesRows.map((r) => `<tr>
               <td><strong>${escapeHtml(r.page)}</strong></td>
-              <td style="text-align:right;">${r.orders.toLocaleString()}</td>
-              <td style="text-align:right;">${marketingMoney(r.spend)}</td>
-              ${marketingManager ? `<td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(r.page)}">+ Add Ad Spend</button></td>` : ''}
-            </tr>`).join('') : `<tr><td colspan="${marketingManager ? 4 : 3}" style="text-align:center;color:var(--text-muted);padding:20px;">No active pages in this range.</td></tr>`}
+              <td style="text-align:center;">${r.orders.toLocaleString()}</td>
+              <td style="text-align:center;">${marketingMoney(r.spend)}</td>
+              <td style="text-align:center;">${r.spend ? `<span class="badge ${marketingRoasClass(r.roas)}">${marketingRoas(r.roas)}</span>` : '<span style="color:var(--text-muted);">—</span>'}</td>
+              ${marketingManager ? `<td style="text-align:center;"><button class="btn btn-primary btn-sm" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(r.page)}">+ Add Ad Spend</button></td>` : ''}
+            </tr>`).join('') : `<tr><td colspan="${marketingManager ? 5 : 4}" style="text-align:center;color:var(--text-muted);padding:20px;">No active pages in this range.</td></tr>`}
           </tbody>
-          ${mktPagesRows.length ? `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);">
+          ${mktPagesRows.length ? (() => {
+            const tOrders = mktPagesRows.reduce((s, r) => s + r.orders, 0);
+            const tSpend = mktPagesRows.reduce((s, r) => s + r.spend, 0);
+            const tSales = mktPagesRows.reduce((s, r) => s + r.sales, 0);
+            const tRoas = tSpend ? tSales / tSpend : 0;
+            return `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);">
             <td>Total</td>
-            <td style="text-align:right;">${mktPagesRows.reduce((s, r) => s + r.orders, 0).toLocaleString()}</td>
-            <td style="text-align:right;">${marketingMoney(mktPagesRows.reduce((s, r) => s + r.spend, 0))}</td>
+            <td style="text-align:center;">${tOrders.toLocaleString()}</td>
+            <td style="text-align:center;">${marketingMoney(tSpend)}</td>
+            <td style="text-align:center;">${tSpend ? `<span class="badge ${marketingRoasClass(tRoas)}">${marketingRoas(tRoas)}</span>` : '—'}</td>
             ${marketingManager ? '<td></td>' : ''}
-          </tr></tfoot>` : ''}
+          </tr></tfoot>`;
+          })() : ''}
         </table>
       </div>
     </div>
