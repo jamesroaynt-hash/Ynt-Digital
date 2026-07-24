@@ -6570,14 +6570,14 @@ function renderMarketingCenter() {
 
   ${(() => {
     const mktTabs = [
-      ['mkt-entries', 'Daily Entry', true],
       ['mkt-pages', 'Pages', true],
+      ['mkt-entries', 'Daily Entry', true],
       ['mkt-team', 'Team', true],
       ['mkt-standup', 'Daily Standup', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
     ];
     const validIds = mktTabs.filter(([, , show]) => show).map(([id]) => id);
-    if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-entries';
+    if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-pages';
     return `<div class="tabs erp-tabs">${mktTabs.map(([id, label, show]) =>
       show ? `<button class="tab-btn${lastMarketingTab === id ? ' active' : ''}" onclick="switchTab(this,'${id}')">${label}</button>` : ''
     ).join('')}</div>`;
@@ -17357,7 +17357,7 @@ function switchTab(btn, contentId) {
   }
 }
 
-let lastMarketingTab = 'mkt-entries';
+let lastMarketingTab = 'mkt-pages';
 let marketingPosPage = 1;
 let marketingPosPerPage = 20;
 
