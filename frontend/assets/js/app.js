@@ -6430,6 +6430,19 @@ function renderMarketingCenter() {
   const posRtsRate = posRtsBase ? (posCounts.returned + posCounts.returning) / posRtsBase : 0;
   const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
   const byDay = getMarketingDailyTotals(entries);
+  // Pages tab: total orders (from live POS/sheet records) + total ad spend
+  // (from manual entries), per active page, within the current time filter.
+  const mktPageOrderCounts = {};
+  sheetOrdersInRange.forEach((o) => {
+    const pg = o.sourceSheet || 'Sheets';
+    mktPageOrderCounts[pg] = (mktPageOrderCounts[pg] || 0) + 1;
+  });
+  const mktSpendByPage = {};
+  byPage.forEach((r) => { mktSpendByPage[r.page] = r.spend; });
+  const mktPagesRows = [...new Set([...getPosSourceOptions(), ...Object.keys(mktSpendByPage)])]
+    .filter(Boolean)
+    .map((page) => ({ page, orders: mktPageOrderCounts[page] || 0, spend: mktSpendByPage[page] || 0 }))
+    .sort((a, b) => b.orders - a.orders || b.spend - a.spend);
   const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
   const monthSpendTarget = Number(state.targets.spend || 0) * 31;
   const creativeMonth = state.creatives.filter((item) => String(item.date || '').startsWith(marketingMonth()));
@@ -6514,6 +6527,7 @@ function renderMarketingCenter() {
   ${(() => {
     const mktTabs = [
       ['mkt-entries', 'Daily Entry', true],
+      ['mkt-pages', 'Pages', true],
       ['mkt-team', 'Team', true],
       ['mkt-standup', 'Daily Standup', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
@@ -6524,6 +6538,59 @@ function renderMarketingCenter() {
       show ? `<button class="tab-btn${lastMarketingTab === id ? ' active' : ''}" onclick="switchTab(this,'${id}')">${label}</button>` : ''
     ).join('')}</div>`;
   })()}
+
+  <div id="mkt-pages" class="tab-content${lastMarketingTab === 'mkt-pages' ? ' active' : ''}">
+    ${marketingManager ? `<div class="modal-overlay" id="page-adspend-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Add Ad Spend</div>
+          <button class="modal-close" onclick="closeModal('page-adspend-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group"><label class="form-label">Page</label>
+            <input class="form-control" id="page-adspend-page" readonly style="opacity:.7;"></div>
+          <div class="form-group" style="max-width:240px;"><label class="form-label">Date</label>
+            <input type="date" class="form-control" id="page-adspend-date" value="${normalizeDateString(new Date())}"></div>
+          <div class="form-group" style="max-width:240px;"><label class="form-label">Ad Spend (PHP)</label>
+            <input type="number" min="0" step="0.01" class="form-control" id="page-adspend-amount" placeholder="0.00"></div>
+          <div class="field-help">Saved as a daily entry — see the full history in the Daily Entry tab.</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeModal('page-adspend-modal')">Cancel</button>
+          <button class="btn btn-primary" onclick="submitPageAdspend()">Save</button>
+        </div>
+      </div>
+    </div>` : ''}
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">Active Pages</div><div class="card-subtitle">Total orders and ad spend per page for ${filterFrom} — ${filterTo}.${marketingManager ? ' Use “Add Ad Spend” to log a daily entry.' : ''}</div></div>
+      </div>
+      <div class="table-container">
+        <table class="data-table">
+          <thead><tr>
+            <th>Page</th>
+            <th style="text-align:right;">Total Orders</th>
+            <th style="text-align:right;">Total Ad Spend</th>
+            ${marketingManager ? '<th></th>' : ''}
+          </tr></thead>
+          <tbody>
+            ${mktPagesRows.length ? mktPagesRows.map((r) => `<tr>
+              <td><strong>${escapeHtml(r.page)}</strong></td>
+              <td style="text-align:right;">${r.orders.toLocaleString()}</td>
+              <td style="text-align:right;">${marketingMoney(r.spend)}</td>
+              ${marketingManager ? `<td style="text-align:right;"><button class="btn btn-primary btn-sm" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(r.page)}">+ Add Ad Spend</button></td>` : ''}
+            </tr>`).join('') : `<tr><td colspan="${marketingManager ? 4 : 3}" style="text-align:center;color:var(--text-muted);padding:20px;">No active pages in this range.</td></tr>`}
+          </tbody>
+          ${mktPagesRows.length ? `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);">
+            <td>Total</td>
+            <td style="text-align:right;">${mktPagesRows.reduce((s, r) => s + r.orders, 0).toLocaleString()}</td>
+            <td style="text-align:right;">${marketingMoney(mktPagesRows.reduce((s, r) => s + r.spend, 0))}</td>
+            ${marketingManager ? '<td></td>' : ''}
+          </tr></tfoot>` : ''}
+        </table>
+      </div>
+    </div>
+  </div>
 
   <div id="mkt-entries" class="tab-content${lastMarketingTab === 'mkt-entries' ? ' active' : ''}">
     ${marketingManager ? `<div class="modal-overlay" id="mkt-entry-modal">
@@ -13531,6 +13598,49 @@ function openMarketingEntryModal() {
 
 function closeMarketingEntryModal() {
   closeModal('mkt-entry-modal');
+}
+
+// Pages tab: quick "Add Ad Spend" for a single page → one daily marketing entry.
+function openPageAdspendModal(page) {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can add entries.');
+    return;
+  }
+  const p = document.getElementById('page-adspend-page'); if (p) p.value = page || '';
+  const d = document.getElementById('page-adspend-date'); if (d) d.value = normalizeDateString(new Date());
+  const a = document.getElementById('page-adspend-amount'); if (a) a.value = '';
+  openModal('page-adspend-modal');
+  document.getElementById('page-adspend-amount')?.focus();
+}
+
+async function submitPageAdspend() {
+  if (!canManageMarketing()) {
+    showToast('warning', 'TL only', 'Only Sales and Marketing TL can add entries.');
+    return;
+  }
+  const page = document.getElementById('page-adspend-page')?.value || '';
+  const date = document.getElementById('page-adspend-date')?.value || normalizeDateString(new Date());
+  const spend = Math.max(0, Number(document.getElementById('page-adspend-amount')?.value || 0));
+  if (!page) { showToast('error', 'Page required', 'No page selected.'); return; }
+  if (spend <= 0) { showToast('error', 'Enter ad spend', 'Ad spend must be greater than 0.'); return; }
+  const state = getMarketingState();
+  const configured = (state.pages || []).find((p) => p.name === page);
+  const teamMember = (state.team || []).find((t) => getMemberPages(t).includes(page));
+  const owner = App.user?.name || App.user?.username || configured?.owner || teamMember?.name || '';
+  try {
+    await authorizedJsonRequest('/marketing/entries', {
+      method: 'POST',
+      body: JSON.stringify({ date, page, product: configured?.product || '', owner, spend, sales: 0, orders: 0, rts: 0 }),
+    });
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save ad spend.');
+    return;
+  }
+  await loadMarketingEntries();
+  showToast('success', 'Ad spend logged', `${page}: ${marketingMoney(spend)} on ${date}`);
+  closeModal('page-adspend-modal');
+  lastMarketingTab = 'mkt-pages';
+  navigateTo('marketing-center');
 }
 
 function editMarketingEntry(id) {
