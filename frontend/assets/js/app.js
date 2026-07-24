@@ -6562,12 +6562,12 @@ function renderMarketingCenter() {
     ${marketingManager ? `<div class="modal-overlay" id="page-adspend-modal">
       <div class="modal">
         <div class="modal-header">
-          <div class="modal-title">Add Ad Spend</div>
+          <div class="modal-title" style="flex:1;text-align:center;">AD SPEND</div>
           <button class="modal-close" onclick="closeModal('page-adspend-modal')">×</button>
         </div>
         <div class="modal-body">
-          <div class="form-group"><label class="form-label">Page</label>
-            <input class="form-control" id="page-adspend-page" readonly style="opacity:.7;"></div>
+          <div class="form-group"><label class="form-label" style="text-align:center;display:block;">Page</label>
+            <input class="form-control" id="page-adspend-page" readonly style="opacity:.7;text-align:center;"></div>
           <div style="display:flex;gap:12px;align-items:flex-end;">
             <div class="form-group" style="flex:1;margin-bottom:0;"><label class="form-label">Date</label>
               <input type="date" class="form-control" id="page-adspend-date" value="${normalizeDateString(new Date())}" style="text-align:center;"></div>
