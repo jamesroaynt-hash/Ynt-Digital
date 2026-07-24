@@ -6570,9 +6570,9 @@ function renderMarketingCenter() {
             <input class="form-control" id="page-adspend-page" readonly style="opacity:.7;"></div>
           <div style="display:flex;gap:12px;align-items:flex-end;">
             <div class="form-group" style="flex:1;margin-bottom:0;"><label class="form-label">Date</label>
-              <input type="date" class="form-control" id="page-adspend-date" value="${normalizeDateString(new Date())}"></div>
+              <input type="date" class="form-control" id="page-adspend-date" value="${normalizeDateString(new Date())}" style="text-align:center;"></div>
             <div class="form-group" style="flex:1;margin-bottom:0;"><label class="form-label">Ad Spend (PHP)</label>
-              <input type="number" min="0" step="0.01" class="form-control" id="page-adspend-amount" placeholder="0.00" style="text-align:right;"></div>
+              <input type="number" min="0" step="0.01" class="form-control" id="page-adspend-amount" placeholder="0.00" style="text-align:center;"></div>
           </div>
           <div class="field-help">Saved as a daily entry — see the full history in the Daily Entry tab.</div>
         </div>
