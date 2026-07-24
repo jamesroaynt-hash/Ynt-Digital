@@ -6395,50 +6395,11 @@ let mktPagesTo = '';
 
 function renderMarketingCenter() {
   const now = new Date();
-  if (!window.mktFilter) {
-    const range = computePresetRange('monthly');
-    window.mktFilter = { preset: 'monthly', from: range.from, to: range.to, page: '' };
-  }
-  if (!window.mktFilter.preset) window.mktFilter.preset = 'custom';
-  const filterPreset = window.mktFilter.preset;
-  const filterFrom = window.mktFilter.from;
-  const filterTo = window.mktFilter.to;
-  const filterPage = window.mktFilter.page || '';
-
   const state = getMarketingState();
-  const entries = state.entries.filter((e) => {
-    const d = e.date || '';
-    if (d < filterFrom || d > filterTo) return false;
-    if (filterPage && e.page !== filterPage) return false;
-    return true;
-  });
-  const totals = aggregateMarketing(entries);
-  // Gross sales (delivered) and RTS rate from Sheet Records (google_orders) in date range
-  const sheetOrdersInRange = (DB.sheetRecordsForReport || []).filter((o) => {
-    const d = o.date || '';
-    if (d < filterFrom || d > filterTo) return false;
-    if (filterPage) {
-      const sheet = String(o.sourceSheet || '').toLowerCase();
-      const pg = filterPage.toLowerCase();
-      if (sheet !== pg && !sheet.includes(pg) && !pg.includes(sheet)) return false;
-    }
-    return true;
-  });
-  let deliveredSales = 0;
-  const posCounts = { delivered: 0, returned: 0, returning: 0 };
-  sheetOrdersInRange.forEach((o) => {
-    const key = getOrderStatusKey(o.status);
-    if (key === 'delivered') {
-      posCounts.delivered += 1;
-      deliveredSales += Number(o.cod || 0);
-    } else if (key === 'returned') posCounts.returned += 1;
-    else if (key === 'returning') posCounts.returning += 1;
-  });
-  const posRtsBase = posCounts.delivered + posCounts.returned + posCounts.returning;
-  const posRtsRate = posRtsBase ? (posCounts.returned + posCounts.returning) / posRtsBase : 0;
-  const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
-  const byDay = getMarketingDailyTotals(entries);
-  // ── Pages tab: uses its OWN filter (below), not the shared filter above. ──
+
+  // Single filter for the whole Marketing Center: the Pages-tab filter
+  // (Today / Yesterday / Monthly / Custom + Page). Drives the KPI cards and
+  // every tab's aggregates.
   const mpMonthOptions = [...new Set([
     ...(DB.sheetRecordsForReport || []).map((o) => String(o.date || '').slice(0, 7)),
     ...state.entries.map((e) => String(e.date || '').slice(0, 7)),
@@ -6464,6 +6425,35 @@ function renderMarketingCenter() {
     mpTo = normalizeDateString(new Date(yy, mm, 0)); // last day of the month
   }
   const mpPageSel = mktPagesPage || 'all';
+
+  const entries = state.entries.filter((e) => {
+    const d = e.date || '';
+    if (d < mpFrom || d > mpTo) return false;
+    if (mpPageSel !== 'all' && e.page !== mpPageSel) return false;
+    return true;
+  });
+  const totals = aggregateMarketing(entries);
+  // Gross sales (delivered) and RTS rate from Sheet Records in the selected range
+  const sheetOrdersInRange = (DB.sheetRecordsForReport || []).filter((o) => {
+    const d = o.date || '';
+    if (d < mpFrom || d > mpTo) return false;
+    if (mpPageSel !== 'all' && (o.sourceSheet || 'Sheets') !== mpPageSel) return false;
+    return true;
+  });
+  let deliveredSales = 0;
+  const posCounts = { delivered: 0, returned: 0, returning: 0 };
+  sheetOrdersInRange.forEach((o) => {
+    const key = getOrderStatusKey(o.status);
+    if (key === 'delivered') {
+      posCounts.delivered += 1;
+      deliveredSales += Number(o.cod || 0);
+    } else if (key === 'returned') posCounts.returned += 1;
+    else if (key === 'returning') posCounts.returning += 1;
+  });
+  const posRtsBase = posCounts.delivered + posCounts.returned + posCounts.returning;
+  const posRtsRate = posRtsBase ? (posCounts.returned + posCounts.returning) / posRtsBase : 0;
+  const byPage = aggregateMarketingByPage(entries).sort((a, b) => b.sales - a.sales);
+  const byDay = getMarketingDailyTotals(entries);
   const mpOrderCounts = {};
   const mpSalesByPage = {}; // gross sales (COD) per page, same basis as ROAS Summary
   (DB.sheetRecordsForReport || []).forEach((o) => {
@@ -6543,32 +6533,6 @@ function renderMarketingCenter() {
         Export CSV
       </button>
       ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingTargetsModal()">Targets</button>' : ''}
-    </div>
-  </div>
-
-  <div class="mkt-filter-bar card" style="margin-bottom:16px;padding:16px 20px;">
-    <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
-      <div>
-        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
-            .map(([key,label]) => `<button type="button" class="filter-pill${filterPreset===key?' active':''}" onclick="setMarketingPreset('${key}')">${label}</button>`)
-            .join('')}
-        </div>
-        ${filterPreset === 'custom' ? `<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-          <input type="date" id="mkt-filter-from" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterFrom}">
-          <span style="color:var(--text-muted);font-size:13px;">to</span>
-          <input type="date" id="mkt-filter-to" class="form-control" style="width:148px;height:34px;font-size:13px;" value="${filterTo}">
-          <button class="btn btn-primary btn-sm" onclick="applyMarketingFilter()">Apply</button>
-        </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${filterFrom} — ${filterTo}</div>`}
-      </div>
-      <div>
-        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
-        <select id="mkt-filter-page" class="form-control" style="height:38px;font-size:13px;min-width:220px;" onchange="applyMarketingFilter()">
-          <option value="">All Pages</option>
-          ${getPosSourceOptions().map((p) => `<option value="${escapeHtml(p)}"${filterPage === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
-        </select>
-      </div>
     </div>
   </div>
 
