@@ -9362,9 +9362,9 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr', 'inventory'].some((page) => accessiblePages.has(page));
+  const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr'].some((page) => accessiblePages.has(page));
   const hasRmo = ['rmo-management'].some((page) => accessiblePages.has(page));
-  const hasOperations = ['daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning'].some((page) => accessiblePages.has(page));
+  const hasOperations = ['daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
 
