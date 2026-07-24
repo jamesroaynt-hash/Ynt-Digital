@@ -6568,10 +6568,12 @@ function renderMarketingCenter() {
         <div class="modal-body">
           <div class="form-group"><label class="form-label">Page</label>
             <input class="form-control" id="page-adspend-page" readonly style="opacity:.7;"></div>
-          <div class="form-group" style="max-width:240px;"><label class="form-label">Date</label>
-            <input type="date" class="form-control" id="page-adspend-date" value="${normalizeDateString(new Date())}"></div>
-          <div class="form-group" style="max-width:240px;"><label class="form-label">Ad Spend (PHP)</label>
-            <input type="number" min="0" step="0.01" class="form-control" id="page-adspend-amount" placeholder="0.00"></div>
+          <div style="display:flex;gap:12px;align-items:flex-end;">
+            <div class="form-group" style="flex:1;margin-bottom:0;"><label class="form-label">Date</label>
+              <input type="date" class="form-control" id="page-adspend-date" value="${normalizeDateString(new Date())}"></div>
+            <div class="form-group" style="flex:1;margin-bottom:0;"><label class="form-label">Ad Spend (PHP)</label>
+              <input type="number" min="0" step="0.01" class="form-control" id="page-adspend-amount" placeholder="0.00" style="text-align:right;"></div>
+          </div>
           <div class="field-help">Saved as a daily entry — see the full history in the Daily Entry tab.</div>
         </div>
         <div class="modal-footer">
