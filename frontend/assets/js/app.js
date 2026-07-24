@@ -7073,12 +7073,16 @@ function renderOdzFinder() {
   </div>
 
   <div id="odz-panel-search" style="${odzTab === 'search' ? '' : 'display:none;'}">
-    <div style="max-width:640px;margin:8px auto 0;">
-      <div class="table-search" style="width:100%;">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-        <input type="text" placeholder="Search province, city, or barangay..." id="odz-quick-search" value="${escapeHtml(odzQuick.search)}" oninput="onOdzQuickSearch(this.value)">
+    <div style="max-width:720px;margin:0 auto;padding:24px 16px 0;">
+      <div style="text-align:center;margin-bottom:20px;">
+        <h2 style="font-size:22px;font-weight:700;color:var(--text-primary);margin:0 0 6px;">What are you looking for?</h2>
+        <p style="font-size:13px;color:var(--text-muted);margin:0;">Check if an area is an ODZ (out of delivery zone) or a Settlement / Pick-up area.</p>
       </div>
-      <div id="odz-quick-results" style="margin-top:16px;"></div>
+      <div style="position:relative;display:flex;align-items:center;background:var(--surface,#fff);border:1px solid var(--border);border-radius:999px;padding:0 22px;height:52px;box-shadow:0 4px 16px rgba(0,0,0,0.08);">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:18px;height:18px;color:var(--text-muted);flex-shrink:0;"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        <input type="text" placeholder="Search province, city, or barangay..." id="odz-quick-search" value="${escapeHtml(odzQuick.search)}" oninput="onOdzQuickSearch(this.value)" style="border:none;outline:none;background:transparent;flex:1;height:100%;font-size:15px;color:var(--text-primary);padding:0 12px;">
+      </div>
+      <div id="odz-quick-results" style="margin-top:20px;"></div>
     </div>
   </div>
 
@@ -7257,14 +7261,24 @@ function renderOdzQuickResults() {
     box.innerHTML = `<div class="empty-state" style="padding:24px;text-align:center;color:var(--text-muted);">No matching ODZ / pick-up area for “${escapeHtml(term)}”.</div>`;
     return;
   }
-  box.innerHTML = odzQuick.results.map((row) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;background:var(--surface);">
-      <div style="min-width:0;">
-        <div style="font-weight:600;color:var(--text-primary);">${escapeHtml([row.brgy, row.city].filter(Boolean).join(', ') || row.city || '—')}</div>
-        <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(row.province || '')}</div>
+  box.innerHTML = `
+    <div class="table-container" style="border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <div style="overflow-x:auto;">
+        <table class="data-table" style="width:100%;">
+          <thead><tr>
+            <th>Province</th><th>City</th><th>Brgy</th><th style="text-align:center;">Status</th>
+          </tr></thead>
+          <tbody>
+            ${odzQuick.results.map((row) => `<tr>
+              <td>${escapeHtml(row.province || '—')}</td>
+              <td>${escapeHtml(row.city || '—')}</td>
+              <td>${escapeHtml(row.brgy || '—')}</td>
+              <td style="text-align:center;">${odzStatusBadge(row.status)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
       </div>
-      ${odzStatusBadge(row.status)}
-    </div>`).join('');
+    </div>`;
 }
 
 function setOdzStatusFilter(status, btn) {
