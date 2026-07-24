@@ -2066,7 +2066,7 @@ async function loadGoogleSheetsTabsStatus() {
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>Status</th><th>Tab Name</th><th>Rows</th><th>Delivered</th><th>Last Synced</th><th>Latest Day</th><th>Configured?</th>
+          <th>Status</th><th>Tab Name</th><th>Rows</th><th>Delivered</th><th>Last Synced</th><th>Latest Day</th><th>Configured?</th><th></th>
         </tr></thead>
         <tbody>
           ${tabs.map((tab) => `<tr>
@@ -2077,12 +2077,19 @@ async function loadGoogleSheetsTabsStatus() {
             <td>${escapeHtml(fmt(tab.last_updated_at))}</td>
             <td>${escapeHtml((tab.last_day || '').slice(0, 10) || '—')}</td>
             <td>${tab.configured ? '<span class="badge badge-success">yes</span>' : '<span class="badge badge-gray">auto-discovered</span>'}</td>
+            <td>${tab.name === '(unknown)' ? '' : `<button class="btn btn-secondary btn-sm" onclick="renamePageFromTabList(this.dataset.name)" data-name="${escapeHtml(tab.name)}">Rename</button>`}</td>
           </tr>`).join('')}
         </tbody>
       </table>`;
   } catch (error) {
     host.innerHTML = `<div class="alert alert-danger">Failed to load tab status: ${escapeHtml(error.message || error)}</div>`;
   }
+}
+
+// Rename a page straight from the Integrations "Tab Status" list. Reuses the
+// shared rename modal/endpoint and refreshes the tab list on success.
+function renamePageFromTabList(name) {
+  showRenameSourceModal(name, loadGoogleSheetsTabsStatus);
 }
 
 function getPancakePosPublicApiBase() {
@@ -2379,6 +2386,7 @@ function renderApiConnections() {
               <th onclick="setPosPagesSort('shop')">Shop <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('owner')">Owner <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('enabled')">Status <span class="pp-sort">⇅</span></th>
+              <th onclick="setPosPagesSort('syncMode')">Sync Mode <span class="pp-sort">⇅</span></th>
               <th onclick="setPosPagesSort('lastSync')">Last Sync <span class="pp-sort">⇅</span></th>
               <th>Action</th>
             </tr>
@@ -15411,6 +15419,7 @@ function getPosPagesRows() {
     shopId: c.shopId || c.shop_id || '',
     owner: c.owner || '—',
     enabled: c.enabled !== false,
+    syncMode: c.syncMode || c.sync_mode || 'pull_only',
     lastSync: c.lastSyncedAt || c.last_synced_at || c.lastSync || pos.lastCollectedAt || pos.lastSavedAt || null,
   }));
   if (posPagesStatusFilter === 'active') rows = rows.filter((r) => r.enabled);
@@ -15452,6 +15461,12 @@ function renderPancakePagesTable() {
             <span class="pos-status-dot"></span>${r.enabled ? 'Active' : 'Off'}
           </button>
         </td>
+        <td>
+          <select class="form-control form-control-sm" onclick="event.stopPropagation()" onchange="setPosPageSyncMode(event, '${escapeHtml(String(r.id))}', this.value)" title="Automatic pulls this page on the server interval; Pull only syncs on manual/cron.">
+            <option value="pull_only" ${r.syncMode === 'pull_only' ? 'selected' : ''}>Pull only</option>
+            <option value="automatic" ${r.syncMode === 'automatic' ? 'selected' : ''}>Automatic</option>
+          </select>
+        </td>
         <td>${r.lastSync ? escapeHtml(new Date(r.lastSync).toLocaleString()) : '—'}</td>
         <td>
           <button class="btn btn-secondary btn-sm" type="button" data-pos-sync-id="${escapeHtml(r.id)}" onclick="syncPancakePosPage(event, '${escapeHtml(String(r.id))}')">Sync</button>
@@ -15459,7 +15474,7 @@ function renderPancakePagesTable() {
           <span class="pos-page-sync-status" data-pos-sync-status="${escapeHtml(r.id)}"></span>
         </td>
       </tr>`).join('')
-    : `<tr><td colspan="6" class="pp-empty">${(posPagesStatusFilter !== 'all' || posPagesSearch) ? 'No pages match this filter.' : 'No pages yet. Click “Add New Page” to connect a shop.'}</td></tr>`;
+    : `<tr><td colspan="7" class="pp-empty">${(posPagesStatusFilter !== 'all' || posPagesSearch) ? 'No pages match this filter.' : 'No pages yet. Click “Add New Page” to connect a shop.'}</td></tr>`;
 
   // Status-tab counts + active state come from the full connection list, so they
   // stay correct regardless of the current search / status filter.
@@ -15550,6 +15565,26 @@ function togglePosPageEnabled(event, id) {
   syncPancakePosConfigToBackend(pos)
     .then(() => showToast('success', nextEnabled ? 'Page active' : 'Page turned off',
       `${conn.name || conn.shopName || 'Page'} will ${nextEnabled ? 'now sync' : 'no longer sync'}.`))
+    .catch(() => showToast('warning', 'Saved locally', 'Saved in the dashboard config; backend not reachable.'));
+}
+
+// Switch a page's sync_mode straight from the table row (no modal).
+// 'automatic' = pulled by the server interval sync; 'pull_only' = only on
+// manual/cron. Persists locally then pushes the config to the backend.
+function setPosPageSyncMode(event, id, value) {
+  if (event) event.stopPropagation();
+  const mode = value === 'automatic' ? 'automatic' : 'pull_only';
+  const state = getIntegrationState();
+  const pos = state.pancakePos;
+  const conns = Array.isArray(pos.connections) ? pos.connections : [];
+  const conn = conns.find((c) => String(c.id) === String(id));
+  if (!conn) return;
+  conn.syncMode = mode;
+  pos.lastSavedAt = new Date().toISOString();
+  saveIntegrationState(state);
+  syncPancakePosConfigToBackend(pos)
+    .then(() => showToast('success', 'Sync mode updated',
+      `${conn.name || conn.shopName || 'Page'} set to ${mode === 'automatic' ? 'Automatic' : 'Pull only'}.`))
     .catch(() => showToast('warning', 'Saved locally', 'Saved in the dashboard config; backend not reachable.'));
 }
 
@@ -16476,13 +16511,21 @@ function setSheetDatePreset(preset) {
   loadSheetRecords(1);
 }
 
-function showRenameSourceModal() {
-  const sel = document.getElementById('sheet-records-sheet-filter');
-  const current = sel?.value;
-  if (!current || current === 'all') {
-    showToast('warning', 'Select a page first', 'Choose a specific Page from the dropdown before renaming.');
+// Holds an optional callback to run after a successful rename (e.g. refresh the
+// Integrations tab list instead of the Sheet Records table).
+let renameSourceOnDone = null;
+
+function showRenameSourceModal(presetName, onDone) {
+  let current = presetName;
+  if (current === undefined) {
+    const sel = document.getElementById('sheet-records-sheet-filter');
+    current = sel?.value;
+  }
+  if (!current || current === 'all' || current === '(unknown)') {
+    showToast('warning', 'Select a page first', 'Choose a specific Page before renaming.');
     return;
   }
+  renameSourceOnDone = typeof onDone === 'function' ? onDone : null;
 
   let modal = document.getElementById('ynt-rename-source-modal');
   if (modal) modal.remove();
@@ -16522,12 +16565,21 @@ async function confirmRenameSource() {
       body: JSON.stringify({ old_name: oldName, new_name: newName }),
     });
     document.getElementById('ynt-rename-source-modal')?.remove();
-    const spendNote = result.spend_updated ? ` and ${result.spend_updated} ad-spend row${result.spend_updated !== 1 ? 's' : ''}` : '';
-    showToast('success', 'Source renamed', `${result.updated} record${result.updated !== 1 ? 's' : ''}${spendNote} updated from "${oldName}" to "${newName}".`);
-    // Reset dropdown and reload
-    const sel = document.getElementById('sheet-records-sheet-filter');
-    if (sel) { [...sel.options].forEach(o => { if (o.value === oldName) o.remove(); }); sel.value = 'all'; }
-    loadSheetRecords(1);
+    const orders = Number(result.pos_updated || 0) + Number(result.updated || 0);
+    const parts = [`${orders} order${orders !== 1 ? 's' : ''}`];
+    if (result.spend_updated) parts.push(`${result.spend_updated} ad-spend row${result.spend_updated !== 1 ? 's' : ''}`);
+    if (result.sku_updated) parts.push(`${result.sku_updated} SKU mapping${result.sku_updated !== 1 ? 's' : ''}`);
+    showToast('success', 'Page renamed', `${parts.join(', ')} updated from "${oldName}" to "${newName}".`);
+    // Run the caller-supplied refresh, or fall back to the Sheet Records view.
+    if (renameSourceOnDone) {
+      const cb = renameSourceOnDone;
+      renameSourceOnDone = null;
+      cb();
+    } else {
+      const sel = document.getElementById('sheet-records-sheet-filter');
+      if (sel) { [...sel.options].forEach(o => { if (o.value === oldName) o.remove(); }); sel.value = 'all'; }
+      loadSheetRecords(1);
+    }
   } catch (err) {
     showToast('error', 'Rename failed', err.message);
   }

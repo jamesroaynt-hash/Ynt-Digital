@@ -779,21 +779,40 @@ module.exports = function integrationRoutes(db) {
       }
       const from = old_name.trim();
       const to = new_name.trim();
-      // Rename the orders (source_sheet is the page identity for Sheet Records).
+      if (from === '(unknown)') {
+        return res.status(400).json({ error: 'The "(unknown)" bucket has no real page name to rename.' });
+      }
+      // pos_orders.page_name is the live page identity: it drives the Data
+      // Report, Sheet Records, staff stats and the Integrations tab list. This
+      // is the rename that actually matters for everything users see now.
+      const posResult = await db.prepare(
+        `UPDATE pos_orders SET page_name = ?, updated_at = datetime('now')
+         WHERE page_name = ?`
+      ).run(to, from);
+      // Legacy Google Sheets orders (source_sheet is the page identity there).
       const result = await db.prepare(
         `UPDATE google_orders SET source_sheet = ?, updated_at = datetime('now')
          WHERE source_sheet = ?`
       ).run(to, from);
       // Also move the ad-spend rows: Ad Spend ROAS joins orders to spend by
-      // page NAME (marketing_entries.page === google_orders.source_sheet), so a
-      // rename that touches only orders would orphan the spend under the old name.
+      // page NAME (marketing_entries.page === the page identity), so a rename
+      // that touches only orders would orphan the spend under the old name.
       const spendResult = await db.prepare(
         `UPDATE marketing_entries SET page = ?, updated_at = datetime('now')
          WHERE page = ?`
       ).run(to, from);
+      // RTS SKU-per-page mapping. page_name is unique here, so only move the
+      // row when the destination name doesn't already have a mapping (avoids a
+      // unique-constraint failure); otherwise keep the existing target mapping.
+      const skuResult = await db.prepare(
+        `UPDATE rts_page_sku SET page_name = ?, updated_at = datetime('now')
+         WHERE page_name = ? AND NOT EXISTS (SELECT 1 FROM rts_page_sku WHERE page_name = ?)`
+      ).run(to, from, to);
       res.json({
+        pos_updated: posResult.changes,
         updated: result.changes,
         spend_updated: spendResult.changes,
+        sku_updated: skuResult.changes,
         old_name: from,
         new_name: to,
       });
