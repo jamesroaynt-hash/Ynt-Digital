@@ -6465,14 +6465,16 @@ function renderMarketingCenter() {
   }
   const mpPageSel = mktPagesPage || 'all';
   const mpOrderCounts = {};
-  const mpSalesByPage = {}; // gross delivered sales (COD) per page, for ROAS
+  const mpSalesByPage = {}; // gross sales (COD) per page, same basis as ROAS Summary
   (DB.sheetRecordsForReport || []).forEach((o) => {
     const d = String(o.date || '');
     if (d < mpFrom || d > mpTo) return;
     const pg = o.sourceSheet || 'Sheets';
     if (mpPageSel !== 'all' && pg !== mpPageSel) return;
     mpOrderCounts[pg] = (mpOrderCounts[pg] || 0) + 1;
-    if (getOrderStatusKey(o.status) === 'delivered') {
+    // Gross sales / ROAS use the SAME "Orders Amount" basis as the ROAS Summary:
+    // COD across allowed statuses, excluding wait_print (Awaiting print).
+    if (o.status_name !== 'wait_print' && ADSPEND_ALLOWED_STATUSES.has(o.status)) {
       mpSalesByPage[pg] = (mpSalesByPage[pg] || 0) + Number(o.cod || 0);
     }
   });
