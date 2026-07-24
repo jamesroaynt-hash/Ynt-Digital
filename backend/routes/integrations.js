@@ -782,13 +782,40 @@ module.exports = function integrationRoutes(db) {
       if (from === '(unknown)') {
         return res.status(400).json({ error: 'The "(unknown)" bucket has no real page name to rename.' });
       }
-      // pos_orders.page_name is the live page identity: it drives the Data
-      // Report, Sheet Records, staff stats and the Integrations tab list. This
-      // is the rename that actually matters for everything users see now.
-      const posResult = await db.prepare(
-        `UPDATE pos_orders SET page_name = ?, updated_at = datetime('now')
-         WHERE page_name = ?`
-      ).run(to, from);
+      // A page's orders are labelled with its CONNECTION name, keyed by
+      // shop_id (pos_orders assigns page_name per shop_id from the connection).
+      // So the durable rename keys off shop_id, not the old text: this catches
+      // every variant spelling for the page (the cause of the "two entries"
+      // split), and — by renaming the connection too — makes every FUTURE sync
+      // use the new name so it can never re-split.
+      const shopRows = await db.prepare(
+        `SELECT DISTINCT shop_id FROM pos_orders
+         WHERE page_name = ? AND shop_id IS NOT NULL AND TRIM(shop_id) != ''`
+      ).all(from);
+      const shopIds = shopRows.map((r) => String(r.shop_id));
+
+      let posResult;
+      let connResult = { changes: 0 };
+      if (shopIds.length) {
+        const ph = shopIds.map(() => '?').join(',');
+        posResult = await db.prepare(
+          `UPDATE pos_orders SET page_name = ?, updated_at = datetime('now')
+           WHERE shop_id IN (${ph})`
+        ).run(to, ...shopIds);
+        // Rename the POS connection(s) too — page_id stores the shop_id — so the
+        // sync's source of truth matches and new orders keep the new name.
+        connResult = await db.prepare(
+          `UPDATE integration_settings SET name = ?, updated_at = datetime('now')
+           WHERE provider = 'pancake_pos' AND page_id IN (${ph})`
+        ).run(to, ...shopIds);
+        posSync.invalidateSavedConnectionsCache(); // drop 30s cache so sync sees new name now
+      } else {
+        // No POS rows for this name (e.g. legacy Google Sheets only) — plain rename.
+        posResult = await db.prepare(
+          `UPDATE pos_orders SET page_name = ?, updated_at = datetime('now')
+           WHERE page_name = ?`
+        ).run(to, from);
+      }
       // Legacy Google Sheets orders (source_sheet is the page identity there).
       const result = await db.prepare(
         `UPDATE google_orders SET source_sheet = ?, updated_at = datetime('now')
@@ -810,6 +837,7 @@ module.exports = function integrationRoutes(db) {
       ).run(to, from, to);
       res.json({
         pos_updated: posResult.changes,
+        connection_updated: connResult.changes,
         updated: result.changes,
         spend_updated: spendResult.changes,
         sku_updated: skuResult.changes,

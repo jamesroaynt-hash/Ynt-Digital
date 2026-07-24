@@ -3090,6 +3090,7 @@ module.exports = {
   getStatus,
   getPublicSetting,
   getSavedConnections,
+  invalidateSavedConnectionsCache,
   saveSetting,
   listPosUsers,
   listShopsFromApi,

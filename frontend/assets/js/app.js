@@ -15640,6 +15640,7 @@ function savePosPageFromModal() {
     notes: get('pancake-pos-notes'),
   };
   const idx = conns.findIndex((c) => c.id === id);
+  const prevName = idx >= 0 ? (conns[idx].name || conns[idx].shopName || '') : '';
   if (idx >= 0) conns[idx] = { ...conns[idx], ...page };
   else conns.push(page);
   pos.connections = conns;
@@ -15656,8 +15657,29 @@ function savePosPageFromModal() {
   closeModal('pos-page-modal');
   renderPancakePagesTable();
   const wasEditing = Boolean(editingPosPageId);
+  const renamed = wasEditing && prevName && prevName !== name;
   syncPancakePosConfigToBackend(pos)
-    .then(() => showToast('success', wasEditing ? 'Page updated' : 'Page added', `${name} was saved.`))
+    .then(async () => {
+      showToast('success', wasEditing ? 'Page updated' : 'Page added', `${name} was saved.`);
+      // Renaming the connection alone leaves already-synced orders under the old
+      // name (they'd show as a separate page). Backfill them so the page stays
+      // unified; the connection rename keeps future syncs on the new name.
+      if (renamed) {
+        try {
+          const result = await authorizedJsonRequest('/integrations/google-sheets/rename-source', {
+            method: 'PATCH',
+            body: JSON.stringify({ old_name: prevName, new_name: name }),
+          });
+          if (result.pos_updated) {
+            showToast('success', 'Past orders updated',
+              `${result.pos_updated} order${result.pos_updated !== 1 ? 's' : ''} moved from "${prevName}" to "${name}".`);
+          }
+          renderPancakePagesTable();
+        } catch (err) {
+          showToast('warning', 'Name saved, backfill pending', `Could not move past orders: ${err.message}`);
+        }
+      }
+    })
     .catch(() => showToast('warning', 'Saved locally', 'Saved in the dashboard config; backend not reachable.'));
   editingPosPageId = null;
 }
