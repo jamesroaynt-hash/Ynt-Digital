@@ -2797,6 +2797,24 @@ if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
         </div>
 
         <div class="int-panel" style="margin-top:16px;">
+          <div class="int-section-label">Per-page credentials</div>
+          <div class="int-status-copy" style="margin-bottom:10px;">
+            Give a page its own InfoTXT UserID, API Key and SIM. Pages left blank use the
+            gateway connection above. Tag messages stay shared across all pages.
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Page</th><th>UserID</th><th>API Key</th><th>SIM</th><th style="width:150px;"></th>
+                </tr>
+              </thead>
+              <tbody id="sms-pages-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="int-panel" style="margin-top:16px;">
           <div class="card-header" style="padding:0 0 12px;">
             <div>
               <div class="int-section-label" style="margin:0;">Tag → Message Rules</div>
@@ -15913,6 +15931,7 @@ async function loadSmsSettings() {
     }
     smsRules = Array.isArray(rulesResp.rules) ? rulesResp.rules : [];
     renderSmsRules();
+    loadSmsPages();
   } catch (e) {
     showToast('error', 'Could not load InfoTXT settings', e.message || 'Request failed.');
   }
@@ -16068,6 +16087,92 @@ async function sendSmsTest() {
   } catch (e) {
     if (resultEl) { resultEl.style.color = 'var(--danger)'; resultEl.textContent = `Failed: ${e.message}`; }
     showToast('error', 'Test failed', e.message || 'Request failed.');
+  }
+}
+
+// ─── Per-page InfoTXT credentials ──────────────────────────
+let smsPages = [];
+
+async function loadSmsPages() {
+  const body = document.getElementById('sms-pages-body');
+  if (!body) return;
+  try {
+    const data = await authorizedJsonRequest('/integrations/infotxt/pages');
+    smsPages = Array.isArray(data.pages) ? data.pages : [];
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" class="table-empty">Could not load pages: ${escapeHtml(e.message || 'request failed')}</td></tr>`;
+    return;
+  }
+  renderSmsPages();
+}
+
+function renderSmsPages() {
+  const body = document.getElementById('sms-pages-body');
+  if (!body) return;
+  if (!smsPages.length) {
+    body.innerHTML = '<tr><td colspan="5" class="table-empty">No POS connections yet — add one on the Pancake POS tab.</td></tr>';
+    return;
+  }
+  body.innerHTML = smsPages.map((p) => {
+    const id = escapeHtml(p.connection_id);
+    // Saved keys are never sent to the browser; a blank field means "keep it".
+    const keyPlaceholder = p.has_api_key ? 'Saved — blank keeps it' : 'Uses global key';
+    return `<tr>
+      <td>
+        <div>${escapeHtml(p.page_name)}</div>
+        <div class="int-status-copy">${p.has_override ? 'Own credentials' : 'Using global'}</div>
+      </td>
+      <td><input type="text" class="form-control mono-input" data-sms-page="${id}" data-field="user_id"
+                 value="${escapeHtml(p.user_id)}" placeholder="Uses global UserID"></td>
+      <td><input type="text" class="form-control mono-input" data-sms-page="${id}" data-field="api_key"
+                 value="" placeholder="${keyPlaceholder}"></td>
+      <td><input type="text" class="form-control mono-input" data-sms-page="${id}" data-field="sim"
+                 value="${escapeHtml(p.sim)}" placeholder="Default"></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-primary" type="button" onclick="saveSmsPage('${id}')">Save</button>
+        ${p.has_override ? `<button class="btn btn-sm btn-secondary" type="button" onclick="clearSmsPage('${id}')">Use global</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function readSmsPageFields(connectionId) {
+  const val = (field) => {
+    const el = document.querySelector(`[data-sms-page="${CSS.escape(connectionId)}"][data-field="${field}"]`);
+    return (el?.value || '').trim();
+  };
+  return { user_id: val('user_id'), api_key: val('api_key'), sim: val('sim') };
+}
+
+async function saveSmsPage(connectionId) {
+  const fields = readSmsPageFields(connectionId);
+  if (!fields.user_id) {
+    showToast('error', 'UserID required', 'Enter a UserID, or use "Use global" to fall back.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/integrations/infotxt/pages', {
+      method: 'PUT',
+      body: JSON.stringify({ connection_id: connectionId, ...fields }),
+    });
+    showToast('success', 'Saved', 'Page credentials updated.');
+    await loadSmsPages();
+  } catch (e) {
+    showToast('error', 'Could not save', e.message || 'Request failed.');
+  }
+}
+
+async function clearSmsPage(connectionId) {
+  if (!confirm('Remove this page’s own credentials? It will fall back to the global gateway connection.')) return;
+  try {
+    await authorizedJsonRequest('/integrations/infotxt/pages/delete', {
+      method: 'POST',
+      body: JSON.stringify({ connection_id: connectionId }),
+    });
+    showToast('success', 'Cleared', 'Page now uses the global credentials.');
+    await loadSmsPages();
+  } catch (e) {
+    showToast('error', 'Could not clear', e.message || 'Request failed.');
   }
 }
 

@@ -43,11 +43,39 @@ function boolToInt(value) {
 }
 
 // ─── Config ────────────────────────────────────────────────
-async function getConfigRow(db) {
+// Shape mirrors Pancake POS's own settings: one global row (connection_id = '')
+// holding the master switch and default endpoint, plus optional per-page rows
+// keyed by the POS connection id, each with their own UserID/ApiKey/SIM. A page
+// with no row of its own falls back to the global credentials.
+const POS_PROVIDER = 'pancake_pos';
+
+async function getConfigRow(db, connectionId = '') {
   return await db.prepare(
-    "SELECT * FROM integration_settings WHERE provider = ? AND connection_id = ''"
-  ).get(PROVIDER) || null;
+    'SELECT * FROM integration_settings WHERE provider = ? AND connection_id = ?'
+  ).get(PROVIDER, connectionId || '') || null;
 }
+
+// Map a POS shop id to its connection id. Pancake connection rows store the shop
+// id in page_id, so this is the reverse lookup. Cached briefly — it runs per
+// order per sync cycle. Returns null when the shop has no saved connection.
+const CONN_TTL_MS = 30_000;
+let connCache = { expiresAt: 0, map: null };
+
+async function connectionIdForShop(db, shopId) {
+  const shop = stringOrNull(shopId);
+  if (!shop) return null;
+  const now = Date.now();
+  if (!connCache.map || connCache.expiresAt <= now) {
+    const rows = await db.prepare(
+      "SELECT connection_id, page_id FROM integration_settings WHERE provider = ? AND connection_id != ''"
+    ).all(POS_PROVIDER);
+    const map = new Map();
+    for (const r of rows) if (r.page_id) map.set(String(r.page_id), r.connection_id);
+    connCache = { expiresAt: now + CONN_TTL_MS, map };
+  }
+  return connCache.map.get(shop) || null;
+}
+function invalidateConnCache() { connCache = { expiresAt: 0, map: null }; }
 
 async function getConfig(db) {
   const row = await getConfigRow(db);
@@ -61,16 +89,83 @@ async function getConfig(db) {
   };
 }
 
-// Internal: config plus the raw api_key, for the sender only.
-async function getConfigWithKey(db) {
-  const row = await getConfigRow(db);
+// Internal: config plus the raw api_key, for the sender only. When connectionId
+// is given, that page's credentials win; anything it leaves blank falls back to
+// the global row. `enabled` is always the global master switch — a per-page row
+// supplies credentials, it does not turn the integration on by itself.
+async function getConfigWithKey(db, connectionId = null) {
+  const global = await getConfigRow(db, '');
+  const page = connectionId ? await getConfigRow(db, connectionId) : null;
+  const pick = (field) => (page && page[field]) || global?.[field] || '';
   return {
-    enabled: Boolean(row?.enabled),
-    endpoint: row?.base_url || '',
-    user_id: row?.page_id || '',
-    sim: row?.name || '',
-    api_key: row?.api_key || '',
+    enabled: Boolean(global?.enabled),
+    endpoint: pick('base_url'),
+    user_id: pick('page_id'),
+    sim: pick('name'),
+    api_key: pick('api_key'),
+    // Which row actually supplied the credentials, for logging/debugging.
+    source: page && page.api_key ? connectionId : '',
   };
+}
+
+// ─── Per-page credentials ──────────────────────────────────
+// Driven by the POS connections, so every page is listed whether or not it has
+// an InfoTXT override — a page with no override shows blank and falls back.
+async function listPageConfigs(db) {
+  const rows = await db.prepare(`
+    SELECT p.connection_id, p.name AS page_name, p.page_id AS shop_id,
+           s.page_id AS user_id, s.name AS sim, s.api_key, s.notes
+    FROM integration_settings p
+    LEFT JOIN integration_settings s
+      ON s.provider = ? AND s.connection_id = p.connection_id
+    WHERE p.provider = ? AND p.connection_id != ''
+    ORDER BY p.name, p.connection_id
+  `).all(PROVIDER, POS_PROVIDER);
+  return rows.map((r) => ({
+    connection_id: r.connection_id,
+    page_name: r.page_name || r.connection_id,
+    shop_id: r.shop_id || null,
+    user_id: r.user_id || '',
+    sim: r.sim || '',
+    has_api_key: Boolean(r.api_key),
+    has_override: Boolean(r.api_key || r.user_id),
+    notes: r.notes || '',
+  }));
+}
+
+async function savePageConfig(db, payload = {}) {
+  const connectionId = stringOrNull(payload.connection_id);
+  if (!connectionId) throw new Error('connection_id is required');
+  const current = await getConfigRow(db, connectionId);
+  const userId = stringOrNull(payload.user_id) || current?.page_id || null;
+  const sim = payload.sim !== undefined ? stringOrNull(payload.sim) : (current?.name || null);
+  const notes = payload.notes !== undefined ? String(payload.notes || '') : (current?.notes || '');
+  // Blank api_key means "keep the saved one" — same convention as saveConfig.
+  const apiKey = stringOrNull(payload.api_key) || current?.api_key || null;
+
+  if (current) {
+    await db.prepare(`
+      UPDATE integration_settings
+      SET page_id = ?, name = ?, api_key = ?, notes = ?, updated_at = datetime('now')
+      WHERE provider = ? AND connection_id = ?
+    `).run(userId, sim, apiKey, notes, PROVIDER, connectionId);
+  } else {
+    await db.prepare(`
+      INSERT INTO integration_settings (provider, connection_id, page_id, name, enabled, api_key, sync_mode, notes)
+      VALUES (?, ?, ?, ?, 1, ?, 'push_only', ?)
+    `).run(PROVIDER, connectionId, userId, sim, apiKey, notes);
+  }
+  return { connection_id: connectionId, saved: true };
+}
+
+// Removing a page's row makes it fall back to the global credentials.
+async function deletePageConfig(db, payload = {}) {
+  const connectionId = stringOrNull(payload.connection_id);
+  if (!connectionId) throw new Error('connection_id is required');
+  await db.prepare(
+    "DELETE FROM integration_settings WHERE provider = ? AND connection_id = ? AND connection_id != ''"
+  ).run(PROVIDER, connectionId);
+  return { connection_id: connectionId, deleted: true };
 }
 
 async function saveConfig(db, payload = {}) {
@@ -204,8 +299,8 @@ function buildSendRequest({ endpoint, userId, apiKey, sim, mobile, message }) {
   return { url: url.toString(), options: { method: 'GET', signal: AbortSignal.timeout(15000) } };
 }
 
-async function sendSms(db, { number, message }) {
-  const cfg = await getConfigWithKey(db);
+async function sendSms(db, { number, message, connectionId = null }) {
+  const cfg = await getConfigWithKey(db, connectionId);
   if (!cfg.api_key || !cfg.user_id) {
     return { ok: false, status: 'skipped', error: 'InfoTXT UserID/ApiKey not configured' };
   }
@@ -334,9 +429,13 @@ async function maybeReconcile(db, { force = false } = {}) {
 }
 
 // Admin "send a test SMS" — bypasses rules/dedup.
-async function sendTest(db, { number, message }) {
+async function sendTest(db, { number, message, connection_id: connectionId = null }) {
   if (!stringOrNull(number)) throw new Error('number is required');
-  const result = await sendSms(db, { number, message: message || 'InfoTXT test message from YNT Dashboard.' });
+  const result = await sendSms(db, {
+    number,
+    message: message || 'InfoTXT test message from YNT Dashboard.',
+    connectionId: stringOrNull(connectionId),
+  });
   return result;
 }
 
@@ -347,6 +446,9 @@ async function sendTest(db, { number, message }) {
 async function maybeSendForOrder(db, ctx = {}) {
   const cfg = await getConfigWithKey(db);
   if (!cfg.enabled) return;
+  // Credentials are resolved per page: this order's shop → POS connection →
+  // that page's InfoTXT row, falling back to the global one.
+  const connectionId = ctx.connectionId || await connectionIdForShop(db, ctx.shopId);
   const phone = stringOrNull(ctx.customerPhone);
   if (!phone) return;
   const tagText = String(ctx.tagText || '');
@@ -379,7 +481,7 @@ async function maybeSendForOrder(db, ctx = {}) {
       tag: rule.tag,
     });
 
-    const result = await sendSms(db, { number: phone, message });
+    const result = await sendSms(db, { number: phone, message, connectionId });
 
     // smsid is kept so reconcileSendLog can later resolve queued → delivered/failed.
     await db.prepare(`
@@ -394,6 +496,10 @@ module.exports = {
   PROVIDER,
   getConfig,
   saveConfig,
+  listPageConfigs,
+  savePageConfig,
+  deletePageConfig,
+  invalidateConnCache,
   listRules,
   upsertRule,
   deleteRule,

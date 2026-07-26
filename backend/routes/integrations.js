@@ -604,6 +604,32 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Per-page InfoTXT credentials (mirrors Pancake's Integrated SMS panel).
+  // A page with no row here falls back to the global credentials.
+  router.get('/infotxt/pages', async (req, res) => {
+    try {
+      res.json({ pages: await infotxtSms.listPageConfigs(db) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.put('/infotxt/pages', async (req, res) => {
+    try {
+      res.json(await infotxtSms.savePageConfig(db, req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/pages/delete', async (req, res) => {
+    try {
+      res.json(await infotxtSms.deletePageConfig(db, req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   // Delivery status for a single smsid (test panel "Check delivery").
   router.post('/infotxt/status', async (req, res) => {
     try {
