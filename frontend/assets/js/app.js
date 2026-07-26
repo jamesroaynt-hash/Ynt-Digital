@@ -16055,12 +16055,45 @@ async function sendSmsTest() {
     if (resultEl) {
       resultEl.style.color = ok ? 'var(--success)' : 'var(--danger)';
       const head = ok ? okMsg : `Failed: ${data.error || data.status || 'unknown'}`;
-      resultEl.innerHTML = `${escapeHtml(head)}${data.raw ? `<br><span style="color:var(--text-muted);font-size:12px;">Gateway response: <code>${escapeHtml(String(data.raw))}</code></span>` : ''}`;
+      // A "sent" here only means InfoTXT queued it — offer a status.php lookup so
+      // the tester can confirm the handset actually received it.
+      const checkBtn = (ok && data.smsid)
+        ? `<br><button class="btn btn-secondary" type="button" style="margin-top:8px;"
+             onclick="checkSmsDelivery('${escapeHtml(String(data.smsid))}')">Check delivery</button>
+           <div id="sms-test-delivery" style="margin-top:6px;"></div>`
+        : '';
+      resultEl.innerHTML = `${escapeHtml(head)}${data.raw ? `<br><span style="color:var(--text-muted);font-size:12px;">Gateway response: <code>${escapeHtml(String(data.raw))}</code></span>` : ''}${checkBtn}`;
     }
     showToast(ok ? 'success' : 'error', ok ? 'Test sent' : 'Test failed', ok ? okMsg : (data.error || 'Send failed.'));
   } catch (e) {
     if (resultEl) { resultEl.style.color = 'var(--danger)'; resultEl.textContent = `Failed: ${e.message}`; }
     showToast('error', 'Test failed', e.message || 'Request failed.');
+  }
+}
+
+// Ask InfoTXT what actually happened to a queued test message (status.php).
+// "queued" is a legitimate interim answer — the SIM may not have dispatched yet.
+async function checkSmsDelivery(smsid) {
+  const el = document.getElementById('sms-test-delivery');
+  if (el) { el.style.color = 'var(--text-muted)'; el.textContent = 'Checking…'; }
+  try {
+    const data = await authorizedJsonRequest('/integrations/infotxt/status', {
+      method: 'POST',
+      body: JSON.stringify({ smsid }),
+    });
+    if (!el) return;
+    if (!data.ok) {
+      el.style.color = 'var(--danger)';
+      el.textContent = `Could not check: ${data.error || 'unknown error'}`;
+      return;
+    }
+    const colors = { delivered: 'var(--success)', failed: 'var(--danger)', queued: 'var(--warning)' };
+    el.style.color = colors[data.status] || 'var(--text-muted)';
+    el.textContent = data.status === 'queued'
+      ? 'Still queued at the gateway — check again in a moment.'
+      : `Delivery status: ${data.status}`;
+  } catch (e) {
+    if (el) { el.style.color = 'var(--danger)'; el.textContent = `Check failed: ${e.message}`; }
   }
 }
 

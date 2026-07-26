@@ -18,6 +18,19 @@
 
 const PROVIDER = 'infotxt';
 const DEFAULT_ENDPOINT = 'https://api.myinfotxt.com/v2/send.php';
+const DEFAULT_STATUS_ENDPOINT = 'https://api.myinfotxt.com/v2/status.php';
+
+// status.php lives beside send.php, so derive it from whatever send endpoint is
+// configured rather than storing a second URL the admin has to keep in sync.
+function statusEndpointFrom(sendEndpoint) {
+  const s = String(sendEndpoint || '').trim();
+  if (!s) return DEFAULT_STATUS_ENDPOINT;
+  return s.includes('send.php') ? s.replace('send.php', 'status.php') : DEFAULT_STATUS_ENDPOINT;
+}
+
+// status.php status codes (API guide v2.2 p.2) → our sms_send_log.status values.
+// Note these are a DIFFERENT scale from send.php's "00"/"01"… codes.
+const GATEWAY_STATUS = { 0: 'queued', 1: 'delivered', 2: 'failed' };
 
 function stringOrNull(value) {
   if (value === undefined || value === null) return null;
@@ -127,7 +140,7 @@ async function deleteRule(db, payload = {}) {
 async function listSendLog(db, { limit = 100 } = {}) {
   const lim = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
   return await db.prepare(
-    `SELECT shop_id, external_id, tag, phone, message, status, error, sent_at
+    `SELECT shop_id, external_id, tag, phone, message, status, error, smsid, checked_at, sent_at
      FROM sms_send_log ORDER BY sent_at DESC, id DESC LIMIT ?`
   ).all(lim);
 }
@@ -238,6 +251,88 @@ async function sendSms(db, { number, message }) {
   }
 }
 
+// ─── Delivery reconciliation (status.php) ──────────────────
+// send.php returning "00" only means InfoTXT QUEUED the message. status.php
+// resolves what actually happened, so a queued-then-failed SMS stops being
+// recorded as a success. API guide v2.2 p.2.
+async function fetchGatewayStatus(endpoint, smsid) {
+  const url = new URL(statusEndpointFrom(endpoint));
+  url.searchParams.set('smsid', smsid);
+  const res = await fetch(url.toString(), { method: 'GET', signal: AbortSignal.timeout(15000) });
+  const body = await res.text().catch(() => '');
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${body.slice(0, 200)}` };
+  let json = null;
+  try { json = JSON.parse(body); } catch { /* non-JSON response */ }
+  if (!json) return { ok: false, error: body.slice(0, 200) || 'empty response' };
+  const code = pickKey(json, 'status');
+  // Unknown codes are left alone rather than guessed at — a future gateway
+  // status must not silently mark a delivered message as failed.
+  const mapped = GATEWAY_STATUS[parseInt(code, 10)];
+  if (!mapped) return { ok: false, error: `unrecognised gateway status ${code ?? 'none'}` };
+  return { ok: true, status: mapped };
+}
+
+// Sweep unresolved rows and update them in place. Best-effort per row: one bad
+// smsid must not abort the batch. Returns a per-status tally.
+async function reconcileSendLog(db, { limit = 100 } = {}) {
+  const cfg = await getConfigWithKey(db);
+  const lim = Math.min(500, Math.max(1, parseInt(limit, 10) || 100));
+
+  // Only rows we sent and have not yet resolved. 'sent' is the historical value
+  // written at queue time; 'queued' is what a previous sweep left behind.
+  const rows = await db.prepare(`
+    SELECT id, smsid FROM sms_send_log
+    WHERE smsid IS NOT NULL AND smsid != '' AND status IN ('sent', 'queued')
+    ORDER BY sent_at DESC, id DESC LIMIT ?
+  `).all(lim);
+
+  const tally = { checked: 0, delivered: 0, failed: 0, queued: 0, errors: 0 };
+  for (const row of rows) {
+    tally.checked += 1;
+    let result;
+    try {
+      result = await fetchGatewayStatus(cfg.endpoint, row.smsid);
+    } catch (err) {
+      result = { ok: false, error: err.message };
+    }
+    if (!result.ok) {
+      tally.errors += 1;
+      continue;
+    }
+    tally[result.status] += 1;
+    await db.prepare(
+      "UPDATE sms_send_log SET status = ?, checked_at = datetime('now') WHERE id = ?"
+    ).run(result.status, row.id);
+  }
+  return tally;
+}
+
+// Look up one smsid on demand — used by the admin test panel to confirm a test
+// message actually reached the handset, not merely that it was queued.
+async function checkSmsStatus(db, { smsid } = {}) {
+  const id = stringOrNull(smsid);
+  if (!id) throw new Error('smsid is required');
+  const cfg = await getConfigWithKey(db);
+  const result = await fetchGatewayStatus(cfg.endpoint, id);
+  return result.ok
+    ? { ok: true, smsid: id, status: result.status }
+    : { ok: false, smsid: id, error: result.error };
+}
+
+// Throttled automatic sweep, called from the POS sync cycle. The cycle can run
+// every few minutes, but each unresolved row costs one HTTP call and a queued
+// SMS takes a while to settle — so cap how often the sweep actually fires.
+const RECONCILE_THROTTLE_MS = 15 * 60 * 1000;
+let reconcileLastRunAt = 0;
+
+async function maybeReconcile(db, { force = false } = {}) {
+  const cfg = await getConfigWithKey(db);
+  if (!cfg.enabled) return null;
+  if (!force && Date.now() - reconcileLastRunAt < RECONCILE_THROTTLE_MS) return null;
+  reconcileLastRunAt = Date.now();
+  return reconcileSendLog(db, { limit: 100 });
+}
+
 // Admin "send a test SMS" — bypasses rules/dedup.
 async function sendTest(db, { number, message }) {
   if (!stringOrNull(number)) throw new Error('number is required');
@@ -286,11 +381,12 @@ async function maybeSendForOrder(db, ctx = {}) {
 
     const result = await sendSms(db, { number: phone, message });
 
+    // smsid is kept so reconcileSendLog can later resolve queued → delivered/failed.
     await db.prepare(`
-      INSERT INTO sms_send_log (shop_id, external_id, tag, phone, message, status, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sms_send_log (shop_id, external_id, tag, phone, message, status, error, smsid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(shop_id, external_id, tag) DO NOTHING
-    `).run(shopId, externalId, rule.tag, result.phone || phone, message, result.status, result.error || null);
+    `).run(shopId, externalId, rule.tag, result.phone || phone, message, result.status, result.error || null, result.smsid || null);
   }
 }
 
@@ -302,6 +398,9 @@ module.exports = {
   upsertRule,
   deleteRule,
   listSendLog,
+  reconcileSendLog,
+  maybeReconcile,
+  checkSmsStatus,
   sendTest,
   maybeSendForOrder,
   normalizePhPhone,

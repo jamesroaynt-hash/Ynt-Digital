@@ -604,6 +604,25 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Delivery status for a single smsid (test panel "Check delivery").
+  router.post('/infotxt/status', async (req, res) => {
+    try {
+      res.json(await infotxtSms.checkSmsStatus(db, req.body || {}));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Resolve queued sends against InfoTXT's status.php — send.php only tells us a
+  // message was accepted, not that it reached the handset.
+  router.post('/infotxt/reconcile', async (req, res) => {
+    try {
+      res.json(await infotxtSms.reconcileSendLog(db, { limit: req.body?.limit }));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Upsert/clear a single staff alias→canonical mapping. Empty canonical
   // (or canonical === alias) removes the mapping.
   router.put('/google-sheets/staff-merge-map', async (req, res) => {

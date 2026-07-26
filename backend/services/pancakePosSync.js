@@ -2582,6 +2582,12 @@ async function collectPosData(db, payload = {}) {
       })));
     }
     result.normalized_sources = await normalizeSourceSheets(db);
+    // Resolve queued SMS against InfoTXT status.php (throttled internally).
+    // Best-effort — a gateway outage must not fail the sync.
+    try {
+      const reconciled = await infotxtSms.maybeReconcile(db);
+      if (reconciled) result.sms_reconciled = reconciled;
+    } catch { /* sms reconciliation is best-effort */ }
     return result;
   }
 

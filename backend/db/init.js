@@ -710,11 +710,18 @@ function runMigrations(db) {
       message TEXT,
       status TEXT NOT NULL DEFAULT 'sent',
       error TEXT,
+      smsid TEXT,
+      checked_at TEXT,
       sent_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  // send.php only queues; smsid lets status.php resolve the real outcome later.
+  ensureColumn(db, 'sms_send_log', 'smsid', 'TEXT');
+  ensureColumn(db, 'sms_send_log', 'checked_at', 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sms_send_log_unique ON sms_send_log(shop_id, external_id, tag)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sms_send_log_sent ON sms_send_log(sent_at)');
+  // Drives the reconcile sweep: unresolved rows that carry a gateway smsid.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sms_send_log_pending ON sms_send_log(status, smsid)");
   ensurePerformanceIndexes(db);
 }
 
@@ -1144,11 +1151,18 @@ async function runPostgresMigrations(db) {
       message TEXT,
       status TEXT NOT NULL DEFAULT 'sent',
       error TEXT,
+      smsid TEXT,
+      checked_at TIMESTAMPTZ,
       sent_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // send.php only queues; smsid lets status.php resolve the real outcome later.
+  await ensureColumnAsync(db, 'sms_send_log', 'smsid', 'TEXT');
+  await ensureColumnAsync(db, 'sms_send_log', 'checked_at', 'TIMESTAMPTZ');
   await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sms_send_log_unique ON sms_send_log(shop_id, external_id, tag)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_sms_send_log_sent ON sms_send_log(sent_at)');
+  // Drives the reconcile sweep: unresolved rows that carry a gateway smsid.
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_sms_send_log_pending ON sms_send_log(status, smsid)');
   await ensurePerformanceIndexesAsync(db);
 }
 
