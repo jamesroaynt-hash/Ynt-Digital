@@ -1,4 +1,3 @@
-const infotxtSms = require('./infotxtSms');
 
 const PROVIDER = 'pancake_pos';
 const POS_API_BASE = 'https://pos.pages.fm/api/v1';
@@ -740,23 +739,6 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       );
     } catch { /* pickup log is best-effort */ }
   }
-
-  // InfoTXT SMS automation: text the customer once when this order carries a tag
-  // matching an enabled rule. Best-effort — never block or fail the upsert.
-  try {
-    await infotxtSms.maybeSendForOrder(db, {
-      shopId: resolvedShopId,
-      externalId,
-      tagText,
-      customerName,
-      customerPhone,
-      orderRef: externalId,
-      cod: numberOrNull(item?.cod),
-      product: noteProduct,
-      rider: sprinterName,
-      riderNumber: sprinterTel,
-    });
-  } catch { /* sms automation is best-effort */ }
 
   return externalId;
 }
@@ -2582,12 +2564,6 @@ async function collectPosData(db, payload = {}) {
       })));
     }
     result.normalized_sources = await normalizeSourceSheets(db);
-    // Resolve queued SMS against InfoTXT status.php (throttled internally).
-    // Best-effort — a gateway outage must not fail the sync.
-    try {
-      const reconciled = await infotxtSms.maybeReconcile(db);
-      if (reconciled) result.sms_reconciled = reconciled;
-    } catch { /* sms reconciliation is best-effort */ }
     return result;
   }
 
