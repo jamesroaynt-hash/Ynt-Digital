@@ -2817,6 +2817,42 @@ if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
         <div class="int-panel" style="margin-top:16px;">
           <div class="card-header" style="padding:0 0 12px;">
             <div>
+              <div class="int-section-label" style="margin:0;">Send log</div>
+              <div class="int-status-copy">
+                Every automated text, newest first. <strong>Sent</strong> means the gateway
+                queued it — run Check delivery to resolve those to Delivered or Failed.
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <select class="form-control" id="sms-log-filter" style="width:auto;" onchange="renderSmsLog()">
+                <option value="">All statuses</option>
+                <option value="delivered">Delivered</option>
+                <option value="sent">Sent (unresolved)</option>
+                <option value="queued">Queued</option>
+                <option value="failed">Failed</option>
+                <option value="skipped">Skipped</option>
+              </select>
+              <button class="btn btn-secondary" type="button" onclick="loadSmsLog()">Refresh</button>
+              <button class="btn btn-primary" type="button" onclick="runSmsReconcile()">Check delivery</button>
+            </div>
+          </div>
+          <div id="sms-log-summary" class="int-status-copy" style="margin-bottom:8px;"></div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Sent</th><th>Page</th><th>Order</th><th>Tag</th>
+                  <th>Phone</th><th>Status</th><th>Details</th>
+                </tr>
+              </thead>
+              <tbody id="sms-log-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="int-panel" style="margin-top:16px;">
+          <div class="card-header" style="padding:0 0 12px;">
+            <div>
               <div class="int-section-label" style="margin:0;">Tag → Message Rules</div>
               <div class="int-status-copy">Sent once per order per tag. Placeholders: {name} {phone} {order_ref} {cod} {product} {rider} {rider_number} {tag}</div>
             </div>
@@ -15931,7 +15967,9 @@ async function loadSmsSettings() {
     }
     smsRules = Array.isArray(rulesResp.rules) ? rulesResp.rules : [];
     renderSmsRules();
-    loadSmsPages();
+    // Pages first — the log maps shop_id to page name using that list.
+    await loadSmsPages();
+    await loadSmsLog();
   } catch (e) {
     showToast('error', 'Could not load InfoTXT settings', e.message || 'Request failed.');
   }
@@ -16173,6 +16211,104 @@ async function clearSmsPage(connectionId) {
     await loadSmsPages();
   } catch (e) {
     showToast('error', 'Could not clear', e.message || 'Request failed.');
+  }
+}
+
+// ─── InfoTXT send log ──────────────────────────────────────
+let smsLog = [];
+
+// 'sent' is deliberately amber, not green: send.php only queues, so an
+// unreconciled row is an unknown outcome rather than a confirmed delivery.
+const SMS_STATUS_BADGE = {
+  delivered: 'badge-success',
+  sent: 'badge-warning',
+  queued: 'badge-warning',
+  failed: 'badge-danger',
+  skipped: 'badge-gray',
+};
+
+async function loadSmsLog() {
+  const body = document.getElementById('sms-log-body');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="7" class="table-empty">Loading…</td></tr>';
+  try {
+    const data = await authorizedJsonRequest('/integrations/infotxt/log?limit=200');
+    smsLog = Array.isArray(data.log) ? data.log : [];
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="7" class="table-empty">Could not load log: ${escapeHtml(e.message || 'request failed')}</td></tr>`;
+    return;
+  }
+  renderSmsLog();
+}
+
+function renderSmsLog() {
+  const body = document.getElementById('sms-log-body');
+  const summaryEl = document.getElementById('sms-log-summary');
+  if (!body) return;
+
+  const counts = smsLog.reduce((acc, r) => {
+    const s = r.status || 'unknown';
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
+  if (summaryEl) {
+    summaryEl.textContent = smsLog.length
+      ? `${smsLog.length} recent — ` + Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(', ')
+      : '';
+  }
+
+  const filter = document.getElementById('sms-log-filter')?.value || '';
+  const rows = filter ? smsLog.filter((r) => r.status === filter) : smsLog;
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="table-empty">${
+      smsLog.length ? 'No entries with that status.' : 'No texts sent yet.'
+    }</td></tr>`;
+    return;
+  }
+
+  // shop_id → page name, reusing the per-page list already loaded above.
+  const pageByShop = new Map((smsPages || []).filter((p) => p.shop_id).map((p) => [String(p.shop_id), p.page_name]));
+
+  body.innerHTML = rows.map((r) => {
+    const status = r.status || 'unknown';
+    const badge = SMS_STATUS_BADGE[status] || 'badge-gray';
+    // Show the failure reason when there is one, else the message that went out.
+    const detail = r.error
+      ? `<span style="color:var(--danger);">${escapeHtml(r.error)}</span>`
+      : `<span class="int-status-copy">${escapeHtml((r.message || '').slice(0, 80))}${(r.message || '').length > 80 ? '…' : ''}</span>`;
+    return `<tr>
+      <td style="white-space:nowrap;">${escapeHtml(formatDateTime(r.sent_at))}</td>
+      <td>${escapeHtml(pageByShop.get(String(r.shop_id)) || r.shop_id || '—')}</td>
+      <td class="mono-input">${escapeHtml(r.external_id || '—')}</td>
+      <td>${escapeHtml(r.tag || '—')}</td>
+      <td class="mono-input">${escapeHtml(r.phone || '—')}</td>
+      <td><span class="badge ${badge}">${escapeHtml(status)}</span>${
+        r.checked_at ? `<div class="int-status-copy">checked ${escapeHtml(formatDateTime(r.checked_at))}</div>` : ''
+      }</td>
+      <td>${detail}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Resolve every unreconciled row against status.php, then reload.
+async function runSmsReconcile() {
+  const summaryEl = document.getElementById('sms-log-summary');
+  if (summaryEl) summaryEl.textContent = 'Checking delivery with InfoTXT…';
+  try {
+    const t = await authorizedJsonRequest('/integrations/infotxt/reconcile', {
+      method: 'POST',
+      body: JSON.stringify({ limit: 200 }),
+    });
+    const parts = [`${t.checked} checked`];
+    if (t.delivered) parts.push(`${t.delivered} delivered`);
+    if (t.failed) parts.push(`${t.failed} failed`);
+    if (t.queued) parts.push(`${t.queued} still queued`);
+    if (t.errors) parts.push(`${t.errors} could not be checked`);
+    showToast(t.checked ? 'success' : 'info', 'Delivery check done', parts.join(', '));
+    await loadSmsLog();
+  } catch (e) {
+    showToast('error', 'Check failed', e.message || 'Request failed.');
+    await loadSmsLog();
   }
 }
 
