@@ -589,6 +589,32 @@ module.exports = function integrationRoutes(db) {
     res.json(await infotxtSms.getPublicSetting(db));
   });
 
+  // What the trigger dropdown may offer: the statuses this POS actually
+  // produces, and the order tags configured on the connected shops. Tag lookups
+  // hit the Pancake API per shop, so one unreachable shop must not empty the list.
+  router.get('/infotxt/triggers', async (req, res) => {
+    try {
+      const statuses = await infotxtSms.listPosStatuses(db);
+      const connections = await posSync.getSavedConnections(db);
+      const seen = new Map();
+      for (const connection of connections) {
+        try {
+          const { tags = [] } = await posSync.listShopOrderTags(db, { shop_id: connection.shop_id });
+          tags.forEach((tag) => {
+            const name = String(tag?.name || '').trim();
+            if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+          });
+        } catch { /* skip shops whose tag list can't be read */ }
+      }
+      res.json({
+        statuses,
+        tags: [...seen.values()].sort((a, b) => a.localeCompare(b)),
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.get('/infotxt/rules', async (req, res) => {
     try {
       res.json({ rules: await infotxtSms.listRules(db) });

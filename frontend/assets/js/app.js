@@ -2012,21 +2012,12 @@ function mapBackendGoogleStatusToState(status = {}, previous = {}) {
   };
 }
 
-// Raw pos_orders.status_name values, labelled the way the dashboard shows them.
-const INFOTXT_STATUS_OPTIONS = [
-  { value: 'new', label: 'New' },
-  { value: 'submitted', label: 'Confirmed' },
-  { value: 'pending', label: 'Waiting for pickup' },
-  { value: 'wait_print', label: 'Waiting for print' },
-  { value: 'shipped', label: 'Shipped / out for delivery' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'returning', label: 'Returning' },
-  { value: 'returned', label: 'Returned' },
-  { value: 'canceled', label: 'Canceled' },
-];
+// Filled from /integrations/infotxt/triggers — the statuses this POS actually
+// produces and the tags configured on the connected shops, not a guessed list.
+let infotxtTriggerOptions = { statuses: [], tags: [] };
 
 function infotxtStatusLabel(value) {
-  return INFOTXT_STATUS_OPTIONS.find((o) => o.value === value)?.label || value || '';
+  return infotxtTriggerOptions.statuses.find((o) => o.value === value)?.label || value || '';
 }
 
 function infotxtRuleLabel(rule) {
@@ -2398,7 +2389,7 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtRules(); loadInfotxtLogs()">Infotxt SMS</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtTab()">Infotxt SMS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -2800,19 +2791,13 @@ function renderApiConnections() {
           <div class="form-group">
             <label class="form-label">Trigger when:</label>
             <select class="form-control" id="infotxt-rule-trigger" onchange="onInfotxtRuleTriggerChange()">
-              <option value="">Select a trigger</option>
-              <optgroup label="Order status is">
-                ${INFOTXT_STATUS_OPTIONS.map((o) => `<option value="status:${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
-              </optgroup>
-              <optgroup label="Order tag">
-                <option value="tag">Order carries a tag...</option>
-              </optgroup>
+              <option value="">Loading triggers...</option>
             </select>
           </div>
           <div class="form-group" id="infotxt-rule-tag-group" style="display:none;">
             <label class="form-label">Tag name:</label>
             <input type="text" class="form-control" id="infotxt-rule-tag" placeholder="for pickup">
-            <div class="field-help">Matched loosely and case-insensitively, so <code>for pickup</code> also matches a tag named <code>FOR PICKUP TODAY</code>. Unlike a status, a tag fires the first sync after it lands on the order.</div>
+            <div class="field-help">For a tag that isn't in the POS list yet. Matched loosely and case-insensitively, so <code>for pickup</code> also matches a tag named <code>FOR PICKUP TODAY</code>. Unlike a status, a tag fires the first sync after it lands on the order.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Content:</label>
@@ -15591,19 +15576,69 @@ async function loadInfotxtRules() {
   }
 }
 
-// The tag box only makes sense once the "Order carries a tag" option is picked.
-function onInfotxtRuleTriggerChange() {
-  const isTag = document.getElementById('infotxt-rule-trigger').value === 'tag';
-  document.getElementById('infotxt-rule-tag-group').style.display = isTag ? '' : 'none';
+// Trigger options first: the rules table labels statuses using that list.
+async function loadInfotxtTab() {
+  await loadInfotxtTriggerOptions();
+  await loadInfotxtRules();
+  loadInfotxtLogs();
 }
 
-function openInfotxtRuleModal(id = null) {
+async function loadInfotxtTriggerOptions() {
+  const select = document.getElementById('infotxt-rule-trigger');
+  if (!select) return;
+  try {
+    const data = await authorizedJsonRequest('/integrations/infotxt/triggers');
+    infotxtTriggerOptions = { statuses: data.statuses || [], tags: data.tags || [] };
+  } catch {
+    infotxtTriggerOptions = { statuses: [], tags: [] };
+  }
+
+  // Option values carry the lowercase trigger value, since that is what the
+  // backend normalises rules to; the label keeps the tag's real casing.
+  const { statuses, tags } = infotxtTriggerOptions;
+  select.innerHTML = `
+    <option value="">Select a trigger</option>
+    ${statuses.length ? `<optgroup label="Order status is">
+      ${statuses.map((s) => `<option value="status:${escapeHtml(s.value)}">${escapeHtml(s.label)}</option>`).join('')}
+    </optgroup>` : ''}
+    <optgroup label="Order tag is">
+      ${tags.map((t) => `<option value="tag:${escapeHtml(t.toLowerCase())}">${escapeHtml(t)}</option>`).join('')}
+      <option value="tag:__custom__">Other tag...</option>
+    </optgroup>`;
+  if (!statuses.length) {
+    select.insertAdjacentHTML('beforeend', '<optgroup label="No POS statuses found yet — sync orders first"></optgroup>');
+  }
+}
+
+// The free-text box is only for a tag the POS list doesn't have yet.
+function onInfotxtRuleTriggerChange() {
+  const isCustom = document.getElementById('infotxt-rule-trigger').value === 'tag:__custom__';
+  document.getElementById('infotxt-rule-tag-group').style.display = isCustom ? '' : 'none';
+}
+
+async function openInfotxtRuleModal(id = null) {
+  // The dropdown is built from the POS lists, so it has to exist before we can
+  // select a value in it.
+  if (!infotxtTriggerOptions.statuses.length) await loadInfotxtTriggerOptions();
   const rule = id ? infotxtRulesCache.find((r) => r.id === id) : null;
-  const isTag = rule?.trigger_type === 'tag';
+  const select = document.getElementById('infotxt-rule-trigger');
+  let selected = '';
+  let customTag = '';
+  if (rule && rule.trigger_type === 'tag') {
+    // A tag that has since been removed from the POS falls back to the box.
+    selected = `tag:${rule.trigger_value}`;
+    if (![...select.options].some((o) => o.value === selected)) {
+      selected = 'tag:__custom__';
+      customTag = rule.trigger_value;
+    }
+  } else if (rule) {
+    selected = `status:${rule.trigger_value}`;
+  }
+
   document.getElementById('infotxt-rule-modal-title').textContent = rule ? 'Edit Message' : 'Add Message';
   document.getElementById('infotxt-rule-id').value = rule ? rule.id : '';
-  document.getElementById('infotxt-rule-trigger').value = rule ? (isTag ? 'tag' : `status:${rule.trigger_value}`) : '';
-  document.getElementById('infotxt-rule-tag').value = isTag ? rule.trigger_value : '';
+  select.value = selected;
+  document.getElementById('infotxt-rule-tag').value = customTag;
   document.getElementById('infotxt-rule-message').value = rule ? rule.message : '';
   onInfotxtRuleTriggerChange();
   openModal('infotxt-rule-modal');
@@ -15615,10 +15650,11 @@ async function saveInfotxtRule() {
   const message = document.getElementById('infotxt-rule-message').value.trim();
   if (!selected) { showToast('warning', 'Trigger required', 'Pick the status or tag that should send this message.'); return; }
 
-  const triggerType = selected === 'tag' ? 'tag' : 'status';
-  const triggerValue = triggerType === 'tag'
-    ? document.getElementById('infotxt-rule-tag').value.trim()
-    : selected.slice('status:'.length);
+  const triggerType = selected.startsWith('tag:') ? 'tag' : 'status';
+  let triggerValue = selected.slice(selected.indexOf(':') + 1);
+  if (triggerValue === '__custom__') {
+    triggerValue = document.getElementById('infotxt-rule-tag').value.trim();
+  }
   if (!triggerValue) { showToast('warning', 'Tag required', 'Type the tag name that should send this message.'); return; }
   if (!message) { showToast('warning', 'Content required', 'Enter the message to send.'); return; }
 

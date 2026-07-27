@@ -271,6 +271,45 @@ async function updateSmsLog(db, id, patch = {}) {
 // message, which is what the UNIQUE index enforces.
 const RULE_TYPES = new Set(['status', 'tag']);
 
+// Labels match what the rest of the dashboard shows for the same raw
+// status_name; the order is Pancake's own status code order.
+const POS_STATUS_LABELS = [
+  ['new', 'New'],
+  ['submitted', 'Confirmed'],
+  ['pending', 'Waiting for pickup'],
+  ['wait_print', 'Waiting for pickup (print)'],
+  ['waitting', 'Waiting for pickup'],
+  ['shipped', 'Shipped'],
+  ['delivered', 'Delivered'],
+  ['returning', 'Returning'],
+  ['returned', 'Returned'],
+  ['canceled', 'Canceled'],
+  ['removed', 'Removed'],
+];
+const POS_STATUS_ORDER = new Map(POS_STATUS_LABELS.map(([value], i) => [value, i]));
+const POS_STATUS_LABEL = new Map(POS_STATUS_LABELS);
+
+// The statuses this POS actually produces, so the trigger dropdown can't offer
+// one that never arrives (or miss one we didn't know about).
+async function listPosStatuses(db) {
+  const rows = await db.prepare(`
+    SELECT status_name, COUNT(*) AS orders
+    FROM pos_orders
+    WHERE status_name IS NOT NULL AND status_name <> ''
+    GROUP BY status_name
+  `).all();
+
+  return (rows || [])
+    .map((row) => ({
+      value: row.status_name,
+      label: POS_STATUS_LABEL.get(row.status_name)
+        || row.status_name.charAt(0).toUpperCase() + row.status_name.slice(1).replace(/_/g, ' '),
+      orders: Number(row.orders) || 0,
+    }))
+    .sort((a, b) => (POS_STATUS_ORDER.get(a.value) ?? 99) - (POS_STATUS_ORDER.get(b.value) ?? 99)
+      || a.value.localeCompare(b.value));
+}
+
 async function listRules(db, options = {}) {
   const where = ['provider = ?'];
   const params = [PROVIDER];
@@ -422,6 +461,7 @@ module.exports = {
   saveSetting,
   sendSms,
   sendRiderSms,
+  listPosStatuses,
   listRules,
   saveRule,
   setRuleEnabled,
