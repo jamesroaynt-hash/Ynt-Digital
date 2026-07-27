@@ -2,6 +2,7 @@
 const PROVIDER = 'pancake_pos';
 const POS_API_BASE = 'https://pos.pages.fm/api/v1';
 const DEFAULT_RESOURCES = ['orders'];
+const infotxtSms = require('./infotxtSms');
 
 function stringOrNull(value) {
   if (value === undefined || value === null) return null;
@@ -584,11 +585,14 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   // updated_at on Pancake's side, so they still flow through. Exceptions: if we
   // don't yet have the PSID stored, or the stored product name is stale, allow
   // the write so those fields backfill (one-time per order).
+  // Read unconditionally: the egress guard below only runs when Pancake gave us
+  // a remote updated_at, but the rider-SMS trigger needs the previous status for
+  // every order, including the ones missing that timestamp.
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
+  const stored = await db.prepare(
+    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+  ).get(resolvedShopId, externalId);
   if (incomingUpdatedAtRemote) {
-    const stored = await db.prepare(
-      'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id FROM pos_orders WHERE shop_id = ? AND external_id = ?'
-    ).get(resolvedShopId, externalId);
     const psidAlreadyStored = stored && (stored.psid || !psid);
     const productUnchanged = stored && (stored.note_product === noteProduct);
     const partnerUnchanged = stored && ((stored.partner_status || null) === (partnerStatus || null));
@@ -738,6 +742,25 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
         normalizeDateString(item?.updated_at || item?.inserted_at)
       );
     } catch { /* pickup log is best-effort */ }
+  }
+
+  const statusChanged = stored && String(stored.status_name || '').toLowerCase() !== String(statusName || '').toLowerCase();
+  if (statusChanged) {
+    infotxtSms.sendRiderStatusSms(db, {
+      shop_id: resolvedShopId,
+      external_id: externalId,
+      status_name: statusName,
+      sprinter_name: sprinterName,
+      sprinter_tel: sprinterTel,
+      tracking_no: trackingNo,
+      page_name: pageName,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      note_product: noteProduct,
+      cod: scaleMoney(item?.cod),
+    }).catch((error) => {
+      console.warn(`[infotxt] rider SMS automation failed for ${resolvedShopId}/${externalId}: ${error.message}`);
+    });
   }
 
   return externalId;

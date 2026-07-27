@@ -1905,6 +1905,20 @@ function getDefaultIntegrationState() {
       lastCollectedAt: null,
       lastCollectionSummary: '',
     },
+    infotxt: {
+      enabled: false,
+      baseUrl: 'https://api.myinfotxt.com/v2',
+      userId: '',
+      apiKey: '',
+      hasApiKey: false,
+      defaultSim: '',
+      riderStatuses: 'shipped',
+      riderTemplate: 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.',
+      testMobile: '',
+      testMessage: 'YNT ERP Infotxt test message.',
+      notes: '',
+      lastSavedAt: null,
+    },
   };
 }
 
@@ -1921,6 +1935,10 @@ function getIntegrationState() {
       googleSheets: {
         ...fallback.googleSheets,
         ...(saved.googleSheets || {}),
+      },
+      infotxt: {
+        ...fallback.infotxt,
+        ...(saved.infotxt || {}),
       },
     };
   } catch {
@@ -1996,20 +2014,37 @@ function mapBackendGoogleStatusToState(status = {}, previous = {}) {
   };
 }
 
+function mapBackendInfotxtStatusToState(status = {}, previous = {}) {
+  return {
+    ...previous,
+    enabled: Boolean(status.enabled),
+    baseUrl: status.base_url || previous.baseUrl || 'https://api.myinfotxt.com/v2',
+    userId: status.user_id || previous.userId || '',
+    hasApiKey: Boolean(status.has_api_key || previous.hasApiKey),
+    defaultSim: status.default_sim ?? previous.defaultSim ?? '',
+    riderStatuses: status.rider_statuses || previous.riderStatuses || 'shipped',
+    riderTemplate: status.rider_template || previous.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.',
+    notes: status.notes ?? previous.notes ?? '',
+    updatedAt: status.updated_at || previous.updatedAt || null,
+  };
+}
+
 async function hydrateIntegrationStateFromBackend() {
   if (!canManageAccounts()) return;
   integrationsBackendHydrated = true;
 
   try {
-    const [posStatus, googleStatus] = await Promise.all([
+    const [posStatus, googleStatus, infotxtStatus] = await Promise.all([
       authorizedJsonRequest('/integrations/pancake-pos/status'),
       authorizedJsonRequest('/integrations/google-sheets/status'),
+      authorizedJsonRequest('/integrations/infotxt/status'),
     ]);
     const current = getIntegrationState();
     const next = {
       ...current,
       pancakePos: mapBackendPosStatusToState(posStatus, current.pancakePos),
       googleSheets: mapBackendGoogleStatusToState(googleStatus, current.googleSheets),
+      infotxt: mapBackendInfotxtStatusToState(infotxtStatus, current.infotxt),
     };
     saveIntegrationState(next);
     if (App.currentPage === 'api-connections') {
@@ -2323,10 +2358,12 @@ function renderApiConnections() {
   const state = getIntegrationState();
   const posSettings = state.pancakePos;
   const googleSettings = state.googleSheets;
+  const infotxtSettings = state.infotxt;
   const posStatusTone = posSettings.enabled ? 'success' : 'warning';
   const posStatusText = posSettings.enabled ? 'Ready' : 'Setup Needed';
   const googleStatusTone = googleSettings.enabled ? 'success' : 'warning';
   const googleStatusText = googleSettings.enabled ? 'Ready' : 'Setup Needed';
+  const infotxtSavedAt = infotxtSettings.lastSavedAt ? new Date(infotxtSettings.lastSavedAt).toLocaleString() : 'Not saved yet';
   const posCollectedAt = posSettings.lastCollectedAt ? new Date(posSettings.lastCollectedAt).toLocaleString() : 'No POS sync yet';
   const googleSavedAt = googleSettings.lastSavedAt ? new Date(googleSettings.lastSavedAt).toLocaleString() : 'Not saved yet';
   const googleCollectedAt = googleSettings.lastCollectedAt ? new Date(googleSettings.lastCollectedAt).toLocaleString() : 'No sheet sync yet';
@@ -2343,6 +2380,7 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtLogs()">Infotxt SMS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -2633,6 +2671,102 @@ function renderApiConnections() {
         <div id="google-sheets-tabs-status">
           <div class="loading-spinner" style="margin:24px auto;"></div>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="api-tab-infotxt" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Infotxt SMS</div>
+          <div class="card-subtitle">Connect Infotxt Cloud so the dashboard can send SMS updates to riders from the backend.</div>
+        </div>
+      </div>
+      <div class="card-body integration-body">
+        <div class="integration-toggle">
+          <div>
+            <div class="integration-toggle-title">Enable Infotxt SMS</div>
+            <div class="integration-toggle-copy">Keep credentials server-side and use this channel for rider SMS automation.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="infotxt-enabled" ${infotxtSettings.enabled ? 'checked' : ''}>
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">UserID</label>
+            <input type="text" class="form-control mono-input" id="infotxt-user-id" placeholder="Infotxt UserID" value="${escapeHtml(infotxtSettings.userId || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <input type="password" class="form-control mono-input" id="infotxt-api-key" placeholder="${infotxtSettings.hasApiKey ? 'Saved API key - leave blank to keep it' : 'Enter Infotxt API key'}" value="${escapeHtml(infotxtSettings.apiKey || '')}">
+          </div>
+        </div>
+
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">Base URL</label>
+            <input type="text" class="form-control mono-input" id="infotxt-base-url" placeholder="https://api.myinfotxt.com/v2" value="${escapeHtml(infotxtSettings.baseUrl || 'https://api.myinfotxt.com/v2')}">
+            <div class="field-help">Default Infotxt Cloud API v2 endpoint.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Default SIM</label>
+            <input type="text" class="form-control mono-input" id="infotxt-default-sim" placeholder="Optional SIM slot" value="${escapeHtml(infotxtSettings.defaultSim || '')}">
+            <div class="field-help">Optional. Use only if Infotxt assigned SIM slots to the account.</div>
+          </div>
+        </div>
+
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">Test Mobile</label>
+            <input type="text" class="form-control mono-input" id="infotxt-test-mobile" placeholder="09XXXXXXXXX" value="${escapeHtml(infotxtSettings.testMobile || '')}">
+            <div class="field-help">Use Philippine local format, for example <code>09171234567</code>.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Test Message</label>
+            <textarea class="form-control" id="infotxt-test-message" rows="3" placeholder="Message to send during testing">${escapeHtml(infotxtSettings.testMessage || 'YNT ERP Infotxt test message.')}</textarea>
+          </div>
+        </div>
+
+        <div class="form-grid two-col">
+          <div class="form-group">
+            <label class="form-label">Rider Trigger Statuses</label>
+            <input type="text" class="form-control mono-input" id="infotxt-rider-statuses" placeholder="shipped" value="${escapeHtml(infotxtSettings.riderStatuses || 'shipped')}">
+            <div class="field-help">Comma-separated POS <code>status_name</code> values. Example: <code>shipped,delivering</code>.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Rider SMS Template</label>
+            <textarea class="form-control" id="infotxt-rider-template" rows="4">${escapeHtml(infotxtSettings.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.')}</textarea>
+            <div class="field-help">Available placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Internal Notes</label>
+          <textarea class="form-control" id="infotxt-notes" rows="3" placeholder="Example: Used for rider pickup and delivery reminders.">${escapeHtml(infotxtSettings.notes || '')}</textarea>
+          <div class="field-help">Last saved: ${escapeHtml(infotxtSavedAt)}</div>
+        </div>
+
+        <div class="integration-actions">
+          <button class="btn btn-primary" type="button" onclick="saveInfotxtConnection()">Save Infotxt</button>
+          <button class="btn btn-secondary" type="button" id="infotxt-test-button" onclick="sendInfotxtTestSms()">Send Test SMS</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Recent Sends</div>
+          <div class="card-subtitle">Rider SMS the backend queued from POS status changes, newest first.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="loadInfotxtLogs()">Refresh</button>
+      </div>
+      <div class="card-body">
+        <div id="infotxt-logs-list"><div class="empty-state" style="padding:24px 0;"><p>Loading send log...</p></div></div>
       </div>
     </section>
   </div>
@@ -15147,6 +15281,24 @@ function collectGoogleSheetsFormState() {
   };
 }
 
+function collectInfotxtFormState() {
+  const previous = getIntegrationState().infotxt;
+  return {
+    enabled: Boolean(document.getElementById('infotxt-enabled')?.checked),
+    baseUrl: (document.getElementById('infotxt-base-url')?.value || 'https://api.myinfotxt.com/v2').trim(),
+    userId: (document.getElementById('infotxt-user-id')?.value || '').trim(),
+    apiKey: (document.getElementById('infotxt-api-key')?.value || '').trim(),
+    hasApiKey: previous.hasApiKey || Boolean(document.getElementById('infotxt-api-key')?.value || ''),
+    defaultSim: (document.getElementById('infotxt-default-sim')?.value || '').trim(),
+    riderStatuses: (document.getElementById('infotxt-rider-statuses')?.value || 'shipped').trim(),
+    riderTemplate: (document.getElementById('infotxt-rider-template')?.value || '').trim(),
+    testMobile: (document.getElementById('infotxt-test-mobile')?.value || '').trim(),
+    testMessage: (document.getElementById('infotxt-test-message')?.value || 'YNT ERP Infotxt test message.').trim(),
+    notes: (document.getElementById('infotxt-notes')?.value || '').trim(),
+    lastSavedAt: new Date().toISOString(),
+  };
+}
+
 function formatPancakePosConnections(connections = []) {
   return connections
     .filter((connection) => connection && (connection.apiKey || connection.api_key || connection.shopId || connection.shop_id))
@@ -15290,6 +15442,24 @@ async function syncGoogleSheetsConfigToBackend(settings) {
   });
 }
 
+async function syncInfotxtConfigToBackend(settings) {
+  const payload = {
+    enabled: settings.enabled,
+    base_url: settings.baseUrl,
+    user_id: settings.userId,
+    default_sim: settings.defaultSim,
+    rider_statuses: settings.riderStatuses,
+    rider_template: settings.riderTemplate,
+    notes: settings.notes,
+  };
+  if (settings.apiKey) payload.api_key = settings.apiKey;
+
+  return authorizedJsonRequest('/integrations/infotxt/config', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 function saveGoogleSheetsConnection() {
   const state = getIntegrationState();
   state.googleSheets = collectGoogleSheetsFormState();
@@ -15302,6 +15472,93 @@ function saveGoogleSheetsConnection() {
     .catch(() => {
       showToast('warning', 'Saved locally only', 'The browser settings were saved, but the backend Google Sheets config endpoint was not reachable.');
     });
+}
+
+function saveInfotxtConnection() {
+  const state = getIntegrationState();
+  state.infotxt = collectInfotxtFormState();
+
+  saveIntegrationState(state);
+  syncInfotxtConfigToBackend(state.infotxt)
+    .then((status) => {
+      const refreshed = getIntegrationState();
+      refreshed.infotxt = mapBackendInfotxtStatusToState(status, refreshed.infotxt);
+      refreshed.infotxt.lastSavedAt = state.infotxt.lastSavedAt;
+      refreshed.infotxt.testMobile = state.infotxt.testMobile;
+      refreshed.infotxt.testMessage = state.infotxt.testMessage;
+      saveIntegrationState(refreshed);
+      showToast('success', 'Infotxt saved', 'SMS settings were saved to the dashboard backend.');
+    })
+    .catch(() => {
+      showToast('warning', 'Saved locally only', 'The browser settings were saved, but the backend Infotxt config endpoint was not reachable.');
+    });
+}
+
+async function loadInfotxtLogs() {
+  const el = document.getElementById('infotxt-logs-list');
+  if (!el) return;
+  try {
+    const { logs = [] } = await authorizedJsonRequest('/integrations/infotxt/logs?limit=50');
+    if (!logs.length) {
+      el.innerHTML = '<div class="empty-state" style="padding:24px 0;"><p>No SMS sent yet. Rider messages appear here once a POS order hits a trigger status.</p></div>';
+      return;
+    }
+    const badge = (status) => {
+      if (status === 'sent') return '<span class="badge badge-success">Sent</span>';
+      if (status === 'failed') return '<span class="badge badge-danger">Failed</span>';
+      return `<span class="badge badge-blue">${escapeHtml(status || 'pending')}</span>`;
+    };
+    el.innerHTML = `
+      <table class="data-table" style="margin-top:0;">
+        <thead><tr><th>When</th><th>Recipient</th><th>Mobile</th><th>Message</th><th>Status</th><th>Reference</th></tr></thead>
+        <tbody>
+          ${logs.map((log) => `
+            <tr>
+              <td>${log.created_at ? new Date(log.created_at).toLocaleString() : ''}</td>
+              <td>${escapeHtml(log.recipient_name || '')}</td>
+              <td><code>${escapeHtml(log.mobile || '')}</code></td>
+              <td style="max-width:360px; font-size:12px;">${escapeHtml(log.message || '')}</td>
+              <td>${badge(log.status)}${log.error_message ? `<div style="font-size:11px; color:var(--danger); margin-top:4px;">${escapeHtml(log.error_message)}</div>` : ''}</td>
+              <td style="font-size:12px;">${escapeHtml(log.related_id || '')}${log.smsid ? `<div style="color:var(--text-muted);">SMS ID ${escapeHtml(log.smsid)}</div>` : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    el.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function sendInfotxtTestSms() {
+  const state = getIntegrationState();
+  state.infotxt = collectInfotxtFormState();
+  saveIntegrationState(state);
+
+  const mobile = state.infotxt.testMobile;
+  const message = state.infotxt.testMessage || 'YNT ERP Infotxt test message.';
+  if (!/^09\d{9}$/.test(mobile)) {
+    showToast('warning', 'Invalid mobile', 'Use 09XXXXXXXXX format for the test SMS.');
+    return;
+  }
+
+  const btn = document.getElementById('infotxt-test-button');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    await syncInfotxtConfigToBackend(state.infotxt);
+    const result = await authorizedJsonRequest('/integrations/infotxt/test-sms', {
+      method: 'POST',
+      body: JSON.stringify({
+        mobile,
+        message,
+        sim: state.infotxt.defaultSim || undefined,
+      }),
+    });
+    showToast('success', 'Test SMS sent', result.smsid ? `Infotxt SMS ID: ${result.smsid}` : 'Infotxt accepted the message.');
+  } catch (error) {
+    showToast('error', 'Test SMS failed', error.message || 'Infotxt did not accept the message.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Test SMS'; }
+  }
 }
 
 function savePancakePosConnection() {

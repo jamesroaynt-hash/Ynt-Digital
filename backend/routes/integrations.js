@@ -1,6 +1,7 @@
 const express = require('express');
 const posSync = require('../services/pancakePosSync');
 const googleSheetsSync = require('../services/googleSheetsSync');
+const infotxtSms = require('../services/infotxtSms');
 
 module.exports = function integrationRoutes(db) {
   const router = express.Router();
@@ -584,6 +585,21 @@ module.exports = function integrationRoutes(db) {
     res.json(await googleSheetsSync.getStatus(db));
   });
 
+  router.get('/infotxt/status', async (req, res) => {
+    res.json(await infotxtSms.getPublicSetting(db));
+  });
+
+  router.get('/infotxt/logs', async (req, res) => {
+    try {
+      res.json(await infotxtSms.listSmsLogs(db, {
+        limit: req.query.limit,
+        status: req.query.status,
+      }));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.get('/google-sheets/tabs-status', async (req, res) => {
     try {
       const rows = await db.prepare(`
@@ -621,6 +637,28 @@ module.exports = function integrationRoutes(db) {
   router.post('/google-sheets/config', async (req, res) => {
     const config = await googleSheetsSync.saveSetting(db, req.body || {});
     res.json(config);
+  });
+
+  router.post('/infotxt/config', async (req, res) => {
+    try {
+      const config = await infotxtSms.saveSetting(db, req.body || {});
+      res.json(config);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/test-sms', async (req, res) => {
+    try {
+      const result = await infotxtSms.sendSms(db, {
+        mobile: req.body?.mobile,
+        message: req.body?.message || 'YNT ERP Infotxt test message.',
+        sim: req.body?.sim,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   router.post('/pancake-pos/shops', async (req, res) => {
@@ -813,6 +851,11 @@ module.exports = function integrationRoutes(db) {
     res.json({ enabled: Boolean(status.enabled), sync_mode: status.sync_mode || null });
   });
 
+  publicRouter.get('/infotxt/status', async (req, res) => {
+    const status = await infotxtSms.getPublicSetting(db);
+    res.json({ enabled: Boolean(status.enabled), configured: Boolean(status.configured) });
+  });
+
   publicRouter.post([
     '/pancake-pos/config',
     '/google-sheets/config',
@@ -820,6 +863,8 @@ module.exports = function integrationRoutes(db) {
     '/pancake-pos/validate-page-token',
     '/pancake-pos/validate-botcake-token',
     '/pancake-pos/connections/delete',
+    '/infotxt/config',
+    '/infotxt/test-sms',
     '/pancake-pos/collect',
     '/pancake-pos/replay',
     '/google-sheets/collect',
