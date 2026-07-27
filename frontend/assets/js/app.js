@@ -15576,21 +15576,37 @@ async function loadInfotxtRules() {
   }
 }
 
-// Trigger options first: the rules table labels statuses using that list.
+// Rules and logs are local queries and render immediately; the trigger lists
+// reach out to the POS, so they load alongside rather than holding the tab. The
+// rules table is re-rendered afterwards so status labels resolve.
 async function loadInfotxtTab() {
-  await loadInfotxtTriggerOptions();
-  await loadInfotxtRules();
   loadInfotxtLogs();
+  const options = loadInfotxtTriggerOptions(true);
+  await loadInfotxtRules();
+  await options;
+  renderInfotxtRules(infotxtRulesCache);
 }
 
-async function loadInfotxtTriggerOptions() {
+// Kept as a promise so a second caller (opening the modal while the tab is
+// still loading) waits on the in-flight request instead of firing another.
+let infotxtTriggerOptionsPromise = null;
+
+function loadInfotxtTriggerOptions(force = false) {
+  if (force) infotxtTriggerOptionsPromise = null;
+  if (!infotxtTriggerOptionsPromise) infotxtTriggerOptionsPromise = fetchInfotxtTriggerOptions();
+  return infotxtTriggerOptionsPromise;
+}
+
+async function fetchInfotxtTriggerOptions() {
   const select = document.getElementById('infotxt-rule-trigger');
   if (!select) return;
+  let failed = false;
   try {
     const data = await authorizedJsonRequest('/integrations/infotxt/triggers');
     infotxtTriggerOptions = { statuses: data.statuses || [], tags: data.tags || [] };
   } catch {
     infotxtTriggerOptions = { statuses: [], tags: [] };
+    failed = true;
   }
 
   // Option values carry the lowercase trigger value, since that is what the
@@ -15606,8 +15622,11 @@ async function loadInfotxtTriggerOptions() {
       <option value="tag:__custom__">Other tag...</option>
     </optgroup>`;
   if (!statuses.length) {
-    select.insertAdjacentHTML('beforeend', '<optgroup label="No POS statuses found yet — sync orders first"></optgroup>');
+    select.insertAdjacentHTML('beforeend', failed
+      ? '<optgroup label="Could not reach the POS — reopen to retry"></optgroup>'
+      : '<optgroup label="No POS statuses found yet — sync orders first"></optgroup>');
   }
+  if (failed) infotxtTriggerOptionsPromise = null; // let the next open retry
 }
 
 // The free-text box is only for a tag the POS list doesn't have yet.
@@ -15617,10 +15636,18 @@ function onInfotxtRuleTriggerChange() {
 }
 
 async function openInfotxtRuleModal(id = null) {
-  // The dropdown is built from the POS lists, so it has to exist before we can
-  // select a value in it.
-  if (!infotxtTriggerOptions.statuses.length) await loadInfotxtTriggerOptions();
   const rule = id ? infotxtRulesCache.find((r) => r.id === id) : null;
+  // Show the modal straight away, then wait for the POS lists — the dropdown
+  // has to be built before a value can be selected in it, but the user should
+  // never be staring at a frozen screen while that happens.
+  document.getElementById('infotxt-rule-modal-title').textContent = rule ? 'Edit Message' : 'Add Message';
+  document.getElementById('infotxt-rule-id').value = rule ? rule.id : '';
+  document.getElementById('infotxt-rule-tag').value = '';
+  document.getElementById('infotxt-rule-message').value = rule ? rule.message : '';
+  onInfotxtRuleTriggerChange();
+  openModal('infotxt-rule-modal');
+
+  await loadInfotxtTriggerOptions();
   const select = document.getElementById('infotxt-rule-trigger');
   let selected = '';
   let customTag = '';
@@ -15634,14 +15661,9 @@ async function openInfotxtRuleModal(id = null) {
   } else if (rule) {
     selected = `status:${rule.trigger_value}`;
   }
-
-  document.getElementById('infotxt-rule-modal-title').textContent = rule ? 'Edit Message' : 'Add Message';
-  document.getElementById('infotxt-rule-id').value = rule ? rule.id : '';
   select.value = selected;
   document.getElementById('infotxt-rule-tag').value = customTag;
-  document.getElementById('infotxt-rule-message').value = rule ? rule.message : '';
   onInfotxtRuleTriggerChange();
-  openModal('infotxt-rule-modal');
 }
 
 async function saveInfotxtRule() {

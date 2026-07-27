@@ -2187,10 +2187,15 @@ async function posWrite(baseUrl, path, apiKey, method, body) {
 }
 
 // List the order tags configured for a shop (id, name, colour, group).
+// Callers fanning this out over every shop can pass __timeout_ms/__no_retry to
+// keep one unreachable shop from holding up a request for the default minute.
 async function listShopOrderTags(db, payload = {}) {
   const connection = await resolveConnectionForValidation(db, payload);
   if (!connection?.api_key || !connection?.shop_id) throw new Error('No POS connection found for this shop.');
-  const data = await posRequest(connection.base_url, `/shops/${connection.shop_id}/orders/tags`, connection.api_key);
+  const query = {};
+  if (payload.__timeout_ms) query.__timeout_ms = payload.__timeout_ms;
+  if (payload.__no_retry) query.__no_retry = payload.__no_retry;
+  const data = await posRequest(connection.base_url, `/shops/${connection.shop_id}/orders/tags`, connection.api_key, query);
   const tags = Array.isArray(data?.data) ? data.data : [];
   return {
     shop_id: connection.shop_id,

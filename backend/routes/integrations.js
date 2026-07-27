@@ -589,30 +589,40 @@ module.exports = function integrationRoutes(db) {
     res.json(await infotxtSms.getPublicSetting(db));
   });
 
-  // What the trigger dropdown may offer: the statuses this POS actually
-  // produces, and the order tags configured on the connected shops. Tag lookups
-  // hit the Pancake API per shop, so one unreachable shop must not empty the list.
-  router.get('/infotxt/triggers', async (req, res) => {
-    try {
-      const statuses = await infotxtSms.listPosStatuses(db);
-      const connections = await posSync.getSavedConnections(db);
-      const seen = new Map();
-      for (const connection of connections) {
-        try {
-          const { tags = [] } = await posSync.listShopOrderTags(db, { shop_id: connection.shop_id });
-          tags.forEach((tag) => {
-            const name = String(tag?.name || '').trim();
-            if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
-          });
-        } catch { /* skip shops whose tag list can't be read */ }
-      }
-      res.json({
-        statuses,
-        tags: [...seen.values()].sort((a, b) => a.localeCompare(b)),
+  // Order tags across every connected shop. Fanned out in parallel with a short
+  // timeout and no retries: this feeds a dropdown, so a shop that is slow or
+  // unreachable has to drop out rather than hold the whole request for the
+  // default minute-per-shop that posRequest would otherwise allow.
+  async function listAllShopTags() {
+    const connections = await posSync.getSavedConnections(db);
+    const results = await Promise.allSettled(connections.map((connection) => posSync.listShopOrderTags(db, {
+      shop_id: connection.shop_id,
+      __timeout_ms: 8000,
+      __no_retry: true,
+    })));
+    const seen = new Map();
+    results.forEach((result) => {
+      if (result.status !== 'fulfilled') return;
+      (result.value?.tags || []).forEach((tag) => {
+        const name = String(tag?.name || '').trim();
+        if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
       });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
+    });
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }
+
+  // What the trigger dropdown may offer. The two halves are independent, so a
+  // tag lookup that fails still leaves the statuses usable and vice versa.
+  router.get('/infotxt/triggers', async (req, res) => {
+    const [statuses, tags] = await Promise.allSettled([
+      infotxtSms.listPosStatuses(db),
+      listAllShopTags(),
+    ]);
+    res.json({
+      statuses: statuses.status === 'fulfilled' ? statuses.value : [],
+      tags: tags.status === 'fulfilled' ? tags.value : [],
+      partial: statuses.status !== 'fulfilled' || tags.status !== 'fulfilled',
+    });
   });
 
   router.get('/infotxt/rules', async (req, res) => {
