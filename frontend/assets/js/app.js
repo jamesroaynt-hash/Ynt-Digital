@@ -2029,6 +2029,11 @@ function infotxtStatusLabel(value) {
   return INFOTXT_STATUS_OPTIONS.find((o) => o.value === value)?.label || value || '';
 }
 
+function infotxtRuleLabel(rule) {
+  if (!rule) return 'this message';
+  return rule.trigger_type === 'tag' ? `Tag: ${rule.trigger_value}` : infotxtStatusLabel(rule.trigger_value);
+}
+
 function mapBackendInfotxtStatusToState(status = {}, previous = {}) {
   return {
     ...previous,
@@ -2793,16 +2798,26 @@ function renderApiConnections() {
         <div class="modal-body">
           <input type="hidden" id="infotxt-rule-id">
           <div class="form-group">
-            <label class="form-label">When order status is:</label>
-            <select class="form-control" id="infotxt-rule-status">
-              <option value="">Select shipping status</option>
-              ${INFOTXT_STATUS_OPTIONS.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+            <label class="form-label">Trigger when:</label>
+            <select class="form-control" id="infotxt-rule-trigger" onchange="onInfotxtRuleTriggerChange()">
+              <option value="">Select a trigger</option>
+              <optgroup label="Order status is">
+                ${INFOTXT_STATUS_OPTIONS.map((o) => `<option value="status:${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+              </optgroup>
+              <optgroup label="Order tag">
+                <option value="tag">Order carries a tag...</option>
+              </optgroup>
             </select>
+          </div>
+          <div class="form-group" id="infotxt-rule-tag-group" style="display:none;">
+            <label class="form-label">Tag name:</label>
+            <input type="text" class="form-control" id="infotxt-rule-tag" placeholder="for pickup">
+            <div class="field-help">Matched loosely and case-insensitively, so <code>for pickup</code> also matches a tag named <code>FOR PICKUP TODAY</code>. Unlike a status, a tag fires the first sync after it lands on the order.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Content:</label>
             <textarea class="form-control" id="infotxt-rule-message" rows="7" placeholder="Enter content"></textarea>
-            <div class="field-help">Placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
+            <div class="field-help">Placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -15553,7 +15568,7 @@ function renderInfotxtRules(rules = []) {
                 <span class="switch-slider"></span>
               </label>
             </td>
-            <td>${escapeHtml(rule.trigger_type === 'tag' ? `Tag: ${rule.trigger_value}` : infotxtStatusLabel(rule.trigger_value))}</td>
+            <td>${escapeHtml(infotxtRuleLabel(rule))}</td>
             <td style="font-size:12px; line-height:1.6;">${escapeHtml(rule.message || '')}</td>
             <td style="white-space:nowrap;">
               <button class="btn btn-ghost btn-sm" type="button" title="Edit" onclick="openInfotxtRuleModal(${rule.id})">✎</button>
@@ -15576,20 +15591,35 @@ async function loadInfotxtRules() {
   }
 }
 
+// The tag box only makes sense once the "Order carries a tag" option is picked.
+function onInfotxtRuleTriggerChange() {
+  const isTag = document.getElementById('infotxt-rule-trigger').value === 'tag';
+  document.getElementById('infotxt-rule-tag-group').style.display = isTag ? '' : 'none';
+}
+
 function openInfotxtRuleModal(id = null) {
   const rule = id ? infotxtRulesCache.find((r) => r.id === id) : null;
+  const isTag = rule?.trigger_type === 'tag';
   document.getElementById('infotxt-rule-modal-title').textContent = rule ? 'Edit Message' : 'Add Message';
   document.getElementById('infotxt-rule-id').value = rule ? rule.id : '';
-  document.getElementById('infotxt-rule-status').value = rule ? rule.trigger_value : '';
+  document.getElementById('infotxt-rule-trigger').value = rule ? (isTag ? 'tag' : `status:${rule.trigger_value}`) : '';
+  document.getElementById('infotxt-rule-tag').value = isTag ? rule.trigger_value : '';
   document.getElementById('infotxt-rule-message').value = rule ? rule.message : '';
+  onInfotxtRuleTriggerChange();
   openModal('infotxt-rule-modal');
 }
 
 async function saveInfotxtRule() {
   const id = document.getElementById('infotxt-rule-id').value;
-  const triggerValue = document.getElementById('infotxt-rule-status').value;
+  const selected = document.getElementById('infotxt-rule-trigger').value;
   const message = document.getElementById('infotxt-rule-message').value.trim();
-  if (!triggerValue) { showToast('warning', 'Status required', 'Pick the shipping status that should send this message.'); return; }
+  if (!selected) { showToast('warning', 'Trigger required', 'Pick the status or tag that should send this message.'); return; }
+
+  const triggerType = selected === 'tag' ? 'tag' : 'status';
+  const triggerValue = triggerType === 'tag'
+    ? document.getElementById('infotxt-rule-tag').value.trim()
+    : selected.slice('status:'.length);
+  if (!triggerValue) { showToast('warning', 'Tag required', 'Type the tag name that should send this message.'); return; }
   if (!message) { showToast('warning', 'Content required', 'Enter the message to send.'); return; }
 
   const existing = id ? infotxtRulesCache.find((r) => r.id === Number(id)) : null;
@@ -15598,7 +15628,7 @@ async function saveInfotxtRule() {
       method: 'POST',
       body: JSON.stringify({
         id: id ? Number(id) : undefined,
-        trigger_type: 'status',
+        trigger_type: triggerType,
         trigger_value: triggerValue,
         message,
         enabled: existing ? existing.enabled : true,
@@ -15606,7 +15636,9 @@ async function saveInfotxtRule() {
     });
     renderInfotxtRules(rules);
     closeModal('infotxt-rule-modal');
-    showToast('success', 'Message saved', `The rider will be texted when an order is ${infotxtStatusLabel(triggerValue)}.`);
+    showToast('success', 'Message saved', triggerType === 'tag'
+      ? `The rider will be texted when an order is tagged "${triggerValue}".`
+      : `The rider will be texted when an order is ${infotxtStatusLabel(triggerValue)}.`);
   } catch (error) {
     showToast('error', 'Not saved', error.message || 'The message could not be saved.');
   }
@@ -15626,8 +15658,7 @@ async function toggleInfotxtRule(id, enabled) {
 }
 
 async function deleteInfotxtRule(id) {
-  const rule = infotxtRulesCache.find((r) => r.id === id);
-  const label = rule ? infotxtStatusLabel(rule.trigger_value) : 'this message';
+  const label = infotxtRuleLabel(infotxtRulesCache.find((r) => r.id === id));
   if (!confirm(`Delete the message for "${label}"? Riders will stop being texted for it.`)) return;
   try {
     const { rules = [] } = await authorizedJsonRequest('/integrations/infotxt/rules/delete', {
