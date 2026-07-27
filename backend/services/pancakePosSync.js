@@ -744,12 +744,16 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     } catch { /* pickup log is best-effort */ }
   }
 
-  const statusChanged = stored && String(stored.status_name || '').toLowerCase() !== String(statusName || '').toLowerCase();
-  if (statusChanged) {
-    infotxtSms.sendRiderStatusSms(db, {
+  // Notify the assigned rider. Only orders that actually have a rider on them
+  // can trigger, and the service itself decides whether this status change or
+  // tag is one the admin asked to be texted about.
+  if (sprinterTel) {
+    infotxtSms.sendRiderSms(db, {
       shop_id: resolvedShopId,
       external_id: externalId,
       status_name: statusName,
+      status_changed: Boolean(stored) && String(stored.status_name || '').toLowerCase() !== String(statusName || '').toLowerCase(),
+      tag_text: tagText,
       sprinter_name: sprinterName,
       sprinter_tel: sprinterTel,
       tracking_no: trackingNo,

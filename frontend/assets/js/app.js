@@ -1913,6 +1913,7 @@ function getDefaultIntegrationState() {
       hasApiKey: false,
       defaultSim: '',
       riderStatuses: 'shipped',
+      riderTags: '',
       riderTemplate: 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.',
       testMobile: '',
       testMessage: 'YNT ERP Infotxt test message.',
@@ -2023,6 +2024,7 @@ function mapBackendInfotxtStatusToState(status = {}, previous = {}) {
     hasApiKey: Boolean(status.has_api_key || previous.hasApiKey),
     defaultSim: status.default_sim ?? previous.defaultSim ?? '',
     riderStatuses: status.rider_statuses || previous.riderStatuses || 'shipped',
+    riderTags: status.rider_tags ?? previous.riderTags ?? '',
     riderTemplate: status.rider_template || previous.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.',
     notes: status.notes ?? previous.notes ?? '',
     updatedAt: status.updated_at || previous.updatedAt || null,
@@ -2734,14 +2736,20 @@ function renderApiConnections() {
         <div class="form-grid two-col">
           <div class="form-group">
             <label class="form-label">Rider Trigger Statuses</label>
-            <input type="text" class="form-control mono-input" id="infotxt-rider-statuses" placeholder="shipped" value="${escapeHtml(infotxtSettings.riderStatuses || 'shipped')}">
-            <div class="field-help">Comma-separated POS <code>status_name</code> values. Example: <code>shipped,delivering</code>.</div>
+            <input type="text" class="form-control mono-input" id="infotxt-rider-statuses" placeholder="shipped" value="${escapeHtml(infotxtSettings.riderStatuses || '')}">
+            <div class="field-help">Comma-separated POS <code>status_name</code> values. Example: <code>shipped,delivering</code>. The assigned rider is texted when the order moves into one of these.</div>
           </div>
           <div class="form-group">
-            <label class="form-label">Rider SMS Template</label>
-            <textarea class="form-control" id="infotxt-rider-template" rows="4">${escapeHtml(infotxtSettings.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.')}</textarea>
-            <div class="field-help">Available placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
+            <label class="form-label">Rider Trigger Tags</label>
+            <input type="text" class="form-control mono-input" id="infotxt-rider-tags" placeholder="for pickup, rider assigned" value="${escapeHtml(infotxtSettings.riderTags || '')}">
+            <div class="field-help">Comma-separated order tags, matched loosely and case-insensitively. Leave blank to trigger on status only.</div>
           </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Rider SMS Template</label>
+          <textarea class="form-control" id="infotxt-rider-template" rows="4">${escapeHtml(infotxtSettings.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.')}</textarea>
+          <div class="field-help">Available placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>. Each order texts its rider once per trigger, so a status and a tag can both fire on the same order.</div>
         </div>
 
         <div class="form-group">
@@ -15290,7 +15298,8 @@ function collectInfotxtFormState() {
     apiKey: (document.getElementById('infotxt-api-key')?.value || '').trim(),
     hasApiKey: previous.hasApiKey || Boolean(document.getElementById('infotxt-api-key')?.value || ''),
     defaultSim: (document.getElementById('infotxt-default-sim')?.value || '').trim(),
-    riderStatuses: (document.getElementById('infotxt-rider-statuses')?.value || 'shipped').trim(),
+    riderStatuses: (document.getElementById('infotxt-rider-statuses')?.value || '').trim(),
+    riderTags: (document.getElementById('infotxt-rider-tags')?.value || '').trim(),
     riderTemplate: (document.getElementById('infotxt-rider-template')?.value || '').trim(),
     testMobile: (document.getElementById('infotxt-test-mobile')?.value || '').trim(),
     testMessage: (document.getElementById('infotxt-test-message')?.value || 'YNT ERP Infotxt test message.').trim(),
@@ -15449,6 +15458,7 @@ async function syncInfotxtConfigToBackend(settings) {
     user_id: settings.userId,
     default_sim: settings.defaultSim,
     rider_statuses: settings.riderStatuses,
+    rider_tags: settings.riderTags,
     rider_template: settings.riderTemplate,
     notes: settings.notes,
   };
@@ -15508,15 +15518,23 @@ async function loadInfotxtLogs() {
       if (status === 'failed') return '<span class="badge badge-danger">Failed</span>';
       return `<span class="badge badge-blue">${escapeHtml(status || 'pending')}</span>`;
     };
+    // event_key is `rider-{kind}:{shop}:{order}:{trigger}:{mobile}`
+    const trigger = (eventKey) => {
+      const parts = String(eventKey || '').split(':');
+      if (parts.length < 5) return '';
+      const kind = parts[0].replace('rider-', '');
+      return `<span class="badge badge-blue" style="font-size:11px;">${escapeHtml(kind)}</span> ${escapeHtml(parts[3])}`;
+    };
     el.innerHTML = `
       <table class="data-table" style="margin-top:0;">
-        <thead><tr><th>When</th><th>Recipient</th><th>Mobile</th><th>Message</th><th>Status</th><th>Reference</th></tr></thead>
+        <thead><tr><th>When</th><th>Recipient</th><th>Mobile</th><th>Trigger</th><th>Message</th><th>Status</th><th>Reference</th></tr></thead>
         <tbody>
           ${logs.map((log) => `
             <tr>
               <td>${log.created_at ? new Date(log.created_at).toLocaleString() : ''}</td>
               <td>${escapeHtml(log.recipient_name || '')}</td>
               <td><code>${escapeHtml(log.mobile || '')}</code></td>
+              <td style="font-size:12px;">${trigger(log.event_key)}</td>
               <td style="max-width:360px; font-size:12px;">${escapeHtml(log.message || '')}</td>
               <td>${badge(log.status)}${log.error_message ? `<div style="font-size:11px; color:var(--danger); margin-top:4px;">${escapeHtml(log.error_message)}</div>` : ''}</td>
               <td style="font-size:12px;">${escapeHtml(log.related_id || '')}${log.smsid ? `<div style="color:var(--text-muted);">SMS ID ${escapeHtml(log.smsid)}</div>` : ''}</td>

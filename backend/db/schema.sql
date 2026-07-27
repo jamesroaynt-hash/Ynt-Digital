@@ -270,6 +270,7 @@ CREATE TABLE IF NOT EXISTS sms_settings (
   api_key TEXT,
   default_sim TEXT,
   rider_statuses TEXT,
+  rider_tags TEXT,
   rider_template TEXT,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

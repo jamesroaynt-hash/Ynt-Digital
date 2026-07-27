@@ -1,6 +1,9 @@
 const PROVIDER = 'infotxt';
 const DEFAULT_BASE_URL = 'https://api.myinfotxt.com/v2';
 const DEFAULT_RIDER_STATUSES = 'shipped';
+// No default trigger tag on purpose: the tag trigger stays off until an admin
+// types one, so nobody gets texted by a list they didn't configure.
+const DEFAULT_RIDER_TAGS = '';
 const DEFAULT_RIDER_TEMPLATE = 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.';
 const SEND_TIMEOUT_MS = 15000;
 
@@ -29,15 +32,27 @@ function normalizeMobile(value) {
   return '';
 }
 
-function normalizeStatus(value) {
-  return String(value ?? '').trim().toLowerCase();
+function normalizeTag(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function parseStatusList(value) {
-  return String(value || DEFAULT_RIDER_STATUSES)
+function parseList(value) {
+  return String(value || '')
     .split(',')
-    .map(normalizeStatus)
+    .map(normalizeTag)
     .filter(Boolean);
+}
+
+// Pancake hands tags back in a dozen shapes (string, {name}, {tag_name}, …), so
+// flatten whatever we were given into one lowercase haystack and match the
+// configured tags as substrings — the same loose match the pickup_log uses.
+function orderTagText(posOrder = {}) {
+  if (posOrder.tag_text !== undefined) return normalizeTag(posOrder.tag_text);
+  const raw = posOrder.tags || posOrder.customer_tags || [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return normalizeTag(list
+    .map((t) => (typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')))
+    .join(' '));
 }
 
 function truncate(value, max = 240) {
@@ -56,6 +71,7 @@ function renderTemplate(template, row = {}) {
     rider: row.sprinter_name || 'Rider',
     rider_phone: row.sprinter_tel || '',
     status: row.status_name || '',
+    tag: row.matched_tag || '',
     tracking: row.tracking_no || row.external_id || '',
     order_id: row.external_id || '',
     shop: row.page_name || row.shop_id || '',
@@ -78,6 +94,7 @@ function publicSettingFromRow(row) {
       has_api_key: Boolean(process.env.INFOTXT_API_KEY),
       default_sim: process.env.INFOTXT_DEFAULT_SIM || '',
       rider_statuses: process.env.INFOTXT_RIDER_STATUSES || DEFAULT_RIDER_STATUSES,
+      rider_tags: process.env.INFOTXT_RIDER_TAGS || DEFAULT_RIDER_TAGS,
       rider_template: process.env.INFOTXT_RIDER_TEMPLATE || DEFAULT_RIDER_TEMPLATE,
       notes: null,
     };
@@ -93,6 +110,7 @@ function publicSettingFromRow(row) {
     has_api_key: Boolean(row.api_key || process.env.INFOTXT_API_KEY),
     default_sim: row.default_sim || '',
     rider_statuses: row.rider_statuses || DEFAULT_RIDER_STATUSES,
+    rider_tags: row.rider_tags || DEFAULT_RIDER_TAGS,
     rider_template: row.rider_template || DEFAULT_RIDER_TEMPLATE,
     notes: row.notes || null,
     updated_at: row.updated_at,
@@ -116,6 +134,7 @@ async function getPrivateSetting(db) {
     api_key: stringOrNull(row?.api_key) || process.env.INFOTXT_API_KEY || '',
     default_sim: stringOrNull(row?.default_sim) || process.env.INFOTXT_DEFAULT_SIM || '',
     rider_statuses: stringOrNull(row?.rider_statuses) || process.env.INFOTXT_RIDER_STATUSES || DEFAULT_RIDER_STATUSES,
+    rider_tags: stringOrNull(row?.rider_tags) || process.env.INFOTXT_RIDER_TAGS || DEFAULT_RIDER_TAGS,
     rider_template: stringOrNull(row?.rider_template) || process.env.INFOTXT_RIDER_TEMPLATE || DEFAULT_RIDER_TEMPLATE,
   };
 }
@@ -129,6 +148,7 @@ async function saveSetting(db, payload = {}) {
     api_key: patchedValue(payload.api_key, current?.api_key),
     default_sim: patchedValue(payload.default_sim, current?.default_sim),
     rider_statuses: patchedValue(payload.rider_statuses, current?.rider_statuses),
+    rider_tags: patchedValue(payload.rider_tags, current?.rider_tags),
     rider_template: patchedValue(payload.rider_template, current?.rider_template),
     notes: payload.notes === undefined ? (current?.notes ?? null) : stringOrNull(payload.notes),
   };
@@ -137,7 +157,7 @@ async function saveSetting(db, payload = {}) {
     await db.prepare(`
       UPDATE sms_settings
       SET enabled = ?, base_url = ?, user_id = ?, api_key = ?, default_sim = ?,
-          rider_statuses = ?, rider_template = ?, notes = ?, updated_at = datetime('now')
+          rider_statuses = ?, rider_tags = ?, rider_template = ?, notes = ?, updated_at = datetime('now')
       WHERE provider = ?
     `).run(
       boolToInt(next.enabled),
@@ -146,6 +166,7 @@ async function saveSetting(db, payload = {}) {
       next.api_key,
       next.default_sim,
       next.rider_statuses,
+      next.rider_tags,
       next.rider_template,
       next.notes,
       PROVIDER
@@ -153,9 +174,9 @@ async function saveSetting(db, payload = {}) {
   } else {
     await db.prepare(`
       INSERT INTO sms_settings (
-        provider, enabled, base_url, user_id, api_key, default_sim, rider_statuses, rider_template, notes
+        provider, enabled, base_url, user_id, api_key, default_sim, rider_statuses, rider_tags, rider_template, notes
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       PROVIDER,
       boolToInt(next.enabled),
@@ -164,6 +185,7 @@ async function saveSetting(db, payload = {}) {
       next.api_key,
       next.default_sim,
       next.rider_statuses,
+      next.rider_tags,
       next.rider_template,
       next.notes
     );
@@ -286,13 +308,38 @@ async function listSmsLogs(db, options = {}) {
   return { logs: rows || [], limit };
 }
 
-async function sendRiderStatusSms(db, posOrder = {}, options = {}) {
+// Texts whoever is assigned to the order as its rider. Two triggers, both
+// optional and both aimed at the same recipient:
+//
+//   status — the order's status changed into one of the configured statuses
+//   tag    — the order carries one of the configured trigger tags
+//
+// Neither needs a before/after diff to stay quiet: the UNIQUE(provider,
+// event_key) index on sms_logs is what makes each one fire exactly once, so a
+// tag that sits on an order for weeks still only sends the day it lands.
+// The rider's mobile is part of the event key, so swapping riders mid-delivery
+// re-notifies the new rider for the same status instead of going silent.
+//
+// At most one SMS leaves per call: we claim the first trigger that hasn't been
+// logged yet and stop. An order that shows up already matching three triggers
+// therefore sends one per sync cycle rather than three at once.
+async function sendRiderSms(db, posOrder = {}, options = {}) {
   const setting = await getPrivateSetting(db);
   if (!setting.enabled) return { skipped: 'disabled' };
 
-  const status = normalizeStatus(posOrder.status_name);
-  const allowedStatuses = parseStatusList(setting.rider_statuses);
-  if (!allowedStatuses.includes(status)) return { skipped: 'status_not_configured' };
+  const triggers = [];
+  if (posOrder.status_changed) {
+    const status = normalizeTag(posOrder.status_name);
+    if (status && parseList(setting.rider_statuses).includes(status)) {
+      triggers.push({ kind: 'status', value: status });
+    }
+  }
+  const tagText = orderTagText(posOrder);
+  parseList(setting.rider_tags)
+    .filter((tag) => tagText.includes(tag))
+    .forEach((tag) => triggers.push({ kind: 'tag', value: tag }));
+
+  if (!triggers.length) return { skipped: 'no_trigger_match' };
 
   const mobile = normalizeMobile(posOrder.sprinter_tel);
   if (!mobile) return { skipped: 'missing_rider_number' };
@@ -302,38 +349,46 @@ async function sendRiderStatusSms(db, posOrder = {}, options = {}) {
   const externalId = stringOrNull(posOrder.external_id);
   if (!externalId) return { skipped: 'missing_order_id' };
 
-  const eventKey = `rider-status:${shopId}:${externalId}:${status}:${mobile}`;
-  const message = truncate(renderTemplate(setting.rider_template, posOrder), 1550);
-  const log = await insertSmsLog(db, {
-    provider: PROVIDER,
-    event_key: eventKey,
-    recipient_name: posOrder.sprinter_name,
-    mobile,
-    message,
-    status: 'pending',
-    related_table: 'pos_orders',
-    related_id: `${shopId}::${externalId}`,
-  });
-  if (!log.inserted) return { skipped: 'duplicate', event_key: eventKey };
+  for (const trigger of triggers) {
+    const eventKey = `rider-${trigger.kind}:${shopId}:${externalId}:${trigger.value}:${mobile}`;
+    const message = truncate(renderTemplate(setting.rider_template, {
+      ...posOrder,
+      matched_tag: trigger.kind === 'tag' ? trigger.value : '',
+    }), 1550);
+    const log = await insertSmsLog(db, {
+      provider: PROVIDER,
+      event_key: eventKey,
+      recipient_name: posOrder.sprinter_name,
+      mobile,
+      message,
+      status: 'pending',
+      related_table: 'pos_orders',
+      related_id: `${shopId}::${externalId}`,
+    });
+    if (!log.inserted) continue; // already sent for this trigger
 
-  try {
-    const result = await sendSms(db, { mobile, message, sim: options.sim });
-    await updateSmsLog(db, log.id, { status: 'sent', smsid: result.smsid || null });
-    return { sent: true, smsid: result.smsid || null, event_key: eventKey };
-  } catch (error) {
-    await updateSmsLog(db, log.id, { status: 'failed', error_message: truncate(error.message, 500) });
-    return { sent: false, error: error.message, event_key: eventKey };
+    try {
+      const result = await sendSms(db, { mobile, message, sim: options.sim });
+      await updateSmsLog(db, log.id, { status: 'sent', smsid: result.smsid || null });
+      return { sent: true, trigger, smsid: result.smsid || null, event_key: eventKey };
+    } catch (error) {
+      await updateSmsLog(db, log.id, { status: 'failed', error_message: truncate(error.message, 500) });
+      return { sent: false, trigger, error: error.message, event_key: eventKey };
+    }
   }
+
+  return { skipped: 'duplicate', triggers };
 }
 
 module.exports = {
   DEFAULT_BASE_URL,
   DEFAULT_RIDER_STATUSES,
+  DEFAULT_RIDER_TAGS,
   DEFAULT_RIDER_TEMPLATE,
   getPublicSetting,
   saveSetting,
   sendSms,
-  sendRiderStatusSms,
+  sendRiderSms,
   listSmsLogs,
   normalizeMobile,
 };
