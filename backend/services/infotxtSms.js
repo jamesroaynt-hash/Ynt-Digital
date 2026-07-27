@@ -22,12 +22,15 @@ function patchedValue(incoming, current) {
   return stringOrNull(incoming);
 }
 
+// Riders arrive in whatever shape the courier stored them: the `】sprinter【`
+// status string captures 9-13 bare digits, and Bigate's delivery_tel is free
+// text. Accept the country code with or without + / 00, and a bare 9XXXXXXXXX
+// that is missing the trunk zero, then hand InfoTXT the 09XXXXXXXXX it wants.
 function normalizeMobile(value) {
-  const text = String(value ?? '').replace(/[^\d+]/g, '');
-  if (/^\+639\d{9}$/.test(text)) return `0${text.slice(3)}`;
-  if (/^639\d{9}$/.test(text)) return `0${text.slice(2)}`;
-  if (/^09\d{9}$/.test(text)) return text;
-  return '';
+  let text = String(value ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
+  if (/^63\d{10}$/.test(text)) text = text.slice(2);
+  if (/^9\d{9}$/.test(text)) text = `0${text}`;
+  return /^09\d{9}$/.test(text) ? text : '';
 }
 
 function normalizeTag(value) {
@@ -415,13 +418,33 @@ async function sendRiderSms(db, posOrder = {}, options = {}) {
 
   if (!triggers.length) return { skipped: 'no_trigger_match' };
 
-  const mobile = normalizeMobile(posOrder.sprinter_tel);
-  if (!mobile) return { skipped: 'missing_rider_number' };
-  if (!stringOrNull(posOrder.sprinter_name)) return { skipped: 'missing_rider_name' };
-
   const shopId = stringOrNull(posOrder.shop_id) || 'unknown';
   const externalId = stringOrNull(posOrder.external_id);
   if (!externalId) return { skipped: 'missing_order_id' };
+
+  // A trigger matched but the rider is unreachable. Record it instead of
+  // returning quietly — otherwise the only symptom is an SMS that never
+  // arrives, with nothing in the log to explain why.
+  const rawTel = stringOrNull(posOrder.sprinter_tel);
+  const mobile = normalizeMobile(rawTel);
+  if (!mobile) {
+    const reason = rawTel
+      ? `Rider number is not a usable PH mobile: ${rawTel}`
+      : 'Order has no rider number.';
+    await insertSmsLog(db, {
+      provider: PROVIDER,
+      event_key: `rider-unreachable:${shopId}:${externalId}:${triggers[0].value}:${rawTel || 'none'}`,
+      recipient_name: posOrder.sprinter_name || null,
+      mobile: rawTel || 'n/a',
+      message: truncate(renderTemplate(triggers[0].message || setting.rider_template, posOrder), 1550),
+      status: 'failed',
+      related_table: 'pos_orders',
+      related_id: `${shopId}::${externalId}`,
+      error_message: reason,
+    });
+    return { skipped: 'missing_rider_number', reason };
+  }
+  if (!stringOrNull(posOrder.sprinter_name)) return { skipped: 'missing_rider_name' };
 
   for (const trigger of triggers) {
     const eventKey = `rider-${trigger.kind}:${shopId}:${externalId}:${trigger.value}:${mobile}`;

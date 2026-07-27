@@ -590,7 +590,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   // every order, including the ones missing that timestamp.
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   const stored = await db.prepare(
-    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id, sprinter_name, sprinter_tel FROM pos_orders WHERE shop_id = ? AND external_id = ?'
   ).get(resolvedShopId, externalId);
   if (incomingUpdatedAtRemote) {
     const psidAlreadyStored = stored && (stored.psid || !psid);
@@ -744,18 +744,21 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     } catch { /* pickup log is best-effort */ }
   }
 
-  // Notify the assigned rider. Only orders that actually have a rider on them
-  // can trigger, and the service itself decides whether this status change or
-  // tag is one the admin asked to be texted about.
-  if (sprinterTel) {
+  // Notify the assigned rider. The stored rider is the fallback because the
+  // upsert COALESCEs those columns: a payload that arrives without partner
+  // data would otherwise look like an order with no rider at all. Same
+  // resolution order the RMO Management table uses.
+  const riderName = sprinterName || stored?.sprinter_name || null;
+  const riderTel = sprinterTel || stored?.sprinter_tel || null;
+  if (riderTel) {
     infotxtSms.sendRiderSms(db, {
       shop_id: resolvedShopId,
       external_id: externalId,
       status_name: statusName,
       status_changed: Boolean(stored) && String(stored.status_name || '').toLowerCase() !== String(statusName || '').toLowerCase(),
       tag_text: tagText,
-      sprinter_name: sprinterName,
-      sprinter_tel: sprinterTel,
+      sprinter_name: riderName,
+      sprinter_tel: riderTel,
       tracking_no: trackingNo,
       page_name: pageName,
       customer_name: customerName,
