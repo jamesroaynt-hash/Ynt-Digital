@@ -600,15 +600,20 @@ module.exports = function integrationRoutes(db) {
       __timeout_ms: 8000,
       __no_retry: true,
     })));
+    // Keyed by name, not id: the same tag exists under a different id on each
+    // shop, and rules match on the name. Group is carried through so the
+    // dropdown can show tags the way RMO Management's tag editor does.
     const seen = new Map();
     results.forEach((result) => {
       if (result.status !== 'fulfilled') return;
       (result.value?.tags || []).forEach((tag) => {
         const name = String(tag?.name || '').trim();
-        if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+        if (!name || seen.has(name.toLowerCase())) return;
+        seen.set(name.toLowerCase(), { name, group: tag?.group || null });
       });
     });
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+    return [...seen.values()].sort((a, b) => (a.group || '').localeCompare(b.group || '')
+      || a.name.localeCompare(b.name));
   }
 
   // What the trigger dropdown may offer. The two halves are independent, so a

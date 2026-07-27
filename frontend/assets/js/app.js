@@ -15611,14 +15611,27 @@ async function fetchInfotxtTriggerOptions() {
 
   // Option values carry the lowercase trigger value, since that is what the
   // backend normalises rules to; the label keeps the tag's real casing.
+  // Tags are grouped by their Pancake tag group, the same way RMO Management's
+  // tag editor shows them.
   const { statuses, tags } = infotxtTriggerOptions;
+  const tagGroups = new Map();
+  tags.forEach((t) => {
+    const key = t.group || '';
+    if (!tagGroups.has(key)) tagGroups.set(key, []);
+    tagGroups.get(key).push(t);
+  });
+  const tagOption = (t) => `<option value="tag:${escapeHtml(t.name.toLowerCase())}">${escapeHtml(t.name)}</option>`;
+
   select.innerHTML = `
     <option value="">Select a trigger</option>
     ${statuses.length ? `<optgroup label="Order status is">
       ${statuses.map((s) => `<option value="status:${escapeHtml(s.value)}">${escapeHtml(s.label)}</option>`).join('')}
     </optgroup>` : ''}
-    <optgroup label="Order tag is">
-      ${tags.map((t) => `<option value="tag:${escapeHtml(t.toLowerCase())}">${escapeHtml(t)}</option>`).join('')}
+    ${[...tagGroups.entries()].map(([group, list]) => `
+      <optgroup label="${escapeHtml(group ? `Order tag — ${group}` : 'Order tag is')}">
+        ${list.map(tagOption).join('')}
+      </optgroup>`).join('')}
+    <optgroup label="${tags.length ? 'Order tag — other' : 'Order tag is'}">
       <option value="tag:__custom__">Other tag...</option>
     </optgroup>`;
   if (!statuses.length) {
