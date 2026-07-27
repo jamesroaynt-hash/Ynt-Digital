@@ -1912,9 +1912,6 @@ function getDefaultIntegrationState() {
       apiKey: '',
       hasApiKey: false,
       defaultSim: '',
-      riderStatuses: 'shipped',
-      riderTags: '',
-      riderTemplate: 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.',
       testMobile: '',
       testMessage: 'YNT ERP Infotxt test message.',
       notes: '',
@@ -2015,6 +2012,23 @@ function mapBackendGoogleStatusToState(status = {}, previous = {}) {
   };
 }
 
+// Raw pos_orders.status_name values, labelled the way the dashboard shows them.
+const INFOTXT_STATUS_OPTIONS = [
+  { value: 'new', label: 'New' },
+  { value: 'submitted', label: 'Confirmed' },
+  { value: 'pending', label: 'Waiting for pickup' },
+  { value: 'wait_print', label: 'Waiting for print' },
+  { value: 'shipped', label: 'Shipped / out for delivery' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'returning', label: 'Returning' },
+  { value: 'returned', label: 'Returned' },
+  { value: 'canceled', label: 'Canceled' },
+];
+
+function infotxtStatusLabel(value) {
+  return INFOTXT_STATUS_OPTIONS.find((o) => o.value === value)?.label || value || '';
+}
+
 function mapBackendInfotxtStatusToState(status = {}, previous = {}) {
   return {
     ...previous,
@@ -2023,9 +2037,6 @@ function mapBackendInfotxtStatusToState(status = {}, previous = {}) {
     userId: status.user_id || previous.userId || '',
     hasApiKey: Boolean(status.has_api_key || previous.hasApiKey),
     defaultSim: status.default_sim ?? previous.defaultSim ?? '',
-    riderStatuses: status.rider_statuses || previous.riderStatuses || 'shipped',
-    riderTags: status.rider_tags ?? previous.riderTags ?? '',
-    riderTemplate: status.rider_template || previous.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.',
     notes: status.notes ?? previous.notes ?? '',
     updatedAt: status.updated_at || previous.updatedAt || null,
   };
@@ -2382,7 +2393,7 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtLogs()">Infotxt SMS</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtRules(); loadInfotxtLogs()">Infotxt SMS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -2733,24 +2744,6 @@ function renderApiConnections() {
           </div>
         </div>
 
-        <div class="form-grid two-col">
-          <div class="form-group">
-            <label class="form-label">Rider Trigger Statuses</label>
-            <input type="text" class="form-control mono-input" id="infotxt-rider-statuses" placeholder="shipped" value="${escapeHtml(infotxtSettings.riderStatuses || '')}">
-            <div class="field-help">Comma-separated POS <code>status_name</code> values. Example: <code>shipped,delivering</code>. The assigned rider is texted when the order moves into one of these.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Rider Trigger Tags</label>
-            <input type="text" class="form-control mono-input" id="infotxt-rider-tags" placeholder="for pickup, rider assigned" value="${escapeHtml(infotxtSettings.riderTags || '')}">
-            <div class="field-help">Comma-separated order tags, matched loosely and case-insensitively. Leave blank to trigger on status only.</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Rider SMS Template</label>
-          <textarea class="form-control" id="infotxt-rider-template" rows="4">${escapeHtml(infotxtSettings.riderTemplate || 'YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.')}</textarea>
-          <div class="field-help">Available placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>. Each order texts its rider once per trigger, so a status and a tag can both fire on the same order.</div>
-        </div>
 
         <div class="form-group">
           <label class="form-label">Internal Notes</label>
@@ -2768,6 +2761,19 @@ function renderApiConnections() {
     <section class="card integration-card">
       <div class="card-header">
         <div>
+          <div class="card-title">Message</div>
+          <div class="card-subtitle">Each rule texts the order's assigned rider once, the first time the order hits that trigger.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" onclick="openInfotxtRuleModal()">+ Add</button>
+      </div>
+      <div class="card-body">
+        <div id="infotxt-rules-list"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
+      </div>
+    </section>
+
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
           <div class="card-title">Recent Sends</div>
           <div class="card-subtitle">Rider SMS the backend queued from POS status changes, newest first.</div>
         </div>
@@ -2777,6 +2783,33 @@ function renderApiConnections() {
         <div id="infotxt-logs-list"><div class="empty-state" style="padding:24px 0;"><p>Loading send log...</p></div></div>
       </div>
     </section>
+
+    <div class="modal-overlay" id="infotxt-rule-modal">
+      <div class="modal" style="max-width:560px;">
+        <div class="modal-header">
+          <div class="modal-title" id="infotxt-rule-modal-title">Add Message</div>
+          <button class="modal-close" onclick="closeModal('infotxt-rule-modal')">×</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="infotxt-rule-id">
+          <div class="form-group">
+            <label class="form-label">When order status is:</label>
+            <select class="form-control" id="infotxt-rule-status">
+              <option value="">Select shipping status</option>
+              ${INFOTXT_STATUS_OPTIONS.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Content:</label>
+            <textarea class="form-control" id="infotxt-rule-message" rows="7" placeholder="Enter content"></textarea>
+            <div class="field-help">Placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" type="button" onclick="saveInfotxtRule()">Save</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="api-tab-apikeys" class="tab-content">
@@ -15298,9 +15331,6 @@ function collectInfotxtFormState() {
     apiKey: (document.getElementById('infotxt-api-key')?.value || '').trim(),
     hasApiKey: previous.hasApiKey || Boolean(document.getElementById('infotxt-api-key')?.value || ''),
     defaultSim: (document.getElementById('infotxt-default-sim')?.value || '').trim(),
-    riderStatuses: (document.getElementById('infotxt-rider-statuses')?.value || '').trim(),
-    riderTags: (document.getElementById('infotxt-rider-tags')?.value || '').trim(),
-    riderTemplate: (document.getElementById('infotxt-rider-template')?.value || '').trim(),
     testMobile: (document.getElementById('infotxt-test-mobile')?.value || '').trim(),
     testMessage: (document.getElementById('infotxt-test-message')?.value || 'YNT ERP Infotxt test message.').trim(),
     notes: (document.getElementById('infotxt-notes')?.value || '').trim(),
@@ -15457,9 +15487,6 @@ async function syncInfotxtConfigToBackend(settings) {
     base_url: settings.baseUrl,
     user_id: settings.userId,
     default_sim: settings.defaultSim,
-    rider_statuses: settings.riderStatuses,
-    rider_tags: settings.riderTags,
-    rider_template: settings.riderTemplate,
     notes: settings.notes,
   };
   if (settings.apiKey) payload.api_key = settings.apiKey;
@@ -15502,6 +15529,116 @@ function saveInfotxtConnection() {
     .catch(() => {
       showToast('warning', 'Saved locally only', 'The browser settings were saved, but the backend Infotxt config endpoint was not reachable.');
     });
+}
+
+let infotxtRulesCache = [];
+
+function renderInfotxtRules(rules = []) {
+  const el = document.getElementById('infotxt-rules-list');
+  if (!el) return;
+  infotxtRulesCache = rules;
+  if (!rules.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:24px 0;"><p>No messages yet. Click <strong>+ Add</strong> to text the rider when an order reaches a status.</p></div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="data-table" style="margin-top:0;">
+      <thead><tr><th style="width:90px;">On/off</th><th style="width:220px;">Trigger when</th><th>Content</th><th style="width:90px;"></th></tr></thead>
+      <tbody>
+        ${rules.map((rule) => `
+          <tr>
+            <td>
+              <label class="switch">
+                <input type="checkbox" ${rule.enabled ? 'checked' : ''} onchange="toggleInfotxtRule(${rule.id}, this.checked)">
+                <span class="switch-slider"></span>
+              </label>
+            </td>
+            <td>${escapeHtml(rule.trigger_type === 'tag' ? `Tag: ${rule.trigger_value}` : infotxtStatusLabel(rule.trigger_value))}</td>
+            <td style="font-size:12px; line-height:1.6;">${escapeHtml(rule.message || '')}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn btn-ghost btn-sm" type="button" title="Edit" onclick="openInfotxtRuleModal(${rule.id})">✎</button>
+              <button class="btn btn-ghost btn-sm" type="button" title="Delete" style="color:var(--danger);" onclick="deleteInfotxtRule(${rule.id})">🗑</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function loadInfotxtRules() {
+  const el = document.getElementById('infotxt-rules-list');
+  if (!el) return;
+  try {
+    const { rules = [] } = await authorizedJsonRequest('/integrations/infotxt/rules');
+    renderInfotxtRules(rules);
+  } catch (err) {
+    el.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function openInfotxtRuleModal(id = null) {
+  const rule = id ? infotxtRulesCache.find((r) => r.id === id) : null;
+  document.getElementById('infotxt-rule-modal-title').textContent = rule ? 'Edit Message' : 'Add Message';
+  document.getElementById('infotxt-rule-id').value = rule ? rule.id : '';
+  document.getElementById('infotxt-rule-status').value = rule ? rule.trigger_value : '';
+  document.getElementById('infotxt-rule-message').value = rule ? rule.message : '';
+  openModal('infotxt-rule-modal');
+}
+
+async function saveInfotxtRule() {
+  const id = document.getElementById('infotxt-rule-id').value;
+  const triggerValue = document.getElementById('infotxt-rule-status').value;
+  const message = document.getElementById('infotxt-rule-message').value.trim();
+  if (!triggerValue) { showToast('warning', 'Status required', 'Pick the shipping status that should send this message.'); return; }
+  if (!message) { showToast('warning', 'Content required', 'Enter the message to send.'); return; }
+
+  const existing = id ? infotxtRulesCache.find((r) => r.id === Number(id)) : null;
+  try {
+    const { rules = [] } = await authorizedJsonRequest('/integrations/infotxt/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: id ? Number(id) : undefined,
+        trigger_type: 'status',
+        trigger_value: triggerValue,
+        message,
+        enabled: existing ? existing.enabled : true,
+      }),
+    });
+    renderInfotxtRules(rules);
+    closeModal('infotxt-rule-modal');
+    showToast('success', 'Message saved', `The rider will be texted when an order is ${infotxtStatusLabel(triggerValue)}.`);
+  } catch (error) {
+    showToast('error', 'Not saved', error.message || 'The message could not be saved.');
+  }
+}
+
+async function toggleInfotxtRule(id, enabled) {
+  try {
+    const { rules = [] } = await authorizedJsonRequest('/integrations/infotxt/rules/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ id, enabled }),
+    });
+    renderInfotxtRules(rules);
+  } catch (error) {
+    showToast('error', 'Not updated', error.message || 'The message could not be updated.');
+    loadInfotxtRules();
+  }
+}
+
+async function deleteInfotxtRule(id) {
+  const rule = infotxtRulesCache.find((r) => r.id === id);
+  const label = rule ? infotxtStatusLabel(rule.trigger_value) : 'this message';
+  if (!confirm(`Delete the message for "${label}"? Riders will stop being texted for it.`)) return;
+  try {
+    const { rules = [] } = await authorizedJsonRequest('/integrations/infotxt/rules/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    });
+    renderInfotxtRules(rules);
+    showToast('success', 'Message deleted', 'The trigger was removed.');
+  } catch (error) {
+    showToast('error', 'Not deleted', error.message || 'The message could not be deleted.');
+  }
 }
 
 async function loadInfotxtLogs() {

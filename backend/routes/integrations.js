@@ -589,6 +589,38 @@ module.exports = function integrationRoutes(db) {
     res.json(await infotxtSms.getPublicSetting(db));
   });
 
+  router.get('/infotxt/rules', async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.listRules(db) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules', async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.saveRule(db, req.body || {}) });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules/toggle', async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.setRuleEnabled(db, req.body?.id, req.body?.enabled) });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules/delete', async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.deleteRule(db, req.body?.id) });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   router.get('/infotxt/logs', async (req, res) => {
     try {
       res.json(await infotxtSms.listSmsLogs(db, {
@@ -865,6 +897,9 @@ module.exports = function integrationRoutes(db) {
     '/pancake-pos/connections/delete',
     '/infotxt/config',
     '/infotxt/test-sms',
+    '/infotxt/rules',
+    '/infotxt/rules/toggle',
+    '/infotxt/rules/delete',
     '/pancake-pos/collect',
     '/pancake-pos/replay',
     '/google-sheets/collect',

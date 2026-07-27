@@ -277,6 +277,18 @@ CREATE TABLE IF NOT EXISTS sms_settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS sms_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL,
+  trigger_type TEXT NOT NULL DEFAULT 'status',
+  trigger_value TEXT NOT NULL,
+  message TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(provider, trigger_type, trigger_value)
+);
+
 CREATE TABLE IF NOT EXISTS integration_source_links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   provider TEXT NOT NULL,
