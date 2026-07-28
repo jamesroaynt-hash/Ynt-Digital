@@ -14603,7 +14603,6 @@ function renderPosOrdersTable() {
         ['Attempts', Number(order.attempts || 0) > 1
           ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
           : (Number(order.attempts || 0) || dash)],
-        ['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`],
         ['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash],
         ['Courier', escapeHtml(getRmoCourier(order)) || dash],
         ['Page', escapeHtml(order.page_name || '') || dash],
@@ -14612,6 +14611,9 @@ function renderPosOrdersTable() {
       if (rmoTab === 'undeliverable' || rmoTab === 'returning') {
         details.push(['Reason', reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash]);
       }
+      // Tags go last: the edit button makes this the one interactive field, so
+      // it sits at the end rather than in the middle of read-only detail.
+      details.push(['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]);
       return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" onclick="toggleRmoRowDetails(event, this)">
         <td style="text-align:center;">${order.can_message
           ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
