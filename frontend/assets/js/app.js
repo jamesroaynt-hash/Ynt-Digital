@@ -9,14 +9,14 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'rmo-management', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  RMO: ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -139,6 +139,7 @@ function loadPage(page) {
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
     'rmo-management': renderRmoManagement,
+    'sms-automations': renderSmsAutomations,
     'odz-finder': renderOdzFinder,
     creatives: renderCreatives,
     'adspend-roas': renderAdspendRoas,
@@ -173,6 +174,7 @@ const pageNames = {
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
+  'sms-automations': 'SMS Automations',
   'odz-finder': 'ODZ Finder',
   creatives: 'Ad Creatives',
   'adspend-roas': 'ROAS Summary',
@@ -2355,6 +2357,100 @@ function loginForgotPassword(e) {
   showToast('info', 'Password reset', 'Contact your administrator to reset your password.');
 }
 
+// Rider SMS rules and their send log. Split out of the Integrations page so RMO
+// and Logistics can manage the messages without an admin account — the Infotxt
+// credentials stay behind Integrations, which is admin-only.
+function renderSmsAutomations() {
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>SMS Automations</h1>
+      <p>Text the assigned rider automatically when a POS order hits a status or picks up a tag.</p>
+    </div>
+  </div>
+
+  <div id="sms-automation-status"></div>
+
+  <section class="card integration-card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Message</div>
+        <div class="card-subtitle">Each rule texts the order's assigned rider once, the first time the order hits that trigger.</div>
+      </div>
+      <button class="btn btn-primary btn-sm" type="button" onclick="openInfotxtRuleModal()">+ Add</button>
+    </div>
+    <div class="card-body">
+      <div id="infotxt-rules-list"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
+    </div>
+  </section>
+
+  <section class="card integration-card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Recent Sends</div>
+        <div class="card-subtitle">Rider SMS the backend queued from POS status changes, newest first. Sends older than 3 days are cleared automatically.</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" type="button" onclick="loadInfotxtLogs()">Refresh</button>
+    </div>
+    <div class="card-body">
+      <div id="infotxt-logs-list"><div class="empty-state" style="padding:24px 0;"><p>Loading send log...</p></div></div>
+    </div>
+  </section>
+
+  <div class="modal-overlay" id="infotxt-rule-modal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title" id="infotxt-rule-modal-title">Add Message</div>
+        <button class="modal-close" onclick="closeModal('infotxt-rule-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="infotxt-rule-id">
+        <div class="form-group">
+          <label class="form-label">Trigger when:</label>
+          <select class="form-control" id="infotxt-rule-trigger" onchange="onInfotxtRuleTriggerChange()">
+            <option value="">Loading triggers...</option>
+          </select>
+        </div>
+        <div class="form-group" id="infotxt-rule-tag-group" style="display:none;">
+          <label class="form-label">Tag name:</label>
+          <input type="text" class="form-control" id="infotxt-rule-tag" placeholder="for pickup">
+          <div class="field-help">For a tag that isn't in the POS list yet. Matched loosely and case-insensitively, so <code>for pickup</code> also matches a tag named <code>FOR PICKUP TODAY</code>. Unlike a status, a tag fires the first sync after it lands on the order.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Content:</label>
+          <textarea class="form-control" id="infotxt-rule-message" rows="7" placeholder="Enter content"></textarea>
+          <div class="field-help">Placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" type="button" onclick="saveInfotxtRule()">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Rules can be written while the channel is off, so say plainly whether anything
+// will actually go out. Only admins can turn it on, so only they get the link.
+async function loadSmsAutomationStatus() {
+  const el = document.getElementById('sms-automation-status');
+  if (!el) return;
+  let status = {};
+  try {
+    status = await authorizedJsonRequest('/integrations/infotxt/status');
+  } catch {
+    el.innerHTML = '';
+    return;
+  }
+  if (status.enabled) {
+    el.innerHTML = '';
+    return;
+  }
+  const fix = canManageAccounts()
+    ? ' Turn it on under <a href="#" onclick="navigateTo(\'api-connections\'); return false;">Integrations → Infotxt SMS</a>.'
+    : ' Ask an administrator to enable it under Integrations.';
+  el.innerHTML = `<div class="alert alert-warning">SMS sending is switched off, so these rules are saved but nothing is texted.${fix}</div>`;
+}
+
 function renderApiConnections() {
   if (!canManageAccounts()) {
     return `
@@ -2389,7 +2485,7 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtTab()">Infotxt SMS</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt')">Infotxt SMS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -2754,61 +2850,8 @@ function renderApiConnections() {
       </div>
     </section>
 
-    <section class="card integration-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Message</div>
-          <div class="card-subtitle">Each rule texts the order's assigned rider once, the first time the order hits that trigger.</div>
-        </div>
-        <button class="btn btn-primary btn-sm" type="button" onclick="openInfotxtRuleModal()">+ Add</button>
-      </div>
-      <div class="card-body">
-        <div id="infotxt-rules-list"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
-      </div>
-    </section>
-
-    <section class="card integration-card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Recent Sends</div>
-          <div class="card-subtitle">Rider SMS the backend queued from POS status changes, newest first.</div>
-        </div>
-        <button class="btn btn-ghost btn-sm" type="button" onclick="loadInfotxtLogs()">Refresh</button>
-      </div>
-      <div class="card-body">
-        <div id="infotxt-logs-list"><div class="empty-state" style="padding:24px 0;"><p>Loading send log...</p></div></div>
-      </div>
-    </section>
-
-    <div class="modal-overlay" id="infotxt-rule-modal">
-      <div class="modal" style="max-width:560px;">
-        <div class="modal-header">
-          <div class="modal-title" id="infotxt-rule-modal-title">Add Message</div>
-          <button class="modal-close" onclick="closeModal('infotxt-rule-modal')">×</button>
-        </div>
-        <div class="modal-body">
-          <input type="hidden" id="infotxt-rule-id">
-          <div class="form-group">
-            <label class="form-label">Trigger when:</label>
-            <select class="form-control" id="infotxt-rule-trigger" onchange="onInfotxtRuleTriggerChange()">
-              <option value="">Loading triggers...</option>
-            </select>
-          </div>
-          <div class="form-group" id="infotxt-rule-tag-group" style="display:none;">
-            <label class="form-label">Tag name:</label>
-            <input type="text" class="form-control" id="infotxt-rule-tag" placeholder="for pickup">
-            <div class="field-help">For a tag that isn't in the POS list yet. Matched loosely and case-insensitively, so <code>for pickup</code> also matches a tag named <code>FOR PICKUP TODAY</code>. Unlike a status, a tag fires the first sync after it lands on the order.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Content:</label>
-            <textarea class="form-control" id="infotxt-rule-message" rows="7" placeholder="Enter content"></textarea>
-            <div class="field-help">Placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-primary" type="button" onclick="saveInfotxtRule()">Save</button>
-        </div>
-      </div>
+    <div class="field-help" style="margin-top:12px;">
+      Rider message rules and the send log now live on their own page: <a href="#" onclick="navigateTo('sms-automations'); return false;">SMS Automations</a> under RMO Management.
     </div>
   </div>
 
@@ -9398,7 +9441,7 @@ function refreshSidebarAccess() {
   });
 
   const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr'].some((page) => accessiblePages.has(page));
-  const hasRmo = ['rmo-management', 'odz-finder', 'calculators'].some((page) => accessiblePages.has(page));
+  const hasRmo = ['rmo-management', 'sms-automations', 'odz-finder', 'calculators'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
   const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
@@ -11271,6 +11314,11 @@ function initPage(page) {
 
   if (page === 'manage-users') {
     if (canManageAccounts()) loadManagedUsers();
+  }
+
+  if (page === 'sms-automations') {
+    loadSmsAutomationStatus();
+    loadInfotxtTab();
   }
 
   if (page === 'api-connections') {

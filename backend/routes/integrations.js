@@ -545,6 +545,79 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // SMS Automations is its own RMO page, so the teams that actually run
+  // deliveries manage the rules — these sit above the admin gate below and are
+  // role-checked individually. The Infotxt credentials and the test-send stay
+  // administrator-only.
+  const SMS_AUTOMATION_ROLES = new Set(['Administrator', 'RMO', 'RMO TL', 'Logistics']);
+  function requireSmsAccess(req, res, next) {
+    if (!SMS_AUTOMATION_ROLES.has(String(req.user?.role || '').trim())) {
+      return res.status(403).json({ error: 'SMS automation access required' });
+    }
+    return next();
+  }
+
+  router.get('/infotxt/status', requireSmsAccess, async (req, res) => {
+    res.json(await infotxtSms.getPublicSetting(db));
+  });
+
+  // What the trigger dropdown may offer. The two halves are independent, so a
+  // tag lookup that fails still leaves the statuses usable and vice versa.
+  router.get('/infotxt/triggers', requireSmsAccess, async (req, res) => {
+    const [statuses, tags] = await Promise.allSettled([
+      infotxtSms.listPosStatuses(db),
+      listAllShopTags(),
+    ]);
+    res.json({
+      statuses: statuses.status === 'fulfilled' ? statuses.value : [],
+      tags: tags.status === 'fulfilled' ? tags.value : [],
+      partial: statuses.status !== 'fulfilled' || tags.status !== 'fulfilled',
+    });
+  });
+
+  router.get('/infotxt/rules', requireSmsAccess, async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.listRules(db) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules', requireSmsAccess, async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.saveRule(db, req.body || {}) });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules/toggle', requireSmsAccess, async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.setRuleEnabled(db, req.body?.id, req.body?.enabled) });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.post('/infotxt/rules/delete', requireSmsAccess, async (req, res) => {
+    try {
+      res.json({ rules: await infotxtSms.deleteRule(db, req.body?.id) });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.get('/infotxt/logs', requireSmsAccess, async (req, res) => {
+    try {
+      res.json(await infotxtSms.listSmsLogs(db, {
+        limit: req.query.limit,
+        status: req.query.status,
+      }));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
 
   // Upsert/clear a single staff alias→canonical mapping. Empty canonical
@@ -585,10 +658,6 @@ module.exports = function integrationRoutes(db) {
     res.json(await googleSheetsSync.getStatus(db));
   });
 
-  router.get('/infotxt/status', async (req, res) => {
-    res.json(await infotxtSms.getPublicSetting(db));
-  });
-
   // Order tags across every connected shop. Fanned out in parallel with a short
   // timeout and no retries: this feeds a dropdown, so a shop that is slow or
   // unreachable has to drop out rather than hold the whole request for the
@@ -615,63 +684,6 @@ module.exports = function integrationRoutes(db) {
     return [...seen.values()].sort((a, b) => (a.group || '').localeCompare(b.group || '')
       || a.name.localeCompare(b.name));
   }
-
-  // What the trigger dropdown may offer. The two halves are independent, so a
-  // tag lookup that fails still leaves the statuses usable and vice versa.
-  router.get('/infotxt/triggers', async (req, res) => {
-    const [statuses, tags] = await Promise.allSettled([
-      infotxtSms.listPosStatuses(db),
-      listAllShopTags(),
-    ]);
-    res.json({
-      statuses: statuses.status === 'fulfilled' ? statuses.value : [],
-      tags: tags.status === 'fulfilled' ? tags.value : [],
-      partial: statuses.status !== 'fulfilled' || tags.status !== 'fulfilled',
-    });
-  });
-
-  router.get('/infotxt/rules', async (req, res) => {
-    try {
-      res.json({ rules: await infotxtSms.listRules(db) });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.post('/infotxt/rules', async (req, res) => {
-    try {
-      res.json({ rules: await infotxtSms.saveRule(db, req.body || {}) });
-    } catch (error) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-  router.post('/infotxt/rules/toggle', async (req, res) => {
-    try {
-      res.json({ rules: await infotxtSms.setRuleEnabled(db, req.body?.id, req.body?.enabled) });
-    } catch (error) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-  router.post('/infotxt/rules/delete', async (req, res) => {
-    try {
-      res.json({ rules: await infotxtSms.deleteRule(db, req.body?.id) });
-    } catch (error) {
-      res.status(400).json({ error: error.message });
-    }
-  });
-
-  router.get('/infotxt/logs', async (req, res) => {
-    try {
-      res.json(await infotxtSms.listSmsLogs(db, {
-        limit: req.query.limit,
-        status: req.query.status,
-      }));
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
 
   router.get('/google-sheets/tabs-status', async (req, res) => {
     try {
