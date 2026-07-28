@@ -607,7 +607,11 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  router.get('/infotxt/logs', requireSmsAccess, async (req, res) => {
+  router.use(requireAdmin);
+
+  // The send log carries customer names, numbers and COD amounts, so it stays
+  // on the administrator-only Integrations tab rather than the RMO page.
+  router.get('/infotxt/logs', async (req, res) => {
     try {
       res.json(await infotxtSms.listSmsLogs(db, {
         limit: req.query.limit,
@@ -617,8 +621,6 @@ module.exports = function integrationRoutes(db) {
       res.status(500).json({ error: error.message });
     }
   });
-
-  router.use(requireAdmin);
 
   // Upsert/clear a single staff alias→canonical mapping. Empty canonical
   // (or canonical === alias) removes the mapping.

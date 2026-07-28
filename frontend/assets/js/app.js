@@ -2384,19 +2384,6 @@ function renderSmsAutomations() {
     </div>
   </section>
 
-  <section class="card integration-card">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Recent Sends</div>
-        <div class="card-subtitle">Rider SMS the backend queued from POS status changes, newest first. Sends older than 3 days are cleared automatically.</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" type="button" onclick="loadInfotxtLogs()">Refresh</button>
-    </div>
-    <div class="card-body">
-      <div id="infotxt-logs-list"><div class="empty-state" style="padding:24px 0;"><p>Loading send log...</p></div></div>
-    </div>
-  </section>
-
   <div class="modal-overlay" id="infotxt-rule-modal">
     <div class="modal" style="max-width:560px;">
       <div class="modal-header">
@@ -2485,7 +2472,7 @@ function renderApiConnections() {
     <button class="tab-btn active" onclick="switchTab(this,'api-tab-pos')">Pancake POS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-pos-users'); loadPosUsers()">POS Users</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-sheets')">Google Sheets</button>
-    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt')">Infotxt SMS</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtLogs()">Infotxt SMS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
   </div>
@@ -2850,8 +2837,21 @@ function renderApiConnections() {
       </div>
     </section>
 
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Recent Sends</div>
+          <div class="card-subtitle">Rider SMS the backend queued from POS status changes, newest first. Sends older than 3 days are cleared automatically.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="loadInfotxtLogs()">Refresh</button>
+      </div>
+      <div class="card-body">
+        <div id="infotxt-logs-list"><div class="empty-state" style="padding:24px 0;"><p>Loading send log...</p></div></div>
+      </div>
+    </section>
+
     <div class="field-help" style="margin-top:12px;">
-      Rider message rules and the send log now live on their own page: <a href="#" onclick="navigateTo('sms-automations'); return false;">SMS Automations</a> under RMO Management.
+      The rider message rules live on their own page: <a href="#" onclick="navigateTo('sms-automations'); return false;">SMS Automations</a> under RMO Management.
     </div>
   </div>
 
@@ -15624,11 +15624,11 @@ async function loadInfotxtRules() {
   }
 }
 
-// Rules and logs are local queries and render immediately; the trigger lists
-// reach out to the POS, so they load alongside rather than holding the tab. The
-// rules table is re-rendered afterwards so status labels resolve.
+// Rules are a local query and render immediately; the trigger lists reach out
+// to the POS, so they load alongside rather than holding the page. The rules
+// table is re-rendered afterwards so status labels resolve. The send log is not
+// here — it lives on the admin-only Integrations tab.
 async function loadInfotxtTab() {
-  loadInfotxtLogs();
   const options = loadInfotxtTriggerOptions(true);
   await loadInfotxtRules();
   await options;
