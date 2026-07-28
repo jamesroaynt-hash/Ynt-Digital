@@ -115,6 +115,15 @@ function rateForRecord(record, historyRows, fallbackRate) {
   return rateOnDate(historyRows, record && record.work_date, fallbackRate);
 }
 
+// A per-day rate is set by hand for that day, so it is paid as entered: not
+// prorated against the hours on the clock and not subject to the short-day
+// rule. That is the whole point of overriding a day — half-day training, a
+// field errand, a make-up shift agreed at a flat figure.
+function hasRateOverride(record) {
+  const override = record && record.rate_override;
+  return override !== null && override !== undefined && override !== '' && Number.isFinite(Number(override));
+}
+
 function approvedOtKey(userId, workDate) { return `${userId}|${workDate}`; }
 
 function buildApprovedOtMap(rows) {
@@ -186,14 +195,17 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
     const holidayPercentage = Number(record.holiday_percentage || 100);
     const perMinuteRate = dailyRate > 0 ? dailyRate / STANDARD_DAY_MINUTES : 0;
     const cappedWorkedMinutes = Math.min(workedMinutes, STANDARD_DAY_MINUTES);
-    const proratedBase = cappedWorkedMinutes * perMinuteRate;
+    // An overridden day pays its rate in full; every other day is prorated
+    // against the minutes actually worked.
+    const overridden = hasRateOverride(record);
+    const dayBase = overridden ? dailyRate : cappedWorkedMinutes * perMinuteRate;
 
-    if (workedMinutes > 0) {
+    if (workedMinutes > 0 || overridden) {
       summary.days_worked += 1;
-      summary.base_pay += proratedBase;
+      summary.base_pay += dayBase;
       workedDatesByUser.get(userId).add(String(record.work_date));
       if (holidayPercentage > 100) {
-        summary.holiday_pay += proratedBase * ((holidayPercentage - 100) / 100);
+        summary.holiday_pay += dayBase * ((holidayPercentage - 100) / 100);
       }
     }
     summary.worked_minutes += workedMinutes;
@@ -845,11 +857,20 @@ module.exports = function hrRoutes(db) {
     const rateHistory = await loadRateHistoryMap(db, [userId]);
     const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, { from, to }, rateHistory);
 
+    // The rate that applied over this period, not whatever users.daily_rate
+    // holds today — those differ for any past period after a raise. If the rate
+    // moved mid-period, say so rather than pick one of the two to show.
+    const rateRows = rateHistory.get(userId) || [];
+    const rateAtStart = rateOnDate(rateRows, from, user.daily_rate);
+    const rateAtEnd = rateOnDate(rateRows, to, user.daily_rate);
+
     res.json({
       payslip: {
         user,
         from,
         to,
+        daily_rate: rateAtEnd,
+        daily_rate_changed: rateAtStart !== rateAtEnd,
         attendance: attendance.map((record) => ({
           ...record,
           worked_minutes: calculateWorkedMinutes(record),

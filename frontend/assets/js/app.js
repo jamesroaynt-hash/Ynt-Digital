@@ -10524,17 +10524,20 @@ function renderMyWorkHours(payslip) {
   const wrap = document.getElementById('attendance-hours-wrap');
   if (!wrap) return;
   const records = Array.isArray(payslip?.attendance) ? payslip.attendance : [];
-  if (!records.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No records</h3><p>No attendance records for the selected period.</p></div>';
-    return;
-  }
-
   const totals = payslip?.totals || {};
   const totalWorked = records.reduce((sum, r) => sum + Number(r.worked_minutes || 0), 0);
   const totalOt = records.reduce((sum, r) => sum + Number(r.calculated_ot_minutes || r.ot_minutes || 0), 0);
 
+  // The cards render for any range, including a custom one with no punches in
+  // it — rest-day pay and the rate still apply, and a blank panel answers
+  // nothing. The table below carries the empty state instead.
   wrap.innerHTML = `
     <div style="display:flex;gap:12px;flex-wrap:wrap;padding:16px 16px 8px;">
+      <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
+        <div class="stat-label">Daily Rate</div>
+        <div class="stat-value" style="font-size:1.4rem;">${formatPHP(payslip?.daily_rate ?? payslip?.user?.daily_rate)}</div>
+        ${payslip?.daily_rate_changed ? '<div class="stat-meta">changed during this period</div>' : ''}
+      </div>
       <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Days Worked</div>
         <div class="stat-value" style="font-size:1.4rem;">${totals.days_worked || records.filter((r) => r.time_in && r.time_out).length}</div>
@@ -10588,7 +10591,7 @@ function renderMyWorkHours(payslip) {
               <td>${ot > 0 ? `<span class="badge badge-warning">${formatMinutes(ot)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td class="text-xs text-muted">${escapeHtml(r.notes || '')}</td>
             </tr>`;
-          }).join('')}
+          }).join('') || `<tr><td colspan="8" style="text-align:center;padding:28px;color:var(--text-muted)">No attendance records for the selected period.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -11699,7 +11702,7 @@ function renderAttendanceLog() {
 
   <div id="al-tab-log" class="tab-content active">
     <div class="card">
-      <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Click any row to edit. Days under 4 hrs do not count toward salary.</div></div></div>
+      <div class="card-header"><div><div class="card-title">Attendance Log</div><div class="card-subtitle">Click any row to edit. Daily salary includes approved OT. Days under 4 hrs do not count, unless the day carries a custom rate.</div></div></div>
       <div class="card-body" id="al-attendance-wrap">
         <div class="empty-state"><h3>Loading attendance</h3><p>Pulling user time records.</p></div>
       </div>
@@ -12122,10 +12125,20 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const otApproved = !!record.ot_approved;
             const payableOt = Number(record.payable_ot_minutes || 0);
             const earnedOt = Number(record.calculated_ot_minutes || record.ot_minutes || 0);
-            const qualifies = workedMins >= 240;
+            // A per-day rate is set by hand for that day, so it is paid as
+            // entered and shown as paid — the short-day rule doesn't apply to a
+            // figure someone chose on purpose.
+            const hasCustomRate = record.rate_override !== null && record.rate_override !== undefined;
+            const qualifies = workedMins >= 240 || hasCustomRate;
             const holidayPct = Number(record.holiday_percentage || 100);
             const dailyRate = Number(record.daily_rate || 0);
-            const dailySalary = qualifies ? dailyRate * (holidayPct / 100) : 0;
+            const basePay = qualifies ? dailyRate * (holidayPct / 100) : 0;
+            // Approved overtime is paid at 1.25x the minute rate, the same
+            // formula payroll uses, so the column matches the payslip.
+            const otPay = otApproved && payableOt > 0 && dailyRate > 0
+              ? (dailyRate / 480) * payableOt * 1.25
+              : 0;
+            const dailySalary = basePay + otPay;
 
             // Schedule lookup for this user + date
             const sched = (hrState.scheduleMap || {})[`${record.user_id}|${record.work_date}`] || null;
@@ -12170,7 +12183,9 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
                 : (earnedOt > 0
                   ? `<span style="color:var(--text-muted);font-size:11px;" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
                   : '<span style="color:var(--text-muted)">—</span>')}</td>
-              <td><strong>${qualifies ? formatPHP(dailySalary) : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong>${(record.rate_override !== null && record.rate_override !== undefined) ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day">custom</span>' : ''}</td>
+              <td><strong>${(qualifies || otPay > 0)
+                ? `<span title="${qualifies ? `Day ${formatPHP(basePay)}` : 'Day not counted (under 4 hrs)'}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
+                : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
