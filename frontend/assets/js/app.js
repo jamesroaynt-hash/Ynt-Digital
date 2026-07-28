@@ -12031,7 +12031,7 @@ function renderHRPayrollTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th></tr></thead>
+        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th></tr></thead>
         <tbody>
           ${hrState.summary.map((item) => {
             const user = item.user || {};
@@ -12041,6 +12041,7 @@ function renderHRPayrollTable() {
                 <td><strong>${formatPHP(user.daily_rate)}</strong></td>
                 <td>${Number(item.days_worked || 0)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
+                <td>${formatPHP(item.ot_pay)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
                 <td>${formatPHP(item.cash_advances)}</td>
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
