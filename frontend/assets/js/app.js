@@ -9016,11 +9016,15 @@ function renderRmoManagement() {
       </div>
     </div>
 
-    <div class="rmo-tabs" style="display:flex;gap:8px;margin-bottom:14px;">
+    <div class="rmo-tabs">
       <button class="filter-pill ${rmoTab === 'orders' ? 'active' : ''}" onclick="setRmoTab('orders')">For Delivery</button>
       <button class="filter-pill ${rmoTab === 'delivering' ? 'active' : ''}" onclick="setRmoTab('delivering')">On Delivery</button>
       <button class="filter-pill ${rmoTab === 'undeliverable' ? 'active' : ''}" onclick="setRmoTab('undeliverable')">Undeliverable</button>
       <button class="filter-pill ${rmoTab === 'returning' ? 'active' : ''}" onclick="setRmoTab('returning')">Returning</button>
+      <div class="rmo-search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        <input type="text" placeholder="Search order #, tracking, or phone — separate multiple with spaces" id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
+      </div>
     </div>
 
     <div class="rmo-metrics">
@@ -9032,10 +9036,6 @@ function renderRmoManagement() {
     </div>
 
     <div class="rmo-filter-bar">
-      <div class="rmo-search">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-        <input type="text" placeholder="Search order #, tracking, or phone — separate multiple with spaces" id="pos-orders-search" value="${escapeHtml(posOrdersSearch)}" oninput="applyPosOrdersSearch()">
-      </div>
       <select class="rmo-select" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
         <option value="all">All Statuses</option>
         ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}

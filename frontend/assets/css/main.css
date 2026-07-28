@@ -2046,6 +2046,14 @@ tfoot td {
     flex: 1 1 100%;
     width: 100%;
   }
+  /* Narrow screens: the pills wrap and the search drops to its own line. */
+  .rmo-tabs {
+    flex-wrap: wrap;
+  }
+  .rmo-tabs .rmo-search {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
   .stats-grid,
   #sales-summary-cards,
   .csr-summary-grid { grid-template-columns: 1fr 1fr !important; }
@@ -2795,6 +2803,19 @@ tfoot td {
 .rmo-search {
   position: relative;
   flex: 1 1 360px;
+}
+
+/* Tab pills on the left, search pushed to the far right of the same row. */
+.rmo-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.rmo-tabs .rmo-search {
+  margin-left: auto;
+  flex: 0 1 380px;
 }
 
 .rmo-search svg {
