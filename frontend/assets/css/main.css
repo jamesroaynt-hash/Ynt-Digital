@@ -3066,7 +3066,7 @@ tfoot td {
 
 .rmo-customer-cell {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
 }
 
@@ -3077,7 +3077,6 @@ tfoot td {
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin-top: -1px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 5px;

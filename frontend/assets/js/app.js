@@ -9093,7 +9093,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Customer Name</th><th>Phone Number</th><th>Product</th><th>COD</th><th>Status</th><th>Confirmed By</th><th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Customer Name</th><th>Phone Number</th><th>Province</th><th>Product</th><th>COD</th><th>Status</th><th>Confirmed By</th><th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
@@ -14484,7 +14484,7 @@ function renderAssigneeSelect(order) {
 // Summary row up top, delivery detail hidden underneath. Which rows are open is
 // kept by order key rather than in the DOM, so a repaint (sync, filter, poll)
 // doesn't snap everything shut under whoever was reading it.
-const RMO_TABLE_COLSPAN = 8;
+const RMO_TABLE_COLSPAN = 9;
 const rmoExpandedRows = new Set();
 
 // The customer name, phone and tracking cells copy on click, so those — and any
@@ -14622,13 +14622,11 @@ function renderPosOrdersTable() {
             <button class="rmo-expand" type="button" aria-expanded="${open}" title="Show delivery details" onclick="toggleRmoRowDetails(event, this.closest('tr'), true)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4"/></svg>
             </button>
-            <div>
-              <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
-              <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
-            </div>
+            <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
           </div>
         </td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
+        <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
         <td>
           <div class="rmo-item-main">${escapeHtml(product)}</div>
           <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}</div>
