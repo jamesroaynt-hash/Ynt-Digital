@@ -10503,6 +10503,13 @@ function renderMyWorkHours(payslip) {
         <div class="stat-label">Total OT</div>
         <div class="stat-value" style="font-size:1.4rem;">${formatMinutes(totalOt)}</div>
       </div>
+      <div class="stat-card green" style="flex:1;min-width:120px;padding:12px 16px;">
+        <div class="stat-label">Total Salary</div>
+        <div class="stat-value" style="font-size:1.4rem;">${formatPHP(totals.net_pay)}</div>
+        ${Number(totals.cash_advances || 0) > 0
+          ? `<div class="stat-meta">after ${formatPHP(totals.cash_advances)} cash advance</div>`
+          : ''}
+      </div>
     </div>
     <div style="overflow-x:auto;">
       <table style="margin:0;">
