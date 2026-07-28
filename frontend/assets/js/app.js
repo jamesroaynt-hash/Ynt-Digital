@@ -9010,6 +9010,9 @@ function renderRmoManagement() {
   const undeliverable = getRmoUndeliverableCount();
   const posStatusDisplayOptions = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  // The failure tabs trade Confirmed By for Reason, which needs more room than a
+  // staff name — Product gives up the difference.
+  const showsReasonColumn = rmoTab === 'undeliverable' || rmoTab === 'returning';
 
   return `
   <div class="rmo-management-page">
@@ -9110,7 +9113,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:21%">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:12%">Confirmed By</th><th style="width:10%">Message</th></tr></thead>
+        <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:${showsReasonColumn ? '17%' : '21%'}">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:${showsReasonColumn ? '16%' : '12%'}">${showsReasonColumn ? 'Reason' : 'Confirmed By'}</th><th style="width:10%">Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
@@ -14612,17 +14615,18 @@ function renderPosOrdersTable() {
       const detailId = `rmo-detail-${rowKey.replace(/[^A-Za-z0-9]/g, '_')}`;
       const open = rmoExpandedRows.has(rowKey);
       const reason = getRmoReasonDisplay(order);
+      const showsReason = rmoTab === 'undeliverable' || rmoTab === 'returning';
       // Everything the summary row no longer shows, laid out as one detail cell
       // per summary column so each field sits under the column it belongs with:
-      // rider under customer, rider phone under phone, and so on. Page, Reason
-      // and Last Update aren't in the seven either, but the tabs filter by them,
-      // so they ride along rather than disappearing — Reason and Last Update
-      // share the Product column, the widest one.
+      // rider under customer, rider phone under phone, and so on. Page and Last
+      // Update aren't in the seven either, but the tabs filter by them, so they
+      // ride along rather than disappearing.
       const dateFields = [['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash]];
       if (rmoTab === 'delivering') dateFields.push(['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]);
-      if (rmoTab === 'undeliverable' || rmoTab === 'returning') {
-        dateFields.push(['Reason', reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash]);
-      }
+      // On the two failure tabs the reason is what the desk is reading for, so
+      // it takes the summary column and Confirmed By drops in underneath it.
+      const courierFields = [['Courier', escapeHtml(getRmoCourier(order)) || dash]];
+      if (showsReason) courierFields.push(['Confirmed By', escapeHtml(order.assigning_seller_name || '') || dash]);
       const detailColumns = [
         [['Page', escapeHtml(order.page_name || '') || dash]],
         [['Rider Assign', escapeHtml(rider.name || '') || dash]],
@@ -14634,7 +14638,7 @@ function renderPosOrdersTable() {
         [['Attempts', Number(order.attempts || 0) > 1
           ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
           : (Number(order.attempts || 0) || dash)]],
-        [['Courier', escapeHtml(getRmoCourier(order)) || dash]],
+        courierFields,
         // Tags last: the edit button makes this the one interactive field.
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];
@@ -14658,7 +14662,9 @@ function renderPosOrdersTable() {
         </td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
+        <td>${showsReason
+          ? (reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash)
+          : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td>
           <div class="rmo-msg-actions">
             ${order.can_message
