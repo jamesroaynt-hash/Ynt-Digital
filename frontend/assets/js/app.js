@@ -14637,7 +14637,7 @@ function renderPosOrdersTable() {
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
         <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td>
-          <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+          <div class="rmo-msg-actions">
             ${order.can_message
               ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
               : '<span class="rmo-muted">—</span>'}
