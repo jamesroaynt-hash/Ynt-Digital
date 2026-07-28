@@ -9093,7 +9093,7 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Customer Name</th><th>Phone Number</th><th>Province</th><th>Product</th><th>COD</th><th>Status</th><th>Confirmed By</th><th>Message</th></tr></thead>
+        <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:21%">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:12%">Confirmed By</th><th style="width:10%">Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
           <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>

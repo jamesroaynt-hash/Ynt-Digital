@@ -2999,9 +2999,18 @@ tfoot td {
   background: var(--surface);
 }
 
+/* Fixed layout so the columns keep the widths set on the header cells. Auto
+   layout sized them from whatever the page's longest value happened to be,
+   which left the headers unevenly spaced and moved them between pages. */
 .rmo-table {
   min-width: 1200px;
+  table-layout: fixed;
   background: var(--surface);
+}
+
+.rmo-table tbody td,
+.rmo-table thead th {
+  overflow-wrap: break-word;
 }
 
 /* Type matches the app's standard tables — the RMO table used to run its own
