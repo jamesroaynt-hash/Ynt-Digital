@@ -2357,32 +2357,54 @@ function loginForgotPassword(e) {
   showToast('info', 'Password reset', 'Contact your administrator to reset your password.');
 }
 
-// Rider SMS rules and their send log. Split out of the Integrations page so RMO
+// SMS rules, one tab per recipient. Split out of the Integrations page so RMO
 // and Logistics can manage the messages without an admin account — the Infotxt
-// credentials stay behind Integrations, which is admin-only.
+// credentials and the send log stay behind Integrations, which is admin-only.
 function renderSmsAutomations() {
   return `
   <div class="page-header">
     <div class="page-title">
       <h1>SMS Automations</h1>
-      <p>Text the assigned rider automatically when a POS order hits a status or picks up a tag.</p>
+      <p>Text the rider or the customer automatically when a POS order hits a status or picks up a tag.</p>
     </div>
   </div>
 
   <div id="sms-automation-status"></div>
 
-  <section class="card integration-card">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Message</div>
-        <div class="card-subtitle">Each rule texts the order's assigned rider once, the first time the order hits that trigger.</div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab(this,'sms-tab-rider')">Rider</button>
+    <button class="tab-btn" onclick="switchTab(this,'sms-tab-customer')">Customer</button>
+  </div>
+
+  <div id="sms-tab-rider" class="tab-content active">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Message</div>
+          <div class="card-subtitle">Each rule texts the order's assigned rider once, the first time the order hits that trigger.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" onclick="openInfotxtRuleModal(null,'rider')">+ Add</button>
       </div>
-      <button class="btn btn-primary btn-sm" type="button" onclick="openInfotxtRuleModal()">+ Add</button>
-    </div>
-    <div class="card-body">
-      <div id="infotxt-rules-list"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
-    </div>
-  </section>
+      <div class="card-body">
+        <div id="infotxt-rules-list-rider"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="sms-tab-customer" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Message</div>
+          <div class="card-subtitle">Each rule texts the order's customer once, the first time the order hits that trigger.</div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" onclick="openInfotxtRuleModal(null,'customer')">+ Add</button>
+      </div>
+      <div class="card-body">
+        <div id="infotxt-rules-list-customer"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
+      </div>
+    </section>
+  </div>
 
   <div class="modal-overlay" id="infotxt-rule-modal">
     <div class="modal" style="max-width:560px;">
@@ -2392,6 +2414,7 @@ function renderSmsAutomations() {
       </div>
       <div class="modal-body">
         <input type="hidden" id="infotxt-rule-id">
+        <input type="hidden" id="infotxt-rule-recipient" value="rider">
         <div class="form-group">
           <label class="form-label">Trigger when:</label>
           <select class="form-control" id="infotxt-rule-trigger" onchange="onInfotxtRuleTriggerChange()">
@@ -15582,11 +15605,17 @@ function saveInfotxtConnection() {
 let infotxtRulesCache = [];
 
 function renderInfotxtRules(rules = []) {
-  const el = document.getElementById('infotxt-rules-list');
-  if (!el) return;
   infotxtRulesCache = rules;
+  renderInfotxtRulesFor('rider', rules);
+  renderInfotxtRulesFor('customer', rules);
+}
+
+function renderInfotxtRulesFor(recipient, allRules = []) {
+  const el = document.getElementById(`infotxt-rules-list-${recipient}`);
+  if (!el) return;
+  const rules = allRules.filter((rule) => (rule.recipient || 'rider') === recipient);
   if (!rules.length) {
-    el.innerHTML = '<div class="empty-state" style="padding:24px 0;"><p>No messages yet. Click <strong>+ Add</strong> to text the rider when an order reaches a status.</p></div>';
+    el.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>No messages yet. Click <strong>+ Add</strong> to text the ${recipient} when an order reaches a status.</p></div>`;
     return;
   }
   el.innerHTML = `
@@ -15614,13 +15643,17 @@ function renderInfotxtRules(rules = []) {
 }
 
 async function loadInfotxtRules() {
-  const el = document.getElementById('infotxt-rules-list');
+  const el = document.getElementById('infotxt-rules-list-rider');
   if (!el) return;
   try {
     const { rules = [] } = await authorizedJsonRequest('/integrations/infotxt/rules');
     renderInfotxtRules(rules);
   } catch (err) {
-    el.innerHTML = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+    const error = `<div class="error-state">${escapeHtml(err.message)}</div>`;
+    ['rider', 'customer'].forEach((recipient) => {
+      const list = document.getElementById(`infotxt-rules-list-${recipient}`);
+      if (list) list.innerHTML = error;
+    });
   }
 }
 
@@ -15696,13 +15729,17 @@ function onInfotxtRuleTriggerChange() {
   document.getElementById('infotxt-rule-tag-group').style.display = isCustom ? '' : 'none';
 }
 
-async function openInfotxtRuleModal(id = null) {
+// `recipient` is who the message goes to, taken from whichever tab's + Add was
+// clicked; editing keeps whatever the rule was saved with.
+async function openInfotxtRuleModal(id = null, recipient = 'rider') {
   const rule = id ? infotxtRulesCache.find((r) => r.id === id) : null;
+  const who = rule ? (rule.recipient || 'rider') : recipient;
   // Show the modal straight away, then wait for the POS lists — the dropdown
   // has to be built before a value can be selected in it, but the user should
   // never be staring at a frozen screen while that happens.
-  document.getElementById('infotxt-rule-modal-title').textContent = rule ? 'Edit Message' : 'Add Message';
+  document.getElementById('infotxt-rule-modal-title').textContent = `${rule ? 'Edit' : 'Add'} ${who === 'customer' ? 'Customer' : 'Rider'} Message`;
   document.getElementById('infotxt-rule-id').value = rule ? rule.id : '';
+  document.getElementById('infotxt-rule-recipient').value = who;
   document.getElementById('infotxt-rule-tag').value = '';
   document.getElementById('infotxt-rule-message').value = rule ? rule.message : '';
   onInfotxtRuleTriggerChange();
@@ -15729,6 +15766,7 @@ async function openInfotxtRuleModal(id = null) {
 
 async function saveInfotxtRule() {
   const id = document.getElementById('infotxt-rule-id').value;
+  const recipient = document.getElementById('infotxt-rule-recipient').value || 'rider';
   const selected = document.getElementById('infotxt-rule-trigger').value;
   const message = document.getElementById('infotxt-rule-message').value.trim();
   if (!selected) { showToast('warning', 'Trigger required', 'Pick the status or tag that should send this message.'); return; }
@@ -15747,6 +15785,7 @@ async function saveInfotxtRule() {
       method: 'POST',
       body: JSON.stringify({
         id: id ? Number(id) : undefined,
+        recipient,
         trigger_type: triggerType,
         trigger_value: triggerValue,
         message,
@@ -15756,8 +15795,8 @@ async function saveInfotxtRule() {
     renderInfotxtRules(rules);
     closeModal('infotxt-rule-modal');
     showToast('success', 'Message saved', triggerType === 'tag'
-      ? `The rider will be texted when an order is tagged "${triggerValue}".`
-      : `The rider will be texted when an order is ${infotxtStatusLabel(triggerValue)}.`);
+      ? `The ${recipient} will be texted when an order is tagged "${triggerValue}".`
+      : `The ${recipient} will be texted when an order is ${infotxtStatusLabel(triggerValue)}.`);
   } catch (error) {
     showToast('error', 'Not saved', error.message || 'The message could not be saved.');
   }

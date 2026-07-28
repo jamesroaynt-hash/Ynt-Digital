@@ -6,7 +6,7 @@ const DEFAULT_RIDER_TEMPLATE ='YNT Delivery: Hi {rider}, order {tracking} for {c
 const SEND_TIMEOUT_MS = 15000;
 // How long a sent/failed SMS stays in sms_logs before it is deleted. This is
 // also the dedupe window: the log row is what stops a trigger from re-sending
-// (see sendRiderSms), so orders older than this are skipped entirely rather
+// (see sendOrderSms), so orders older than this are skipped entirely rather
 // than risk a second text once their row is gone.
 const LOG_RETENTION_DAYS = Math.max(1, Number(process.env.SMS_LOG_RETENTION_DAYS || 3));
 
@@ -36,6 +36,14 @@ function normalizeMobile(value) {
   if (/^63\d{10}$/.test(text)) text = text.slice(2);
   if (/^9\d{9}$/.test(text)) text = `0${text}`;
   return /^09\d{9}$/.test(text) ? text : '';
+}
+
+// Who a rule texts. Anything unrecognised is a rider rule: that is what every
+// rule was before customer messages existed.
+const RECIPIENTS = new Set(['rider', 'customer']);
+function normalizeRecipient(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  return RECIPIENTS.has(text) ? text : 'rider';
 }
 
 function normalizeTag(value) {
@@ -178,6 +186,7 @@ async function saveSetting(db, payload = {}) {
     );
   }
 
+  invalidateSendConfig();
   return await getPublicSetting(db);
 }
 
@@ -323,15 +332,20 @@ async function listRules(db, options = {}) {
   const params = [PROVIDER];
   if (options.enabledOnly) where.push('enabled = 1');
   const rows = await db.prepare(`
-    SELECT id, trigger_type, trigger_value, message, enabled, created_at, updated_at
+    SELECT id, recipient, trigger_type, trigger_value, message, enabled, created_at, updated_at
     FROM sms_rules
     WHERE ${where.join(' AND ')}
     ORDER BY id ASC
   `).all(...params);
-  return (rows || []).map((row) => ({ ...row, enabled: Boolean(row.enabled) }));
+  return (rows || []).map((row) => ({
+    ...row,
+    recipient: normalizeRecipient(row.recipient),
+    enabled: Boolean(row.enabled),
+  }));
 }
 
 async function saveRule(db, payload = {}) {
+  const recipient = normalizeRecipient(payload.recipient);
   const triggerType = RULE_TYPES.has(payload.trigger_type) ? payload.trigger_type : 'status';
   const triggerValue = normalizeTag(payload.trigger_value);
   const message = String(payload.message ?? '').trim();
@@ -339,23 +353,28 @@ async function saveRule(db, payload = {}) {
   if (!triggerValue) throw new Error('Pick what the message should trigger on.');
   if (!message) throw new Error('Message content is required.');
 
+  // Scoped to the recipient: the same trigger can text the rider and the
+  // customer, they just cannot each have two messages for it.
   const clash = await db.prepare(
-    'SELECT id FROM sms_rules WHERE provider = ? AND trigger_type = ? AND trigger_value = ?'
-  ).get(PROVIDER, triggerType, triggerValue);
-  if (clash && clash.id !== id) throw new Error('There is already a message for that trigger.');
+    'SELECT id FROM sms_rules WHERE provider = ? AND recipient = ? AND trigger_type = ? AND trigger_value = ?'
+  ).get(PROVIDER, recipient, triggerType, triggerValue);
+  if (clash && clash.id !== id) {
+    throw new Error(`There is already a ${recipient} message for that trigger.`);
+  }
 
   if (id) {
     await db.prepare(`
       UPDATE sms_rules
-      SET trigger_type = ?, trigger_value = ?, message = ?, enabled = ?, updated_at = datetime('now')
+      SET recipient = ?, trigger_type = ?, trigger_value = ?, message = ?, enabled = ?, updated_at = datetime('now')
       WHERE id = ? AND provider = ?
-    `).run(triggerType, triggerValue, message, boolToInt(payload.enabled ?? true), id, PROVIDER);
+    `).run(recipient, triggerType, triggerValue, message, boolToInt(payload.enabled ?? true), id, PROVIDER);
   } else {
     await db.prepare(`
-      INSERT INTO sms_rules (provider, trigger_type, trigger_value, message, enabled)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(PROVIDER, triggerType, triggerValue, message, boolToInt(payload.enabled ?? true));
+      INSERT INTO sms_rules (provider, recipient, trigger_type, trigger_value, message, enabled)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(PROVIDER, recipient, triggerType, triggerValue, message, boolToInt(payload.enabled ?? true));
   }
+  invalidateSendConfig();
   return await listRules(db);
 }
 
@@ -363,11 +382,13 @@ async function setRuleEnabled(db, id, enabled) {
   await db.prepare(
     "UPDATE sms_rules SET enabled = ?, updated_at = datetime('now') WHERE id = ? AND provider = ?"
   ).run(boolToInt(enabled), Number(id), PROVIDER);
+  invalidateSendConfig();
   return await listRules(db);
 }
 
 async function deleteRule(db, id) {
   await db.prepare('DELETE FROM sms_rules WHERE id = ? AND provider = ?').run(Number(id), PROVIDER);
+  invalidateSendConfig();
   return await listRules(db);
 }
 
@@ -409,8 +430,40 @@ async function pruneSmsLogs(db, { retentionDays = LOG_RETENTION_DAYS } = {}) {
   };
 }
 
-// Texts whoever is assigned to the order as its rider. Two triggers, both
-// optional and both aimed at the same recipient:
+// The settings row and the rule list are read once per changed order, which is
+// every order the POS sync touches. Both change by hand, minutes apart at most,
+// so they are cached briefly rather than re-read thousands of times a cycle.
+// Edits made through this process clear it immediately; another replica's edit
+// takes effect within the TTL.
+const SEND_CONFIG_TTL_MS = 60 * 1000;
+let sendConfigCache = null;
+
+function invalidateSendConfig() {
+  sendConfigCache = null;
+}
+
+async function getSendConfig(db) {
+  if (sendConfigCache && Date.now() < sendConfigCache.expiresAt) return sendConfigCache.value;
+  const [setting, rules] = await Promise.all([
+    getPrivateSetting(db),
+    listRules(db, { enabledOnly: true }),
+  ]);
+  const value = { setting, rules };
+  sendConfigCache = { value, expiresAt: Date.now() + SEND_CONFIG_TTL_MS };
+  return value;
+}
+
+// Who each rule texts, and where that number comes from on the order. The
+// customer's name is optional — plenty of orders carry only a phone — but a
+// rider rule with no rider name would render "Hi Rider", so that one is
+// required the way it always was.
+const RECIPIENT_FIELDS = {
+  rider: { tel: 'sprinter_tel', name: 'sprinter_name', label: 'Rider', requireName: true },
+  customer: { tel: 'customer_phone', name: 'customer_name', label: 'Customer', requireName: false },
+};
+
+// Texts the order's rider, its customer, or both, depending on what each
+// enabled rule is addressed to. Two triggers, both optional:
 //
 //   status — the order's status changed into one of the configured statuses
 //   tag    — the order carries one of the configured trigger tags
@@ -418,33 +471,38 @@ async function pruneSmsLogs(db, { retentionDays = LOG_RETENTION_DAYS } = {}) {
 // Neither needs a before/after diff to stay quiet: the UNIQUE(provider,
 // event_key) index on sms_logs is what makes each one fire exactly once, so a
 // tag that sits on an order for weeks still only sends the day it lands.
-// The rider's mobile is part of the event key, so swapping riders mid-delivery
-// re-notifies the new rider for the same status instead of going silent.
+// The recipient's mobile is part of the event key, so swapping riders
+// mid-delivery re-notifies the new rider for the same status instead of going
+// silent, and a corrected customer number re-sends rather than staying lost.
 //
 // Because that dedupe lives in sms_logs, and sms_logs is pruned after
 // LOG_RETENTION_DAYS, orders older than the window are skipped outright: their
 // log row may already be gone, and a still-attached trigger tag would otherwise
-// text the rider a second time the next time the order is touched.
+// text a second time the next time the order is touched.
 //
-// At most one SMS leaves per call: we claim the first trigger that hasn't been
-// logged yet and stop. An order that shows up already matching three triggers
-// therefore sends one per sync cycle rather than three at once.
-async function sendRiderSms(db, posOrder = {}, options = {}) {
-  const setting = await getPrivateSetting(db);
+// At most one SMS leaves per recipient per call: we claim the first trigger
+// that hasn't been logged yet and stop. An order that shows up already matching
+// three triggers sends one per sync cycle rather than three at once — but the
+// rider and the customer are independent, so both can go out together.
+async function sendOrderSms(db, posOrder = {}, options = {}) {
+  const { setting, rules } = await getSendConfig(db);
   if (!setting.enabled) return { skipped: 'disabled' };
-
-  const rules = await listRules(db, { enabledOnly: true });
   if (!rules.length) return { skipped: 'no_rules' };
 
   const status = normalizeTag(posOrder.status_name);
   const tagText = orderTagText(posOrder);
-  const triggers = rules
+  const matched = rules
     .filter((rule) => (rule.trigger_type === 'status'
       ? Boolean(posOrder.status_changed) && status === normalizeTag(rule.trigger_value)
       : tagText.includes(normalizeTag(rule.trigger_value))))
-    .map((rule) => ({ kind: rule.trigger_type, value: normalizeTag(rule.trigger_value), message: rule.message }));
+    .map((rule) => ({
+      recipient: rule.recipient,
+      kind: rule.trigger_type,
+      value: normalizeTag(rule.trigger_value),
+      message: rule.message,
+    }));
 
-  if (!triggers.length) return { skipped: 'no_trigger_match' };
+  if (!matched.length) return { skipped: 'no_trigger_match' };
 
   const shopId = stringOrNull(posOrder.shop_id) || 'unknown';
   const externalId = stringOrNull(posOrder.external_id);
@@ -457,19 +515,35 @@ async function sendRiderSms(db, posOrder = {}, options = {}) {
   const oldestSendable = new Date(Date.now() - LOG_RETENTION_DAYS * 86400000).toISOString().slice(0, 10);
   if (placedOn && placedOn < oldestSendable) return { skipped: 'order_older_than_log_retention' };
 
-  // A trigger matched but the rider is unreachable. Record it instead of
+  const results = [];
+  for (const recipient of Object.keys(RECIPIENT_FIELDS)) {
+    const triggers = matched.filter((t) => t.recipient === recipient);
+    if (!triggers.length) continue;
+    results.push({
+      recipient,
+      ...await sendToRecipient(db, posOrder, { recipient, triggers, setting, shopId, externalId, options }),
+    });
+  }
+
+  return results.length === 1 ? results[0] : { results };
+}
+
+async function sendToRecipient(db, posOrder, { recipient, triggers, setting, shopId, externalId, options }) {
+  const fields = RECIPIENT_FIELDS[recipient];
+
+  // A trigger matched but the recipient is unreachable. Record it instead of
   // returning quietly — otherwise the only symptom is an SMS that never
   // arrives, with nothing in the log to explain why.
-  const rawTel = stringOrNull(posOrder.sprinter_tel);
+  const rawTel = stringOrNull(posOrder[fields.tel]);
   const mobile = normalizeMobile(rawTel);
   if (!mobile) {
     const reason = rawTel
-      ? `Rider number is not a usable PH mobile: ${rawTel}`
-      : 'Order has no rider number.';
+      ? `${fields.label} number is not a usable PH mobile: ${rawTel}`
+      : `Order has no ${recipient} number.`;
     await insertSmsLog(db, {
       provider: PROVIDER,
-      event_key: `rider-unreachable:${shopId}:${externalId}:${triggers[0].value}:${rawTel || 'none'}`,
-      recipient_name: posOrder.sprinter_name || null,
+      event_key: `${recipient}-unreachable:${shopId}:${externalId}:${triggers[0].value}:${rawTel || 'none'}`,
+      recipient_name: posOrder[fields.name] || null,
       mobile: rawTel || 'n/a',
       message: truncate(renderTemplate(triggers[0].message || setting.rider_template, posOrder), 1550),
       status: 'failed',
@@ -477,12 +551,14 @@ async function sendRiderSms(db, posOrder = {}, options = {}) {
       related_id: `${shopId}::${externalId}`,
       error_message: reason,
     });
-    return { skipped: 'missing_rider_number', reason };
+    return { skipped: `missing_${recipient}_number`, reason };
   }
-  if (!stringOrNull(posOrder.sprinter_name)) return { skipped: 'missing_rider_name' };
+  if (fields.requireName && !stringOrNull(posOrder[fields.name])) {
+    return { skipped: `missing_${recipient}_name` };
+  }
 
   for (const trigger of triggers) {
-    const eventKey = `rider-${trigger.kind}:${shopId}:${externalId}:${trigger.value}:${mobile}`;
+    const eventKey = `${recipient}-${trigger.kind}:${shopId}:${externalId}:${trigger.value}:${mobile}`;
     const message = truncate(renderTemplate(trigger.message || setting.rider_template, {
       ...posOrder,
       matched_tag: trigger.kind === 'tag' ? trigger.value : '',
@@ -490,7 +566,7 @@ async function sendRiderSms(db, posOrder = {}, options = {}) {
     const log = await insertSmsLog(db, {
       provider: PROVIDER,
       event_key: eventKey,
-      recipient_name: posOrder.sprinter_name,
+      recipient_name: posOrder[fields.name] || null,
       mobile,
       message,
       status: 'pending',
@@ -518,7 +594,7 @@ module.exports = {
   getPublicSetting,
   saveSetting,
   sendSms,
-  sendRiderSms,
+  sendOrderSms,
   listPosStatuses,
   listRules,
   saveRule,

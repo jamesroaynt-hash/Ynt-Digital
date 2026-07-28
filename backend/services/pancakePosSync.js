@@ -744,14 +744,15 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     } catch { /* pickup log is best-effort */ }
   }
 
-  // Notify the assigned rider. The stored rider is the fallback because the
-  // upsert COALESCEs those columns: a payload that arrives without partner
-  // data would otherwise look like an order with no rider at all. Same
-  // resolution order the RMO Management table uses.
+  // Notify the rider, the customer, or both — whichever the SMS rules are
+  // addressed to. The stored rider is the fallback because the upsert COALESCEs
+  // those columns: a payload that arrives without partner data would otherwise
+  // look like an order with no rider at all. Same resolution order the RMO
+  // Management table uses.
   const riderName = sprinterName || stored?.sprinter_name || null;
   const riderTel = sprinterTel || stored?.sprinter_tel || null;
-  if (riderTel) {
-    infotxtSms.sendRiderSms(db, {
+  if (riderTel || customerPhone) {
+    infotxtSms.sendOrderSms(db, {
       shop_id: resolvedShopId,
       external_id: externalId,
       // Order date, so the SMS service can skip orders older than its log
@@ -769,7 +770,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       note_product: noteProduct,
       cod: scaleMoney(item?.cod),
     }).catch((error) => {
-      console.warn(`[infotxt] rider SMS automation failed for ${resolvedShopId}/${externalId}: ${error.message}`);
+      console.warn(`[infotxt] SMS automation failed for ${resolvedShopId}/${externalId}: ${error.message}`);
     });
   }
 
