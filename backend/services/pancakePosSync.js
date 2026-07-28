@@ -754,6 +754,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     infotxtSms.sendRiderSms(db, {
       shop_id: resolvedShopId,
       external_id: externalId,
+      // Order date, so the SMS service can skip orders older than its log
+      // retention window (where its dedupe row may already be pruned).
+      inserted_at_remote: normalizePosTimestamp(item?.inserted_at),
       status_name: statusName,
       status_changed: Boolean(stored) && String(stored.status_name || '').toLowerCase() !== String(statusName || '').toLowerCase(),
       tag_text: tagText,

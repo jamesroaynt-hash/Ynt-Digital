@@ -11,6 +11,7 @@ const { createDatabaseClient } = require('./db/client');
 const { initializeDatabaseAsync } = require('./db/init');
 const googleSheetsSync = require('./services/googleSheetsSync');
 const pancakePosSync = require('./services/pancakePosSync');
+const infotxtSms = require('./services/infotxtSms');
 const { dispatch: dispatchWebhook } = require('./services/webhookDispatcher');
 const { hashKey: hashApiKey } = require('./routes/apiKeys');
 
@@ -513,6 +514,26 @@ async function createApp() {
     }, RETENTION_INTERVAL_MS);
   }
 
+  // SMS log retention: sms_logs is an audit trail of texts already delivered,
+  // not history anyone reads back, so it keeps SMS_LOG_RETENTION_DAYS (default
+  // 3) and drops the rest. Runs on its own regardless of POS_RETENTION_ENABLED.
+  async function runSmsLogCleanup(trigger) {
+    try {
+      const result = await infotxtSms.pruneSmsLogs(db);
+      if (result.deleted_sms_logs > 0) {
+        console.log(`[retention] ${trigger}: removed sms_logs=${result.deleted_sms_logs} (kept last ${result.retention_days}d, cutoff ${result.cutoff_date}).`);
+      }
+    } catch (error) {
+      console.warn(`[retention] ${trigger} sms_logs cleanup failed: ${error.message}`);
+    }
+  }
+  function scheduleSmsLogCleanup() {
+    setTimeout(async () => {
+      await runSmsLogCleanup('interval');
+      scheduleSmsLogCleanup();
+    }, RETENTION_INTERVAL_MS);
+  }
+
   app.locals.db = db;
   app.locals.backupDatabase = () => backupScheduler.uploadBackup({ force: true });
   app.locals.runGoogleSheetsSync = runGoogleSheetsSync;
@@ -521,6 +542,8 @@ async function createApp() {
   app.locals.schedulePancakePosSync = schedulePancakePosSync;
   app.locals.runRetentionCleanup = runRetentionCleanup;
   app.locals.scheduleRetentionCleanup = scheduleRetentionCleanup;
+  app.locals.runSmsLogCleanup = runSmsLogCleanup;
+  app.locals.scheduleSmsLogCleanup = scheduleSmsLogCleanup;
 
   return app;
 }
@@ -602,6 +625,14 @@ if (require.main === module) {
         } else {
           console.log('[retention] rolling retention disabled (POS_RETENTION_ENABLED!=true) — keeping 2026+ history.');
         }
+
+        // SMS logs always roll off after 3 days — no env flag, nothing downstream
+        // reads them beyond the recent-activity list on the SMS settings page.
+        setTimeout(() => {
+          app.locals.runSmsLogCleanup('startup');
+        }, 45 * 1000);
+
+        app.locals.scheduleSmsLogCleanup();
       }
 
       // Backups are now throttled (see createBackupScheduler), so flush a final

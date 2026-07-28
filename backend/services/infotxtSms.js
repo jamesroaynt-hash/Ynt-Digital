@@ -4,6 +4,11 @@ const DEFAULT_BASE_URL = 'https://api.myinfotxt.com/v2';
 // creates carries one, so this is a safety net rather than a real default.
 const DEFAULT_RIDER_TEMPLATE ='YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.';
 const SEND_TIMEOUT_MS = 15000;
+// How long a sent/failed SMS stays in sms_logs before it is deleted. This is
+// also the dedupe window: the log row is what stops a trigger from re-sending
+// (see sendRiderSms), so orders older than this are skipped entirely rather
+// than risk a second text once their row is gone.
+const LOG_RETENTION_DAYS = Math.max(1, Number(process.env.SMS_LOG_RETENTION_DAYS || 3));
 
 function stringOrNull(value) {
   const text = String(value ?? '').trim();
@@ -386,6 +391,24 @@ async function listSmsLogs(db, options = {}) {
   return { logs: rows || [], limit };
 }
 
+// Drops SMS logs older than the retention window. Date comparison uses a plain
+// substr(CAST(...)) text compare so it behaves identically on SQLite (TEXT
+// created_at) and Postgres (TIMESTAMPTZ) without engine-specific casts. The
+// table is small, so this is a single statement rather than a batched delete.
+async function pruneSmsLogs(db, { retentionDays = LOG_RETENTION_DAYS } = {}) {
+  const days = Math.max(1, Number(retentionDays) || LOG_RETENTION_DAYS);
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const result = await db.prepare(
+    'DELETE FROM sms_logs WHERE substr(CAST(created_at AS TEXT), 1, 10) < ?'
+  ).run(cutoff);
+  return {
+    provider: PROVIDER,
+    retention_days: days,
+    cutoff_date: cutoff,
+    deleted_sms_logs: Number(result.changes || 0),
+  };
+}
+
 // Texts whoever is assigned to the order as its rider. Two triggers, both
 // optional and both aimed at the same recipient:
 //
@@ -397,6 +420,11 @@ async function listSmsLogs(db, options = {}) {
 // tag that sits on an order for weeks still only sends the day it lands.
 // The rider's mobile is part of the event key, so swapping riders mid-delivery
 // re-notifies the new rider for the same status instead of going silent.
+//
+// Because that dedupe lives in sms_logs, and sms_logs is pruned after
+// LOG_RETENTION_DAYS, orders older than the window are skipped outright: their
+// log row may already be gone, and a still-attached trigger tag would otherwise
+// text the rider a second time the next time the order is touched.
 //
 // At most one SMS leaves per call: we claim the first trigger that hasn't been
 // logged yet and stop. An order that shows up already matching three triggers
@@ -421,6 +449,13 @@ async function sendRiderSms(db, posOrder = {}, options = {}) {
   const shopId = stringOrNull(posOrder.shop_id) || 'unknown';
   const externalId = stringOrNull(posOrder.external_id);
   if (!externalId) return { skipped: 'missing_order_id' };
+
+  // Outside the log-retention window the dedupe row can no longer be trusted.
+  // An order with no timestamp at all still sends — that is rare, and going
+  // quiet on a live order is the worse failure.
+  const placedOn = String(posOrder.inserted_at_remote || '').slice(0, 10);
+  const oldestSendable = new Date(Date.now() - LOG_RETENTION_DAYS * 86400000).toISOString().slice(0, 10);
+  if (placedOn && placedOn < oldestSendable) return { skipped: 'order_older_than_log_retention' };
 
   // A trigger matched but the rider is unreachable. Record it instead of
   // returning quietly — otherwise the only symptom is an SMS that never
@@ -490,5 +525,6 @@ module.exports = {
   setRuleEnabled,
   deleteRule,
   listSmsLogs,
+  pruneSmsLogs,
   normalizeMobile,
 };
