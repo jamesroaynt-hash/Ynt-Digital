@@ -14607,7 +14607,6 @@ function renderPosOrdersTable() {
         ['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash],
         ['Courier', escapeHtml(getRmoCourier(order)) || dash],
         ['Page', escapeHtml(order.page_name || '') || dash],
-        ['SRP', Number(order.srp || 0) ? `&#8369;${Number(order.srp || 0).toLocaleString()}` : dash],
       ];
       if (rmoTab === 'delivering') details.push(['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]);
       if (rmoTab === 'undeliverable' || rmoTab === 'returning') {
