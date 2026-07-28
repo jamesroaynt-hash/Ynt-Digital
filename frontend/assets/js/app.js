@@ -3675,7 +3675,7 @@ function renderHR() {
           <input type="date" id="hr-date-to" class="hr-toolbar-input" title="To" value="${today}">
         </span>
         <button class="btn btn-primary btn-sm" onclick="loadHRDashboard()">Apply</button>
-        <button class="btn btn-secondary btn-sm" onclick="printSelectedPayslip()">Print Payslip</button>
+        <button class="btn btn-secondary btn-sm" onclick="printPayrollSheet()" title="Print the whole payroll with a signature column">Print Payroll</button>
       </div>
     </div>
     <div class="card-body" id="hr-payroll-table-wrap">
@@ -12592,10 +12592,123 @@ async function createCashAdvance(event) {
   }
 }
 
-function printSelectedPayslip() {
-  const selected = document.getElementById('hr-user-filter')?.value;
-  const firstUser = hrState.summary[0]?.user?.id || hrState.users[0]?.id;
-  printPayslip(selected || firstUser);
+// The whole payroll on one sheet, for signing on release day. Only people with
+// pay for the period are listed — a run of zero rows is noise on a document
+// someone has to walk around and collect signatures against.
+function printPayrollSheet() {
+  const { from, to } = getHRFilters();
+  const rows = (hrState.summary || []).filter((item) => Number(item.net_pay || 0) > 0);
+  if (!rows.length) {
+    showToast('warning', 'Nothing to print', 'No user has pay for the selected period.');
+    return;
+  }
+  const win = window.open('', '_blank', 'width=1100,height=900');
+  if (!win) {
+    showToast('error', 'Popup blocked', 'Allow popups for this site to print the payroll.');
+    return;
+  }
+  win.document.write(buildPayrollSheetDocument(rows, from, to));
+  win.document.close();
+  win.focus();
+}
+
+function buildPayrollSheetDocument(rows, from, to) {
+  const ink = '#232c3b';
+  const navy = '#0d3f7a';
+  const muted = '#5b6472';
+  const sum = (key) => rows.reduce((total, item) => total + Number(item[key] || 0), 0);
+  const cell = 'padding:9px 12px;border-bottom:1px solid #eaedf1;';
+  const head = 'text-align:left;padding:10px 12px;font-weight:600;';
+
+  const body = rows.map((item) => {
+    const user = item.user || {};
+    return `
+      <tr>
+        <td style="${cell}">
+          <div style="font-weight:600;">${escapeHtml(user.full_name || user.username || 'User')}</div>
+          <div style="font-size:11px;color:${muted};">${escapeHtml(formatRoleLabel(user.role))}</div>
+        </td>
+        <td style="${cell}">${formatPHP(user.daily_rate)}</td>
+        <td style="${cell}">${Number(item.days_worked || 0)}</td>
+        <td style="${cell}">${formatMinutes(item.ot_minutes)}</td>
+        <td style="${cell}">${formatPHP(item.ot_pay)}</td>
+        <td style="${cell}">${formatPHP(item.holiday_pay)}</td>
+        <td style="${cell}">${formatPHP(item.cash_advances)}</td>
+        <td style="${cell}font-weight:700;">${formatPHP(item.net_pay)}</td>
+        <td style="${cell}width:170px;"></td>
+      </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>YNT Payroll - ${escapeHtml(formatPayslipPeriod(from, to))}</title>
+<style>
+  @page { size: letter landscape; margin: 0.5in; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0.5in; background: #fff; font-family: Helvetica, Arial, sans-serif; color: ${ink}; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  tbody tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  .print-bar { position: fixed; top: 16px; right: 16px; }
+  .print-bar button { font: 600 13px Helvetica, Arial, sans-serif; padding: 8px 16px; border: 1px solid ${navy};
+    border-radius: 6px; background: ${navy}; color: #fff; cursor: pointer; }
+  @media print { .print-bar { display: none; } body { padding: 0; } }
+</style></head>
+<body>
+  <div class="print-bar"><button onclick="window.print()">Print</button></div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${navy};padding-bottom:16px;margin-bottom:22px;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <img src="${location.origin}/Images/yntlogo.png" alt="" style="width:52px;height:52px;border-radius:10px;object-fit:contain;">
+      <div>
+        <div style="font-size:20px;font-weight:700;letter-spacing:0.2px;">YNT Digital Marketing Services</div>
+        <div style="font-size:12px;color:${muted};text-transform:uppercase;letter-spacing:1px;">Payroll</div>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:13px;color:${muted};">Pay period</div>
+      <div style="font-size:16px;font-weight:600;">${escapeHtml(formatPayslipPeriod(from, to))}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr style="background:${navy};color:#fff;">
+        <th style="${head}border-radius:8px 0 0 8px;">User</th>
+        <th style="${head}">Rate / Day</th>
+        <th style="${head}">Days</th>
+        <th style="${head}">OT</th>
+        <th style="${head}">OT Pay</th>
+        <th style="${head}">Holiday</th>
+        <th style="${head}">Cash Adv.</th>
+        <th style="${head}">Net Pay</th>
+        <th style="${head}border-radius:0 8px 8px 0;">Signature</th>
+      </tr>
+    </thead>
+    <tbody>${body}</tbody>
+    <tfoot>
+      <tr style="background:#eef4fb;">
+        <td style="padding:12px;font-weight:700;">Total — ${rows.length} ${rows.length === 1 ? 'employee' : 'employees'}</td>
+        <td style="padding:12px;"></td>
+        <td style="padding:12px;font-weight:700;">${sum('days_worked')}</td>
+        <td style="padding:12px;"></td>
+        <td style="padding:12px;font-weight:700;">${formatPHP(sum('ot_pay'))}</td>
+        <td style="padding:12px;font-weight:700;">${formatPHP(sum('holiday_pay'))}</td>
+        <td style="padding:12px;font-weight:700;">${formatPHP(sum('cash_advances'))}</td>
+        <td style="padding:12px;font-weight:700;color:${navy};">${formatPHP(sum('net_pay'))}</td>
+        <td style="padding:12px;"></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div style="margin-top:26px;display:flex;justify-content:space-between;gap:80px;">
+    <div style="flex:1;"><div style="border-top:1px solid #3b4453;padding-top:8px;font-size:12.5px;">Prepared by</div></div>
+    <div style="flex:1;"><div style="border-top:1px solid #3b4453;padding-top:8px;font-size:12.5px;">Approved by</div></div>
+  </div>
+
+  <div style="font-size:11px;color:#858d99;text-align:center;padding-top:14px;margin-top:18px;border-top:1px solid #eaedf1;">
+    Generated by YNT Digital Marketing Services · This is a computer-generated document.
+  </div>
+</body></html>`;
 }
 
 // "Jul 16 – Jul 31, 2026", collapsing the year when both dates share one.
