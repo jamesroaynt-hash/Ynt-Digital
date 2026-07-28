@@ -2777,6 +2777,51 @@ tfoot td {
   margin: 4px 0;
 }
 
+/* HR payroll filters live in the table's own header instead of a panel of
+   labelled fields above it. The controls name themselves — "July 2026",
+   "16 - End", "All users" — so they carry tooltips rather than labels. */
+.hr-payroll-header {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 12px;
+}
+
+.hr-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.hr-toolbar-input {
+  height: 34px;
+  max-width: 160px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.hr-toolbar-input:focus { border-color: var(--accent); }
+
+/* Names plus role labels run long — this one gets a little more room. */
+#hr-user-filter.hr-toolbar-input { max-width: 200px; }
+
+.hr-toolbar-dates {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hr-toolbar-sep {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .rmo-search {
   position: relative;
   flex: 1 1 360px;

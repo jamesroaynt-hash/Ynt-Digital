@@ -3649,49 +3649,35 @@ function renderHR() {
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:20px;">
-    <div class="card-body">
-      <div class="form-grid-3">
-        <div class="form-group">
-          <label class="form-label">Month</label>
-          <select id="hr-month-filter" class="form-control" onchange="applyHRMonthPeriod()">
-            ${buildHRMonthOptions()}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Period</label>
-          <select id="hr-period-filter" class="form-control" onchange="applyHRMonthPeriod()">
-            <option value="1"${defaultPeriod === '1' ? ' selected' : ''}>1 - 15</option>
-            <option value="2"${defaultPeriod === '2' ? ' selected' : ''}>16 - End</option>
-            <option value="0">Whole month</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">User</label>
-          <select id="hr-user-filter" class="form-control">
-            <option value="">All users</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">From</label>
-          <input type="date" id="hr-date-from" class="form-control" value="${monthStart}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">To</label>
-          <input type="date" id="hr-date-to" class="form-control" value="${today}">
-        </div>
-      </div>
-      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
-        <button class="btn btn-primary" onclick="loadHRDashboard()">Apply</button>
-        <button class="btn btn-secondary" onclick="printSelectedPayslip()">Print Payslip</button>
-      </div>
-    </div>
-  </div>
-
   <div id="hr-summary-wrap" class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:20px;"></div>
 
   <div class="card" style="margin-bottom:20px;">
-    <div class="card-header"><div><div class="card-title">User Payroll</div><div class="card-subtitle">Days worked, OT, holiday pay, cash advances, and net pay</div></div></div>
+    <div class="card-header hr-payroll-header">
+      <div>
+        <div class="card-title">User Payroll</div>
+        <div class="card-subtitle">Days worked, OT, holiday pay, cash advances, and net pay</div>
+      </div>
+      <div class="hr-toolbar">
+        <select id="hr-month-filter" class="hr-toolbar-input" title="Month" onchange="applyHRMonthPeriod()">
+          ${buildHRMonthOptions()}
+        </select>
+        <select id="hr-period-filter" class="hr-toolbar-input" title="Payroll period" onchange="applyHRMonthPeriod()">
+          <option value="1"${defaultPeriod === '1' ? ' selected' : ''}>1 - 15</option>
+          <option value="2"${defaultPeriod === '2' ? ' selected' : ''}>16 - End</option>
+          <option value="0">Whole month</option>
+        </select>
+        <select id="hr-user-filter" class="hr-toolbar-input" title="User">
+          <option value="">All users</option>
+        </select>
+        <span class="hr-toolbar-dates">
+          <input type="date" id="hr-date-from" class="hr-toolbar-input" title="From" value="${monthStart}">
+          <span class="hr-toolbar-sep">–</span>
+          <input type="date" id="hr-date-to" class="hr-toolbar-input" title="To" value="${today}">
+        </span>
+        <button class="btn btn-primary btn-sm" onclick="loadHRDashboard()">Apply</button>
+        <button class="btn btn-secondary btn-sm" onclick="printSelectedPayslip()">Print Payslip</button>
+      </div>
+    </div>
     <div class="card-body" id="hr-payroll-table-wrap">
       <div class="empty-state"><h3>Loading payroll</h3><p>Preparing HR records.</p></div>
     </div>
