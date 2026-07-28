@@ -3101,19 +3101,18 @@ tfoot td {
 .rmo-expand:hover { color: var(--primary, #6366f1); }
 .rmo-row.expanded .rmo-expand { transform: rotate(90deg); color: var(--primary, #6366f1); }
 
+/* One cell per summary column, so every detail field lines up under the column
+   it belongs with rather than flowing in a grid of its own. */
 .rmo-detail-row > td {
   background: var(--surface-2);
-  padding: 4px 16px 16px 44px;
+  padding: 2px 16px 14px;
   border-top: 0;
+  vertical-align: top;
 }
 
 .rmo-detail-row:hover > td { background: var(--surface-2); }
 
-.rmo-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 14px 24px;
-}
+.rmo-detail-item + .rmo-detail-item { margin-top: 10px; }
 
 .rmo-detail-label {
   display: block;

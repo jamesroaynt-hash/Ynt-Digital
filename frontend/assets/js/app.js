@@ -14591,29 +14591,32 @@ function renderPosOrdersTable() {
       const detailId = `rmo-detail-${rowKey.replace(/[^A-Za-z0-9]/g, '_')}`;
       const open = rmoExpandedRows.has(rowKey);
       const reason = getRmoReasonDisplay(order);
-      // Everything the summary row no longer shows. Page, Reason and Last
-      // Update aren't in the seven either, but dropping them outright would
-      // lose data the tabs are filtered by, so they ride along down here.
-      const details = [
-        ['Rider Assign', escapeHtml(rider.name || '') || dash],
-        ['Rider Phone', escapeHtml(rider.tel || '') || dash],
-        ['Tracking', order.tracking_no
-          ? `<span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>`
-          : dash],
-        ['Attempts', Number(order.attempts || 0) > 1
-          ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
-          : (Number(order.attempts || 0) || dash)],
-        ['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash],
-        ['Courier', escapeHtml(getRmoCourier(order)) || dash],
-        ['Page', escapeHtml(order.page_name || '') || dash],
-      ];
-      if (rmoTab === 'delivering') details.push(['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]);
+      // Everything the summary row no longer shows, laid out as one detail cell
+      // per summary column so each field sits under the column it belongs with:
+      // rider under customer, rider phone under phone, and so on. Page, Reason
+      // and Last Update aren't in the seven either, but the tabs filter by them,
+      // so they ride along rather than disappearing — Reason and Last Update
+      // share the Product column, the widest one.
+      const dateFields = [['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash]];
+      if (rmoTab === 'delivering') dateFields.push(['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]);
       if (rmoTab === 'undeliverable' || rmoTab === 'returning') {
-        details.push(['Reason', reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash]);
+        dateFields.push(['Reason', reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash]);
       }
-      // Tags go last: the edit button makes this the one interactive field, so
-      // it sits at the end rather than in the middle of read-only detail.
-      details.push(['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]);
+      const detailColumns = [
+        [['Rider Assign', escapeHtml(rider.name || '') || dash]],
+        [['Rider Phone', escapeHtml(rider.tel || '') || dash]],
+        [['Tracking', order.tracking_no
+          ? `<span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>`
+          : dash]],
+        dateFields,
+        [['Attempts', Number(order.attempts || 0) > 1
+          ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
+          : (Number(order.attempts || 0) || dash)]],
+        [['Courier', escapeHtml(getRmoCourier(order)) || dash]],
+        [['Page', escapeHtml(order.page_name || '') || dash]],
+        // Tags last: the edit button makes this the one interactive field.
+        [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
+      ];
       return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" onclick="toggleRmoRowDetails(event, this)">
         <td style="text-align:center;">${order.can_message
           ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
@@ -14647,15 +14650,12 @@ function renderPosOrdersTable() {
         </td>
       </tr>
       <tr class="rmo-detail-row" id="${detailId}" ${open ? '' : 'hidden'}>
-        <td colspan="${RMO_TABLE_COLSPAN}">
-          <div class="rmo-detail-grid">
-            ${details.map(([label, value]) => `
-              <div class="rmo-detail-item">
-                <span class="rmo-detail-label">${label}</span>
-                <span class="rmo-detail-value">${value}</span>
-              </div>`).join('')}
-          </div>
-        </td>
+        <td></td>
+        ${detailColumns.map((fields) => `<td>${fields.map(([label, value]) => `
+          <div class="rmo-detail-item">
+            <span class="rmo-detail-label">${label}</span>
+            <span class="rmo-detail-value">${value}</span>
+          </div>`).join('')}</td>`).join('')}
       </tr>`;
     }
     return `<tr>
