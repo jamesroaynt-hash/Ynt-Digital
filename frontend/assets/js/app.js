@@ -9055,66 +9055,70 @@ function renderRmoManagement() {
       ${renderRmoMetricCard('problematic', 'Problematic', problematic, 'purple', rmoMetricShare(problematic, DB.posRawTotal))}
     </div>
 
-    <div class="rmo-filter-bar">
-      <select class="rmo-select" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
-        <option value="all">All Statuses</option>
-        ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-      </select>
-      <select class="rmo-select" id="pos-orders-tags" onchange="applyPosOrdersDropdown()">
-        <option value="all">All Tags</option>
-        ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
-      </select>
-      <select class="rmo-select" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
-        <option value="all">All Products</option>
-        ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
-      </select>
-      <select class="rmo-select" id="pos-orders-page" onchange="applyPosOrdersDropdown()">
-        <option value="all">All Pages</option>
-        ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
-      </select>
-      ${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? `<select class="rmo-select" id="pos-orders-reason" onchange="applyPosOrdersDropdown()">
-        <option value="all">All Reasons</option>
-        ${posReasonOptions.map((reason) => `<option value="${escapeHtml(reason)}" ${posOrdersReasonFilter === reason ? 'selected' : ''}>${escapeHtml(reason)}</option>`).join('')}
-      </select>` : ''}
-      <select class="rmo-select" id="pos-orders-attempts" onchange="applyPosOrdersDropdown()">
-        ${[['all','All Attempts'],['1','1st attempt'],['2','2nd attempt'],['3','3rd attempt'],['4plus','4+ attempts']].map(([v, l]) =>
-          `<option value="${v}" ${posOrdersAttemptFilter === v ? 'selected' : ''}>${l}</option>`).join('')}
-      </select>
-    </div>
-
-    <div class="rmo-period-bar">
-      ${rmoTab !== 'orders' ? `
-      <div class="table-filters" title="Filtered by last status update">
-        ${[['all','All'],['today','Today'],['yesterday','Yesterday']].map(([v, l]) =>
-          `<button class="filter-pill ${rmoUpdatePeriod === v ? 'active' : ''}" onclick="setRmoUpdatePeriod('${v}',this)">${l}</button>`
-        ).join('')}
-        <span style="font-size:12px;color:var(--text-muted);align-self:center;margin-left:6px;">by last status update</span>
-      </div>` : `
-      <div class="table-filters">
-        ${[['all','All'],['today','Today'],['yesterday','Yesterday'],['month','Month'],['year','Year'],['custom','Custom']].map(([v, l]) =>
-          `<button class="filter-pill ${posOrdersPeriod === v ? 'active' : ''}" onclick="setPosOrdersPeriod('${v}',this)">${l}</button>`
-        ).join('')}
-      </div>
-      <div class="custom-range records-custom-range ${posOrdersPeriod === 'custom' ? '' : 'hidden'}" id="pos-orders-custom-range">
-        <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
-        <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
-        <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
-      </div>`}
-    </div>
-
-    <div id="pos-orders-status-summary" class="rmo-status-summary"></div>
-    <div id="rmo-bulk-bar" class="rmo-bulk-bar" style="display:none;">
-      <span id="rmo-bulk-count">0 selected</span>
-      <button class="btn btn-primary btn-sm" onclick="openBotcakeSendModal('selected')">✉ Send message</button>
-      <button class="btn btn-secondary btn-sm" onclick="clearRmoSelection()">Clear</button>
-    </div>
     <div class="rmo-table-wrap">
-      <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:${showsReasonColumn ? '17%' : '21%'}">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:${showsReasonColumn ? '16%' : '12%'}">${showsReasonColumn ? 'Reason' : 'Confirmed By'}</th><th style="width:10%">Message</th></tr></thead>
-        <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
-        </tbody>
-      </table>
+      <div class="rmo-toolbar">
+        <div class="rmo-toolbar-periods">
+          ${rmoTab !== 'orders' ? `
+          <div class="table-filters" title="Filtered by last status update">
+            ${[['all','All'],['today','Today'],['yesterday','Yesterday']].map(([v, l]) =>
+              `<button class="filter-pill ${rmoUpdatePeriod === v ? 'active' : ''}" onclick="setRmoUpdatePeriod('${v}',this)">${l}</button>`
+            ).join('')}
+            <span class="rmo-toolbar-note">by last status update</span>
+          </div>` : `
+          <div class="table-filters">
+            ${[['all','All'],['today','Today'],['yesterday','Yesterday'],['month','Month'],['year','Year'],['custom','Custom']].map(([v, l]) =>
+              `<button class="filter-pill ${posOrdersPeriod === v ? 'active' : ''}" onclick="setPosOrdersPeriod('${v}',this)">${l}</button>`
+            ).join('')}
+          </div>
+          <div class="custom-range records-custom-range ${posOrdersPeriod === 'custom' ? '' : 'hidden'}" id="pos-orders-custom-range">
+            <input type="date" class="form-control" id="pos-orders-date-from" value="${posOrdersDateFrom}">
+            <input type="date" class="form-control" id="pos-orders-date-to" value="${posOrdersDateTo}">
+            <button class="btn btn-secondary btn-sm" onclick="applyPosOrdersCustomRange()">Apply</button>
+          </div>`}
+        </div>
+        <div class="rmo-toolbar-filters">
+          <select class="rmo-select" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
+            <option value="all">All Statuses</option>
+            ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+          </select>
+          <select class="rmo-select" id="pos-orders-tags" onchange="applyPosOrdersDropdown()">
+            <option value="all">All Tags</option>
+            ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+          </select>
+          <select class="rmo-select" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
+            <option value="all">All Products</option>
+            ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+          </select>
+          <select class="rmo-select" id="pos-orders-page" onchange="applyPosOrdersDropdown()">
+            <option value="all">All Pages</option>
+            ${posPageOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersPageFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+          </select>
+          ${showsReasonColumn ? `<select class="rmo-select" id="pos-orders-reason" onchange="applyPosOrdersDropdown()">
+            <option value="all">All Reasons</option>
+            ${posReasonOptions.map((reason) => `<option value="${escapeHtml(reason)}" ${posOrdersReasonFilter === reason ? 'selected' : ''}>${escapeHtml(reason)}</option>`).join('')}
+          </select>` : ''}
+          <select class="rmo-select" id="pos-orders-attempts" onchange="applyPosOrdersDropdown()">
+            ${[['all','All Attempts'],['1','1st attempt'],['2','2nd attempt'],['3','3rd attempt'],['4plus','4+ attempts']].map(([v, l]) =>
+              `<option value="${v}" ${posOrdersAttemptFilter === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div id="pos-orders-status-summary" class="rmo-status-summary"></div>
+      <div id="rmo-bulk-bar" class="rmo-bulk-bar" style="display:none;">
+        <span id="rmo-bulk-count">0 selected</span>
+        <button class="btn btn-primary btn-sm" onclick="openBotcakeSendModal('selected')">✉ Send message</button>
+        <button class="btn btn-secondary btn-sm" onclick="clearRmoSelection()">Clear</button>
+      </div>
+
+      <div class="rmo-table-scroll">
+        <table class="rmo-table" id="rmo-pos-orders-table">
+          <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:${showsReasonColumn ? '17%' : '21%'}">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:${showsReasonColumn ? '16%' : '12%'}">${showsReasonColumn ? 'Reason' : 'Confirmed By'}</th><th style="width:10%">Message</th></tr></thead>
+          <tbody id="rec-pos-orders-tbody">
+            <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          </tbody>
+        </table>
+      </div>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
     </div>
 
@@ -14640,9 +14644,14 @@ function renderPosOrdersTable() {
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];
       return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" onclick="toggleRmoRowDetails(event, this)">
-        <td style="text-align:center;">${order.can_message
-          ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
-          : '<span class="rmo-muted" title="No Messenger contact for this order">—</span>'}</td>
+        <td>
+          <span class="rmo-check-cell">
+            ${order.can_message
+              ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
+              : '<span class="rmo-check-blank" title="No Messenger contact for this order">—</span>'}
+            <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
+          </span>
+        </td>
         <td>
           <div class="rmo-customer-cell">
             <button class="rmo-expand" type="button" aria-expanded="${open}" title="Show delivery details" onclick="toggleRmoRowDetails(event, this.closest('tr'), true)">
@@ -14653,10 +14662,7 @@ function renderPosOrdersTable() {
         </td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
-        <td>
-          <div class="rmo-item-main">${escapeHtml(product)}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}</div>
-        </td>
+        <td><div class="rmo-item-main">${escapeHtml(product)}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
         <td>${showsReason
@@ -14674,7 +14680,7 @@ function renderPosOrdersTable() {
         </td>
       </tr>
       <tr class="rmo-detail-row" id="${detailId}" ${open ? '' : 'hidden'}>
-        <td></td>
+        <td class="rmo-detail-spacer"></td>
         ${detailColumns.map((fields) => `<td>${fields.map(([label, value]) => `
           <div class="rmo-detail-item">
             <span class="rmo-detail-label">${label}</span>
@@ -14754,7 +14760,7 @@ function applyPosOrdersDropdown() {
 
 function setPosOrdersPeriod(period, btn) {
   posOrdersPeriod = period;
-  document.querySelectorAll('.rmo-period-bar .filter-pill, #rec-pos-orders .filter-pill').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.rmo-toolbar-periods .filter-pill, #rec-pos-orders .filter-pill').forEach((b) => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const customRange = document.getElementById('pos-orders-custom-range');
   if (customRange) customRange.classList.toggle('hidden', period !== 'custom');
@@ -14781,7 +14787,7 @@ function setRmoTab(tab) {
 function setRmoUpdatePeriod(period, btn) {
   rmoUpdatePeriod = period;
   posRawPage = 1;
-  document.querySelectorAll('.rmo-period-bar .filter-pill').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.rmo-toolbar-periods .filter-pill').forEach((b) => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch((err) => {
     showToast('warning', 'POS Orders filter failed', err.message || 'Could not load POS orders.');
