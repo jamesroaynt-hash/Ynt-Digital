@@ -3826,7 +3826,6 @@ function renderHR() {
         </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button class="btn btn-primary" style="flex:1;" onclick="savePayrollRate()">Save Rate</button>
-          <button class="btn btn-secondary" onclick="printPayslipFromModal()">Print Payslip</button>
           <button class="btn btn-secondary" onclick="closeModal('payroll-edit-modal')">Cancel</button>
         </div>
       </div>
@@ -12071,7 +12070,7 @@ function renderHRPayrollTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th></tr></thead>
+        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Payslip</th></tr></thead>
         <tbody>
           ${hrState.summary.map((item) => {
             const user = item.user || {};
@@ -12085,6 +12084,9 @@ function renderHRPayrollTable() {
                 <td>${formatPHP(item.holiday_pay)}</td>
                 <td>${formatPHP(item.cash_advances)}</td>
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
+                <td onclick="event.stopPropagation();">
+                  <button class="btn btn-secondary btn-sm" onclick="printPayslip(${user.id})" title="Open this user's payslip">Print</button>
+                </td>
               </tr>`;
           }).join('')}
         </tbody>
@@ -12238,11 +12240,6 @@ async function savePayrollRate() {
   } catch (error) {
     showToast('error', 'Rate failed', error.message || 'Could not update rate.');
   }
-}
-
-function printPayslipFromModal() {
-  const userId = Number(document.getElementById('payroll-modal-user-id')?.value || 0);
-  if (userId) printPayslip(userId);
 }
 
 function openAttendanceEditModal(recordId) {
