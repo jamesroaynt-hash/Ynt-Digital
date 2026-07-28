@@ -12601,6 +12601,134 @@ function printSelectedPayslip() {
   printPayslip(selected || firstUser);
 }
 
+// "Jul 16 – Jul 31, 2026", collapsing the year when both dates share one.
+function formatPayslipPeriod(from, to) {
+  const parse = (value) => {
+    const [y, m, d] = String(value || '').split('-').map(Number);
+    return (y && m && d) ? new Date(y, m - 1, d) : null;
+  };
+  const start = parse(from);
+  const end = parse(to);
+  if (!start || !end) return `${from || ''} – ${to || ''}`;
+  const md = { month: 'short', day: 'numeric' };
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const left = start.toLocaleDateString('en-US', sameYear ? md : { ...md, year: 'numeric' });
+  const right = end.toLocaleDateString('en-US', { ...md, year: 'numeric' });
+  return `${left} – ${right}`;
+}
+
+// The printable payslip. Laid out for Letter at a 0.6in margin: masthead,
+// employee, a bordered totals card ending in net pay, the attendance table,
+// then signature lines. Colours are hex rather than CSS variables because this
+// document is written into a bare popup with no stylesheet of its own.
+function buildPayslipDocument(slip) {
+  const totals = slip.totals || {};
+  const user = slip.user || {};
+  const ink = '#232c3b';
+  const navy = '#0d3f7a';
+  const muted = '#5b6472';
+  const line = '#e3e7ec';
+
+  const row = (label, value, extra = '') => `
+    <div style="display:grid;grid-template-columns:1fr auto;padding:14px 20px;border-bottom:1px solid #eaedf1;${extra}">
+      <div style="font-size:14px;color:${muted};">${label}</div>
+      <div style="font-size:14px;font-weight:600;">${value}</div>
+    </div>`;
+
+  const attendanceRows = (slip.attendance || []).map((record) => {
+    const holidayPct = Number(record.holiday_percentage || 100);
+    return `
+      <tr style="border-bottom:1px solid #eaedf1;">
+        <td style="padding:9px 12px;">${escapeHtml(record.work_date || '')}</td>
+        <td style="padding:9px 12px;">${escapeHtml(formatClock12(record.time_in)) || '—'}</td>
+        <td style="padding:9px 12px;">${escapeHtml(formatClock12(record.time_out)) || '—'}</td>
+        <td style="padding:9px 12px;">${formatMinutes(record.payable_ot_minutes || 0)}</td>
+        <td style="padding:9px 12px;">${holidayPct > 100 ? holidayPct : 0}%</td>
+      </tr>`;
+  }).join('') || `<tr><td colspan="5" style="padding:14px 12px;color:${muted};">No attendance records for this period.</td></tr>`;
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>YNT Payslip - ${escapeHtml(user.full_name || 'Employee')}</title>
+<style>
+  @page { size: letter; margin: 0.6in; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0.6in; background: #fff; font-family: Helvetica, Arial, sans-serif; color: ${ink}; }
+  .sheet { display: flex; flex-direction: column; gap: 28px; }
+  .print-bar { position: fixed; top: 16px; right: 16px; }
+  .print-bar button { font: 600 13px Helvetica, Arial, sans-serif; padding: 8px 16px; border: 1px solid ${navy};
+    border-radius: 6px; background: ${navy}; color: #fff; cursor: pointer; }
+  @media print { .print-bar { display: none; } body { padding: 0; } }
+</style></head>
+<body>
+  <div class="print-bar"><button onclick="window.print()">Print</button></div>
+  <div class="sheet">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${navy};padding-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <img src="${location.origin}/Images/yntlogo.png" alt="" style="width:52px;height:52px;border-radius:10px;object-fit:contain;">
+        <div>
+          <div style="font-size:20px;font-weight:700;letter-spacing:0.2px;">YNT Digital Marketing Services</div>
+          <div style="font-size:12px;color:${muted};text-transform:uppercase;letter-spacing:1px;">Payslip</div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:13px;color:${muted};">Pay period</div>
+        <div style="font-size:16px;font-weight:600;">${escapeHtml(formatPayslipPeriod(slip.from, slip.to))}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;">
+      <div>
+        <div style="font-size:26px;font-weight:700;">${escapeHtml(user.full_name || user.username || 'User')}</div>
+        <div style="font-size:14px;color:${muted};margin-top:4px;">${escapeHtml(formatRoleLabel(user.role))}</div>
+      </div>
+      <div style="text-align:right;font-size:14px;color:${muted};">
+        Daily rate<br>
+        <span style="font-size:20px;font-weight:700;color:${ink};">${formatPHP(slip.daily_rate ?? user.daily_rate)}</span>
+      </div>
+    </div>
+
+    <div style="border:1px solid ${line};border-radius:12px;overflow:hidden;">
+      ${row('Days Worked', Number(totals.days_worked || 0))}
+      ${row('Base Pay', formatPHP(totals.base_pay))}
+      ${row(`OT (${formatMinutes(totals.ot_minutes)})`, formatPHP(totals.ot_pay))}
+      ${row('Holiday Pay', formatPHP(totals.holiday_pay))}
+      ${Number(totals.rest_days || 0) > 0 ? row(`Rest Day Pay (${Number(totals.rest_days)})`, formatPHP(totals.rest_day_pay)) : ''}
+      ${row('Cash Advances', `-${formatPHP(totals.cash_advances)}`)}
+      <div style="display:grid;grid-template-columns:1fr auto;padding:18px 20px;background:#eef4fb;">
+        <div style="font-size:16px;font-weight:700;">Net Pay</div>
+        <div style="font-size:22px;font-weight:700;color:${navy};">${formatPHP(totals.net_pay)}</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:${muted};margin-bottom:10px;">Attendance</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:${navy};color:#fff;">
+            <th style="text-align:left;padding:10px 12px;font-weight:600;border-radius:8px 0 0 8px;">Date</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;">Time In</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;">Time Out</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;">OT</th>
+            <th style="text-align:left;padding:10px 12px;font-weight:600;border-radius:0 8px 8px 0;">Holiday %</th>
+          </tr>
+        </thead>
+        <tbody>${attendanceRows}</tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;gap:60px;margin-top:20px;">
+      <div style="flex:1;"><div style="border-top:1px solid #3b4453;padding-top:8px;font-size:13px;">Employee Signature</div></div>
+      <div style="flex:1;"><div style="border-top:1px solid #3b4453;padding-top:8px;font-size:13px;">HR Signature</div></div>
+    </div>
+
+    <div style="font-size:11px;color:#858d99;text-align:center;padding-top:8px;border-top:1px solid #eaedf1;">
+      Generated by YNT Digital Marketing Services · This is a computer-generated document.
+    </div>
+  </div>
+</body></html>`;
+}
+
 async function printPayslip(userId) {
   if (!userId) {
     showToast('warning', 'Choose user', 'Select a user before printing a payslip.');
@@ -12614,39 +12742,9 @@ async function printPayslip(userId) {
     if (!slip) throw new Error('Payslip not found');
     const totals = slip.totals || {};
     const user = slip.user || {};
-    const win = window.open('', '_blank', 'width=860,height=900');
+    const win = window.open('', '_blank', 'width=880,height=960');
     if (!win) throw new Error('Popup was blocked');
-    win.document.write(`
-      <html><head><title>Payslip - ${escapeHtml(user.full_name || '')}</title>
-      <style>
-        body{font-family:Arial,sans-serif;color:#111827;padding:32px}
-        h1{margin:0 0 4px;font-size:24px}.muted{color:#6b7280}
-        table{width:100%;border-collapse:collapse;margin-top:20px}td,th{border:1px solid #e5e7eb;padding:8px;text-align:left}
-        .totals{max-width:380px;margin-left:auto}.total{font-size:20px;font-weight:700}
-        @media print{button{display:none}}
-      </style></head><body>
-      <button onclick="window.print()">Print</button>
-      <h1>YNT Digital Marketing Payslip</h1>
-      <div class="muted">${escapeHtml(slip.from)} to ${escapeHtml(slip.to)}</div>
-      <h2>${escapeHtml(user.full_name || user.username || 'User')}</h2>
-      <div>${escapeHtml(formatRoleLabel(user.role))} | Daily rate: ${formatPHP(user.daily_rate)}</div>
-      <table><tbody>
-        <tr><th>Days Worked</th><td>${Number(totals.days_worked || 0)}</td></tr>
-        <tr><th>Base Pay</th><td>${formatPHP(totals.base_pay)}</td></tr>
-        <tr><th>OT (${formatMinutes(totals.ot_minutes)})</th><td>${formatPHP(totals.ot_pay)}</td></tr>
-        <tr><th>Holiday Pay</th><td>${formatPHP(totals.holiday_pay)}</td></tr>
-        ${Number(totals.rest_days || 0) > 0 ? `<tr><th>Rest Day Pay (${Number(totals.rest_days)})</th><td>${formatPHP(totals.rest_day_pay)}</td></tr>` : ''}
-        <tr><th>Cash Advances</th><td>-${formatPHP(totals.cash_advances)}</td></tr>
-        <tr><th class="total">Net Pay</th><td class="total">${formatPHP(totals.net_pay)}</td></tr>
-      </tbody></table>
-      <table><thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>OT</th><th>Holiday %</th></tr></thead><tbody>
-        ${(slip.attendance || []).map((record) => {
-          const holidayPct = Number(record.holiday_percentage || 100);
-          const isHoliday = holidayPct > 100;
-          return `<tr><td>${escapeHtml(record.work_date || '')}</td><td>${escapeHtml(formatClock12(record.time_in))}</td><td>${escapeHtml(formatClock12(record.time_out))}</td><td>${formatMinutes(record.payable_ot_minutes || 0)}</td><td>${isHoliday ? holidayPct : 0}%</td></tr>`;
-        }).join('')}
-      </tbody></table>
-      </body></html>`);
+    win.document.write(buildPayslipDocument(slip));
     win.document.close();
     win.focus();
   } catch (error) {
