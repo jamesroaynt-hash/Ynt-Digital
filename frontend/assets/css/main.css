@@ -3035,9 +3035,43 @@ tfoot td {
   text-align: center;
 }
 
+/* Order # and the customer name stay left: they are what the eye runs down
+   when looking for a row, and centring makes ragged names hard to scan. */
+.rmo-table thead th:nth-child(-n+2),
+.rmo-table tbody td:nth-child(-n+2) {
+  text-align: left;
+}
+
 .rmo-msg-actions,
 .rmo-tag-line {
   justify-content: center;
+}
+
+/* Checkboxes stay out of the table until Select is switched on — bulk sending
+   is occasional, and a column of empty boxes is noise the rest of the time. */
+.rmo-table:not(.select-mode) .rmo-row-check,
+.rmo-table:not(.select-mode) .rmo-check-blank,
+.rmo-table:not(.select-mode) #rmo-select-all {
+  display: none;
+}
+
+.rmo-select-toggle {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rmo-select-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
+.rmo-select-toggle.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* Type matches the app's standard tables — the RMO table used to run its own

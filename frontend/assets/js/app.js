@@ -973,6 +973,22 @@ function clearRmoSelection() {
   updateRmoBulkBar();
 }
 
+// Bulk sending is occasional, so the checkboxes stay out of the table until
+// Select is switched on. Leaving select mode drops whatever was ticked —
+// a hidden selection would send on the next click with nothing to show for it.
+let rmoSelectMode = false;
+
+function toggleRmoSelectMode(btn) {
+  rmoSelectMode = !rmoSelectMode;
+  document.getElementById('rmo-pos-orders-table')?.classList.toggle('select-mode', rmoSelectMode);
+  const button = btn || document.getElementById('rmo-select-toggle');
+  if (button) {
+    button.classList.toggle('active', rmoSelectMode);
+    button.textContent = rmoSelectMode ? 'Done' : 'Select';
+  }
+  if (!rmoSelectMode) clearRmoSelection();
+}
+
 // Open the send modal for one order ('single') or the current selection ('selected').
 // A Botcake flow id is page-specific, so a send is scoped to one shop/page; if a
 // multi-select spans pages we stop and ask the user to narrow it down.
@@ -9077,6 +9093,7 @@ function renderRmoManagement() {
           </div>`}
         </div>
         <div class="rmo-toolbar-filters">
+          <button class="rmo-select-toggle ${rmoSelectMode ? 'active' : ''}" type="button" id="rmo-select-toggle" onclick="toggleRmoSelectMode(this)" title="Show the row checkboxes for bulk messaging">${rmoSelectMode ? 'Done' : 'Select'}</button>
           <select class="rmo-select" id="pos-orders-status" onchange="applyPosOrdersDropdown()">
             <option value="all">All Statuses</option>
             ${posStatusDisplayOptions.map((s) => `<option value="${escapeHtml(s)}" ${posOrdersStatusFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
@@ -9112,7 +9129,7 @@ function renderRmoManagement() {
       </div>
 
       <div class="rmo-table-scroll">
-        <table class="rmo-table" id="rmo-pos-orders-table">
+        <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
           <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:${showsReasonColumn ? '17%' : '21%'}">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:${showsReasonColumn ? '16%' : '12%'}">${showsReasonColumn ? 'Reason' : 'Confirmed By'}</th><th style="width:10%">Message</th></tr></thead>
           <tbody id="rec-pos-orders-tbody">
             <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
