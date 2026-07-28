@@ -3946,6 +3946,10 @@ function phHolidayBadge(dateStr) {
 
 function renderAttendance() {
   const today = normalizeDateString(new Date());
+  // Work Hours opens on the cutoff being worked right now, since that is the
+  // period anyone checking their hours mid-month is asking about.
+  const whCutoff = cutoffHalfFor(today);
+  const whRange = cutoffRange(today, whCutoff);
   return `
   <div class="page-header">
     <div class="page-title">
@@ -4133,9 +4137,13 @@ function renderAttendance() {
       <div class="card-header">
         <div><div class="card-title">Work Hours</div><div class="card-subtitle">Your attendance history — read only.</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <input type="date" id="wh-date-from" class="form-control" style="width:auto;" value="${today.slice(0,8)}01">
+          <div class="table-filters">
+            <button class="filter-pill wh-cutoff-pill ${whCutoff === 1 ? 'active' : ''}" onclick="setWorkHoursCutoff(1, this)">1–15</button>
+            <button class="filter-pill wh-cutoff-pill ${whCutoff === 2 ? 'active' : ''}" onclick="setWorkHoursCutoff(2, this)">16–End</button>
+          </div>
+          <input type="date" id="wh-date-from" class="form-control" style="width:auto;" value="${whRange.from}" onchange="clearWorkHoursCutoff()">
           <span style="color:var(--text-muted);font-size:13px;">to</span>
-          <input type="date" id="wh-date-to" class="form-control" style="width:auto;" value="${today}">
+          <input type="date" id="wh-date-to" class="form-control" style="width:auto;" value="${whRange.to}" onchange="clearWorkHoursCutoff()">
           <button class="btn btn-secondary btn-sm" onclick="loadMyWorkHours()">Apply</button>
         </div>
       </div>
@@ -10460,12 +10468,48 @@ async function reviewOTRequest(id, status) {
   }
 }
 
+// Payroll is cut twice a month, 1–15 and 16–end, so Work Hours filters the same
+// way instead of making people pick the dates by hand. The pills work off the
+// month already in the From box, so they can be used to page back through it.
+function cutoffRange(dateString, half) {
+  const [year, month] = String(dateString || '').split('-').map(Number);
+  const prefix = `${year}-${String(month).padStart(2, '0')}`;
+  if (half === 2) {
+    const lastDay = new Date(year, month, 0).getDate(); // day 0 of next month
+    return { from: `${prefix}-16`, to: `${prefix}-${lastDay}` };
+  }
+  return { from: `${prefix}-01`, to: `${prefix}-15` };
+}
+
+function cutoffHalfFor(dateString) {
+  return Number(String(dateString).slice(8, 10)) > 15 ? 2 : 1;
+}
+
+function setWorkHoursCutoff(half, btn) {
+  const anchor = document.getElementById('wh-date-from')?.value || normalizeDateString(new Date());
+  const { from, to } = cutoffRange(anchor, half);
+  const fromEl = document.getElementById('wh-date-from');
+  const toEl = document.getElementById('wh-date-to');
+  if (fromEl) fromEl.value = from;
+  if (toEl) toEl.value = to;
+  document.querySelectorAll('.wh-cutoff-pill').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  loadMyWorkHours();
+}
+
+// Typing a date by hand means the range is no longer a cutoff — drop the
+// highlight rather than leave a pill claiming a period that isn't shown.
+function clearWorkHoursCutoff() {
+  document.querySelectorAll('.wh-cutoff-pill').forEach((b) => b.classList.remove('active'));
+}
+
 async function loadMyWorkHours() {
   const wrap = document.getElementById('attendance-hours-wrap');
   if (!wrap) return;
   const today = normalizeDateString(new Date());
-  const from = document.getElementById('wh-date-from')?.value || today.slice(0, 8) + '01';
-  const to = document.getElementById('wh-date-to')?.value || today;
+  const fallback = cutoffRange(today, cutoffHalfFor(today));
+  const from = document.getElementById('wh-date-from')?.value || fallback.from;
+  const to = document.getElementById('wh-date-to')?.value || fallback.to;
   wrap.innerHTML = '<div class="empty-state"><h3>Loading</h3><p>Fetching your work hour records.</p></div>';
   try {
     const query = new URLSearchParams({ from, to, _: Date.now().toString() });
