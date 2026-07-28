@@ -2989,9 +2989,13 @@ tfoot td {
   line-height: 1.3;
 }
 
+/* Rounded on all four corners; the radius matches the metric cards above it.
+   overflow clips the header and the pagination footer to the curve. */
 .rmo-table-wrap {
+  overflow: hidden;
   overflow-x: auto;
   border: 1px solid var(--border);
+  border-radius: var(--radius);
   background: var(--surface);
 }
 
