@@ -8984,6 +8984,23 @@ function copyRmoField(el) {
   }
 }
 
+// Same card as the Sale Report's overview: coloured top rule, small uppercase
+// label, large coloured figure, one line of context underneath.
+function renderRmoMetricCard(key, label, value, color, meta) {
+  return `
+    <div class="rts-metric-card ${color}">
+      <div class="stat-label">${escapeHtml(label)}</div>
+      <div class="rts-metric-value" id="rmo-metric-${key}">${Number(value || 0).toLocaleString()}</div>
+      <div class="stat-meta" id="rmo-metric-${key}-meta">${escapeHtml(meta || '')}</div>
+    </div>`;
+}
+
+function rmoMetricShare(value, total) {
+  const n = Number(total || 0);
+  if (!n) return 'No orders in range';
+  return `${((Number(value || 0) / n) * 100).toFixed(1)}% of today's orders`;
+}
+
 function renderRmoManagement() {
   const { posProductOptions, posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
   const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
@@ -9028,11 +9045,11 @@ function renderRmoManagement() {
     </div>
 
     <div class="rmo-metrics">
-      <div class="rmo-metric"><span>Total For Delivery Today</span><strong id="rmo-metric-total">${Number(DB.posRawTotal || 0).toLocaleString()}</strong></div>
-      <div class="rmo-metric"><span>Delivered</span><strong id="rmo-metric-delivered">${delivered.toLocaleString()}</strong></div>
-      <div class="rmo-metric"><span>Returning</span><strong id="rmo-metric-returning">${returning.toLocaleString()}</strong></div>
-      <div class="rmo-metric"><span>Undeliverable</span><strong id="rmo-metric-undeliverable">${undeliverable.toLocaleString()}</strong></div>
-      <div class="rmo-metric"><span>Problematic</span><strong id="rmo-metric-problematic">${problematic.toLocaleString()}</strong></div>
+      ${renderRmoMetricCard('total', 'Total For Delivery Today', DB.posRawTotal, 'blue', dateLabel)}
+      ${renderRmoMetricCard('delivered', 'Delivered', delivered, 'green', rmoMetricShare(delivered, DB.posRawTotal))}
+      ${renderRmoMetricCard('returning', 'Returning', returning, 'amber', rmoMetricShare(returning, DB.posRawTotal))}
+      ${renderRmoMetricCard('undeliverable', 'Undeliverable', undeliverable, 'red', rmoMetricShare(undeliverable, DB.posRawTotal))}
+      ${renderRmoMetricCard('problematic', 'Problematic', problematic, 'purple', rmoMetricShare(problematic, DB.posRawTotal))}
     </div>
 
     <div class="rmo-filter-bar">
@@ -14526,6 +14543,10 @@ function renderPosOrdersTable() {
     Object.entries(metricValues).forEach(([key, value]) => {
       const el = document.getElementById(`rmo-metric-${key}`);
       if (el) el.textContent = Number(value || 0).toLocaleString();
+      // The share line has to move with the figure or it reads as last
+      // refresh's percentage against this refresh's count.
+      const meta = document.getElementById(`rmo-metric-${key}-meta`);
+      if (meta && key !== 'total') meta.textContent = rmoMetricShare(value, metricValues.total);
     });
   }
 
@@ -14603,6 +14624,7 @@ function renderPosOrdersTable() {
         dateFields.push(['Reason', reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash]);
       }
       const detailColumns = [
+        [['Page', escapeHtml(order.page_name || '') || dash]],
         [['Rider Assign', escapeHtml(rider.name || '') || dash]],
         [['Rider Phone', escapeHtml(rider.tel || '') || dash]],
         [['Tracking', order.tracking_no
@@ -14613,7 +14635,6 @@ function renderPosOrdersTable() {
           ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
           : (Number(order.attempts || 0) || dash)]],
         [['Courier', escapeHtml(getRmoCourier(order)) || dash]],
-        [['Page', escapeHtml(order.page_name || '') || dash]],
         // Tags last: the edit button makes this the one interactive field.
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];

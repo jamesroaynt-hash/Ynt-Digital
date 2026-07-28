@@ -2770,25 +2770,11 @@ tfoot td {
   margin-bottom: 18px;
 }
 
-.rmo-metric {
-  min-height: 82px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 16px 18px;
-}
-
-.rmo-metric span {
-  display: block;
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-bottom: 12px;
-}
-
-.rmo-metric strong {
-  color: var(--text-primary);
-  font-size: 22px;
-  line-height: 1;
+/* The cards themselves are .rts-metric-card, shared with the Sale Report; only
+   the grid is RMO's, so the page keeps its own responsive column counts. */
+.rmo-metrics .rts-metric-value {
+  font-size: 30px;
+  margin: 4px 0;
 }
 
 .rmo-filter-bar,
