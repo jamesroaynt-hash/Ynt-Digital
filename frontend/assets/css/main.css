@@ -3084,15 +3084,10 @@ tfoot td {
   opacity: 0.85;
 }
 
-/* Expandable row: summary up top, delivery detail underneath. */
+/* Expandable row: summary up top, delivery detail underneath. No chevron —
+   the whole row is the control, so the pointer cursor is the only affordance. */
 .rmo-row {
   cursor: pointer;
-}
-
-.rmo-customer-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 /* Select box and order number share the first column, so the number reads on
@@ -3116,25 +3111,8 @@ tfoot td {
   font-size: 12px;
 }
 
-.rmo-expand {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: transform var(--transition), color var(--transition);
-}
-
-.rmo-expand svg { width: 11px; height: 11px; }
-.rmo-expand:hover { color: var(--primary, #6366f1); }
-.rmo-row.expanded .rmo-expand { transform: rotate(90deg); color: var(--primary, #6366f1); }
+/* An open row keeps a tint so it stays tied to the detail strip below it. */
+.rmo-table tbody tr.rmo-row.expanded { background: var(--surface-2); }
 
 /* One cell per summary column, so every detail field lines up under the column
    it belongs with rather than flowing in a grid of its own. */

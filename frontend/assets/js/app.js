@@ -14509,19 +14509,17 @@ const RMO_TABLE_COLSPAN = 9;
 const rmoExpandedRows = new Set();
 
 // The customer name, phone and tracking cells copy on click, so those — and any
-// real control — keep their own behaviour; the rest of the row toggles. The
-// chevron passes fromChevron so it toggles instead of being ignored as a button.
-function toggleRmoRowDetails(event, row, fromChevron = false) {
+// real control — keep their own behaviour; clicking anywhere else on the row
+// opens its detail.
+function toggleRmoRowDetails(event, row) {
   if (!row) return;
-  if (fromChevron) event.stopPropagation();
-  else if (event.target.closest('input, button, select, a, label, .rmo-copy')) return;
+  if (event.target.closest('input, button, select, a, label, .rmo-copy')) return;
 
   const detail = document.getElementById(row.dataset.detail);
   if (!detail) return;
   const open = detail.hidden;
   detail.hidden = !open;
   row.classList.toggle('expanded', open);
-  row.querySelector('.rmo-expand')?.setAttribute('aria-expanded', String(open));
 
   const key = row.dataset.key;
   if (!key) return;
@@ -14643,7 +14641,7 @@ function renderPosOrdersTable() {
         // Tags last: the edit button makes this the one interactive field.
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];
-      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" onclick="toggleRmoRowDetails(event, this)">
+      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" title="Click the row to show delivery details" onclick="toggleRmoRowDetails(event, this)">
         <td>
           <span class="rmo-check-cell">
             ${order.can_message
@@ -14652,14 +14650,7 @@ function renderPosOrdersTable() {
             <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
           </span>
         </td>
-        <td>
-          <div class="rmo-customer-cell">
-            <button class="rmo-expand" type="button" aria-expanded="${open}" title="Show delivery details" onclick="toggleRmoRowDetails(event, this.closest('tr'), true)">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4"/></svg>
-            </button>
-            <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
-          </div>
-        </td>
+        <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div></td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(product)}</div></td>
