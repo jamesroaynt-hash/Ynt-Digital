@@ -3027,6 +3027,19 @@ tfoot td {
   overflow-wrap: break-word;
 }
 
+/* Every column centred, header and body alike, so each one reads as a single
+   line down the table. The flex-based cells have to be told separately —
+   text-align does nothing to a flex container's own children. */
+.rmo-table thead th,
+.rmo-table tbody td {
+  text-align: center;
+}
+
+.rmo-msg-actions,
+.rmo-tag-line {
+  justify-content: center;
+}
+
 /* Type matches the app's standard tables — the RMO table used to run its own
    heavier, tighter scale, which made it the odd page out. */
 .rmo-table thead th {
