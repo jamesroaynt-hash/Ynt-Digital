@@ -277,6 +277,15 @@ CREATE TABLE IF NOT EXISTS sms_settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- "This event already texted" markers. Outlive sms_logs, which is cleared after
+-- a few days, so a long-running order can't re-text once its log row is gone.
+CREATE TABLE IF NOT EXISTS sms_sent_events (
+  provider TEXT NOT NULL,
+  event_key TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (provider, event_key)
+);
+
 CREATE TABLE IF NOT EXISTS sms_rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   provider TEXT NOT NULL,

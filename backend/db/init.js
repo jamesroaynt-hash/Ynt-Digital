@@ -419,6 +419,17 @@ function runMigrations(db) {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_sms_logs_provider_status ON sms_logs(provider, status, created_at DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sms_logs_related ON sms_logs(related_table, related_id)');
+  // "This event already texted" markers. Separate from sms_logs because the log
+  // is cleared after a few days while the marker has to outlive it — otherwise a
+  // long-running order re-texts once its log row is gone. One tiny row per send.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sms_sent_events (
+      provider TEXT NOT NULL,
+      event_key TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (provider, event_key)
+    )
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS sms_settings (
       provider TEXT PRIMARY KEY,
@@ -881,6 +892,15 @@ async function runPostgresMigrations(db) {
   `);
   await db.exec('CREATE INDEX IF NOT EXISTS idx_sms_logs_provider_status ON sms_logs(provider, status, created_at DESC)');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_sms_logs_related ON sms_logs(related_table, related_id)');
+  // See the SQLite branch: the send markers outlive the log they came from.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS sms_sent_events (
+      provider TEXT NOT NULL,
+      event_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (provider, event_key)
+    )
+  `);
   await db.exec(`
     CREATE TABLE IF NOT EXISTS sms_settings (
       provider TEXT PRIMARY KEY,

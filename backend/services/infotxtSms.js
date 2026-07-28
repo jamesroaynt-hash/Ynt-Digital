@@ -4,11 +4,15 @@ const DEFAULT_BASE_URL = 'https://api.myinfotxt.com/v2';
 // creates carries one, so this is a safety net rather than a real default.
 const DEFAULT_RIDER_TEMPLATE ='YNT Delivery: Hi {rider}, order {tracking} for {customer} is now {status}. COD: {cod}. Please check and update after delivery attempt.';
 const SEND_TIMEOUT_MS = 15000;
-// How long a sent/failed SMS stays in sms_logs before it is deleted. This is
-// also the dedupe window: the log row is what stops a trigger from re-sending
-// (see sendOrderSms), so orders older than this are skipped entirely rather
-// than risk a second text once their row is gone.
+// How long a sent/failed SMS stays in sms_logs before it is deleted.
 const LOG_RETENTION_DAYS = Math.max(1, Number(process.env.SMS_LOG_RETENTION_DAYS || 3));
+// How long the "already texted" markers are kept. Much longer than the log,
+// because this is what stops a trigger firing twice: an order can sit in
+// delivery for weeks, and it must not re-text when its log row is cleared.
+const SENT_EVENT_RETENTION_DAYS = Math.max(
+  LOG_RETENTION_DAYS,
+  Number(process.env.SMS_DEDUPE_RETENTION_DAYS || 60)
+);
 
 function stringOrNull(value) {
   const text = String(value ?? '').trim();
@@ -249,8 +253,18 @@ async function sendSms(db, payload = {}) {
   };
 }
 
-// Relies on the UNIQUE(provider, event_key) index rather than a read-then-write
-// check so two sync workers racing on the same order can't both send.
+// Claims an event so it is only ever texted once. Relies on the primary key
+// rather than a read-then-write check, so two sync workers racing on the same
+// order can't both send: exactly one INSERT reports a row.
+async function claimSmsEvent(db, eventKey) {
+  const result = await db.prepare(`
+    INSERT INTO sms_sent_events (provider, event_key)
+    VALUES (?, ?)
+    ON CONFLICT (provider, event_key) DO NOTHING
+  `).run(PROVIDER, eventKey);
+  return Boolean(result?.changes);
+}
+
 async function insertSmsLog(db, row) {
   const result = await db.prepare(`
     INSERT INTO sms_logs (
@@ -412,21 +426,34 @@ async function listSmsLogs(db, options = {}) {
   return { logs: rows || [], limit };
 }
 
-// Drops SMS logs older than the retention window. Date comparison uses a plain
-// substr(CAST(...)) text compare so it behaves identically on SQLite (TEXT
-// created_at) and Postgres (TIMESTAMPTZ) without engine-specific casts. The
-// table is small, so this is a single statement rather than a batched delete.
-async function pruneSmsLogs(db, { retentionDays = LOG_RETENTION_DAYS } = {}) {
+// Drops SMS logs older than the retention window, and the send markers on their
+// own longer one. Date comparison uses a plain substr(CAST(...)) text compare so
+// it behaves identically on SQLite (TEXT created_at) and Postgres (TIMESTAMPTZ)
+// without engine-specific casts. Both tables are small, so these are single
+// statements rather than batched deletes.
+async function pruneSmsLogs(db, {
+  retentionDays = LOG_RETENTION_DAYS,
+  dedupeRetentionDays = SENT_EVENT_RETENTION_DAYS,
+} = {}) {
+  const dayString = (days) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const days = Math.max(1, Number(retentionDays) || LOG_RETENTION_DAYS);
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-  const result = await db.prepare(
+  const dedupeDays = Math.max(days, Number(dedupeRetentionDays) || SENT_EVENT_RETENTION_DAYS);
+  const cutoff = dayString(days);
+
+  const logResult = await db.prepare(
     'DELETE FROM sms_logs WHERE substr(CAST(created_at AS TEXT), 1, 10) < ?'
   ).run(cutoff);
+  const eventResult = await db.prepare(
+    'DELETE FROM sms_sent_events WHERE provider = ? AND substr(CAST(created_at AS TEXT), 1, 10) < ?'
+  ).run(PROVIDER, dayString(dedupeDays));
+
   return {
     provider: PROVIDER,
     retention_days: days,
+    dedupe_retention_days: dedupeDays,
     cutoff_date: cutoff,
-    deleted_sms_logs: Number(result.changes || 0),
+    deleted_sms_logs: Number(logResult.changes || 0),
+    deleted_sent_events: Number(eventResult.changes || 0),
   };
 }
 
@@ -468,17 +495,17 @@ const RECIPIENT_FIELDS = {
 //   status — the order's status changed into one of the configured statuses
 //   tag    — the order carries one of the configured trigger tags
 //
-// Neither needs a before/after diff to stay quiet: the UNIQUE(provider,
-// event_key) index on sms_logs is what makes each one fire exactly once, so a
-// tag that sits on an order for weeks still only sends the day it lands.
-// The recipient's mobile is part of the event key, so swapping riders
-// mid-delivery re-notifies the new rider for the same status instead of going
-// silent, and a corrected customer number re-sends rather than staying lost.
+// Neither needs a before/after diff to stay quiet: a row in sms_sent_events is
+// what makes each one fire exactly once, so a tag that sits on an order for
+// weeks still only sends the day it lands. The recipient's mobile is part of
+// the event key, so swapping riders mid-delivery re-notifies the new rider for
+// the same status instead of going silent, and a corrected customer number
+// re-sends rather than staying lost.
 //
-// Because that dedupe lives in sms_logs, and sms_logs is pruned after
-// LOG_RETENTION_DAYS, orders older than the window are skipped outright: their
-// log row may already be gone, and a still-attached trigger tag would otherwise
-// text a second time the next time the order is touched.
+// Orders are considered by when they were last updated, not when they were
+// placed: an order booked last week and handed to a rider today is exactly the
+// case this automation is for. Only orders untouched for longer than the
+// dedupe window drop out, since past that their marker may be gone.
 //
 // At most one SMS leaves per recipient per call: we claim the first trigger
 // that hasn't been logged yet and stop. An order that shows up already matching
@@ -508,12 +535,12 @@ async function sendOrderSms(db, posOrder = {}, options = {}) {
   const externalId = stringOrNull(posOrder.external_id);
   if (!externalId) return { skipped: 'missing_order_id' };
 
-  // Outside the log-retention window the dedupe row can no longer be trusted.
-  // An order with no timestamp at all still sends — that is rare, and going
-  // quiet on a live order is the worse failure.
-  const placedOn = String(posOrder.inserted_at_remote || '').slice(0, 10);
-  const oldestSendable = new Date(Date.now() - LOG_RETENTION_DAYS * 86400000).toISOString().slice(0, 10);
-  if (placedOn && placedOn < oldestSendable) return { skipped: 'order_older_than_log_retention' };
+  // Past the dedupe window the "already texted" marker may be gone, so a still
+  // attached tag could text twice. An order with no timestamp at all still
+  // sends — that is rare, and going quiet on a live order is the worse failure.
+  const touchedOn = String(posOrder.updated_at_remote || posOrder.inserted_at_remote || '').slice(0, 10);
+  const oldestSendable = new Date(Date.now() - SENT_EVENT_RETENTION_DAYS * 86400000).toISOString().slice(0, 10);
+  if (touchedOn && touchedOn < oldestSendable) return { skipped: 'order_not_updated_recently' };
 
   const results = [];
   for (const recipient of Object.keys(RECIPIENT_FIELDS)) {
@@ -540,17 +567,21 @@ async function sendToRecipient(db, posOrder, { recipient, triggers, setting, sho
     const reason = rawTel
       ? `${fields.label} number is not a usable PH mobile: ${rawTel}`
       : `Order has no ${recipient} number.`;
-    await insertSmsLog(db, {
-      provider: PROVIDER,
-      event_key: `${recipient}-unreachable:${shopId}:${externalId}:${triggers[0].value}:${rawTel || 'none'}`,
-      recipient_name: posOrder[fields.name] || null,
-      mobile: rawTel || 'n/a',
-      message: truncate(renderTemplate(triggers[0].message || setting.rider_template, posOrder), 1550),
-      status: 'failed',
-      related_table: 'pos_orders',
-      related_id: `${shopId}::${externalId}`,
-      error_message: reason,
-    });
+    const unreachableKey = `${recipient}-unreachable:${shopId}:${externalId}:${triggers[0].value}:${rawTel || 'none'}`;
+    // Claimed like a real send so the log records it once, not on every sync.
+    if (await claimSmsEvent(db, unreachableKey)) {
+      await insertSmsLog(db, {
+        provider: PROVIDER,
+        event_key: unreachableKey,
+        recipient_name: posOrder[fields.name] || null,
+        mobile: rawTel || 'n/a',
+        message: truncate(renderTemplate(triggers[0].message || setting.rider_template, posOrder), 1550),
+        status: 'failed',
+        related_table: 'pos_orders',
+        related_id: `${shopId}::${externalId}`,
+        error_message: reason,
+      });
+    }
     return { skipped: `missing_${recipient}_number`, reason };
   }
   if (fields.requireName && !stringOrNull(posOrder[fields.name])) {
@@ -563,6 +594,7 @@ async function sendToRecipient(db, posOrder, { recipient, triggers, setting, sho
       ...posOrder,
       matched_tag: trigger.kind === 'tag' ? trigger.value : '',
     }), 1550);
+    if (!await claimSmsEvent(db, eventKey)) continue; // already sent for this trigger
     const log = await insertSmsLog(db, {
       provider: PROVIDER,
       event_key: eventKey,
@@ -573,7 +605,6 @@ async function sendToRecipient(db, posOrder, { recipient, triggers, setting, sho
       related_table: 'pos_orders',
       related_id: `${shopId}::${externalId}`,
     });
-    if (!log.inserted) continue; // already sent for this trigger
 
     try {
       const result = await sendSms(db, { mobile, message, sim: options.sim });

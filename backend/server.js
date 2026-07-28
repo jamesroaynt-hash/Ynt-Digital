@@ -520,8 +520,8 @@ async function createApp() {
   async function runSmsLogCleanup(trigger) {
     try {
       const result = await infotxtSms.pruneSmsLogs(db);
-      if (result.deleted_sms_logs > 0) {
-        console.log(`[retention] ${trigger}: removed sms_logs=${result.deleted_sms_logs} (kept last ${result.retention_days}d, cutoff ${result.cutoff_date}).`);
+      if (result.deleted_sms_logs > 0 || result.deleted_sent_events > 0) {
+        console.log(`[retention] ${trigger}: removed sms_logs=${result.deleted_sms_logs} (kept last ${result.retention_days}d, cutoff ${result.cutoff_date}), sms_sent_events=${result.deleted_sent_events} (kept last ${result.dedupe_retention_days}d).`);
       }
     } catch (error) {
       console.warn(`[retention] ${trigger} sms_logs cleanup failed: ${error.message}`);
