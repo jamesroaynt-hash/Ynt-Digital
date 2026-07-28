@@ -9093,9 +9093,9 @@ function renderRmoManagement() {
     </div>
     <div class="rmo-table-wrap">
       <table class="rmo-table" id="rmo-pos-orders-table">
-        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Items</th><th>Rider</th><th>Customer</th><th>Page</th><th>SRP</th><th>Attempts</th><th>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Reason' : 'Confirmed By'}</th><th>Tags</th><th>Status</th>${rmoTab !== 'orders' ? `<th>${rmoTab === 'delivering' ? 'Last Update' : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? 'Confirmed By' : 'Reason')}</th>` : ''}<th>Courier</th><th>Message</th></tr></thead>
+        <thead><tr><th style="width:34px;text-align:center;"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page"></th><th>Customer Name</th><th>Phone Number</th><th>Product</th><th>COD</th><th>Status</th><th>Confirmed By</th><th>Message</th></tr></thead>
         <tbody id="rec-pos-orders-tbody">
-          <tr><td colspan="${rmoTab !== 'orders' ? 13 : 11}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
         </tbody>
       </table>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
@@ -11310,7 +11310,7 @@ function initPage(page) {
       .then(renderPosOrdersTable)
       .catch((error) => {
         const tbody = document.getElementById('rec-pos-orders-tbody');
-        if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
   }
 
@@ -14481,6 +14481,33 @@ function renderAssigneeSelect(order) {
   </select>`;
 }
 
+// Summary row up top, delivery detail hidden underneath. Which rows are open is
+// kept by order key rather than in the DOM, so a repaint (sync, filter, poll)
+// doesn't snap everything shut under whoever was reading it.
+const RMO_TABLE_COLSPAN = 8;
+const rmoExpandedRows = new Set();
+
+// The customer name, phone and tracking cells copy on click, so those — and any
+// real control — keep their own behaviour; the rest of the row toggles. The
+// chevron passes fromChevron so it toggles instead of being ignored as a button.
+function toggleRmoRowDetails(event, row, fromChevron = false) {
+  if (!row) return;
+  if (fromChevron) event.stopPropagation();
+  else if (event.target.closest('input, button, select, a, label, .rmo-copy')) return;
+
+  const detail = document.getElementById(row.dataset.detail);
+  if (!detail) return;
+  const open = detail.hidden;
+  detail.hidden = !open;
+  row.classList.toggle('expanded', open);
+  row.querySelector('.rmo-expand')?.setAttribute('aria-expanded', String(open));
+
+  const key = row.dataset.key;
+  if (!key) return;
+  if (open) rmoExpandedRows.add(key);
+  else rmoExpandedRows.delete(key);
+}
+
 function renderPosOrdersTable() {
   const tbody = document.getElementById('rec-pos-orders-tbody');
   if (!tbody) return;
@@ -14559,33 +14586,56 @@ function renderPosOrdersTable() {
         : 'info';
       const msgId = escapeHtml(order.external_id || '');
       const msgShop = escapeHtml(order.shop_id || '');
-      return `<tr>
+      const rider = getRmoRider(order);
+      const rowKey = `${order.shop_id || ''}::${order.external_id || ''}`;
+      const detailId = `rmo-detail-${rowKey.replace(/[^A-Za-z0-9]/g, '_')}`;
+      const open = rmoExpandedRows.has(rowKey);
+      const reason = getRmoReasonDisplay(order);
+      // Everything the summary row no longer shows. Page, Reason and Last
+      // Update aren't in the seven either, but dropping them outright would
+      // lose data the tabs are filtered by, so they ride along down here.
+      const details = [
+        ['Rider Assign', escapeHtml(rider.name || '') || dash],
+        ['Rider Phone', escapeHtml(rider.tel || '') || dash],
+        ['Tracking', order.tracking_no
+          ? `<span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>`
+          : dash],
+        ['Attempts', Number(order.attempts || 0) > 1
+          ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
+          : (Number(order.attempts || 0) || dash)],
+        ['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`],
+        ['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash],
+        ['Courier', escapeHtml(getRmoCourier(order)) || dash],
+        ['Page', escapeHtml(order.page_name || '') || dash],
+        ['SRP', Number(order.srp || 0) ? `&#8369;${Number(order.srp || 0).toLocaleString()}` : dash],
+      ];
+      if (rmoTab === 'delivering') details.push(['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]);
+      if (rmoTab === 'undeliverable' || rmoTab === 'returning') {
+        details.push(['Reason', reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash]);
+      }
+      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" onclick="toggleRmoRowDetails(event, this)">
         <td style="text-align:center;">${order.can_message
           ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
           : '<span class="rmo-muted" title="No Messenger contact for this order">—</span>'}</td>
         <td>
+          <div class="rmo-customer-cell">
+            <button class="rmo-expand" type="button" aria-expanded="${open}" title="Show delivery details" onclick="toggleRmoRowDetails(event, this.closest('tr'), true)">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4"/></svg>
+            </button>
+            <div>
+              <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
+              <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
+            </div>
+          </div>
+        </td>
+        <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
+        <td>
           <div class="rmo-item-main">${escapeHtml(product)}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}${order.tracking_no ? ` - <span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>` : ''}</div>
-          <div class="rmo-item-sub">${escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || ''}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.external_id || '')}</div>
         </td>
-        <td>
-          ${(() => { const rider = getRmoRider(order); return `
-          <div class="rmo-item-main">${escapeHtml(rider.name || 'Unassigned rider')}</div>
-          <div class="rmo-item-sub">${escapeHtml(rider.tel || 'No rider phone')}</div>`; })()}
-        </td>
-        <td>
-          <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
-          <div class="rmo-item-sub rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div>
-          <div class="rmo-item-sub">${escapeHtml(order.province || '')}</div>
-        </td>
-        <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
-        <td class="rmo-money">${Number(order.srp || 0) ? `&#8369;${Number(order.srp || 0).toLocaleString()}` : dash}</td>
-        <td>${Number(order.attempts || 0) > 1 ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>` : (Number(order.attempts || 0) || dash)}</td>
-        <td>${(rmoTab === 'undeliverable' || rmoTab === 'returning') ? (getRmoReasonDisplay(order) ? `<span class="rmo-reason-text">${escapeHtml(getRmoReasonDisplay(order))}</span>` : dash) : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
-        <td><div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div></td>
+        <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        ${rmoTab !== 'orders' ? `<td class="rmo-item-sub">${rmoTab === 'delivering' ? (escapeHtml(formatPosTimestamp(order.updated_at)) || dash) : ((rmoTab === 'undeliverable' || rmoTab === 'returning') ? (escapeHtml(order.assigning_seller_name || '') || dash) : (getRmoReasonDisplay(order) ? `<span class="rmo-reason-text">${escapeHtml(getRmoReasonDisplay(order))}</span>` : dash))}</td>` : ''}
-        <td><div class="rmo-item-main">${escapeHtml(getRmoCourier(order)) || dash}</div></td>
+        <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
         <td>
           <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
             ${order.can_message
@@ -14594,6 +14644,17 @@ function renderPosOrdersTable() {
             ${rmoTab !== 'orders'
               ? `<button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button>`
               : ''}
+          </div>
+        </td>
+      </tr>
+      <tr class="rmo-detail-row" id="${detailId}" ${open ? '' : 'hidden'}>
+        <td colspan="${RMO_TABLE_COLSPAN}">
+          <div class="rmo-detail-grid">
+            ${details.map(([label, value]) => `
+              <div class="rmo-detail-item">
+                <span class="rmo-detail-label">${label}</span>
+                <span class="rmo-detail-value">${value}</span>
+              </div>`).join('')}
           </div>
         </td>
       </tr>`;
@@ -14614,7 +14675,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.sprinter_tel || '') || dash}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${isRmoPage ? (rmoTab !== 'orders' ? 12 : 11) : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
+  }).join('') || `<tr><td colspan="${isRmoPage ? RMO_TABLE_COLSPAN : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
   if (isRmoPage) updateRmoBulkBar();
