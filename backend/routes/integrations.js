@@ -607,6 +607,82 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Shops and statuses the blast's order filter may offer.
+  router.get('/infotxt/blast/shops', requireSmsAccess, async (req, res) => {
+    try {
+      const [shops, statuses] = await Promise.all([
+        infotxtSms.listBlastShops(db),
+        infotxtSms.listPosStatuses(db),
+      ]);
+      res.json({ shops, statuses, max_recipients: infotxtSms.BLAST_MAX_RECIPIENTS });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Preview only — counts who a filter would reach, sends nothing.
+  router.get('/infotxt/blast/recipients', requireSmsAccess, async (req, res) => {
+    try {
+      const result = await infotxtSms.listBlastRecipients(db, {
+        shop_id: req.query.shop_id,
+        status: req.query.status,
+        from: req.query.from,
+        to: req.query.to,
+      });
+      // Numbers are the point of the preview, but the whole list is a customer
+      // phone dump — hand back the count and a short sample, not all of it.
+      res.json({
+        total: result.total,
+        unusable: result.unusable,
+        truncated: result.truncated,
+        max_recipients: result.max_recipients,
+        sample: result.recipients.slice(0, 5).map((r) => r.mobile),
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Sends now. A few hundred messages take minutes, so the batch runs after the
+  // response goes out and progress is polled from /blast/status.
+  router.post('/infotxt/blast', requireSmsAccess, async (req, res) => {
+    try {
+      const body = req.body || {};
+      let mobiles = body.mobiles;
+      // source=orders: resolve the filter here rather than trusting a client
+      // supplied list, so the preview and the send can't disagree.
+      if (String(body.source || '') === 'orders') {
+        const found = await infotxtSms.listBlastRecipients(db, body.filters || {});
+        mobiles = found.recipients.map((r) => r.mobile);
+      }
+      const blast = await infotxtSms.prepareBlast(db, {
+        message: body.message,
+        mobiles,
+        sim: body.sim,
+        sent_by: req.user?.full_name || req.user?.username || null,
+      });
+      // Detached on purpose: the caller polls the batch instead of waiting.
+      blast.run().catch((error) => {
+        console.error(`[sms-blast] ${blast.batch_id} failed: ${error.message}`);
+      });
+      res.status(202).json({
+        batch_id: blast.batch_id,
+        total: blast.total,
+        invalid: blast.invalid,
+      });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.get('/infotxt/blast/status', requireSmsAccess, async (req, res) => {
+    try {
+      res.json(await infotxtSms.getBlastStatus(db, req.query.batch_id));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   router.use(requireAdmin);
 
   // The send log carries customer names, numbers and COD amounts, so it stays
@@ -955,6 +1031,7 @@ module.exports = function integrationRoutes(db) {
     '/infotxt/rules',
     '/infotxt/rules/toggle',
     '/infotxt/rules/delete',
+    '/infotxt/blast',
     '/pancake-pos/collect',
     '/pancake-pos/replay',
     '/google-sheets/collect',

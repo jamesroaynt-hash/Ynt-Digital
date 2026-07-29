@@ -2390,6 +2390,7 @@ function renderSmsAutomations() {
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab(this,'sms-tab-rider')">Rider</button>
     <button class="tab-btn" onclick="switchTab(this,'sms-tab-customer')">Customer</button>
+    <button class="tab-btn" onclick="switchTab(this,'sms-tab-blast'); loadSmsBlastOptions();">SMS Blast</button>
   </div>
 
   <div id="sms-tab-rider" class="tab-content active">
@@ -2418,6 +2419,77 @@ function renderSmsAutomations() {
       </div>
       <div class="card-body">
         <div id="infotxt-rules-list-customer"><div class="empty-state" style="padding:24px 0;"><p>Loading messages...</p></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="sms-tab-blast" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">SMS Blast</div>
+          <div class="card-subtitle">One-off send to a list of numbers. Unlike the rules above, this goes out the moment you confirm.</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Recipients from:</label>
+          <div class="table-filters">
+            <button class="filter-pill active" id="sms-blast-source-paste" type="button" onclick="setSmsBlastSource('paste')">Pasted numbers</button>
+            <button class="filter-pill" id="sms-blast-source-orders" type="button" onclick="setSmsBlastSource('orders')">POS orders</button>
+          </div>
+        </div>
+
+        <div id="sms-blast-paste-panel">
+          <div class="form-group">
+            <label class="form-label">Numbers:</label>
+            <textarea class="form-control font-mono" id="sms-blast-numbers" rows="6" placeholder="09171234567&#10;09181234567" oninput="previewSmsBlast()"></textarea>
+            <div class="field-help">One per line, or separated by commas. <code>+63</code> / <code>63</code> / a missing leading zero are all accepted; anything that isn't a PH mobile is dropped.</div>
+          </div>
+        </div>
+
+        <div id="sms-blast-orders-panel" style="display:none;">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Shop:</label>
+              <select class="form-control" id="sms-blast-shop" onchange="previewSmsBlast()">
+                <option value="">All shops</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Order status:</label>
+              <select class="form-control" id="sms-blast-status" onchange="previewSmsBlast()">
+                <option value="">Any status</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Ordered from:</label>
+              <input type="date" class="form-control" id="sms-blast-from" onchange="previewSmsBlast()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Ordered to:</label>
+              <input type="date" class="form-control" id="sms-blast-to" onchange="previewSmsBlast()">
+            </div>
+          </div>
+          <div class="field-help">Distinct customer numbers from POS orders. Leave a filter empty to include everything — narrow it down before sending.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Message:</label>
+          <textarea class="form-control" id="sms-blast-message" rows="5" placeholder="Enter the message to blast" oninput="updateSmsBlastCounter()"></textarea>
+          <div class="field-help" id="sms-blast-counter">0 characters — 1 SMS part.</div>
+          <div class="field-help">No placeholders here: a blast has no order to fill them from, so <code>{customer}</code> and friends are sent as literal text.</div>
+        </div>
+
+        <div id="sms-blast-preview" class="alert alert-warning" style="display:none;"></div>
+
+        <div class="flex gap-3" style="align-items:center;">
+          <button class="btn btn-primary" id="sms-blast-send" type="button" onclick="sendSmsBlastNow()">SEND NOW</button>
+          <button class="btn btn-secondary" type="button" onclick="previewSmsBlast(true)">Refresh count</button>
+          <span class="text-xs text-muted" id="sms-blast-progress"></span>
+        </div>
       </div>
     </section>
   </div>
@@ -16160,6 +16232,250 @@ async function loadInfotxtTab() {
   await loadInfotxtRules();
   await options;
   renderInfotxtRules(infotxtRulesCache);
+}
+
+/* ─── SMS BLAST ─────────────────────────────────────────────
+ * A one-off send, separate from the trigger rules: pick a recipient list, write
+ * a message, confirm, and it goes out now. The count shown before SEND NOW is
+ * always the server's, never a client-side guess, so what you confirm is what
+ * is actually sent.
+ */
+let smsBlastSource = 'paste';
+let smsBlastCount = 0;
+let smsBlastMax = 500;
+let smsBlastSending = false;
+let smsBlastPreviewTimer = null;
+let smsBlastOptionsLoaded = false;
+
+// GSM-7 fits 160 chars in one part, 153 per part once concatenated. A message
+// with any non-GSM character is sent as UCS-2 at 70/67 — worth flagging, since
+// a stray smart quote can double the cost of a blast.
+function smsPartCount(text) {
+  const unicode = /[^\r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà^{}\\[~\]|€]/.test(text);
+  const single = unicode ? 70 : 160;
+  const multi = unicode ? 67 : 153;
+  if (!text.length) return { parts: 1, unicode };
+  return { parts: text.length <= single ? 1 : Math.ceil(text.length / multi), unicode };
+}
+
+function updateSmsBlastCounter() {
+  const el = document.getElementById('sms-blast-counter');
+  if (!el) return;
+  const text = document.getElementById('sms-blast-message')?.value || '';
+  const { parts, unicode } = smsPartCount(text);
+  el.textContent = `${text.length} characters — ${parts} SMS part${parts === 1 ? '' : 's'}${unicode ? ' (non-GSM characters, billed at 70 per part)' : ''}.`;
+}
+
+function setSmsBlastSource(source) {
+  smsBlastSource = source === 'orders' ? 'orders' : 'paste';
+  document.getElementById('sms-blast-source-paste')?.classList.toggle('active', smsBlastSource === 'paste');
+  document.getElementById('sms-blast-source-orders')?.classList.toggle('active', smsBlastSource === 'orders');
+  const paste = document.getElementById('sms-blast-paste-panel');
+  const orders = document.getElementById('sms-blast-orders-panel');
+  if (paste) paste.style.display = smsBlastSource === 'paste' ? '' : 'none';
+  if (orders) orders.style.display = smsBlastSource === 'orders' ? '' : 'none';
+  previewSmsBlast();
+}
+
+// Shops and statuses for the order filter. Loaded when the tab is first opened
+// rather than with the page, since most visits never reach this tab.
+async function loadSmsBlastOptions() {
+  updateSmsBlastCounter();
+  if (smsBlastOptionsLoaded) return;
+  try {
+    const data = await authorizedJsonRequest('/integrations/infotxt/blast/shops');
+    smsBlastMax = Number(data?.max_recipients) || smsBlastMax;
+    const shopSelect = document.getElementById('sms-blast-shop');
+    if (shopSelect) {
+      shopSelect.innerHTML = `<option value="">All shops</option>${(data?.shops || [])
+        .map((s) => `<option value="${escapeHtml(s.shop_id)}">${escapeHtml(s.label)} (${s.orders})</option>`).join('')}`;
+    }
+    const statusSelect = document.getElementById('sms-blast-status');
+    if (statusSelect) {
+      statusSelect.innerHTML = `<option value="">Any status</option>${(data?.statuses || [])
+        .map((s) => `<option value="${escapeHtml(s.value)}">${escapeHtml(s.label)} (${s.orders})</option>`).join('')}`;
+    }
+    smsBlastOptionsLoaded = true;
+  } catch (error) {
+    showToast('error', 'Load failed', error.message || 'Could not load the blast filters.');
+  }
+}
+
+function smsBlastFilters() {
+  return {
+    shop_id: document.getElementById('sms-blast-shop')?.value || '',
+    status: document.getElementById('sms-blast-status')?.value || '',
+    from: document.getElementById('sms-blast-from')?.value || '',
+    to: document.getElementById('sms-blast-to')?.value || '',
+  };
+}
+
+// Pasted numbers are counted here; an order filter has to ask the server. Typing
+// in the textarea fires this on every keystroke, so the request is debounced.
+function previewSmsBlast(immediate = false) {
+  clearTimeout(smsBlastPreviewTimer);
+  if (smsBlastSource === 'paste') {
+    const raw = document.getElementById('sms-blast-numbers')?.value || '';
+    const { valid, invalid } = splitBlastNumbers(raw);
+    smsBlastCount = valid.length;
+    showSmsBlastPreview(
+      valid.length
+        ? `${valid.length} recipient${valid.length === 1 ? '' : 's'}${invalid.length ? ` — ${invalid.length} unreadable number${invalid.length === 1 ? '' : 's'} will be skipped` : ''}.`
+        : 'No usable numbers yet.',
+      valid.length > smsBlastMax
+    );
+    return;
+  }
+  smsBlastPreviewTimer = setTimeout(fetchSmsBlastCount, immediate ? 0 : 400);
+}
+
+async function fetchSmsBlastCount() {
+  showSmsBlastPreview('Counting recipients...', false);
+  try {
+    const query = new URLSearchParams(smsBlastFilters()).toString();
+    const data = await authorizedJsonRequest(`/integrations/infotxt/blast/recipients?${query}`);
+    smsBlastCount = Number(data?.total) || 0;
+    smsBlastMax = Number(data?.max_recipients) || smsBlastMax;
+    const extras = [];
+    if (data?.unusable) extras.push(`${data.unusable} unusable number${data.unusable === 1 ? '' : 's'} skipped`);
+    if (data?.truncated) extras.push('order scan hit its row limit — narrow the filter');
+    showSmsBlastPreview(
+      `${smsBlastCount} distinct recipient${smsBlastCount === 1 ? '' : 's'}${extras.length ? ` — ${extras.join('; ')}` : ''}.`,
+      smsBlastCount > smsBlastMax
+    );
+  } catch (error) {
+    smsBlastCount = 0;
+    showSmsBlastPreview(error.message || 'Could not count recipients.', true);
+  }
+}
+
+function showSmsBlastPreview(text, over) {
+  const el = document.getElementById('sms-blast-preview');
+  if (!el) return;
+  el.style.display = '';
+  el.className = over ? 'alert alert-danger' : 'alert alert-info';
+  el.textContent = over && smsBlastCount > smsBlastMax
+    ? `${text} That is over the ${smsBlastMax}-recipient limit for one blast.`
+    : text;
+}
+
+// Mirrors normalizeMobileList on the server, so the count shown while typing
+// matches what the send will accept.
+function splitBlastNumbers(raw) {
+  const valid = [];
+  const invalid = [];
+  const seen = new Set();
+  String(raw || '').split(/[\n\r,;]+/).forEach((entry) => {
+    const text = entry.trim();
+    if (!text) return;
+    let digits = text.replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
+    if (/^63\d{10}$/.test(digits)) digits = digits.slice(2);
+    if (/^9\d{9}$/.test(digits)) digits = `0${digits}`;
+    if (!/^09\d{9}$/.test(digits)) { invalid.push(text); return; }
+    if (seen.has(digits)) return;
+    seen.add(digits);
+    valid.push(digits);
+  });
+  return { valid, invalid };
+}
+
+async function sendSmsBlastNow() {
+  if (smsBlastSending) return;
+  const message = (document.getElementById('sms-blast-message')?.value || '').trim();
+  if (!message) {
+    showToast('error', 'Message required', 'Write the message before sending.');
+    return;
+  }
+
+  const payload = { message, source: smsBlastSource };
+  if (smsBlastSource === 'paste') {
+    const { valid } = splitBlastNumbers(document.getElementById('sms-blast-numbers')?.value || '');
+    if (!valid.length) {
+      showToast('error', 'No recipients', 'Add at least one PH mobile number.');
+      return;
+    }
+    payload.mobiles = valid;
+    smsBlastCount = valid.length;
+  } else {
+    payload.filters = smsBlastFilters();
+    // The count is the server's, so re-read it rather than confirming against a
+    // number that may predate a filter change.
+    await fetchSmsBlastCount();
+    if (!smsBlastCount) {
+      showToast('error', 'No recipients', 'That filter matches no customer numbers.');
+      return;
+    }
+  }
+
+  if (smsBlastCount > smsBlastMax) {
+    showToast('error', 'Too many recipients', `Send at most ${smsBlastMax} per blast — narrow the list.`);
+    return;
+  }
+
+  const { parts } = smsPartCount(message);
+  const confirmed = confirm(
+    `Send this message to ${smsBlastCount} recipient${smsBlastCount === 1 ? '' : 's'} now?\n\n`
+    + `${parts} SMS part${parts === 1 ? '' : 's'} each — about ${smsBlastCount * parts} billable message${smsBlastCount * parts === 1 ? '' : 's'}.\n\n`
+    + 'This cannot be recalled once it starts.'
+  );
+  if (!confirmed) return;
+
+  setSmsBlastSending(true, 'Starting...');
+  try {
+    const result = await authorizedJsonRequest('/integrations/infotxt/blast', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    showToast('success', 'Blast started', `Sending to ${result?.total || smsBlastCount} recipients.`);
+    // The batch runs on the server after the response, so follow it by polling
+    // rather than holding the request open for minutes.
+    await trackSmsBlast(result?.batch_id, Number(result?.total) || smsBlastCount);
+  } catch (error) {
+    setSmsBlastSending(false, '');
+    showToast('error', 'Blast failed', error.message || 'Could not start the blast.');
+  }
+}
+
+function setSmsBlastSending(sending, progressText) {
+  smsBlastSending = sending;
+  const btn = document.getElementById('sms-blast-send');
+  if (btn) {
+    btn.disabled = sending;
+    btn.textContent = sending ? 'SENDING...' : 'SEND NOW';
+  }
+  const progress = document.getElementById('sms-blast-progress');
+  if (progress) progress.textContent = progressText || '';
+}
+
+async function trackSmsBlast(batchId, total) {
+  if (!batchId) {
+    setSmsBlastSending(false, '');
+    return;
+  }
+  // Give up watching after ~10 minutes; the batch keeps running server-side and
+  // its rows stay in the Infotxt send log either way.
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (App.currentPage !== 'sms-automations') break;
+    let status;
+    try {
+      status = await authorizedJsonRequest(`/integrations/infotxt/blast/status?batch_id=${encodeURIComponent(batchId)}`);
+    } catch {
+      continue;
+    }
+    const processed = Number(status?.processed) || 0;
+    setSmsBlastSending(true, `Sent ${status?.sent || 0} of ${total}${status?.failed ? `, ${status.failed} failed` : ''}...`);
+    if (processed >= total) {
+      setSmsBlastSending(false, `Done — ${status.sent} sent, ${status.failed} failed.`);
+      showToast(
+        status.failed ? 'warning' : 'success',
+        'Blast finished',
+        `${status.sent} sent, ${status.failed} failed${status.first_error ? ` — ${status.first_error}` : ''}.`
+      );
+      return;
+    }
+  }
+  setSmsBlastSending(false, 'Still sending — check the Infotxt log for the final count.');
 }
 
 // Kept as a promise so a second caller (opening the modal while the tab is

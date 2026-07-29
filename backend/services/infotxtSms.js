@@ -619,9 +619,202 @@ async function sendToRecipient(db, posOrder, { recipient, triggers, setting, sho
   return { skipped: 'duplicate', triggers };
 }
 
+/* ─── SMS BLAST ─────────────────────────────────────────────
+ * A one-off send to a list of numbers, unrelated to the trigger rules: no
+ * dedupe marker (the same promo may legitimately go out twice) and no order to
+ * render placeholders from. Every message still lands in sms_logs, tagged with
+ * the batch it belongs to so a blast can be read back as a unit.
+ */
+const BLAST_MAX_RECIPIENTS = Math.max(1, Number(process.env.SMS_BLAST_MAX || 500));
+// Spread the sends so a large blast doesn't arrive at Infotxt as one burst.
+const BLAST_DELAY_MS = Math.max(0, Number(process.env.SMS_BLAST_DELAY_MS || 200));
+// Ceiling on rows read when building a list from orders, before dedupe. One
+// customer usually has several orders, so this is well above the send cap.
+const BLAST_QUERY_ROWS = 20000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Accepts an array of numbers or one pasted blob (newline / comma / semicolon
+// separated). Returns the usable numbers de-duplicated in input order, plus
+// whatever could not be read as a PH mobile so the UI can say what it dropped.
+function normalizeMobileList(input) {
+  const raw = Array.isArray(input)
+    ? input
+    : String(input ?? '').split(/[\n\r,;]+/);
+  const mobiles = [];
+  const seen = new Set();
+  const invalid = [];
+  for (const entry of raw) {
+    const text = String(entry ?? '').trim();
+    if (!text) continue;
+    const mobile = normalizeMobile(text);
+    if (!mobile) { invalid.push(truncate(text, 24)); continue; }
+    if (seen.has(mobile)) continue;
+    seen.add(mobile);
+    mobiles.push(mobile);
+  }
+  return { mobiles, invalid };
+}
+
+// Distinct customer numbers from POS orders, for blasting a segment rather than
+// a pasted list. Dates compare as text on the ISO prefix, which behaves the
+// same on SQLite and Postgres (both store these columns as TEXT).
+async function listBlastRecipients(db, filters = {}) {
+  const where = ["customer_phone IS NOT NULL", "customer_phone <> ''"];
+  const params = [];
+  const shopId = stringOrNull(filters.shop_id);
+  const status = stringOrNull(filters.status);
+  const from = stringOrNull(filters.from);
+  const to = stringOrNull(filters.to);
+  if (shopId) { where.push('shop_id = ?'); params.push(shopId); }
+  if (status) { where.push('status_name = ?'); params.push(status); }
+  if (from) { where.push('substr(inserted_at_remote, 1, 10) >= ?'); params.push(from.slice(0, 10)); }
+  if (to) { where.push('substr(inserted_at_remote, 1, 10) <= ?'); params.push(to.slice(0, 10)); }
+
+  const rows = await db.prepare(`
+    SELECT customer_phone, MAX(customer_name) AS customer_name, COUNT(*) AS orders
+    FROM pos_orders
+    WHERE ${where.join(' AND ')}
+    GROUP BY customer_phone
+    ORDER BY COUNT(*) DESC
+    LIMIT ${BLAST_QUERY_ROWS}
+  `).all(...params);
+
+  // One customer can appear under several raw formats (+63…, 0…), so dedupe
+  // again on the normalized number rather than trusting the GROUP BY.
+  const seen = new Map();
+  let unusable = 0;
+  for (const row of rows || []) {
+    const mobile = normalizeMobile(row.customer_phone);
+    if (!mobile) { unusable += 1; continue; }
+    if (!seen.has(mobile)) seen.set(mobile, stringOrNull(row.customer_name));
+  }
+
+  return {
+    recipients: [...seen.entries()].map(([mobile, name]) => ({ mobile, name })),
+    total: seen.size,
+    unusable,
+    truncated: (rows || []).length >= BLAST_QUERY_ROWS,
+    max_recipients: BLAST_MAX_RECIPIENTS,
+  };
+}
+
+// Shops that actually have orders with a customer number, for the shop filter.
+async function listBlastShops(db) {
+  const rows = await db.prepare(`
+    SELECT shop_id, MAX(page_name) AS page_name, COUNT(*) AS orders
+    FROM pos_orders
+    WHERE shop_id IS NOT NULL AND shop_id <> ''
+    GROUP BY shop_id
+    ORDER BY COUNT(*) DESC
+  `).all();
+  return (rows || []).map((row) => ({
+    shop_id: String(row.shop_id),
+    label: stringOrNull(row.page_name) || String(row.shop_id),
+    orders: Number(row.orders) || 0,
+  }));
+}
+
+function newBatchId() {
+  return `blast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Validates and claims the batch, then hands back a runner the caller starts in
+// the background. Splitting it this way lets the route reject a bad blast with
+// a 400 while a good one returns immediately — a few hundred sends take minutes,
+// far longer than the proxy in front of this will hold a request open.
+async function prepareBlast(db, payload = {}) {
+  const setting = await getPrivateSetting(db);
+  if (!setting.enabled) throw new Error('Infotxt SMS is switched off, so nothing would be sent.');
+  if (!setting.user_id) throw new Error('Infotxt UserID is missing.');
+  if (!setting.api_key) throw new Error('Infotxt API key is missing.');
+
+  const message = String(payload.message ?? '').trim();
+  if (!message) throw new Error('Message content is required.');
+
+  const { mobiles, invalid } = normalizeMobileList(payload.mobiles);
+  if (!mobiles.length) throw new Error('No usable PH mobile numbers (09XXXXXXXXX) in the recipient list.');
+  if (mobiles.length > BLAST_MAX_RECIPIENTS) {
+    throw new Error(`That is ${mobiles.length} recipients — send at most ${BLAST_MAX_RECIPIENTS} per blast.`);
+  }
+
+  const batchId = newBatchId();
+  const body = truncate(message, 1550);
+  const sim = stringOrNull(payload.sim);
+  const sentBy = stringOrNull(payload.sent_by);
+
+  return {
+    batch_id: batchId,
+    total: mobiles.length,
+    invalid,
+    run: async () => {
+      let sent = 0;
+      let failed = 0;
+      for (const mobile of mobiles) {
+        const log = await insertSmsLog(db, {
+          provider: PROVIDER,
+          event_key: `${batchId}:${mobile}`,
+          recipient_name: sentBy ? `Blast by ${sentBy}` : 'Blast',
+          mobile,
+          message: body,
+          status: 'pending',
+          related_table: 'sms_blast',
+          related_id: batchId,
+        });
+        try {
+          const result = await sendSms(db, { mobile, message: body, sim });
+          if (log.inserted) await updateSmsLog(db, log.id, { status: 'sent', smsid: result.smsid || null });
+          sent += 1;
+        } catch (error) {
+          if (log.inserted) {
+            await updateSmsLog(db, log.id, { status: 'failed', error_message: truncate(error.message, 500) });
+          }
+          failed += 1;
+        }
+        if (BLAST_DELAY_MS) await sleep(BLAST_DELAY_MS);
+      }
+      return { batch_id: batchId, total: mobiles.length, sent, failed };
+    },
+  };
+}
+
+// Progress for a running or finished blast, read straight off its log rows.
+async function getBlastStatus(db, batchId) {
+  const id = stringOrNull(batchId);
+  if (!id) throw new Error('batch_id is required.');
+  const rows = await db.prepare(`
+    SELECT status, COUNT(*) AS count
+    FROM sms_logs
+    WHERE provider = ? AND related_table = 'sms_blast' AND related_id = ?
+    GROUP BY status
+  `).all(PROVIDER, id);
+
+  const counts = { sent: 0, failed: 0, pending: 0 };
+  for (const row of rows || []) {
+    counts[row.status] = (counts[row.status] || 0) + (Number(row.count) || 0);
+  }
+  const firstError = await db.prepare(`
+    SELECT error_message FROM sms_logs
+    WHERE provider = ? AND related_table = 'sms_blast' AND related_id = ? AND error_message IS NOT NULL
+    ORDER BY id ASC LIMIT 1
+  `).get(PROVIDER, id);
+
+  return {
+    batch_id: id,
+    ...counts,
+    processed: counts.sent + counts.failed,
+    first_error: firstError?.error_message || null,
+  };
+}
+
 module.exports = {
   DEFAULT_BASE_URL,
   DEFAULT_RIDER_TEMPLATE,
+  BLAST_MAX_RECIPIENTS,
+  listBlastRecipients,
+  listBlastShops,
+  prepareBlast,
+  getBlastStatus,
+  normalizeMobileList,
   getPublicSetting,
   saveSetting,
   sendSms,
