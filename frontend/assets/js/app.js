@@ -10514,15 +10514,10 @@ function renderMyWorkHours(payslip) {
   const totalOt = records.reduce((sum, r) => sum + Number(r.calculated_ot_minutes || r.ot_minutes || 0), 0);
 
   // The cards render for any range, including a custom one with no punches in
-  // it — rest-day pay and the rate still apply, and a blank panel answers
-  // nothing. The table below carries the empty state instead.
+  // it — rest-day pay still applies, and a blank panel answers nothing. The
+  // table below carries the empty state instead.
   wrap.innerHTML = `
     <div style="display:flex;gap:12px;flex-wrap:wrap;padding:16px 16px 8px;">
-      <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
-        <div class="stat-label">Daily Rate</div>
-        <div class="stat-value" style="font-size:1.4rem;">${formatPHP(payslip?.daily_rate ?? payslip?.user?.daily_rate)}</div>
-        ${payslip?.daily_rate_changed ? '<div class="stat-meta">changed during this period</div>' : ''}
-      </div>
       <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Days Worked</div>
         <div class="stat-value" style="font-size:1.4rem;">${totals.days_worked || records.filter((r) => r.time_in && r.time_out).length}</div>
