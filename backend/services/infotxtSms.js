@@ -655,9 +655,24 @@ function normalizeMobileList(input) {
   return { mobiles, invalid };
 }
 
+// The Manila business day of an order, mirroring posManilaExprs in routes/_all.js
+// so a blast's date range selects exactly what the dashboard's does. Two things
+// this has to get right: early syncs wrote a bad inserted_at_remote, so the raw
+// payload's inserted_at wins where it exists; and POS timestamps are UTC while
+// the business day is Manila, so an order placed 00:00-08:00 Manila is still on
+// the previous UTC day and has to be shifted before its date is sliced.
+function posManilaExprs(db) {
+  const effectiveInsertedAt = db.type === 'postgres'
+    ? "COALESCE(NULLIF(raw_payload::jsonb ->> 'inserted_at', ''), inserted_at_remote)"
+    : "COALESCE(NULLIF(json_extract(CASE WHEN json_valid(raw_payload) THEN raw_payload ELSE '{}' END, '$.inserted_at'), ''), inserted_at_remote)";
+  const manilaDay = db.type === 'postgres'
+    ? `to_char((${effectiveInsertedAt})::timestamp + interval '8 hours', 'YYYY-MM-DD')`
+    : `date(${effectiveInsertedAt}, '+8 hours')`;
+  return { effectiveInsertedAt, manilaDay };
+}
+
 // Distinct customer numbers from POS orders, for blasting a segment rather than
-// a pasted list. Dates compare as text on the ISO prefix, which behaves the
-// same on SQLite and Postgres (both store these columns as TEXT).
+// a pasted list.
 async function listBlastRecipients(db, filters = {}) {
   const where = ["customer_phone IS NOT NULL", "customer_phone <> ''"];
   const params = [];
@@ -672,8 +687,11 @@ async function listBlastRecipients(db, filters = {}) {
   // and the rest of the dashboard use — a tag is stored per shop under its own
   // id, so the name is the only thing that compares across shops.
   if (tag) { where.push("LOWER(COALESCE(tags_json, '')) LIKE ?"); params.push(`%${tag}%`); }
-  if (from) { where.push('substr(inserted_at_remote, 1, 10) >= ?'); params.push(from.slice(0, 10)); }
-  if (to) { where.push('substr(inserted_at_remote, 1, 10) <= ?'); params.push(to.slice(0, 10)); }
+  if (from || to) {
+    const { manilaDay } = posManilaExprs(db);
+    if (from) { where.push(`${manilaDay} >= ?`); params.push(from.slice(0, 10)); }
+    if (to) { where.push(`${manilaDay} <= ?`); params.push(to.slice(0, 10)); }
+  }
 
   const rows = await db.prepare(`
     SELECT customer_phone, MAX(customer_name) AS customer_name, COUNT(*) AS orders
@@ -688,7 +706,9 @@ async function listBlastRecipients(db, filters = {}) {
   // again on the normalized number rather than trusting the GROUP BY.
   const seen = new Map();
   let unusable = 0;
+  let orders = 0;
   for (const row of rows || []) {
+    orders += Number(row.orders) || 0;
     const mobile = normalizeMobile(row.customer_phone);
     if (!mobile) { unusable += 1; continue; }
     if (!seen.has(mobile)) seen.set(mobile, stringOrNull(row.customer_name));
@@ -697,6 +717,9 @@ async function listBlastRecipients(db, filters = {}) {
   return {
     recipients: [...seen.entries()].map(([mobile, name]) => ({ mobile, name })),
     total: seen.size,
+    // Matching orders behind those recipients. One customer usually has several,
+    // so this is what explains a small recipient count against a big status.
+    orders,
     unusable,
     truncated: (rows || []).length >= BLAST_QUERY_ROWS,
     max_recipients: BLAST_MAX_RECIPIENTS,

@@ -2483,7 +2483,7 @@ function renderSmsAutomations() {
               <input type="date" class="form-control" id="sms-blast-to" onchange="previewSmsBlast()">
             </div>
           </div>
-          <div class="field-help">Distinct customer numbers from POS orders. Leave a filter empty to include everything — narrow it down before sending.</div>
+          <div class="field-help">Distinct customer numbers from POS orders, counted across the filters combined. The number beside each dropdown option is that option's own total across all orders, so it will be far larger than the recipient count below. Dates are Manila business days.</div>
         </div>
 
         <div class="form-group">
@@ -16352,11 +16352,17 @@ async function fetchSmsBlastCount() {
     const data = await authorizedJsonRequest(`/integrations/infotxt/blast/recipients?${query}`);
     smsBlastCount = Number(data?.total) || 0;
     smsBlastMax = Number(data?.max_recipients) || smsBlastMax;
+    const orders = Number(data?.orders) || 0;
     const extras = [];
     if (data?.unusable) extras.push(`${data.unusable} unusable number${data.unusable === 1 ? '' : 's'} skipped`);
     if (data?.truncated) extras.push('order scan hit its row limit — narrow the filter');
+    // Spelled out against the order count, because the dropdown counts are
+    // whole-table totals and a small recipient count next to a big status looks
+    // wrong until you see it is distinct customers across matching orders only.
     showSmsBlastPreview(
-      `${smsBlastCount} distinct recipient${smsBlastCount === 1 ? '' : 's'}${extras.length ? ` — ${extras.join('; ')}` : ''}.`,
+      `${smsBlastCount} distinct recipient${smsBlastCount === 1 ? '' : 's'}`
+      + ` from ${orders.toLocaleString()} matching order${orders === 1 ? '' : 's'}`
+      + `${extras.length ? ` — ${extras.join('; ')}` : ''}.`,
       smsBlastCount > smsBlastMax
     );
   } catch (error) {

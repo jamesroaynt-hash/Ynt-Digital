@@ -641,6 +641,7 @@ module.exports = function integrationRoutes(db) {
       // phone dump — hand back the count and a short sample, not all of it.
       res.json({
         total: result.total,
+        orders: result.orders,
         unusable: result.unusable,
         truncated: result.truncated,
         max_recipients: result.max_recipients,
