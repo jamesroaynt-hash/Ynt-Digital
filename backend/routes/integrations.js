@@ -607,14 +607,21 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  // Shops and statuses the blast's order filter may offer.
+  // Shops, statuses and tags the blast's order filter may offer. Independent,
+  // so a slow tag scan can't cost you the shop list.
   router.get('/infotxt/blast/shops', requireSmsAccess, async (req, res) => {
     try {
-      const [shops, statuses] = await Promise.all([
+      const [shops, statuses, tags] = await Promise.allSettled([
         infotxtSms.listBlastShops(db),
         infotxtSms.listPosStatuses(db),
+        infotxtSms.listBlastTags(db),
       ]);
-      res.json({ shops, statuses, max_recipients: infotxtSms.BLAST_MAX_RECIPIENTS });
+      res.json({
+        shops: shops.status === 'fulfilled' ? shops.value : [],
+        statuses: statuses.status === 'fulfilled' ? statuses.value : [],
+        tags: tags.status === 'fulfilled' ? tags.value : [],
+        max_recipients: infotxtSms.BLAST_MAX_RECIPIENTS,
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -626,6 +633,7 @@ module.exports = function integrationRoutes(db) {
       const result = await infotxtSms.listBlastRecipients(db, {
         shop_id: req.query.shop_id,
         status: req.query.status,
+        tag: req.query.tag,
         from: req.query.from,
         to: req.query.to,
       });

@@ -2465,6 +2465,16 @@ function renderSmsAutomations() {
           </div>
           <div class="form-grid-2">
             <div class="form-group">
+              <label class="form-label">Tag:</label>
+              <select class="form-control" id="sms-blast-tag" onchange="previewSmsBlast()">
+                <option value="">Any tag</option>
+              </select>
+              <div class="field-help">Matched loosely, so <code>for pickup</code> also matches <code>FOR PICKUP TODAY</code>.</div>
+            </div>
+            <div class="form-group"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
               <label class="form-label">Ordered from:</label>
               <input type="date" class="form-control" id="sms-blast-from" onchange="previewSmsBlast()">
             </div>
@@ -16295,6 +16305,11 @@ async function loadSmsBlastOptions() {
       statusSelect.innerHTML = `<option value="">Any status</option>${(data?.statuses || [])
         .map((s) => `<option value="${escapeHtml(s.value)}">${escapeHtml(s.label)} (${s.orders})</option>`).join('')}`;
     }
+    const tagSelect = document.getElementById('sms-blast-tag');
+    if (tagSelect) {
+      tagSelect.innerHTML = `<option value="">Any tag</option>${(data?.tags || [])
+        .map((t) => `<option value="${escapeHtml(t.value)}">${escapeHtml(t.label)} (${t.orders})</option>`).join('')}`;
+    }
     smsBlastOptionsLoaded = true;
   } catch (error) {
     showToast('error', 'Load failed', error.message || 'Could not load the blast filters.');
@@ -16305,6 +16320,7 @@ function smsBlastFilters() {
   return {
     shop_id: document.getElementById('sms-blast-shop')?.value || '',
     status: document.getElementById('sms-blast-status')?.value || '',
+    tag: document.getElementById('sms-blast-tag')?.value || '',
     from: document.getElementById('sms-blast-from')?.value || '',
     to: document.getElementById('sms-blast-to')?.value || '',
   };

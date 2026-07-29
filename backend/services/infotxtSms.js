@@ -663,10 +663,15 @@ async function listBlastRecipients(db, filters = {}) {
   const params = [];
   const shopId = stringOrNull(filters.shop_id);
   const status = stringOrNull(filters.status);
+  const tag = normalizeTag(filters.tag);
   const from = stringOrNull(filters.from);
   const to = stringOrNull(filters.to);
   if (shopId) { where.push('shop_id = ?'); params.push(shopId); }
   if (status) { where.push('status_name = ?'); params.push(status); }
+  // Loose substring match on the raw tags_json, the same match the tag triggers
+  // and the rest of the dashboard use — a tag is stored per shop under its own
+  // id, so the name is the only thing that compares across shops.
+  if (tag) { where.push("LOWER(COALESCE(tags_json, '')) LIKE ?"); params.push(`%${tag}%`); }
   if (from) { where.push('substr(inserted_at_remote, 1, 10) >= ?'); params.push(from.slice(0, 10)); }
   if (to) { where.push('substr(inserted_at_remote, 1, 10) <= ?'); params.push(to.slice(0, 10)); }
 
@@ -712,6 +717,41 @@ async function listBlastShops(db) {
     label: stringOrNull(row.page_name) || String(row.shop_id),
     orders: Number(row.orders) || 0,
   }));
+}
+
+// Tag names in current use, for the blast's tag filter. Read from stored orders
+// rather than the POS API: it needs no network call, and a tag no order carries
+// is not one worth offering. Bounded to recent orders — the full table is large
+// and older rows only add tags nobody uses any more.
+const BLAST_TAG_SCAN_ROWS = 20000;
+async function listBlastTags(db) {
+  const rows = await db.prepare(`
+    SELECT tags_json
+    FROM pos_orders
+    WHERE tags_json IS NOT NULL AND LENGTH(tags_json) > 2
+    ORDER BY id DESC
+    LIMIT ${BLAST_TAG_SCAN_ROWS}
+  `).all();
+
+  // Keyed by the lowercase name the filter matches on, but showing the label as
+  // it was first seen, so the dropdown reads the way the POS spells it.
+  const seen = new Map();
+  for (const row of rows || []) {
+    let tags;
+    try {
+      tags = JSON.parse(row.tags_json);
+    } catch { continue; }
+    if (!Array.isArray(tags)) continue;
+    for (const entry of tags) {
+      const label = String(typeof entry === 'string' ? entry : (entry?.name || entry?.tag_name || entry?.label || '')).trim();
+      const key = normalizeTag(label);
+      if (!key) continue;
+      const current = seen.get(key);
+      if (current) current.orders += 1;
+      else seen.set(key, { value: key, label, orders: 1 });
+    }
+  }
+  return [...seen.values()].sort((a, b) => b.orders - a.orders || a.label.localeCompare(b.label));
 }
 
 function newBatchId() {
@@ -812,6 +852,7 @@ module.exports = {
   BLAST_MAX_RECIPIENTS,
   listBlastRecipients,
   listBlastShops,
+  listBlastTags,
   prepareBlast,
   getBlastStatus,
   normalizeMobileList,
