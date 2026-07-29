@@ -7021,6 +7021,16 @@ function renderCSR() {
     <div class="card">
       <div class="card-header">
         <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">Pick a page, enter the Order ID, then the details auto-fill from Google Orders.</div></div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm" type="button" onclick="downloadCSRImportTemplate()" title="Download the Excel/CSV column layout used by Import">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
+            Template
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="startCSRImport()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
+            Import
+          </button>
+        </div>
       </div>
       <div class="card-body">
         <div class="form-grid-2">
@@ -10094,6 +10104,136 @@ async function saveCSRRecord() {
   resetCSRForm();
   renderCSRTable();
   showToast('success', successMessage, `${record.customerName} • ${record.pageName} • ₱${record.price.toLocaleString()}`);
+}
+
+// Column layout shared by the import template and the import parser, so the
+// file a member downloads is exactly the file the parser expects.
+const CSR_IMPORT_COLUMNS = [
+  'Record Date', 'Name CSR', 'Page Name', 'Order ID', 'Customer Name',
+  'Cellphone Number', 'Type of Sales', 'Status', 'Price', 'Tracking Number',
+];
+
+// Blank sheet with one filled example row, so the expected date format and the
+// allowed Type of Sales / Status wording are visible without documentation.
+function downloadCSRImportTemplate() {
+  const today = new Date().toISOString().split('T')[0];
+  const sample = [
+    today, getCurrentCsrName(), getCSRPageOptions()[0] || 'Page Name',
+    'ORDER-12345', 'Juan Dela Cruz', '09171234567',
+    CSR_SALES_TYPES[0], CSR_STATUS_OPTIONS[0], '1499', 'TRK123456789',
+  ];
+  const esc = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const csv = [CSR_IMPORT_COLUMNS, sample].map((row) => row.map(esc).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'csr-daily-records-template.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('success', 'Template downloaded', 'Fill in csr-daily-records-template.csv, then use Import.');
+}
+
+function startCSRImport() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls,.csv';
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (file) importCSRFile(file);
+  };
+  input.click();
+}
+
+// Accepts the template's columns from a real .xlsx/.xls workbook (SheetJS, as
+// the ODZ import does) or a plain CSV. Rows without a date and Order ID are
+// skipped rather than failing the whole file.
+async function importCSRFile(file) {
+  try {
+    let raw = [];
+    const isCsv = /\.csv$/i.test(file.name);
+    if (!isCsv && typeof XLSX !== 'undefined') {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    } else {
+      raw = parseCsvText(await file.text());
+    }
+
+    const parsed = raw.map(normalizeCSRImportRow);
+    const rows = parsed.filter((row) => row.date && row.orderId);
+    let skipped = parsed.length - rows.length;
+    if (!rows.length) {
+      showToast('warning', 'Import skipped', `No usable rows. Expected columns: ${CSR_IMPORT_COLUMNS.join(', ')}.`);
+      return;
+    }
+
+    const result = await authorizedJsonRequest('/csr/import', {
+      method: 'POST',
+      body: JSON.stringify({ rows }),
+    });
+    skipped += Number(result?.skipped) || 0;
+    // Pull the saved rows back so the table shows the server's refs and the
+    // per-role visibility, rather than the file's contents.
+    await loadCsrRecordsFromBackend({ force: true });
+    if (App.currentPage === 'csr') loadPage('csr');
+    showToast(
+      'success',
+      'Import complete',
+      `Imported ${result?.imported || 0}${skipped ? `, skipped ${skipped} incomplete row${skipped === 1 ? '' : 's'}` : ''}.`
+    );
+  } catch (error) {
+    showToast('error', 'Import failed', error.message || 'Could not import the file.');
+  }
+}
+
+// Map a spreadsheet row's headers (any case, with/without spaces) to our fields.
+// Non-admins always import under their own name — same rule the manual form
+// applies — so a stray Name CSR column can't file entries against someone else.
+function normalizeCSRImportRow(raw) {
+  const get = (...keys) => {
+    for (const key of Object.keys(raw || {})) {
+      const norm = key.toString().trim().toLowerCase().replace(/[\s_]+/g, '');
+      if (keys.includes(norm)) return String(raw[key] ?? '').trim();
+    }
+    return '';
+  };
+  return {
+    date: normalizeCSRImportDate(get('recorddate', 'date')),
+    csrName: isAdminUser() ? (get('namecsr', 'csrname', 'csr', 'name') || getCurrentCsrName()) : getCurrentCsrName(),
+    pageName: get('pagename', 'page'),
+    orderId: get('orderid', 'order', 'orderno', 'ordernumber'),
+    customerName: get('customername', 'customer', 'client'),
+    cellphoneNumber: get('cellphonenumber', 'cellphone', 'phone', 'contact', 'contactnumber'),
+    salesType: get('typeofsales', 'salestype', 'type'),
+    status: get('status'),
+    price: Number.parseFloat(String(get('price', 'cod', 'amount')).replace(/[^\d.-]/g, '')) || 0,
+    trackingNumber: get('trackingnumber', 'tracking', 'trackingno', 'waybill'),
+  };
+}
+
+// Excel hands back either a serial number or a formatted string depending on
+// how the cell was typed, so accept both plus a plain YYYY-MM-DD. Built from
+// UTC parts to avoid normalizeDateString's local-midnight off-by-one day.
+function normalizeCSRImportDate(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    // Excel serial: days since 1899-12-30 (its 1900 leap-year bug included).
+    const ms = Date.UTC(1899, 11, 30) + Math.floor(Number(text)) * 86400000;
+    return new Date(ms).toISOString().split('T')[0];
+  }
+
+  const slash = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (slash) {
+    const [, month, day, year] = slash;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
 }
 
 function formatClockValue(value) {

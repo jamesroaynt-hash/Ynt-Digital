@@ -1917,20 +1917,26 @@ function csrRoutes(db) {
     res.json({ success: true });
   });
 
-  // One-time import used to migrate records that were stranded in a user's
-  // browser localStorage before CSR records were stored server-side.
+  // Bulk insert, used both by the CSR page's spreadsheet import and by the
+  // one-time migration of records stranded in a user's browser localStorage
+  // before CSR records were stored server-side.
+  const MAX_IMPORT_ROWS = 5000;
   r.post('/import', async (req, res) => {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return res.status(400).json({ error: `Too many rows — import at most ${MAX_IMPORT_ROWS} at a time` });
+    }
     let imported = 0;
+    let skipped = 0;
     for (const raw of rows) {
       const input = cleanInput(raw);
       // Lenient on purpose: preserve legacy rows even if they predate the
       // Order ID / sales-type fields. Skip only truly empty entries.
-      if (!input.record_date && !input.customer_name && !input.order_id) continue;
+      if (!input.record_date && !input.customer_name && !input.order_id) { skipped += 1; continue; }
       await insertRecord(input, userId(req));
       imported += 1;
     }
-    res.status(201).json({ imported });
+    res.status(201).json({ imported, skipped });
   });
 
   return r;
