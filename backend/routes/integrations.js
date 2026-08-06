@@ -643,6 +643,9 @@ module.exports = function integrationRoutes(db) {
         total: result.total,
         orders: result.orders,
         unusable: result.unusable,
+        // How many of them would get a blank {product name} / {page name}.
+        missing_product: result.missing_product,
+        missing_page: result.missing_page,
         truncated: result.truncated,
         max_recipients: result.max_recipients,
         sample: result.recipients.slice(0, 5).map((r) => r.mobile),
@@ -658,15 +661,23 @@ module.exports = function integrationRoutes(db) {
     try {
       const body = req.body || {};
       let mobiles = body.mobiles;
+      // Only messages that use {product name} / {page name} / {customer} need
+      // the per-recipient lookup; a plain promo skips it.
+      const needsContext = infotxtSms.templateNeedsOrderData(body.message);
+      let context = new Map();
       // source=orders: resolve the filter here rather than trusting a client
       // supplied list, so the preview and the send can't disagree.
       if (String(body.source || '') === 'orders') {
         const found = await infotxtSms.listBlastRecipients(db, body.filters || {});
         mobiles = found.recipients.map((r) => r.mobile);
+        if (needsContext) context = infotxtSms.blastContext(found.recipients);
+      } else if (needsContext) {
+        context = await infotxtSms.lookupBlastContext(db, mobiles);
       }
       const blast = await infotxtSms.prepareBlast(db, {
         message: body.message,
         mobiles,
+        context,
         sim: body.sim,
         sent_by: req.user?.full_name || req.user?.username || null,
       });

@@ -77,7 +77,15 @@ function formatPeso(value) {
   return n.toLocaleString('en-PH', { maximumFractionDigits: 2 });
 }
 
+// {product name} and {product_name} are the same placeholder: spacing and case
+// are ignored so a template can read the way a person would write it.
+function templateKey(key) {
+  return String(key).trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
 function renderTemplate(template, row = {}) {
+  const product = row.note_product || '';
+  const page = row.page_name || '';
   const values = {
     rider: row.sprinter_name || 'Rider',
     rider_phone: row.sprinter_tel || '',
@@ -85,13 +93,32 @@ function renderTemplate(template, row = {}) {
     tag: row.matched_tag || '',
     tracking: row.tracking_no || row.external_id || '',
     order_id: row.external_id || '',
-    shop: row.page_name || row.shop_id || '',
+    shop: page || row.shop_id || '',
     customer: row.customer_name || '',
+    customer_name: row.customer_name || '',
     customer_phone: row.customer_phone || '',
-    product: row.note_product || '',
+    product,
+    product_name: product,
+    page,
+    page_name: page,
     cod: formatPeso(row.cod),
   };
-  return String(template || DEFAULT_RIDER_TEMPLATE).replace(/\{([a-z_]+)\}/gi, (_, key) => values[key] ?? '');
+  // An unknown placeholder is left standing rather than deleted: braces in a
+  // promo ("{50% OFF}") stay readable, and a mistyped {tracing} shows up as a
+  // mistake instead of silently blanking part of the message.
+  return String(template || DEFAULT_RIDER_TEMPLATE).replace(/\{([a-z0-9_ -]+)\}/gi, (whole, key) => {
+    const value = values[templateKey(key)];
+    return value === undefined ? whole : value;
+  });
+}
+
+// Placeholders that need an order behind them. Used to decide whether a blast
+// has to look its recipients up at all — a plain promo message shouldn't pay
+// for the lookup.
+const ORDER_PLACEHOLDERS = new Set(['product', 'product_name', 'page', 'page_name', 'customer', 'customer_name', 'shop']);
+function templateNeedsOrderData(template) {
+  const matches = String(template ?? '').match(/\{([a-z0-9_ -]+)\}/gi) || [];
+  return matches.some((match) => ORDER_PLACEHOLDERS.has(templateKey(match.slice(1, -1))));
 }
 
 function publicSettingFromRow(row) {
@@ -671,9 +698,7 @@ function posManilaExprs(db) {
   return { effectiveInsertedAt, manilaDay };
 }
 
-// Distinct customer numbers from POS orders, for blasting a segment rather than
-// a pasted list.
-async function listBlastRecipients(db, filters = {}) {
+function blastWhere(db, filters = {}) {
   const where = ["customer_phone IS NOT NULL", "customer_phone <> ''"];
   const params = [];
   const shopId = stringOrNull(filters.shop_id);
@@ -692,9 +717,36 @@ async function listBlastRecipients(db, filters = {}) {
     if (from) { where.push(`${manilaDay} >= ?`); params.push(from.slice(0, 10)); }
     if (to) { where.push(`${manilaDay} <= ?`); params.push(to.slice(0, 10)); }
   }
+  return { where, params };
+}
+
+// A grouped column that carries the newest row's value for `column`, for the
+// {product name} / {page name} placeholders: MAX() on its own would pick the
+// alphabetical winner, so each value is prefixed with its zero-padded id and
+// the prefix is stripped off again in JS. Beats a second per-recipient query —
+// a repeat customer is texted about what they last bought, in one pass.
+function latestValueExpr(db, column, alias) {
+  const idKey = db.type === 'postgres' ? "lpad(id::text, 12, '0')" : "printf('%012d', id)";
+  return `MAX(${idKey} || '|' || COALESCE(${column}, '')) AS ${alias}`;
+}
+
+function latestValue(value) {
+  const text = String(value ?? '');
+  const cut = text.indexOf('|');
+  return cut === -1 ? '' : text.slice(cut + 1).trim();
+}
+
+// Distinct customer numbers from POS orders, for blasting a segment rather than
+// a pasted list.
+async function listBlastRecipients(db, filters = {}) {
+  const { where, params } = blastWhere(db, filters);
 
   const rows = await db.prepare(`
-    SELECT customer_phone, MAX(customer_name) AS customer_name, COUNT(*) AS orders
+    SELECT customer_phone,
+           COUNT(*) AS orders,
+           ${latestValueExpr(db, 'customer_name', 'customer_name')},
+           ${latestValueExpr(db, 'note_product', 'note_product')},
+           ${latestValueExpr(db, 'page_name', 'page_name')}
     FROM pos_orders
     WHERE ${where.join(' AND ')}
     GROUP BY customer_phone
@@ -707,23 +759,91 @@ async function listBlastRecipients(db, filters = {}) {
   const seen = new Map();
   let unusable = 0;
   let orders = 0;
+  let missingProduct = 0;
+  let missingPage = 0;
   for (const row of rows || []) {
     orders += Number(row.orders) || 0;
     const mobile = normalizeMobile(row.customer_phone);
     if (!mobile) { unusable += 1; continue; }
-    if (!seen.has(mobile)) seen.set(mobile, stringOrNull(row.customer_name));
+    if (seen.has(mobile)) continue;
+    const recipient = {
+      mobile,
+      name: latestValue(row.customer_name) || null,
+      product: latestValue(row.note_product),
+      page: latestValue(row.page_name),
+    };
+    if (!recipient.product) missingProduct += 1;
+    if (!recipient.page) missingPage += 1;
+    seen.set(mobile, recipient);
   }
 
   return {
-    recipients: [...seen.entries()].map(([mobile, name]) => ({ mobile, name })),
+    recipients: [...seen.values()],
     total: seen.size,
     // Matching orders behind those recipients. One customer usually has several,
     // so this is what explains a small recipient count against a big status.
     orders,
     unusable,
+    // Recipients whose order carries no product / page name. Those placeholders
+    // come out empty for them, so the UI can warn before the send.
+    missing_product: missingProduct,
+    missing_page: missingPage,
     truncated: (rows || []).length >= BLAST_QUERY_ROWS,
     max_recipients: BLAST_MAX_RECIPIENTS,
   };
+}
+
+// Placeholder values for a pasted list, where there is no filter to read them
+// from. Matched on the formats a POS order stores a number in — a pasted number
+// that was never an order, or was stored in some other shape, simply has no
+// context and its placeholders come out blank.
+const CONTEXT_LOOKUP_CHUNK = 200;
+async function lookupBlastContext(db, mobiles = []) {
+  const context = new Map();
+  // Same input the send accepts: an array, or one pasted blob.
+  const list = normalizeMobileList(mobiles).mobiles;
+  for (let i = 0; i < list.length; i += CONTEXT_LOOKUP_CHUNK) {
+    const chunk = list.slice(i, i + CONTEXT_LOOKUP_CHUNK);
+    const variants = [];
+    for (const mobile of chunk) {
+      const bare = mobile.slice(1); // 9XXXXXXXXX
+      variants.push(mobile, bare, `63${bare}`, `+63${bare}`);
+    }
+    const rows = await db.prepare(`
+      SELECT customer_phone,
+             ${latestValueExpr(db, 'customer_name', 'customer_name')},
+             ${latestValueExpr(db, 'note_product', 'note_product')},
+             ${latestValueExpr(db, 'page_name', 'page_name')}
+      FROM pos_orders
+      WHERE customer_phone IN (${variants.map(() => '?').join(',')})
+      GROUP BY customer_phone
+    `).all(...variants);
+    for (const row of rows || []) {
+      const mobile = normalizeMobile(row.customer_phone);
+      if (!mobile || context.has(mobile)) continue;
+      context.set(mobile, {
+        customer_name: latestValue(row.customer_name),
+        note_product: latestValue(row.note_product),
+        page_name: latestValue(row.page_name),
+      });
+    }
+  }
+  return context;
+}
+
+// The same shape, built from a recipient list the filter already produced.
+function blastContext(recipients = []) {
+  const context = new Map();
+  for (const recipient of recipients || []) {
+    const mobile = normalizeMobile(recipient?.mobile);
+    if (!mobile || context.has(mobile)) continue;
+    context.set(mobile, {
+      customer_name: recipient.name || '',
+      note_product: recipient.product || '',
+      page_name: recipient.page || '',
+    });
+  }
+  return context;
 }
 
 // Shops that actually have orders with a customer number, for the shop filter.
@@ -804,6 +924,10 @@ async function prepareBlast(db, payload = {}) {
   const body = truncate(message, 1550);
   const sim = stringOrNull(payload.sim);
   const sentBy = stringOrNull(payload.sent_by);
+  // Per-recipient placeholder values, keyed by normalized mobile. Absent for a
+  // plain message, and incomplete where a recipient has no order to read from —
+  // renderTemplate blanks what it can't fill either way.
+  const context = payload.context instanceof Map ? payload.context : new Map();
 
   return {
     batch_id: batchId,
@@ -813,18 +937,21 @@ async function prepareBlast(db, payload = {}) {
       let sent = 0;
       let failed = 0;
       for (const mobile of mobiles) {
+        // Rendered per recipient, and logged as rendered, so the send log shows
+        // the text that actually went out rather than the template.
+        const text = truncate(renderTemplate(body, context.get(mobile) || {}), 1550);
         const log = await insertSmsLog(db, {
           provider: PROVIDER,
           event_key: `${batchId}:${mobile}`,
           recipient_name: sentBy ? `Blast by ${sentBy}` : 'Blast',
           mobile,
-          message: body,
+          message: text,
           status: 'pending',
           related_table: 'sms_blast',
           related_id: batchId,
         });
         try {
-          const result = await sendSms(db, { mobile, message: body, sim });
+          const result = await sendSms(db, { mobile, message: text, sim });
           if (log.inserted) await updateSmsLog(db, log.id, { status: 'sent', smsid: result.smsid || null });
           sent += 1;
         } catch (error) {
@@ -876,6 +1003,9 @@ module.exports = {
   listBlastRecipients,
   listBlastShops,
   listBlastTags,
+  lookupBlastContext,
+  blastContext,
+  templateNeedsOrderData,
   prepareBlast,
   getBlastStatus,
   normalizeMobileList,

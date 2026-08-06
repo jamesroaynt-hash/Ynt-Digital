@@ -2488,9 +2488,14 @@ function renderSmsAutomations() {
 
         <div class="form-group">
           <label class="form-label">Message:</label>
-          <textarea class="form-control" id="sms-blast-message" rows="5" placeholder="Enter the message to blast" oninput="updateSmsBlastCounter()"></textarea>
+          <textarea class="form-control" id="sms-blast-message" rows="5" placeholder="Enter the message to blast" oninput="updateSmsBlastCounter(); refreshSmsBlastPlaceholderNote();"></textarea>
           <div class="field-help" id="sms-blast-counter">0 characters — 1 SMS part.</div>
-          <div class="field-help">No placeholders here: a blast has no order to fill them from, so <code>{customer}</code> and friends are sent as literal text.</div>
+          <div class="field-help">
+            Placeholders are filled per recipient from their most recent matching order:
+            <code>{product name}</code>, <code>{page name}</code>, <code>{customer}</code>.
+            Spacing and case don't matter (<code>{Product Name}</code> works too), and anything else in braces is sent as written.
+            A recipient with no order behind their number gets a blank there — check the count below before sending.
+          </div>
         </div>
 
         <div id="sms-blast-preview" class="alert alert-warning" style="display:none;"></div>
@@ -16256,6 +16261,9 @@ let smsBlastMax = 500;
 let smsBlastSending = false;
 let smsBlastPreviewTimer = null;
 let smsBlastOptionsLoaded = false;
+// Last /blast/recipients payload, so the placeholder warning can be redrawn
+// while the message is edited without asking the server again.
+let smsBlastLastCount = null;
 
 // GSM-7 fits 160 chars in one part, 153 per part once concatenated. A message
 // with any non-GSM character is sent as UCS-2 at 70/67 — worth flagging, since
@@ -16268,12 +16276,33 @@ function smsPartCount(text) {
   return { parts: text.length <= single ? 1 : Math.ceil(text.length / multi), unicode };
 }
 
+// Which per-recipient placeholders the message uses. Mirrors templateNeedsOrderData
+// on the server: spacing and case are ignored, so {Product Name} counts.
+function smsBlastPlaceholders(message) {
+  const text = message === undefined
+    ? (document.getElementById('sms-blast-message')?.value || '')
+    : String(message || '');
+  const keys = (text.match(/\{([a-z0-9_ -]+)\}/gi) || [])
+    .map((match) => match.slice(1, -1).trim().toLowerCase().replace(/[\s-]+/g, '_'));
+  return {
+    product: keys.includes('product') || keys.includes('product_name'),
+    page: keys.includes('page') || keys.includes('page_name') || keys.includes('shop'),
+    customer: keys.includes('customer') || keys.includes('customer_name'),
+    any: keys.length > 0,
+  };
+}
+
 function updateSmsBlastCounter() {
   const el = document.getElementById('sms-blast-counter');
   if (!el) return;
   const text = document.getElementById('sms-blast-message')?.value || '';
   const { parts, unicode } = smsPartCount(text);
-  el.textContent = `${text.length} characters — ${parts} SMS part${parts === 1 ? '' : 's'}${unicode ? ' (non-GSM characters, billed at 70 per part)' : ''}.`;
+  const used = smsBlastPlaceholders(text);
+  el.textContent = `${text.length} characters — ${parts} SMS part${parts === 1 ? '' : 's'}`
+    + `${unicode ? ' (non-GSM characters, billed at 70 per part)' : ''}.`
+    // The placeholder is longer or shorter than what replaces it, so the count
+    // above is the template's, not what each recipient receives.
+    + `${used.product || used.page || used.customer ? ' Counted before placeholders are filled — a long product name can push it to another part.' : ''}`;
 }
 
 function setSmsBlastSource(source) {
@@ -16350,25 +16379,43 @@ async function fetchSmsBlastCount() {
   try {
     const query = new URLSearchParams(smsBlastFilters()).toString();
     const data = await authorizedJsonRequest(`/integrations/infotxt/blast/recipients?${query}`);
-    smsBlastCount = Number(data?.total) || 0;
-    smsBlastMax = Number(data?.max_recipients) || smsBlastMax;
-    const orders = Number(data?.orders) || 0;
-    const extras = [];
-    if (data?.unusable) extras.push(`${data.unusable} unusable number${data.unusable === 1 ? '' : 's'} skipped`);
-    if (data?.truncated) extras.push('order scan hit its row limit — narrow the filter');
-    // Spelled out against the order count, because the dropdown counts are
-    // whole-table totals and a small recipient count next to a big status looks
-    // wrong until you see it is distinct customers across matching orders only.
-    showSmsBlastPreview(
-      `${smsBlastCount} distinct recipient${smsBlastCount === 1 ? '' : 's'}`
-      + ` from ${orders.toLocaleString()} matching order${orders === 1 ? '' : 's'}`
-      + `${extras.length ? ` — ${extras.join('; ')}` : ''}.`,
-      smsBlastCount > smsBlastMax
-    );
+    smsBlastLastCount = data;
+    showSmsBlastCount(data);
   } catch (error) {
+    smsBlastLastCount = null;
     smsBlastCount = 0;
     showSmsBlastPreview(error.message || 'Could not count recipients.', true);
   }
+}
+
+// Kept apart from the fetch so editing the message can refresh the placeholder
+// warning off the last count instead of re-querying on every keystroke.
+function showSmsBlastCount(data) {
+  smsBlastCount = Number(data?.total) || 0;
+  smsBlastMax = Number(data?.max_recipients) || smsBlastMax;
+  const orders = Number(data?.orders) || 0;
+  const extras = [];
+  if (data?.unusable) extras.push(`${data.unusable} unusable number${data.unusable === 1 ? '' : 's'} skipped`);
+  // Only worth saying when the message actually uses the placeholder.
+  const used = smsBlastPlaceholders();
+  if (used.product && data?.missing_product) extras.push(`${data.missing_product} have no product name — {product name} will be blank for them`);
+  if (used.page && data?.missing_page) extras.push(`${data.missing_page} have no page name — {page name} will be blank for them`);
+  if (data?.truncated) extras.push('order scan hit its row limit — narrow the filter');
+  // Spelled out against the order count, because the dropdown counts are
+  // whole-table totals and a small recipient count next to a big status looks
+  // wrong until you see it is distinct customers across matching orders only.
+  showSmsBlastPreview(
+    `${smsBlastCount} distinct recipient${smsBlastCount === 1 ? '' : 's'}`
+    + ` from ${orders.toLocaleString()} matching order${orders === 1 ? '' : 's'}`
+    + `${extras.length ? ` — ${extras.join('; ')}` : ''}.`,
+    smsBlastCount > smsBlastMax
+  );
+}
+
+// Message edited: the recipient set didn't change, only whether the blanks are
+// worth warning about, so re-render rather than re-count.
+function refreshSmsBlastPlaceholderNote() {
+  if (smsBlastSource === 'orders' && smsBlastLastCount) showSmsBlastCount(smsBlastLastCount);
 }
 
 function showSmsBlastPreview(text, over) {
@@ -16435,9 +16482,15 @@ async function sendSmsBlastNow() {
   }
 
   const { parts } = smsPartCount(message);
+  const used = smsBlastPlaceholders(message);
+  const personalized = used.product || used.page || used.customer;
   const confirmed = confirm(
     `Send this message to ${smsBlastCount} recipient${smsBlastCount === 1 ? '' : 's'} now?\n\n`
     + `${parts} SMS part${parts === 1 ? '' : 's'} each — about ${smsBlastCount * parts} billable message${smsBlastCount * parts === 1 ? '' : 's'}.\n\n`
+    + (personalized
+      ? 'Placeholders are filled per recipient from their most recent order'
+        + `${smsBlastSource === 'paste' ? ', and left blank for pasted numbers with no order on file' : ''}.\n\n`
+      : '')
     + 'This cannot be recalled once it starts.'
   );
   if (!confirmed) return;
