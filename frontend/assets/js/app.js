@@ -11807,13 +11807,15 @@ function buildHRMonthOptions() {
   return opts.join('');
 }
 
-// Translate the Month + Period (1-15 / 16-End / Whole) selectors into From/To dates, then reload.
-function applyHRMonthPeriod() {
-  const month = document.getElementById('hr-month-filter')?.value || '';
-  const period = document.getElementById('hr-period-filter')?.value || '0';
-  const fromEl = document.getElementById('hr-date-from');
-  const toEl = document.getElementById('hr-date-to');
-  if (!month || !fromEl || !toEl) return loadHRDashboard();
+// Translate a Month + Period (1-15 / 16-End / Whole) pair into From/To dates.
+// HR/Payroll and Attendance Log carry the same selector set, so they share this
+// and only differ in element ids and which dashboard they reload.
+function applyMonthPeriodToDates(ids) {
+  const month = document.getElementById(ids.month)?.value || '';
+  const period = document.getElementById(ids.period)?.value || '0';
+  const fromEl = document.getElementById(ids.from);
+  const toEl = document.getElementById(ids.to);
+  if (!month || !fromEl || !toEl) return;
   const [year, mon] = month.split('-').map(Number);
   const lastDay = new Date(year, mon, 0).getDate();
   const mm = String(mon).padStart(2, '0');
@@ -11823,7 +11825,16 @@ function applyHRMonthPeriod() {
   else if (period === '2') { fromDay = 16; toDay = lastDay; }
   fromEl.value = `${year}-${mm}-${String(fromDay).padStart(2, '0')}`;
   toEl.value = `${year}-${mm}-${String(toDay).padStart(2, '0')}`;
+}
+
+function applyHRMonthPeriod() {
+  applyMonthPeriodToDates({ month: 'hr-month-filter', period: 'hr-period-filter', from: 'hr-date-from', to: 'hr-date-to' });
   return loadHRDashboard();
+}
+
+function applyAttendanceLogMonthPeriod() {
+  applyMonthPeriodToDates({ month: 'al-month-filter', period: 'al-period-filter', from: 'al-date-from', to: 'al-date-to' });
+  return loadAttendanceLogDashboard();
 }
 
 function populateHRUserSelects() {
@@ -11871,6 +11882,7 @@ function refreshHRViews() {
 function renderAttendanceLog() {
   const today = normalizeDateString(new Date());
   const monthStart = today.slice(0, 8) + '01';
+  const defaultPeriod = new Date().getDate() <= 15 ? '1' : '2';
   return `
   <div class="page-header">
     <div class="page-title">
@@ -11883,25 +11895,29 @@ function renderAttendanceLog() {
   </div>
 
   <div class="card" style="margin-bottom:20px;">
-    <div class="card-body">
-      <div class="form-grid-3">
-        <div class="form-group">
-          <label class="form-label">From</label>
-          <input type="date" id="al-date-from" class="form-control" value="${monthStart}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">To</label>
-          <input type="date" id="al-date-to" class="form-control" value="${today}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">User</label>
-          <select id="al-user-filter" class="form-control">
-            <option value="">All users</option>
-          </select>
-        </div>
+    <div class="card-header hr-payroll-header">
+      <div>
+        <div class="card-title">Period</div>
+        <div class="card-subtitle">Pick a payroll period, or set a custom date range</div>
       </div>
-      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;">
-        <button class="btn btn-primary" onclick="loadAttendanceLogDashboard()">Apply</button>
+      <div class="hr-toolbar">
+        <select id="al-month-filter" class="hr-toolbar-input" title="Month" onchange="applyAttendanceLogMonthPeriod()">
+          ${buildHRMonthOptions()}
+        </select>
+        <select id="al-period-filter" class="hr-toolbar-input" title="Payroll period" onchange="applyAttendanceLogMonthPeriod()">
+          <option value="1"${defaultPeriod === '1' ? ' selected' : ''}>1 - 15</option>
+          <option value="2"${defaultPeriod === '2' ? ' selected' : ''}>16 - End</option>
+          <option value="0">Whole month</option>
+        </select>
+        <select id="al-user-filter" class="hr-toolbar-input" title="User">
+          <option value="">All users</option>
+        </select>
+        <span class="hr-toolbar-dates">
+          <input type="date" id="al-date-from" class="hr-toolbar-input" title="From" value="${monthStart}">
+          <span class="hr-toolbar-sep">–</span>
+          <input type="date" id="al-date-to" class="hr-toolbar-input" title="To" value="${today}">
+        </span>
+        <button class="btn btn-primary btn-sm" onclick="loadAttendanceLogDashboard()">Apply</button>
       </div>
     </div>
   </div>
@@ -12094,7 +12110,8 @@ async function initAttendanceLogPage() {
   } catch (error) {
     showToast('error', 'Users unavailable', error.message || 'Could not load users.');
   }
-  await loadAttendanceLogDashboard();
+  // Open on the current payroll period rather than month-start-to-today.
+  await applyAttendanceLogMonthPeriod();
   loadHRAnnouncements().catch(() => {});
   loadHRPendingOT().catch(() => {});
 }

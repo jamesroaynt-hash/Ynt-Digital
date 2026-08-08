@@ -2808,8 +2808,9 @@ tfoot td {
 
 .hr-toolbar-input:focus { border-color: var(--accent); }
 
-/* Names plus role labels run long — this one gets a little more room. */
-#hr-user-filter.hr-toolbar-input { max-width: 200px; }
+/* Names plus role labels run long — these get a little more room. */
+#hr-user-filter.hr-toolbar-input,
+#al-user-filter.hr-toolbar-input { max-width: 200px; }
 
 .hr-toolbar-dates {
   display: inline-flex;
