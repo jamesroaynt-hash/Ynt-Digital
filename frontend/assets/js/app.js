@@ -10954,8 +10954,14 @@ async function requestLeave(event) {
 function renderAttendanceCashList() {
   const wrap = document.getElementById('attendance-cash-list');
   if (!wrap) return;
-  if (!attendanceState.advances.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No cash advances</h3><p>Submitted requests will appear here.</p></div>';
+  const all = attendanceState.advances || [];
+  // Once HR marks an advance Paid it is settled, so it drops off the user's
+  // list. HR keeps the record under Attendance Log > Cash Advances > Paid History.
+  const rows = all.filter((advance) => !Number(advance.paid));
+  if (!rows.length) {
+    wrap.innerHTML = all.length
+      ? '<div class="empty-state"><h3>All cash advances paid</h3><p>Nothing outstanding. New requests will appear here.</p></div>'
+      : '<div class="empty-state"><h3>No cash advances</h3><p>Submitted requests will appear here.</p></div>';
     return;
   }
   wrap.innerHTML = `
@@ -10963,7 +10969,7 @@ function renderAttendanceCashList() {
       <table class="data-table">
         <thead><tr><th>Date</th><th>User</th><th>Amount</th><th>Status</th><th>Reason</th></tr></thead>
         <tbody>
-          ${attendanceState.advances.map((advance) => `
+          ${rows.map((advance) => `
             <tr>
               <td>${escapeHtml(advance.advance_date || '')}</td>
               <td>${escapeHtml(advance.full_name || App.user?.full_name || 'User')}</td>
