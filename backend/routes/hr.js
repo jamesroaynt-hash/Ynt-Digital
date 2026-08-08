@@ -233,7 +233,10 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
     });
   }
 
+  // An advance marked Paid is already settled, so deducting it here would take
+  // the same money twice. Only outstanding advances reduce net pay.
   advances.forEach((advance) => {
+    if (Number(advance.paid)) return;
     const summary = byUser.get(Number(advance.user_id));
     if (summary) summary.cash_advances += Number(advance.amount || 0);
   });
