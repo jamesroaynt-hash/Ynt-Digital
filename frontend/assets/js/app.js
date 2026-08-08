@@ -11919,11 +11919,17 @@ function renderAttendanceLog() {
   <div id="al-tab-ca" class="tab-content">
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Cash Advances</div><div class="card-subtitle">All cash advances in the selected date range. Mark each as Paid or Not Paid.</div></div>
+        <div><div class="card-title">Cash Advances</div><div class="card-subtitle">Cash advances in the selected date range. Mark each as Paid once released; paid ones move to History.</div></div>
         <button class="btn btn-ghost btn-sm" onclick="loadHRCashAdvances()">Refresh</button>
       </div>
-      <div class="card-body" id="al-ca-wrap">
-        <div class="empty-state"><h3>Loading cash advances</h3><p>Pulling records.</p></div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn btn-sm btn-primary" id="ca-subtab-open-btn" onclick="switchCashAdvanceSubtab('open')">Outstanding</button>
+          <button class="btn btn-sm btn-secondary" id="ca-subtab-history-btn" onclick="switchCashAdvanceSubtab('history')">Paid History</button>
+        </div>
+        <div id="al-ca-wrap">
+          <div class="empty-state"><h3>Loading cash advances</h3><p>Pulling records.</p></div>
+        </div>
       </div>
     </div>
   </div>
@@ -12059,6 +12065,8 @@ function getAttendanceLogFilters() {
 }
 
 async function initAttendanceLogPage() {
+  // Freshly rendered markup always has Outstanding selected, so reset the state to match.
+  hrCashAdvanceSubtab = 'open';
   if (!canManageHR()) {
     const wrap = document.getElementById('al-attendance-wrap');
     if (wrap) wrap.innerHTML = '<div class="empty-state"><h3>HR access required</h3><p>Your account cannot view the attendance log.</p></div>';
@@ -12134,33 +12142,61 @@ async function loadHRCashAdvances() {
   }
 }
 
+// Cash Advances splits into Outstanding (still owed) and Paid History. Both
+// read the same date-range payload, so switching sub-tabs never refetches.
+let hrCashAdvanceSubtab = 'open';
+
+function switchCashAdvanceSubtab(which) {
+  hrCashAdvanceSubtab = which === 'history' ? 'history' : 'open';
+  const showHistory = hrCashAdvanceSubtab === 'history';
+  const openBtn = document.getElementById('ca-subtab-open-btn');
+  const historyBtn = document.getElementById('ca-subtab-history-btn');
+  if (openBtn) openBtn.className = `btn btn-sm ${showHistory ? 'btn-secondary' : 'btn-primary'}`;
+  if (historyBtn) historyBtn.className = `btn btn-sm ${showHistory ? 'btn-primary' : 'btn-secondary'}`;
+  renderHRCashAdvances();
+}
+
 function renderHRCashAdvances() {
   const wrap = document.getElementById('al-ca-wrap');
   if (!wrap) return;
-  const rows = hrState.cashAdvances || [];
-  if (!rows.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No cash advances</h3><p>No cash advances in this date range.</p></div>';
-    return;
-  }
-  const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const unpaid = rows.filter((r) => !Number(r.paid)).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  wrap.innerHTML = `
+  const all = hrState.cashAdvances || [];
+  const showHistory = hrCashAdvanceSubtab === 'history';
+  const rows = all.filter((r) => !!Number(r.paid) === showHistory);
+
+  const total = all.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const unpaid = all.filter((r) => !Number(r.paid)).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const paidTotal = total - unpaid;
+  const stats = `
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
       <div>Total: <strong>${formatPHP(total)}</strong></div>
       <div>Unpaid: <strong style="color:var(--error-color,#dc2626);">${formatPHP(unpaid)}</strong></div>
-    </div>
+      <div>Paid: <strong style="color:#166534;">${formatPHP(paidTotal)}</strong></div>
+    </div>`;
+
+  if (!rows.length) {
+    const empty = showHistory
+      ? '<div class="empty-state"><h3>No paid cash advances</h3><p>Advances marked as paid in this date range will appear here.</p></div>'
+      : '<div class="empty-state"><h3>No outstanding cash advances</h3><p>Nothing left to pay in this date range.</p></div>';
+    wrap.innerHTML = (all.length ? stats : '') + empty;
+    return;
+  }
+
+  wrap.innerHTML = `
+    ${stats}
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>Date</th><th>Name</th><th>Amount</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Name</th><th>Amount</th><th>Reason</th><th>Status</th>${showHistory ? '<th>Paid On</th>' : ''}<th></th></tr></thead>
         <tbody>
           ${rows.map((r) => {
-            const paid = !!Number(r.paid);
-            const badge = paid
+            const badge = showHistory
               ? '<span class="badge" style="background:#dcfce7;color:#166534;">Paid</span>'
               : '<span class="badge" style="background:#fee2e2;color:#991b1b;">Not Paid</span>';
-            const btn = paid
+            const btn = showHistory
               ? `<button class="btn btn-secondary btn-sm" onclick="toggleCashAdvancePaid(${r.id}, false)">Mark Not Paid</button>`
               : `<button class="btn btn-primary btn-sm" onclick="toggleCashAdvancePaid(${r.id}, true)">Mark Paid</button>`;
+            const paidOn = showHistory
+              ? `<td>${r.paid_at ? escapeHtml(String(r.paid_at).slice(0, 10)) : '—'}</td>`
+              : '';
             return `
               <tr>
                 <td>${escapeHtml(r.advance_date || '')}</td>
@@ -12168,6 +12204,7 @@ function renderHRCashAdvances() {
                 <td>${formatPHP(r.amount)}</td>
                 <td>${escapeHtml(r.reason || '')}</td>
                 <td>${badge}</td>
+                ${paidOn}
                 <td style="text-align:right;">${btn}</td>
               </tr>`;
           }).join('')}
@@ -12178,12 +12215,16 @@ function renderHRCashAdvances() {
 
 async function toggleCashAdvancePaid(id, paid) {
   try {
-    await authorizedJsonRequest(`/hr/cash-advances/${id}/paid`, {
+    const updated = await authorizedJsonRequest(`/hr/cash-advances/${id}/paid`, {
       method: 'PATCH',
       body: JSON.stringify({ paid: paid ? 1 : 0 }),
     });
     const row = (hrState.cashAdvances || []).find((r) => Number(r.id) === Number(id));
-    if (row) row.paid = paid ? 1 : 0;
+    if (row) {
+      row.paid = paid ? 1 : 0;
+      // Keep paid_at in sync so the row shows a Paid On date the moment it lands in History.
+      row.paid_at = paid ? (updated?.advance?.paid_at || new Date().toISOString()) : null;
+    }
     renderHRCashAdvances();
     showToast('success', 'Cash advance updated', paid ? 'Marked as paid.' : 'Marked as not paid.');
   } catch (error) {
