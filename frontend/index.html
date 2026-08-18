@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/Images/yntlogo.png?v=20260603">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=20260713-odz-finder">
+<link rel="stylesheet" href="assets/css/main.css?v=20260818-starfield">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -21,6 +21,18 @@
 <!-- App Root: Login / App Shell -->
 <div id="app-root">
   <div id="login-screen"></div>
+
+  <!-- ANIMATED NIGHT-SKY BACKGROUND (dark theme only, purely decorative) -->
+  <div id="starfield" aria-hidden="true">
+    <div class="star-layer star-layer-1"></div>
+    <div class="star-layer star-layer-2"></div>
+    <div class="star-layer star-layer-3"></div>
+    <span class="shooting-star" style="--sx:6%;  --sy:-4%; --a:22deg; --dur:11s; --delay:0s;   --travel:120vw;"></span>
+    <span class="shooting-star" style="--sx:38%; --sy:-8%; --a:34deg; --dur:14s; --delay:3.5s; --travel:95vw;"></span>
+    <span class="shooting-star" style="--sx:62%; --sy:2%;  --a:18deg; --dur:17s; --delay:7s;   --travel:80vw;"></span>
+    <span class="shooting-star" style="--sx:-8%; --sy:26%; --a:12deg; --dur:19s; --delay:11s;  --travel:130vw;"></span>
+    <span class="shooting-star" style="--sx:20%; --sy:44%; --a:28deg; --dur:23s; --delay:16s;  --travel:110vw;"></span>
+  </div>
 
   <!-- APP SHELL (hidden until logged in) -->
   <div id="app-shell" class="app-wrapper" style="display:none;">

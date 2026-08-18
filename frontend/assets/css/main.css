@@ -4526,3 +4526,136 @@ tfoot td {
   .home-an-grid { grid-template-columns: 1fr; }
   .home-an-side .card-body { height: 280px; }
 }
+
+/* ─── ANIMATED NIGHT-SKY BACKGROUND ───────────────────────────────────────
+   Decorative fixed layer that sits above the page background but behind every
+   card/panel (z-index:-1). Dark theme only — it reads as noise on light. */
+#starfield {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.45s ease, visibility 0s linear 0.45s;
+}
+
+[data-theme="dark"] #starfield {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.45s ease, visibility 0s linear 0s;
+}
+
+/* Don't burn frames behind the (opaque) login screen. */
+#login-screen:not(:empty) + #starfield { display: none; }
+
+/* Soft nebula wash so the sky isn't a flat block of navy. */
+#starfield::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1100px 560px at 78% -10%, rgba(56, 102, 189, 0.16) 0%, transparent 60%),
+    radial-gradient(900px 520px at 6% 108%, rgba(84, 60, 150, 0.13) 0%, transparent 62%);
+}
+
+/* ── Star dust: three parallax layers of twinkling dots ── */
+.star-layer {
+  position: absolute;
+  top: -25%; left: -25%;
+  width: 150%; height: 150%;
+  background-repeat: repeat;
+  will-change: transform, opacity;
+}
+
+.star-layer-1 {
+  background-image:
+    radial-gradient(1.4px 1.4px at 30px 42px, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1.2px 1.2px at 148px 96px, rgba(191, 219, 254, 0.75), transparent),
+    radial-gradient(1.6px 1.6px at 96px 188px, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.2px 1.2px at 212px 24px, rgba(255, 255, 255, 0.6), transparent);
+  background-size: 260px 260px;
+  animation: sf-drift 150s linear infinite, sf-twinkle 5.5s ease-in-out infinite alternate;
+}
+
+.star-layer-2 {
+  background-image:
+    radial-gradient(1px 1px at 64px 18px, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 8px 132px, rgba(147, 197, 253, 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 174px 70px, rgba(255, 255, 255, 0.5), transparent);
+  background-size: 190px 190px;
+  animation: sf-drift 95s linear infinite reverse, sf-twinkle 7.5s ease-in-out infinite alternate;
+  animation-delay: 0s, -2.5s;
+}
+
+.star-layer-3 {
+  background-image:
+    radial-gradient(0.9px 0.9px at 22px 88px, rgba(226, 232, 240, 0.45), transparent),
+    radial-gradient(0.9px 0.9px at 118px 34px, rgba(226, 232, 240, 0.38), transparent);
+  background-size: 140px 140px;
+  animation: sf-drift 62s linear infinite, sf-twinkle 9s ease-in-out infinite alternate;
+  animation-delay: -20s, -4s;
+}
+
+@keyframes sf-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-260px, 130px, 0); }
+}
+
+@keyframes sf-twinkle {
+  from { opacity: 0.35; }
+  to   { opacity: 1; }
+}
+
+/* ── Shooting stars ── */
+.shooting-star {
+  position: absolute;
+  top: var(--sy, 0%);
+  left: var(--sx, 0%);
+  width: 160px;
+  height: 1.6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(147, 197, 253, 0.45) 55%,
+    rgba(255, 255, 255, 0.95) 100%);
+  box-shadow: 0 0 8px rgba(147, 197, 253, 0.55);
+  transform-origin: 0 50%;
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: sf-shoot var(--dur, 14s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Bright head at the leading edge of the streak. */
+.shooting-star::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translateY(-50%);
+  box-shadow: 0 0 10px 2px rgba(191, 219, 254, 0.85);
+}
+
+@keyframes sf-shoot {
+  0%   { opacity: 0; transform: rotate(var(--a, 25deg)) translateX(0) scaleX(0.25); }
+  1.5% { opacity: 1; }
+  13%  { opacity: 1; transform: rotate(var(--a, 25deg)) translateX(var(--travel, 110vw)) scaleX(1); }
+  16%  { opacity: 0; transform: rotate(var(--a, 25deg)) translateX(calc(var(--travel, 110vw) * 1.15)) scaleX(1); }
+  100% { opacity: 0; transform: rotate(var(--a, 25deg)) translateX(calc(var(--travel, 110vw) * 1.15)) scaleX(1); }
+}
+
+/* Fewer, shorter streaks on small screens. */
+@media (max-width: 700px) {
+  .shooting-star { width: 100px; }
+  .shooting-star:nth-of-type(n + 4) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .star-layer { animation: none; opacity: 0.55; }
+  .shooting-star { display: none; }
+}
