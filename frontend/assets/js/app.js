@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -17,8 +17,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
@@ -144,6 +144,7 @@ function loadPage(page) {
     creatives: renderCreatives,
     'adspend-roas': renderAdspendRoas,
     csr: renderCSR,
+    'sales-marketing-tracker': renderSalesMarketingTracker,
     inventory: renderInventory,
     expenses: renderExpenses,
     hr: renderHR,
@@ -179,6 +180,7 @@ const pageNames = {
   creatives: 'Ad Creatives',
   'adspend-roas': 'ROAS Summary',
   csr: 'CSR Records',
+  'sales-marketing-tracker': 'Sales Marketing Tracker',
   inventory: 'Stock',
   expenses: 'Expenses',
   hr: 'HR & Payroll',
@@ -6606,6 +6608,30 @@ let mktPagesPage = 'all';
 let mktPagesFrom = '';
 let mktPagesTo = '';
 
+// Placeholder shell for the Sales Marketing Tracker page. The nav entry and
+// routing are live; the tracker content itself is still to be defined.
+function renderSalesMarketingTracker() {
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>Sales Marketing Tracker</h1><p>Tracking view for the Sales &amp; Marketing team.</p></div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 5.5h12"/><path d="M5 8h6M5 10.5h4"/>
+          </svg>
+        </div>
+        <h3>Nothing to track yet</h3>
+        <p>This page is set up and ready — the tracker content has not been built yet.</p>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
 function renderMarketingCenter() {
   const now = new Date();
   const state = getMarketingState();
@@ -9591,7 +9617,7 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr'].some((page) => accessiblePages.has(page));
+  const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr', 'sales-marketing-tracker'].some((page) => accessiblePages.has(page));
   const hasRmo = ['rmo-management', 'sms-automations', 'odz-finder', 'calculators'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
