@@ -6627,7 +6627,7 @@ let salesTrackerState = {
   // 'fit' scales columns to the container so nothing is cut off; 'compact'
   // keeps the sheet's proportions but shrinks them; 'actual' is the sheet's
   // own pixel widths, which on a wide tracker means sideways scrolling.
-  widthMode: localStorage.getItem('sales_tracker_width_mode') || 'fit',
+  widthMode: localStorage.getItem('sales_tracker_width_mode') || 'actual',
 };
 
 const SALES_TRACKER_WIDTH_MODES = [
@@ -6666,6 +6666,7 @@ function rerenderSalesTracker() {
   const host = document.getElementById('main-page-content');
   if (host) host.innerHTML = renderSalesMarketingTracker();
   applySalesTrackerFrozenRows();
+  syncSalesTrackerScroller();
 }
 
 // Row indices (into sheet.rows) that survive the search box.
@@ -6747,6 +6748,32 @@ function renderSalesTrackerRows() {
   }).join('');
 }
 
+// The strip above the grid is an empty div as wide as the table, so its
+// scrollbar mirrors the grid's. Each pane writes the other's scrollLeft,
+// guarded by a flag so the two do not chase each other.
+function syncSalesTrackerScroller() {
+  const scroller = document.getElementById('sales-tracker-scroller');
+  const wrap = document.getElementById('sales-tracker-wrap');
+  const grid = document.getElementById('sales-tracker-grid');
+  if (!scroller || !wrap || !grid) return;
+
+  const width = grid.scrollWidth;
+  scroller.firstElementChild.style.width = `${width}px`;
+  // Nothing to pan in fit mode, so the extra bar would only add noise.
+  scroller.style.display = width > wrap.clientWidth ? 'block' : 'none';
+
+  let syncing = false;
+  const mirror = (from, to) => () => {
+    if (syncing) return;
+    syncing = true;
+    to.scrollLeft = from.scrollLeft;
+    syncing = false;
+  };
+  // Assigned rather than addEventListener so re-rendering cannot stack handlers.
+  scroller.onscroll = mirror(scroller, wrap);
+  wrap.onscroll = mirror(wrap, scroller);
+}
+
 // Sheet rows vary in height, so the sticky offset for each frozen row is
 // measured from what actually rendered rather than assumed.
 function applySalesTrackerFrozenRows() {
@@ -6771,6 +6798,7 @@ function filterSalesTrackerRows(value) {
     count.textContent = `${shown} of ${total} rows`;
   }
   applySalesTrackerFrozenRows();
+  syncSalesTrackerScroller();
 }
 
 function renderSalesTrackerConnectCard() {
@@ -6909,7 +6937,8 @@ function renderSalesMarketingTracker() {
             <button class="btn btn-secondary btn-sm" onclick="openSalesTrackerTab(salesTrackerState.activeTab, true)">Refresh</button>
           </div>
         </div>
-        <div class="gs-mirror-wrap">
+        <div class="gs-mirror-scroller" id="sales-tracker-scroller"><div></div></div>
+        <div class="gs-mirror-wrap" id="sales-tracker-wrap">
           <table class="${tableClass}" id="sales-tracker-grid">
             <colgroup>${cols}</colgroup>
             <tbody id="sales-tracker-tbody">${renderSalesTrackerRows()}</tbody>

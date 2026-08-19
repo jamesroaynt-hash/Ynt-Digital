@@ -4722,3 +4722,26 @@ tfoot td {
    Cells wrap rather than run off, since the width is now fixed. */
 .gs-mirror.gs-fit { table-layout: fixed; width: 100%; min-width: 0; }
 .gs-mirror.gs-fit td { white-space: normal; overflow-wrap: anywhere; }
+
+/* A second horizontal scrollbar pinned above the grid, synced with the one
+   below it. Without this you have to scroll to the bottom of a tall sheet
+   before you can pan sideways. */
+.gs-mirror-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-bottom: 6px;
+}
+
+.gs-mirror-scroller > div { height: 1px; }
+
+/* Sheet grids scroll a long way, so the bars are made obvious rather than
+   left as thin overlay scrollbars. */
+.gs-mirror-wrap, .gs-mirror-scroller { scrollbar-color: #9aa0a6 #e8eaed; scrollbar-width: auto; }
+.gs-mirror-wrap::-webkit-scrollbar, .gs-mirror-scroller::-webkit-scrollbar { height: 13px; width: 13px; }
+.gs-mirror-wrap::-webkit-scrollbar-track, .gs-mirror-scroller::-webkit-scrollbar-track { background: #e8eaed; border-radius: 7px; }
+.gs-mirror-wrap::-webkit-scrollbar-thumb, .gs-mirror-scroller::-webkit-scrollbar-thumb {
+  background: #9aa0a6;
+  border: 3px solid #e8eaed;
+  border-radius: 7px;
+}
+.gs-mirror-wrap::-webkit-scrollbar-thumb:hover, .gs-mirror-scroller::-webkit-scrollbar-thumb:hover { background: #70757a; }
