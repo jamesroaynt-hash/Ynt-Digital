@@ -6911,7 +6911,7 @@ function renderSalesMarketingTracker() {
       'No spreadsheet connected',
       canManageSalesTracker()
         ? 'Connect a Google spreadsheet above to view its sheets here.'
-        : 'Someone from Sales and Marketing needs to connect a Google spreadsheet before data shows up here.'
+        : 'An administrator needs to connect a Google spreadsheet before data shows up here.'
     );
   } else if (error) {
     body = emptyState(
@@ -10072,9 +10072,10 @@ function isSalesMarketingUser(role = App.user?.role) {
 }
 
 // Who may connect or change the tracker's spreadsheet. Sales and Marketing
-// own this sheet, so they manage its connection alongside admins.
+// read the sheet but do not touch the connection — it holds service account
+// credentials — so this stays with admins.
 function canManageSalesTracker() {
-  return isAdminUser() || isSalesMarketingUser();
+  return isAdminUser();
 }
 
 function canManageMarketing() {

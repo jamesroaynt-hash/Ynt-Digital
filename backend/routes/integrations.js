@@ -823,19 +823,18 @@ module.exports = function integrationRoutes(db) {
   const TRACKER_MANAGER_ROLES = new Set([
     'administrator',
     'admin',
-    'sales and marketing',
-    'sales and marketing tl',
   ]);
 
   function trackerRoleKey(role) {
     return String(role || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[\s_-]+/g, ' ');
   }
 
-  // Sales and Marketing own this spreadsheet, so they manage its connection
-  // alongside admins. Reading tabs and rows stays open to any signed-in user.
+  // Only admins may change the connection — it stores service account
+  // credentials. Reading tabs and rows stays open to any signed-in user, which
+  // is what lets Sales and Marketing use the spreadsheet an admin connected.
   function requireTrackerManager(req, res, next) {
     if (!TRACKER_MANAGER_ROLES.has(trackerRoleKey(req.user?.role))) {
-      return res.status(403).json({ error: 'Sales and Marketing or Administrator access required' });
+      return res.status(403).json({ error: 'Administrator access required' });
     }
     return next();
   }
