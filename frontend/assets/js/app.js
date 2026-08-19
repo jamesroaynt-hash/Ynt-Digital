@@ -6609,10 +6609,11 @@ let mktPagesFrom = '';
 let mktPagesTo = '';
 
 // ─── SALES MARKETING TRACKER ───────────────────────────────
-// Read-only viewer over a second, independent Google Sheets connection. It
-// lists the spreadsheet's tabs and shows the rows of whichever tab is open.
-// Nothing on this page edits the sheet or stores its rows — every load reads
-// live from Google via /integrations/sales-tracker/*.
+// Read-only mirror of a second, independent Google Sheets connection. It lists
+// the spreadsheet's tabs and renders the open tab the way it looks in Sheets —
+// the sheet's own cell colors, bold/italic, alignment, column widths, merged
+// cells and frozen rows. Nothing here edits the sheet or stores its rows;
+// every load reads live via /integrations/sales-tracker/*.
 let salesTrackerState = {
   config: null,
   tabs: [],
@@ -6629,28 +6630,97 @@ function rerenderSalesTracker() {
   if (App.currentPage !== 'sales-marketing-tracker') return;
   const host = document.getElementById('main-page-content');
   if (host) host.innerHTML = renderSalesMarketingTracker();
+  applySalesTrackerFrozenRows();
 }
 
-function salesTrackerVisibleRows() {
+// Row indices (into sheet.rows) that survive the search box.
+function salesTrackerVisibleRowIndexes() {
   const sheet = salesTrackerState.sheet;
   if (!sheet) return [];
   const term = salesTrackerState.search.trim().toLowerCase();
-  if (!term) return sheet.rows;
-  return sheet.rows.filter((row) => row.some((cell) => String(cell ?? '').toLowerCase().includes(term)));
+  const all = sheet.rows.map((_, index) => index);
+  if (!term) return all;
+  return all.filter((index) => sheet.rows[index].some(([value]) => String(value).toLowerCase().includes(term)));
+}
+
+// Turns one palette entry into an inline style string.
+function salesTrackerCellStyle(styleIndex) {
+  const style = salesTrackerState.sheet?.styles?.[styleIndex - 1];
+  if (!style) return '';
+  const parts = [];
+  if (style.bg) parts.push(`background:${style.bg}`);
+  if (style.fg) parts.push(`color:${style.fg}`);
+  if (style.b) parts.push('font-weight:700');
+  if (style.i) parts.push('font-style:italic');
+  if (style.fs) parts.push(`font-size:${style.fs}px`);
+  if (style.a) parts.push(`text-align:${style.a}`);
+  return parts.length ? ` style="${parts.join(';')}"` : '';
+}
+
+// Merged cells are honoured only in the unfiltered view — hiding rows mid-span
+// would leave rowspans pointing at rows that are no longer rendered.
+function salesTrackerMergeLookup() {
+  const sheet = salesTrackerState.sheet;
+  const spans = new Map();
+  const covered = new Set();
+  if (!sheet || salesTrackerState.search.trim()) return { spans, covered };
+
+  (sheet.merges || []).forEach(({ r, c, rs, cs }) => {
+    spans.set(`${r}:${c}`, { rs, cs });
+    for (let row = r; row < r + rs; row += 1) {
+      for (let col = c; col < c + cs; col += 1) {
+        if (row !== r || col !== c) covered.add(`${row}:${col}`);
+      }
+    }
+  });
+  return { spans, covered };
 }
 
 function renderSalesTrackerRows() {
-  const rows = salesTrackerVisibleRows();
-  const width = salesTrackerState.sheet?.headers?.length || 0;
-  if (!rows.length) {
-    return `<tr><td colspan="${width + 1}" style="text-align:center;color:var(--text-muted);padding:28px 16px;">
-      ${salesTrackerState.search ? 'No rows match your search.' : 'This tab has no data rows.'}
+  const sheet = salesTrackerState.sheet;
+  if (!sheet) return '';
+
+  const visible = salesTrackerVisibleRowIndexes();
+  const width = sheet.rows[0]?.length || 0;
+  if (!visible.length) {
+    return `<tr><td colspan="${width + 1}" style="text-align:center;color:#70757a;padding:28px 16px;">
+      ${salesTrackerState.search ? 'No rows match your search.' : 'This sheet is empty.'}
     </td></tr>`;
   }
-  return rows.map((row, index) => `<tr>
-    <td style="color:var(--text-muted);font-size:12px;">${index + 1}</td>
-    ${row.map((cell) => `<td>${escapeHtml(String(cell ?? ''))}</td>`).join('')}
-  </tr>`).join('');
+
+  const { spans, covered } = salesTrackerMergeLookup();
+  const frozen = salesTrackerState.search.trim() ? 0 : (sheet.frozen_rows || 0);
+  const wrapped = new Set((sheet.styles || []).map((style, i) => (style.w ? i + 1 : null)).filter(Boolean));
+
+  return visible.map((rowIndex) => {
+    const cells = sheet.rows[rowIndex].map((cell, colIndex) => {
+      if (covered.has(`${rowIndex}:${colIndex}`)) return '';
+      const [value, styleIndex] = cell;
+      const span = spans.get(`${rowIndex}:${colIndex}`);
+      const spanAttrs = span
+        ? `${span.rs > 1 ? ` rowspan="${span.rs}"` : ''}${span.cs > 1 ? ` colspan="${span.cs}"` : ''}`
+        : '';
+      const wrapClass = wrapped.has(styleIndex) ? ' class="gs-wrap"' : '';
+      return `<td${wrapClass}${spanAttrs}${salesTrackerCellStyle(styleIndex)}>${escapeHtml(String(value))}</td>`;
+    }).join('');
+
+    // Sheet row numbers, so a row here matches the same row in Google Sheets.
+    return `<tr${rowIndex < frozen ? ' class="gs-frozen"' : ''}>
+      <td class="gs-rownum">${rowIndex + 1}</td>${cells}
+    </tr>`;
+  }).join('');
+}
+
+// Sheet rows vary in height, so the sticky offset for each frozen row is
+// measured from what actually rendered rather than assumed.
+function applySalesTrackerFrozenRows() {
+  const table = document.getElementById('sales-tracker-grid');
+  if (!table) return;
+  let offset = 0;
+  table.querySelectorAll('tr.gs-frozen').forEach((row) => {
+    row.querySelectorAll('td').forEach((cell) => { cell.style.top = `${offset}px`; });
+    offset += row.getBoundingClientRect().height;
+  });
 }
 
 // Filters in place so the search box keeps focus between keystrokes.
@@ -6660,10 +6730,11 @@ function filterSalesTrackerRows(value) {
   if (body) body.innerHTML = renderSalesTrackerRows();
   const count = document.getElementById('sales-tracker-row-count');
   if (count) {
-    const shown = salesTrackerVisibleRows().length.toLocaleString();
+    const shown = salesTrackerVisibleRowIndexes().length.toLocaleString();
     const total = (salesTrackerState.sheet?.rows.length || 0).toLocaleString();
     count.textContent = `${shown} of ${total} rows`;
   }
+  applySalesTrackerFrozenRows();
 }
 
 function renderSalesTrackerConnectCard() {
@@ -6773,6 +6844,15 @@ function renderSalesMarketingTracker() {
     } else if (!sheet) {
       sheetBlock = emptyState('Pick a sheet', 'Choose one of the tabs above to view its rows.');
     } else {
+      // Column widths come from the sheet; 0 means the column is hidden there.
+      const cols = ['<col style="width:46px;">']
+        .concat((sheet.column_widths || []).map((width) => (width
+          ? `<col style="width:${width}px;">`
+          : '<col>')))
+        .join('');
+
+      const sheetUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheet.spreadsheet_id)}/edit`;
+
       sheetBlock = `
       <div class="card">
         <div class="table-toolbar">
@@ -6782,19 +6862,17 @@ function renderSalesMarketingTracker() {
           </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <span id="sales-tracker-row-count" style="font-size:12.5px;color:var(--text-muted);">
-              ${salesTrackerVisibleRows().length.toLocaleString()} of ${sheet.rows.length.toLocaleString()} rows
+              ${salesTrackerVisibleRowIndexes().length.toLocaleString()} of ${sheet.rows.length.toLocaleString()} rows
             </span>
             ${sheet.truncated ? '<span class="badge badge-warning">showing first 2,000 rows</span>' : ''}
             <span class="badge badge-gray">read-only</span>
+            <a class="btn btn-secondary btn-sm" href="${sheetUrl}" target="_blank" rel="noopener">Open in Sheets</a>
             <button class="btn btn-secondary btn-sm" onclick="openSalesTrackerTab(salesTrackerState.activeTab, true)">Refresh</button>
           </div>
         </div>
-        <div style="overflow-x:auto;">
-          <table>
-            <thead><tr>
-              <th style="width:52px;">#</th>
-              ${sheet.headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}
-            </tr></thead>
+        <div class="gs-mirror-wrap">
+          <table class="gs-mirror" id="sales-tracker-grid">
+            <colgroup>${cols}</colgroup>
             <tbody id="sales-tracker-tbody">${renderSalesTrackerRows()}</tbody>
           </table>
         </div>
@@ -6810,7 +6888,7 @@ function renderSalesMarketingTracker() {
   <div class="page-header">
     <div class="page-title">
       <h1>Sales Marketing Tracker</h1>
-      <p>Live read-only view of every sheet on the connected Google spreadsheet.</p>
+      <p>Live read-only view of the connected Google spreadsheet, shown as it looks in Sheets.</p>
     </div>
   </div>
 

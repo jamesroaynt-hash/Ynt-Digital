@@ -4659,3 +4659,54 @@ tfoot td {
   .star-layer { animation: none; opacity: 0.55; }
   .shooting-star { display: none; }
 }
+
+/* ─── SALES TRACKER SHEET MIRROR ──────────────────────────── */
+/* Renders a Google Sheet tab as it looks in Sheets. Colors come from the
+   sheet itself, so this grid deliberately keeps its own light surface
+   instead of following the dashboard theme. */
+.gs-mirror-wrap {
+  overflow: auto;
+  max-height: 72vh;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.gs-mirror {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  background: #fff;
+  font-family: Arial, 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #202124;
+}
+
+.gs-mirror td {
+  border: 1px solid #d9dce0;
+  padding: 4px 8px;
+  vertical-align: middle;
+  white-space: nowrap;
+  background: #fff;
+}
+
+.gs-mirror td.gs-wrap { white-space: normal; }
+
+/* Row numbers pinned left, like the sheet's row gutter. */
+.gs-mirror .gs-rownum {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 46px;
+  padding: 4px 6px;
+  background: #f8f9fa;
+  border-right: 1px solid #c8ccd0;
+  color: #70757a;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* Frozen rows stay put while the grid scrolls; `top` is measured in JS
+   because sheet rows are not a uniform height. */
+.gs-mirror tr.gs-frozen td { position: sticky; z-index: 3; }
+.gs-mirror tr.gs-frozen td.gs-rownum { z-index: 4; }

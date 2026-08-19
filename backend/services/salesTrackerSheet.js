@@ -8,10 +8,12 @@
 // displays them.
 const googleSheetsSync = require('./googleSheetsSync');
 
+const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
+
 const PROVIDER = 'google_sheets';
 const CONNECTION_ID = 'sales_tracker';
 // Wide enough for a tracker sheet without pulling unbounded columns.
-const COLUMN_RANGE = 'A:AZ';
+const COLUMN_LIMIT = 'AZ';
 const MAX_ROWS = 2000;
 
 function stringOrNull(value) {
@@ -169,32 +171,148 @@ async function listTabs(db) {
   return { spreadsheet_id: spreadsheetId, tabs };
 }
 
-// One tab as a header row plus raw cell rows. Values are passed through exactly
-// as Google returns them — this is a viewer, so nothing is parsed or coerced.
+// One tab, mirrored: cell text plus the formatting Google reports for it, so
+// the page can look like the spreadsheet rather than a generic table.
+//
+// The grid response is far heavier than a plain values fetch, so it is kept
+// lean deliberately: a tight `fields` mask, a bounded range, and cell styles
+// deduped into a palette that cells reference by index (a sheet reuses the
+// same handful of formats thousands of times).
+async function fetchSheetGrid(spreadsheetId, range, accessToken) {
+  const fields = [
+    'sheets(properties(title,gridProperties(frozenRowCount,frozenColumnCount))',
+    'merges',
+    'data(startRow,startColumn',
+    'columnMetadata(pixelSize,hiddenByUser)',
+    'rowMetadata(hiddenByUser)',
+    'rowData(values(formattedValue,userEnteredFormat(backgroundColor,horizontalAlignment,wrapStrategy,textFormat(bold,italic,fontSize,foregroundColor))))))',
+  ].join(',');
+
+  const url = `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}`
+    + `?includeGridData=true&ranges=${encodeURIComponent(range)}&fields=${encodeURIComponent(fields)}`;
+
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error?.message || `Google Sheets request failed (${response.status})`);
+  }
+  return data.sheets?.[0] || null;
+}
+
+// Google gives channels as 0..1 floats and omits any channel that is 0.
+function toCssColor(color) {
+  if (!color || typeof color !== 'object') return null;
+  const channel = (value) => Math.round(Math.min(1, Math.max(0, Number(value) || 0)) * 255);
+  const [r, g, b] = [channel(color.red), channel(color.green), channel(color.blue)];
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const ALIGN_MAP = { LEFT: 'left', CENTER: 'center', RIGHT: 'right' };
+
+// Only non-default formatting survives, so the palette stays small.
+function extractStyle(cell) {
+  const format = cell?.userEnteredFormat;
+  if (!format) return null;
+
+  const style = {};
+  const background = toCssColor(format.backgroundColor);
+  // White is the sheet default; sending it for every cell doubles the payload.
+  if (background && background !== '#ffffff') style.bg = background;
+
+  const text = format.textFormat || {};
+  const foreground = toCssColor(text.foregroundColor);
+  if (foreground && foreground !== '#000000') style.fg = foreground;
+  if (text.bold) style.b = 1;
+  if (text.italic) style.i = 1;
+  if (text.fontSize) style.fs = Number(text.fontSize);
+
+  const align = ALIGN_MAP[format.horizontalAlignment];
+  if (align) style.a = align;
+  if (format.wrapStrategy === 'WRAP') style.w = 1;
+
+  return Object.keys(style).length ? style : null;
+}
+
 async function getTab(db, sheetName) {
   const name = stringOrNull(sheetName);
   if (!name) throw new Error('Sheet name is required.');
 
   const { accessToken, spreadsheetId } = await getAccessToken(db);
-  const range = `'${name.replace(/'/g, "''")}'!${COLUMN_RANGE}`;
-  const values = await googleSheetsSync.fetchSheetRows(spreadsheetId, range, accessToken);
+  const escapedName = name.replace(/'/g, "''");
+  // Bounded up front so a huge tab cannot pull an unbounded grid.
+  const range = `'${escapedName}'!A1:${COLUMN_LIMIT}${MAX_ROWS + 1}`;
+  const sheet = await fetchSheetGrid(spreadsheetId, range, accessToken);
+  if (!sheet) throw new Error(`Sheet "${name}" was not found on this spreadsheet.`);
 
-  const [header = [], ...body] = values;
-  const headers = header.map((cell, index) => stringOrNull(cell) || `Column ${index + 1}`);
-  const width = headers.length;
-  const rows = body
-    .filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? '').trim() !== ''))
-    .slice(0, MAX_ROWS)
-    // Google omits trailing empty cells, so pad every row to the header width.
-    .map((row) => Array.from({ length: width }, (_, i) => (row[i] ?? '')));
+  const grid = sheet.data?.[0] || {};
+  const rowData = Array.isArray(grid.rowData) ? grid.rowData : [];
+  const columnMetadata = Array.isArray(grid.columnMetadata) ? grid.columnMetadata : [];
+
+  // Width is the widest populated row — trailing empty columns are dropped so
+  // the table does not render a run of blank columns out to the range limit.
+  let width = 0;
+  rowData.forEach((row) => {
+    const cells = row.values || [];
+    for (let i = cells.length - 1; i >= 0; i -= 1) {
+      if (String(cells[i]?.formattedValue ?? '').trim() !== '') {
+        width = Math.max(width, i + 1);
+        break;
+      }
+    }
+  });
+
+  // Style palette: identical formats collapse to one entry cells point at.
+  const styles = [];
+  const styleIndex = new Map();
+  const internStyle = (style) => {
+    if (!style) return 0;
+    const key = JSON.stringify(style);
+    if (!styleIndex.has(key)) {
+      styles.push(style);
+      styleIndex.set(key, styles.length); // 0 is reserved for "no style"
+    }
+    return styleIndex.get(key);
+  };
+
+  const rows = rowData.map((row) => {
+    const cells = row.values || [];
+    return Array.from({ length: width }, (_, i) => {
+      const cell = cells[i];
+      return [String(cell?.formattedValue ?? ''), internStyle(extractStyle(cell))];
+    });
+  });
+
+  // Trailing fully-blank rows carry no information in a viewer.
+  while (rows.length && rows[rows.length - 1].every(([value]) => value === '')) rows.pop();
+
+  const columnWidths = Array.from({ length: width }, (_, i) => {
+    const meta = columnMetadata[i];
+    if (meta?.hiddenByUser) return 0;
+    return Number(meta?.pixelSize) || 0;
+  });
+
+  // Merges arrive as absolute sheet coordinates; the window starts at A1 here,
+  // so only those landing inside the fetched grid are kept.
+  const merges = (Array.isArray(sheet.merges) ? sheet.merges : [])
+    .filter((m) => m.startRowIndex < rows.length && m.startColumnIndex < width)
+    .map((m) => ({
+      r: m.startRowIndex,
+      c: m.startColumnIndex,
+      rs: Math.min(m.endRowIndex, rows.length) - m.startRowIndex,
+      cs: Math.min(m.endColumnIndex, width) - m.startColumnIndex,
+    }))
+    .filter((m) => m.rs > 0 && m.cs > 0 && (m.rs > 1 || m.cs > 1));
 
   return {
     sheet_name: name,
     spreadsheet_id: spreadsheetId,
-    headers,
     rows,
-    total_rows: Math.max(0, body.length),
-    truncated: body.length > MAX_ROWS,
+    styles,
+    column_widths: columnWidths,
+    merges,
+    frozen_rows: Number(sheet.properties?.gridProperties?.frozenRowCount) || 0,
+    frozen_columns: Number(sheet.properties?.gridProperties?.frozenColumnCount) || 0,
+    truncated: rowData.length > MAX_ROWS,
     fetched_at: new Date().toISOString(),
   };
 }
