@@ -704,6 +704,79 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // ─── SALES MARKETING TRACKER (read-only sheet viewer) ─────
+  // A second Google Sheets connection with its own credentials, used only to
+  // display the spreadsheet's tabs on the Sales Marketing Tracker page. No
+  // route here writes to Google or imports rows into dashboard tables.
+  // Role text is typed by hand on accounts, so match it loosely — an exact
+  // comparison locks out "Sales & Marketing" and other spellings of the same
+  // role. Mirrors navAccessKey() on the frontend.
+  const TRACKER_MANAGER_ROLES = new Set([
+    'administrator',
+    'admin',
+  ]);
+
+  function trackerRoleKey(role) {
+    return String(role || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[\s_-]+/g, ' ');
+  }
+
+  // Only admins may change the connection — it stores service account
+  // credentials. Reading tabs and rows stays open to any signed-in user, which
+  // is what lets Sales and Marketing use the spreadsheet an admin connected.
+  function requireTrackerManager(req, res, next) {
+    if (!TRACKER_MANAGER_ROLES.has(trackerRoleKey(req.user?.role))) {
+      return res.status(403).json({ error: 'Administrator access required' });
+    }
+    return next();
+  }
+
+  router.get('/sales-tracker/config', async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.getPublicSetting(db));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/sales-tracker/config', requireTrackerManager, async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.saveSetting(db, req.body || {}));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/sales-tracker/config/delete', requireTrackerManager, async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.deleteSetting(db));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 502, not 500: a failure here is Google or the connection config talking
+  // back, and the page shows the message as-is.
+  router.get('/sales-tracker/tabs', async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.listTabs(db));
+    } catch (error) {
+      res.status(502).json({ error: error.message });
+    }
+  });
+
+  router.get('/sales-tracker/sheet', async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.getTab(db, req.query.name));
+    } catch (error) {
+      res.status(502).json({ error: error.message });
+    }
+  });
+
+  // NOTE: registered above the router-wide requireAdmin gate on purpose —
+  // Sales and Marketing have to be able to read the tracker. The two write
+  // routes carry their own requireTrackerManager check instead.
+  // Everything registered BELOW this line is Administrator-only. Routes that
+  // any signed-in user must reach have to be registered above it.
   router.use(requireAdmin);
 
   // The send log carries customer names, numbers and COD amounts, so it stays
@@ -810,74 +883,6 @@ module.exports = function integrationRoutes(db) {
       res.json({ configured: [], auto_discover: true, tabs });
     } catch (error) {
       res.status(500).json({ error: error.message });
-    }
-  });
-
-  // ─── SALES MARKETING TRACKER (read-only sheet viewer) ─────
-  // A second Google Sheets connection with its own credentials, used only to
-  // display the spreadsheet's tabs on the Sales Marketing Tracker page. No
-  // route here writes to Google or imports rows into dashboard tables.
-  // Role text is typed by hand on accounts, so match it loosely — an exact
-  // comparison locks out "Sales & Marketing" and other spellings of the same
-  // role. Mirrors navAccessKey() on the frontend.
-  const TRACKER_MANAGER_ROLES = new Set([
-    'administrator',
-    'admin',
-  ]);
-
-  function trackerRoleKey(role) {
-    return String(role || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[\s_-]+/g, ' ');
-  }
-
-  // Only admins may change the connection — it stores service account
-  // credentials. Reading tabs and rows stays open to any signed-in user, which
-  // is what lets Sales and Marketing use the spreadsheet an admin connected.
-  function requireTrackerManager(req, res, next) {
-    if (!TRACKER_MANAGER_ROLES.has(trackerRoleKey(req.user?.role))) {
-      return res.status(403).json({ error: 'Administrator access required' });
-    }
-    return next();
-  }
-
-  router.get('/sales-tracker/config', async (req, res) => {
-    try {
-      res.json(await salesTrackerSheet.getPublicSetting(db));
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.post('/sales-tracker/config', requireTrackerManager, async (req, res) => {
-    try {
-      res.json(await salesTrackerSheet.saveSetting(db, req.body || {}));
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  router.post('/sales-tracker/config/delete', requireTrackerManager, async (req, res) => {
-    try {
-      res.json(await salesTrackerSheet.deleteSetting(db));
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 502, not 500: a failure here is Google or the connection config talking
-  // back, and the page shows the message as-is.
-  router.get('/sales-tracker/tabs', async (req, res) => {
-    try {
-      res.json(await salesTrackerSheet.listTabs(db));
-    } catch (error) {
-      res.status(502).json({ error: error.message });
-    }
-  });
-
-  router.get('/sales-tracker/sheet', async (req, res) => {
-    try {
-      res.json(await salesTrackerSheet.getTab(db, req.query.name));
-    } catch (error) {
-      res.status(502).json({ error: error.message });
     }
   });
 
