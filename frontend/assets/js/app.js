@@ -6624,7 +6624,42 @@ let salesTrackerState = {
   error: '',
   showConnectForm: false,
   search: '',
+  // 'fit' scales columns to the container so nothing is cut off; 'compact'
+  // keeps the sheet's proportions but shrinks them; 'actual' is the sheet's
+  // own pixel widths, which on a wide tracker means sideways scrolling.
+  widthMode: localStorage.getItem('sales_tracker_width_mode') || 'fit',
 };
+
+const SALES_TRACKER_WIDTH_MODES = [
+  ['fit', 'Fit to screen'],
+  ['compact', 'Compact'],
+  ['actual', 'Actual size'],
+];
+
+function setSalesTrackerWidthMode(mode) {
+  salesTrackerState.widthMode = mode;
+  localStorage.setItem('sales_tracker_width_mode', mode);
+  rerenderSalesTracker();
+}
+
+// One <col> per sheet column, sized for the active width mode. Hidden columns
+// (width 0 from the sheet) fall back to an average share so they stay visible
+// rather than collapsing to nothing.
+function salesTrackerColGroup(sheet) {
+  const mode = salesTrackerState.widthMode;
+  const widths = sheet.column_widths || [];
+  const fallback = 100;
+  const effective = widths.map((width) => width || fallback);
+  const total = effective.reduce((sum, width) => sum + width, 0) || 1;
+
+  const gutter = mode === 'compact' ? 34 : 46;
+  const cols = effective.map((width) => {
+    if (mode === 'fit') return `<col style="width:${((width / total) * 100).toFixed(3)}%;">`;
+    if (mode === 'compact') return `<col style="width:${Math.min(200, Math.max(48, Math.round(width * 0.7)))}px;">`;
+    return `<col style="width:${width}px;">`;
+  });
+  return `<col style="width:${gutter}px;">${cols.join('')}`;
+}
 
 function rerenderSalesTracker() {
   if (App.currentPage !== 'sales-marketing-tracker') return;
@@ -6652,7 +6687,8 @@ function salesTrackerCellStyle(styleIndex) {
   if (style.fg) parts.push(`color:${style.fg}`);
   if (style.b) parts.push('font-weight:700');
   if (style.i) parts.push('font-style:italic');
-  if (style.fs) parts.push(`font-size:${style.fs}px`);
+  // Sheet font sizes are skipped outside 'actual' — they undo the denser rows.
+  if (style.fs && salesTrackerState.widthMode === 'actual') parts.push(`font-size:${style.fs}px`);
   if (style.a) parts.push(`text-align:${style.a}`);
   return parts.length ? ` style="${parts.join(';')}"` : '';
 }
@@ -6844,12 +6880,11 @@ function renderSalesMarketingTracker() {
     } else if (!sheet) {
       sheetBlock = emptyState('Pick a sheet', 'Choose one of the tabs above to view its rows.');
     } else {
-      // Column widths come from the sheet; 0 means the column is hidden there.
-      const cols = ['<col style="width:46px;">']
-        .concat((sheet.column_widths || []).map((width) => (width
-          ? `<col style="width:${width}px;">`
-          : '<col>')))
-        .join('');
+      const cols = salesTrackerColGroup(sheet);
+      const tableClass = ['gs-mirror']
+        .concat(salesTrackerState.widthMode === 'actual' ? [] : ['gs-compact'])
+        .concat(salesTrackerState.widthMode === 'fit' ? ['gs-fit'] : [])
+        .join(' ');
 
       const sheetUrl = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheet.spreadsheet_id)}/edit`;
 
@@ -6866,12 +6901,16 @@ function renderSalesMarketingTracker() {
             </span>
             ${sheet.truncated ? '<span class="badge badge-warning">showing first 2,000 rows</span>' : ''}
             <span class="badge badge-gray">read-only</span>
+            <select class="form-control" style="width:auto;padding:6px 10px;font-size:12.5px;"
+                    onchange="setSalesTrackerWidthMode(this.value)">
+              ${SALES_TRACKER_WIDTH_MODES.map(([value, label]) => `<option value="${value}" ${salesTrackerState.widthMode === value ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
             <a class="btn btn-secondary btn-sm" href="${sheetUrl}" target="_blank" rel="noopener">Open in Sheets</a>
             <button class="btn btn-secondary btn-sm" onclick="openSalesTrackerTab(salesTrackerState.activeTab, true)">Refresh</button>
           </div>
         </div>
         <div class="gs-mirror-wrap">
-          <table class="gs-mirror" id="sales-tracker-grid">
+          <table class="${tableClass}" id="sales-tracker-grid">
             <colgroup>${cols}</colgroup>
             <tbody id="sales-tracker-tbody">${renderSalesTrackerRows()}</tbody>
           </table>
