@@ -185,7 +185,7 @@ async function fetchSheetGrid(spreadsheetId, range, accessToken) {
     'data(startRow,startColumn',
     'columnMetadata(pixelSize,hiddenByUser)',
     'rowMetadata(hiddenByUser)',
-    'rowData(values(formattedValue,userEnteredFormat(backgroundColor,horizontalAlignment,wrapStrategy,textFormat(bold,italic,fontSize,foregroundColor))))))',
+    'rowData(values(formattedValue,userEnteredFormat(backgroundColor,horizontalAlignment,wrapStrategy,textFormat(bold,italic,fontSize))))))',
   ].join(',');
 
   const url = `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}`
@@ -219,9 +219,9 @@ function extractStyle(cell) {
   // White is the sheet default; sending it for every cell doubles the payload.
   if (background && background !== '#ffffff') style.bg = background;
 
+  // The sheet's font color is not carried through: the viewer picks text
+  // color from each cell's background so nothing renders unreadable.
   const text = format.textFormat || {};
-  const foreground = toCssColor(text.foregroundColor);
-  if (foreground && foreground !== '#000000') style.fg = foreground;
   if (text.bold) style.b = 1;
   if (text.italic) style.i = 1;
   if (text.fontSize) style.fs = Number(text.fontSize);

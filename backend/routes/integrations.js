@@ -817,9 +817,25 @@ module.exports = function integrationRoutes(db) {
   // A second Google Sheets connection with its own credentials, used only to
   // display the spreadsheet's tabs on the Sales Marketing Tracker page. No
   // route here writes to Google or imports rows into dashboard tables.
-  function requireTrackerAdmin(req, res, next) {
-    if (String(req.user?.role || '').trim() !== 'Administrator') {
-      return res.status(403).json({ error: 'Administrator access required' });
+  // Role text is typed by hand on accounts, so match it loosely — an exact
+  // comparison locks out "Sales & Marketing" and other spellings of the same
+  // role. Mirrors navAccessKey() on the frontend.
+  const TRACKER_MANAGER_ROLES = new Set([
+    'administrator',
+    'admin',
+    'sales and marketing',
+    'sales and marketing tl',
+  ]);
+
+  function trackerRoleKey(role) {
+    return String(role || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[\s_-]+/g, ' ');
+  }
+
+  // Sales and Marketing own this spreadsheet, so they manage its connection
+  // alongside admins. Reading tabs and rows stays open to any signed-in user.
+  function requireTrackerManager(req, res, next) {
+    if (!TRACKER_MANAGER_ROLES.has(trackerRoleKey(req.user?.role))) {
+      return res.status(403).json({ error: 'Sales and Marketing or Administrator access required' });
     }
     return next();
   }
@@ -832,7 +848,7 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  router.post('/sales-tracker/config', requireTrackerAdmin, async (req, res) => {
+  router.post('/sales-tracker/config', requireTrackerManager, async (req, res) => {
     try {
       res.json(await salesTrackerSheet.saveSetting(db, req.body || {}));
     } catch (error) {
@@ -840,7 +856,7 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  router.post('/sales-tracker/config/delete', requireTrackerAdmin, async (req, res) => {
+  router.post('/sales-tracker/config/delete', requireTrackerManager, async (req, res) => {
     try {
       res.json(await salesTrackerSheet.deleteSetting(db));
     } catch (error) {

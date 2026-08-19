@@ -4688,6 +4688,9 @@ tfoot td {
   vertical-align: middle;
   white-space: nowrap;
   background: #fff;
+  /* All cell text renders black regardless of the sheet's own font color,
+     so light-on-color cells stay readable here. */
+  color: #000;
 }
 
 .gs-mirror td.gs-wrap { white-space: normal; }

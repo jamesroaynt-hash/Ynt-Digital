@@ -20,6 +20,22 @@ const NAV_ACCESS = {
   'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
+
+// Role text is typed by hand on accounts, so "Sales & Marketing" and
+// "sales and marketing" have to resolve to the same NAV_ACCESS entry —
+// an unmatched role silently falls back to the minimal page list.
+function navAccessKey(role) {
+  return String(role || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[\s_-]+/g, ' ');
+}
+
+const NAV_ACCESS_BY_KEY = Object.fromEntries(
+  Object.entries(NAV_ACCESS).map(([role, pages]) => [navAccessKey(role), pages])
+);
+
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
 let attendanceState = { today: null, date: '', advances: [], leaves: [], activeTab: 'clock' };
@@ -6679,13 +6695,25 @@ function salesTrackerVisibleRowIndexes() {
   return all.filter((index) => sheet.rows[index].some(([value]) => String(value).toLowerCase().includes(term)));
 }
 
+// The sheet's own font colors are ignored — they assume the sheet's own
+// backgrounds and come out near-invisible here. Text is black everywhere
+// except on a dark fill, where black would be just as unreadable.
+function salesTrackerTextColor(background) {
+  if (!background) return '#000';
+  const hex = background.replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  if ([r, g, b].some((channel) => Number.isNaN(channel))) return '#000';
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255; // Rec. 601
+  return luma < 0.55 ? '#fff' : '#000';
+}
+
 // Turns one palette entry into an inline style string.
 function salesTrackerCellStyle(styleIndex) {
   const style = salesTrackerState.sheet?.styles?.[styleIndex - 1];
   if (!style) return '';
   const parts = [];
   if (style.bg) parts.push(`background:${style.bg}`);
-  if (style.fg) parts.push(`color:${style.fg}`);
+  parts.push(`color:${salesTrackerTextColor(style.bg)}`);
   if (style.b) parts.push('font-weight:700');
   if (style.i) parts.push('font-style:italic');
   // Sheet font sizes are skipped outside 'actual' — they undo the denser rows.
@@ -6803,7 +6831,7 @@ function filterSalesTrackerRows(value) {
 
 function renderSalesTrackerConnectCard() {
   const config = salesTrackerState.config || {};
-  if (!isAdminUser()) return '';
+  if (!canManageSalesTracker()) return '';
 
   if (!salesTrackerState.showConnectForm) {
     const summary = config.configured
@@ -6881,9 +6909,9 @@ function renderSalesMarketingTracker() {
   } else if (!config.configured) {
     body = emptyState(
       'No spreadsheet connected',
-      isAdminUser()
+      canManageSalesTracker()
         ? 'Connect a Google spreadsheet above to view its sheets here.'
-        : 'An administrator needs to connect a Google spreadsheet before data shows up here.'
+        : 'Someone from Sales and Marketing needs to connect a Google spreadsheet before data shows up here.'
     );
   } else if (error) {
     body = emptyState(
@@ -10039,8 +10067,14 @@ function canManageInventoryStock() {
 }
 
 function isSalesMarketingUser(role = App.user?.role) {
-  const normalized = normalizeRoleName(role);
-  return normalized === 'Sales and Marketing' || normalized === 'Sales and Marketing TL';
+  const key = navAccessKey(normalizeRoleName(role));
+  return key === 'sales and marketing' || key === 'sales and marketing tl';
+}
+
+// Who may connect or change the tracker's spreadsheet. Sales and Marketing
+// own this sheet, so they manage its connection alongside admins.
+function canManageSalesTracker() {
+  return isAdminUser() || isSalesMarketingUser();
 }
 
 function canManageMarketing() {
@@ -10056,7 +10090,9 @@ function getDefaultPageForCurrentUser() {
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
   const role = normalizeRoleName(App.user.role);
-  return NAV_ACCESS[role] || ['home', 'rts-rate', 'data-report'];
+  return NAV_ACCESS[role]
+    || NAV_ACCESS_BY_KEY[navAccessKey(role)]
+    || ['home', 'rts-rate', 'data-report'];
 }
 
 function canAccessPage(page) {
