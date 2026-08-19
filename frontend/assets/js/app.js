@@ -6608,28 +6608,335 @@ let mktPagesPage = 'all';
 let mktPagesFrom = '';
 let mktPagesTo = '';
 
-// Placeholder shell for the Sales Marketing Tracker page. The nav entry and
-// routing are live; the tracker content itself is still to be defined.
-function renderSalesMarketingTracker() {
-  return `
-  <div class="page-header">
-    <div class="page-title"><h1>Sales Marketing Tracker</h1><p>Tracking view for the Sales &amp; Marketing team.</p></div>
-  </div>
+// ─── SALES MARKETING TRACKER ───────────────────────────────
+// Read-only viewer over a second, independent Google Sheets connection. It
+// lists the spreadsheet's tabs and shows the rows of whichever tab is open.
+// Nothing on this page edits the sheet or stores its rows — every load reads
+// live from Google via /integrations/sales-tracker/*.
+let salesTrackerState = {
+  config: null,
+  tabs: [],
+  activeTab: '',
+  sheet: null,
+  loadingTabs: false,
+  loadingSheet: false,
+  error: '',
+  showConnectForm: false,
+  search: '',
+};
 
-  <div class="card">
-    <div class="card-body">
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 5.5h12"/><path d="M5 8h6M5 10.5h4"/>
-          </svg>
+function rerenderSalesTracker() {
+  if (App.currentPage !== 'sales-marketing-tracker') return;
+  const host = document.getElementById('main-page-content');
+  if (host) host.innerHTML = renderSalesMarketingTracker();
+}
+
+function salesTrackerVisibleRows() {
+  const sheet = salesTrackerState.sheet;
+  if (!sheet) return [];
+  const term = salesTrackerState.search.trim().toLowerCase();
+  if (!term) return sheet.rows;
+  return sheet.rows.filter((row) => row.some((cell) => String(cell ?? '').toLowerCase().includes(term)));
+}
+
+function renderSalesTrackerRows() {
+  const rows = salesTrackerVisibleRows();
+  const width = salesTrackerState.sheet?.headers?.length || 0;
+  if (!rows.length) {
+    return `<tr><td colspan="${width + 1}" style="text-align:center;color:var(--text-muted);padding:28px 16px;">
+      ${salesTrackerState.search ? 'No rows match your search.' : 'This tab has no data rows.'}
+    </td></tr>`;
+  }
+  return rows.map((row, index) => `<tr>
+    <td style="color:var(--text-muted);font-size:12px;">${index + 1}</td>
+    ${row.map((cell) => `<td>${escapeHtml(String(cell ?? ''))}</td>`).join('')}
+  </tr>`).join('');
+}
+
+// Filters in place so the search box keeps focus between keystrokes.
+function filterSalesTrackerRows(value) {
+  salesTrackerState.search = value || '';
+  const body = document.getElementById('sales-tracker-tbody');
+  if (body) body.innerHTML = renderSalesTrackerRows();
+  const count = document.getElementById('sales-tracker-row-count');
+  if (count) {
+    const shown = salesTrackerVisibleRows().length.toLocaleString();
+    const total = (salesTrackerState.sheet?.rows.length || 0).toLocaleString();
+    count.textContent = `${shown} of ${total} rows`;
+  }
+}
+
+function renderSalesTrackerConnectCard() {
+  const config = salesTrackerState.config || {};
+  if (!isAdminUser()) return '';
+
+  if (!salesTrackerState.showConnectForm) {
+    const summary = config.configured
+      ? `Connected to spreadsheet <code>${escapeHtml(config.spreadsheet_id || '')}</code>${config.enabled ? '' : ' <span class="badge badge-warning">disabled</span>'}`
+      : 'No spreadsheet connected yet.';
+    return `
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:600;font-size:14px;">Google Sheets connection</div>
+          <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">${summary}</div>
         </div>
-        <h3>Nothing to track yet</h3>
-        <p>This page is set up and ready — the tracker content has not been built yet.</p>
+        <button class="btn btn-secondary btn-sm" onclick="toggleSalesTrackerConnectForm()">
+          ${config.configured ? 'Edit connection' : 'Connect a spreadsheet'}
+        </button>
+      </div>
+    </div>`;
+  }
+
+  const keyPlaceholder = config.has_private_key
+    ? 'Saved — paste a new key only to replace it'
+    : '{ "type": "service_account", "client_email": "...", "private_key": "..." }';
+
+  return `
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-body">
+      <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Google Sheets connection</div>
+      <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;">
+        Share the spreadsheet with the service account email (Viewer access is enough), then paste its
+        service account JSON key below. This connection is separate from the main Google Sheets integration.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Spreadsheet ID or URL</label>
+        <input type="text" class="form-control" id="sales-tracker-spreadsheet"
+               value="${escapeHtml(config.spreadsheet_id || '')}"
+               placeholder="1AbC... or https://docs.google.com/spreadsheets/d/1AbC.../edit">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Service account JSON key</label>
+        <textarea class="form-control" id="sales-tracker-key" rows="5"
+                  placeholder="${escapeHtml(keyPlaceholder)}"></textarea>
+        ${config.service_account_email
+          ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Current service account: <code>${escapeHtml(config.service_account_email)}</code></div>`
+          : ''}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+        <button class="btn btn-primary btn-sm" onclick="saveSalesTrackerConnection()">Save &amp; load sheets</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleSalesTrackerConnectForm()">Cancel</button>
+        ${config.configured
+          ? '<button class="btn btn-danger btn-sm" style="margin-left:auto;" onclick="disconnectSalesTracker()">Disconnect</button>'
+          : ''}
       </div>
     </div>
+  </div>`;
+}
+
+function renderSalesMarketingTracker() {
+  const { config, tabs, activeTab, sheet, loadingTabs, loadingSheet, error } = salesTrackerState;
+
+  const emptyState = (title, message, action = '') => `
+    <div class="card"><div class="card-body"><div class="empty-state">
+      <div class="empty-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 5.5h12"/><path d="M5 8h6M5 10.5h4"/>
+        </svg>
+      </div>
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(message)}</p>
+      ${action}
+    </div></div></div>`;
+
+  let body;
+  if (!config) {
+    body = emptyState('Loading…', 'Checking the spreadsheet connection.');
+  } else if (!config.configured) {
+    body = emptyState(
+      'No spreadsheet connected',
+      isAdminUser()
+        ? 'Connect a Google spreadsheet above to view its sheets here.'
+        : 'An administrator needs to connect a Google spreadsheet before data shows up here.'
+    );
+  } else if (error) {
+    body = emptyState(
+      'Could not load the spreadsheet',
+      error,
+      '<button class="btn btn-secondary btn-sm" onclick="loadSalesTrackerTabs()">Try again</button>'
+    );
+  } else if (loadingTabs) {
+    body = emptyState('Loading sheets…', 'Fetching the tabs on the connected spreadsheet.');
+  } else if (!tabs.length) {
+    body = emptyState('No sheets found', 'The connected spreadsheet has no visible tabs.');
+  } else {
+    const tabButtons = tabs.map((name) => `
+      <button class="btn ${name === activeTab ? 'btn-primary' : 'btn-secondary'} btn-sm"
+              onclick="openSalesTrackerTab(this.dataset.name)" data-name="${escapeHtml(name)}">
+        ${escapeHtml(name)}
+      </button>`).join('');
+
+    let sheetBlock;
+    if (loadingSheet) {
+      sheetBlock = emptyState('Loading rows…', `Fetching "${activeTab}" from Google Sheets.`);
+    } else if (!sheet) {
+      sheetBlock = emptyState('Pick a sheet', 'Choose one of the tabs above to view its rows.');
+    } else {
+      sheetBlock = `
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <input type="text" placeholder="Search rows…" value="${escapeHtml(salesTrackerState.search)}"
+                   oninput="filterSalesTrackerRows(this.value)">
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span id="sales-tracker-row-count" style="font-size:12.5px;color:var(--text-muted);">
+              ${salesTrackerVisibleRows().length.toLocaleString()} of ${sheet.rows.length.toLocaleString()} rows
+            </span>
+            ${sheet.truncated ? '<span class="badge badge-warning">showing first 2,000 rows</span>' : ''}
+            <span class="badge badge-gray">read-only</span>
+            <button class="btn btn-secondary btn-sm" onclick="openSalesTrackerTab(salesTrackerState.activeTab, true)">Refresh</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr>
+              <th style="width:52px;">#</th>
+              ${sheet.headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}
+            </tr></thead>
+            <tbody id="sales-tracker-tbody">${renderSalesTrackerRows()}</tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
+    body = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">${tabButtons}</div>
+      ${sheetBlock}`;
+  }
+
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Sales Marketing Tracker</h1>
+      <p>Live read-only view of every sheet on the connected Google spreadsheet.</p>
+    </div>
   </div>
+
+  ${renderSalesTrackerConnectCard()}
+  ${body}
   `;
+}
+
+function toggleSalesTrackerConnectForm() {
+  salesTrackerState.showConnectForm = !salesTrackerState.showConnectForm;
+  rerenderSalesTracker();
+}
+
+async function loadSalesTrackerConfig() {
+  try {
+    salesTrackerState.config = await authorizedJsonRequest('/integrations/sales-tracker/config');
+  } catch (err) {
+    salesTrackerState.config = { configured: false };
+    salesTrackerState.error = err.message || 'Could not read the connection settings.';
+  }
+  rerenderSalesTracker();
+  return salesTrackerState.config;
+}
+
+async function loadSalesTrackerTabs() {
+  if (!salesTrackerState.config?.configured) return;
+  salesTrackerState.loadingTabs = true;
+  salesTrackerState.error = '';
+  rerenderSalesTracker();
+
+  try {
+    const data = await authorizedJsonRequest('/integrations/sales-tracker/tabs');
+    salesTrackerState.tabs = Array.isArray(data.tabs) ? data.tabs : [];
+    salesTrackerState.loadingTabs = false;
+    // Keep the open tab across refreshes; otherwise land on the first one.
+    const next = salesTrackerState.tabs.includes(salesTrackerState.activeTab)
+      ? salesTrackerState.activeTab
+      : salesTrackerState.tabs[0];
+    if (next) {
+      await openSalesTrackerTab(next, true);
+      return;
+    }
+  } catch (err) {
+    salesTrackerState.loadingTabs = false;
+    salesTrackerState.error = err.message || 'Could not list the spreadsheet tabs.';
+  }
+  rerenderSalesTracker();
+}
+
+async function openSalesTrackerTab(name, force = false) {
+  if (!name) return;
+  if (!force && salesTrackerState.activeTab === name && salesTrackerState.sheet) return;
+
+  salesTrackerState.activeTab = name;
+  salesTrackerState.loadingSheet = true;
+  salesTrackerState.search = '';
+  salesTrackerState.error = '';
+  rerenderSalesTracker();
+
+  try {
+    const sheet = await authorizedJsonRequest(`/integrations/sales-tracker/sheet?name=${encodeURIComponent(name)}`);
+    // A slower earlier request must not overwrite the tab the user just opened.
+    if (salesTrackerState.activeTab !== name) return;
+    salesTrackerState.sheet = sheet;
+  } catch (err) {
+    if (salesTrackerState.activeTab !== name) return;
+    salesTrackerState.sheet = null;
+    salesTrackerState.error = err.message || `Could not load "${name}".`;
+  }
+  salesTrackerState.loadingSheet = false;
+  rerenderSalesTracker();
+}
+
+async function saveSalesTrackerConnection() {
+  const spreadsheet = document.getElementById('sales-tracker-spreadsheet')?.value.trim() || '';
+  const key = document.getElementById('sales-tracker-key')?.value.trim() || '';
+  if (!spreadsheet) {
+    showToast('warning', 'Spreadsheet required', 'Paste the spreadsheet ID or its URL.');
+    return;
+  }
+  if (!key && !salesTrackerState.config?.has_private_key) {
+    showToast('warning', 'Key required', 'Paste the service account JSON key.');
+    return;
+  }
+
+  const payload = { enabled: true, spreadsheet_id: spreadsheet };
+  if (key) payload.private_key = key;
+
+  try {
+    salesTrackerState.config = await authorizedJsonRequest('/integrations/sales-tracker/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    salesTrackerState.showConnectForm = false;
+    salesTrackerState.tabs = [];
+    salesTrackerState.sheet = null;
+    salesTrackerState.activeTab = '';
+    showToast('success', 'Spreadsheet connected', 'Loading the sheets on this spreadsheet.');
+    await loadSalesTrackerTabs();
+  } catch (err) {
+    showToast('error', 'Save failed', err.message || 'Could not save the connection.');
+  }
+}
+
+async function disconnectSalesTracker() {
+  if (!confirm('Disconnect this spreadsheet? The sheet itself is not changed.')) return;
+  try {
+    salesTrackerState.config = await authorizedJsonRequest('/integrations/sales-tracker/config/delete', { method: 'POST' });
+    salesTrackerState.tabs = [];
+    salesTrackerState.activeTab = '';
+    salesTrackerState.sheet = null;
+    salesTrackerState.error = '';
+    salesTrackerState.showConnectForm = false;
+    salesTrackerState.search = '';
+    showToast('success', 'Disconnected', 'The spreadsheet connection was removed.');
+  } catch (err) {
+    showToast('error', 'Disconnect failed', err.message || 'Could not remove the connection.');
+  }
+  rerenderSalesTracker();
+}
+
+function initSalesMarketingTracker() {
+  salesTrackerState.error = '';
+  loadSalesTrackerConfig().then((config) => {
+    if (config?.configured) loadSalesTrackerTabs();
+  });
 }
 
 function renderMarketingCenter() {
@@ -11573,6 +11880,10 @@ function initPage(page) {
       renderDataReportDashboard();
     });
     renderDataReportDashboard();
+  }
+
+  if (page === 'sales-marketing-tracker') {
+    initSalesMarketingTracker();
   }
 
   if (page === 'marketing-center') {

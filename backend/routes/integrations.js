@@ -2,6 +2,7 @@ const express = require('express');
 const posSync = require('../services/pancakePosSync');
 const googleSheetsSync = require('../services/googleSheetsSync');
 const infotxtSms = require('../services/infotxtSms');
+const salesTrackerSheet = require('../services/salesTrackerSheet');
 
 module.exports = function integrationRoutes(db) {
   const router = express.Router();
@@ -809,6 +810,59 @@ module.exports = function integrationRoutes(db) {
       res.json({ configured: [], auto_discover: true, tabs });
     } catch (error) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── SALES MARKETING TRACKER (read-only sheet viewer) ─────
+  // A second Google Sheets connection with its own credentials, used only to
+  // display the spreadsheet's tabs on the Sales Marketing Tracker page. No
+  // route here writes to Google or imports rows into dashboard tables.
+  function requireTrackerAdmin(req, res, next) {
+    if (String(req.user?.role || '').trim() !== 'Administrator') {
+      return res.status(403).json({ error: 'Administrator access required' });
+    }
+    return next();
+  }
+
+  router.get('/sales-tracker/config', async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.getPublicSetting(db));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/sales-tracker/config', requireTrackerAdmin, async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.saveSetting(db, req.body || {}));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post('/sales-tracker/config/delete', requireTrackerAdmin, async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.deleteSetting(db));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 502, not 500: a failure here is Google or the connection config talking
+  // back, and the page shows the message as-is.
+  router.get('/sales-tracker/tabs', async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.listTabs(db));
+    } catch (error) {
+      res.status(502).json({ error: error.message });
+    }
+  });
+
+  router.get('/sales-tracker/sheet', async (req, res) => {
+    try {
+      res.json(await salesTrackerSheet.getTab(db, req.query.name));
+    } catch (error) {
+      res.status(502).json({ error: error.message });
     }
   });
 

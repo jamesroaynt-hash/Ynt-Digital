@@ -1136,6 +1136,14 @@ async function getSyncIntervalMs(db) {
 module.exports = {
   PROVIDER,
   DEFAULT_RANGE,
+  // Shared Google plumbing, reused by services that read other spreadsheets
+  // with their own credentials (e.g. salesTrackerSheet).
+  requestGoogleAccessToken,
+  fetchSheetRows,
+  fetchSpreadsheetTabs,
+  parseServiceAccountJson,
+  normalizePrivateKey,
+  buildSheetRange,
   getStatus,
   getPublicSetting,
   saveSetting,
