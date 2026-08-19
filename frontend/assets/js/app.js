@@ -276,7 +276,7 @@ async function authorizedJsonRequest(path, options = {}) {
       loadPage('login');
       throw new Error('Session expired. Please sign in again.');
     }
-    throw new Error(data?.error || data?.message || 'Request failed');
+    throw new Error(data?.error || data?.message || `Request failed (${response.status})`);
   }
 
   return data;
@@ -6906,18 +6906,20 @@ function renderSalesMarketingTracker() {
   let body;
   if (!config) {
     body = emptyState('Loading…', 'Checking the spreadsheet connection.');
+  } else if (error) {
+    // Checked before `configured`: a failed request leaves configured false,
+    // and reporting that as "nothing connected" hides the real failure.
+    body = emptyState(
+      'Could not load the spreadsheet',
+      error,
+      '<button class="btn btn-secondary btn-sm" onclick="initSalesMarketingTracker()">Try again</button>'
+    );
   } else if (!config.configured) {
     body = emptyState(
       'No spreadsheet connected',
       canManageSalesTracker()
         ? 'Connect a Google spreadsheet above to view its sheets here.'
         : 'An administrator needs to connect a Google spreadsheet before data shows up here.'
-    );
-  } else if (error) {
-    body = emptyState(
-      'Could not load the spreadsheet',
-      error,
-      '<button class="btn btn-secondary btn-sm" onclick="loadSalesTrackerTabs()">Try again</button>'
     );
   } else if (loadingTabs) {
     body = emptyState('Loading sheets…', 'Fetching the tabs on the connected spreadsheet.');
@@ -7003,7 +7005,7 @@ async function loadSalesTrackerConfig() {
     salesTrackerState.config = await authorizedJsonRequest('/integrations/sales-tracker/config');
   } catch (err) {
     salesTrackerState.config = { configured: false };
-    salesTrackerState.error = err.message || 'Could not read the connection settings.';
+    salesTrackerState.error = `Could not read the connection settings: ${err.message || 'request failed'}`;
   }
   rerenderSalesTracker();
   return salesTrackerState.config;
