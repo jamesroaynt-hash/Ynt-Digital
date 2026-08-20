@@ -331,6 +331,21 @@ async function migrateSmsRulesRecipientAsync(db) {
   } catch { /* Supabase migration handles this */ }
 }
 
+// pos_orders.cod started life as REAL — float4 in Postgres, which carries only
+// ~7 significant digits. That is the COD column the RMO Management table reads,
+// and SUM(cod) over it accumulates in float4 too, so totals drifted. Money wants
+// an exact decimal type. SQLite's REAL is already a 64-bit double and has no
+// fixed-scale numeric, so this is Postgres-only.
+async function migratePosOrdersCodNumericAsync(db) {
+  if (db.type !== 'postgres') return;
+  const col = await db.prepare(`
+    SELECT udt_name FROM information_schema.columns
+    WHERE table_name = 'pos_orders' AND column_name = 'cod'
+  `).get();
+  if (!col || col.udt_name === 'numeric') return;
+  await db.exec('ALTER TABLE pos_orders ALTER COLUMN cod TYPE NUMERIC(12,2) USING ROUND(cod::numeric, 2)');
+}
+
 async function ensureOrderStatusConstraintAsync(db) {
   if (db.type !== 'postgres') {
     ensureOrderStatusConstraint(db);
@@ -970,6 +985,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'ad_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ads_source', 'TEXT');
   await migratePosOrdersCompositeIdentityAsync(db);
+  await migratePosOrdersCodNumericAsync(db);
   await migrateIntegrationSettingsMultiRowAsync(db);
   await ensureOrderStatusConstraintAsync(db);
   await db.exec("UPDATE orders SET status = 'Confirmed' WHERE status = 'Pending'");

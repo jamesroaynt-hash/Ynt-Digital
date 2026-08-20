@@ -326,7 +326,7 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   customer_email TEXT,
   page_id TEXT,
   shipping_fee REAL,
-  cod REAL,
+  cod NUMERIC(12,2),
   cash REAL,
   total_discount REAL,
   note TEXT,

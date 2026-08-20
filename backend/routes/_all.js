@@ -966,7 +966,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         note_product: row.note_product,
         tags: parseJsonObject(row.tags_json, []),
         attempts: row.attempts,
-        cod: row.cod,
+        cod: Number(row.cod || 0),
         srp: computePosOrderSrp(row.items_json),
         assigning_seller_name: row.assigning_seller_name,
         status_name: row.status_name,
@@ -1696,7 +1696,7 @@ function scansRoutes(db) {
         scan_date: posRow.scan_date,
         product_name: posRow.note_product || '',
         province_city: province,
-        cod: posRow.cod,
+        cod: Number(posRow.cod || 0),
       });
     }
 
