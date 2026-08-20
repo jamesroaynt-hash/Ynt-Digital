@@ -240,6 +240,29 @@ function getAuthToken() {
   return localStorage.getItem('ynt_token') || '';
 }
 
+// Every data refresh used to bail out on a missing token with a bare
+// `return false`. When a session ended (a backend restart with a rotated
+// JWT_SECRET invalidates every token) the shell and nav still rendered while
+// each page drew itself with no rows — it read as "my data is empty" rather
+// than "you are signed out". Say it out loud, once.
+let _signedOutNoticeShown = false;
+
+function noteSignedOutSession() {
+  if (_signedOutNoticeShown || App.currentPage === 'login') return;
+  _signedOutNoticeShown = true;
+  showToast('warning', 'Signed out', 'Your session ended — sign in again to load dashboard data.');
+  loadPage('login');
+}
+
+// True when there is a backend to call and a live session to call it with.
+// Raises the signed-out notice when the session is the missing half.
+function hasActiveSession() {
+  if (!getApiBase()) return false;
+  if (App.user && getAuthToken()) return true;
+  noteSignedOutSession();
+  return false;
+}
+
 function clearExpiredSession() {
   localStorage.removeItem('ynt_user');
   localStorage.removeItem('ynt_token');
@@ -357,7 +380,7 @@ function recomputeOrderStats() {
 }
 
 async function refreshOrdersFromBackend(force = false) {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
 
   // Return immediately if cache is still fresh and data is loaded
   if (!force && DB.orders.length && (Date.now() - _ordersLoadedAt) < ORDERS_CACHE_TTL_MS) return true;
@@ -430,7 +453,7 @@ function renderPageOrderData(page) {
 }
 
 async function refreshOrderStatsFromBackend() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
 
   const stats = await authorizedJsonRequest(`/orders/stats?_=${Date.now()}`);
   DB.orderStats = {
@@ -442,7 +465,7 @@ async function refreshOrderStatsFromBackend() {
 }
 
 async function refreshInventoryFromBackend() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
 
   const result = await authorizedJsonRequest(`/inventory?_=${Date.now()}`);
   if (!Array.isArray(result)) return false;
@@ -460,7 +483,7 @@ function normalizeProductKey(name) {
 // Total pcs scanned in RTS, keyed by normalized product name. Populated from the
 // /scans summary so the Inventory Products table can show scanned pcs per item.
 async function refreshRtsPcsByProduct() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
 
   const result = await authorizedJsonRequest(`/scans?type=RTS&per_page=10&page=1&_=${Date.now()}`);
   const byProduct = result?.summary?.by_product;
@@ -740,7 +763,7 @@ async function saveRtsPageSku(pageEnc, sku) {
 }
 
 async function loadPosOrdersDashboard() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   const result = await authorizedJsonRequest(`/orders/pos-orders/dashboard?_=${Date.now()}`);
   DB.posOrders = Array.isArray(result?.data) ? result.data : [];
   if (result?.version !== undefined) posOrdersLastVersion = result.version;
@@ -748,7 +771,7 @@ async function loadPosOrdersDashboard() {
 }
 
 async function loadSheetRecordsStats() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   try {
     const result = await authorizedJsonRequest(`/integrations/google-sheets/stats?_=${Date.now()}`);
     DB.sheetRecordsStats = {
@@ -767,7 +790,7 @@ let sheetRecordsLastFetch = 0;
 const SHEET_RECORDS_MIN_REFRESH_MS = 10 * 60 * 1000; // re-fetch at most every 10 min
 
 async function fetchSheetRecordsVersion() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return null;
+  if (!hasActiveSession()) return null;
   try {
     const result = await authorizedJsonRequest(`/integrations/google-sheets/version?_=${Date.now()}`);
     return result?.version ?? null;
@@ -777,7 +800,7 @@ async function fetchSheetRecordsVersion() {
 }
 
 async function loadSheetRecordsForDataReport({ force = false } = {}) {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
 
   // Single source of truth: pos_orders. Skip the full multi-page walk when
   // pos_orders is unchanged since the last load (biggest dashboard egress).
@@ -829,7 +852,7 @@ function mapGoogleSheetReportRecord(r = {}) {
 }
 
 async function fetchPosOrdersVersion() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return null;
+  if (!hasActiveSession()) return null;
   try {
     const result = await authorizedJsonRequest(`/orders/pos-orders/version?_=${Date.now()}`);
     return result?.version ?? null;
@@ -878,7 +901,7 @@ function getPosOrdersPeriodRange(period) {
 }
 
 async function refreshPosRawOrdersFromBackend() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
 
   const query = new URLSearchParams({ page: String(posRawPage), per_page: '50', _: String(Date.now()) });
   if (posOrdersSearch) query.set('search', posOrdersSearch);
@@ -929,7 +952,7 @@ async function refreshPosRawOrdersFromBackend() {
 // Load the dashboard users that the RMO assignee dropdown offers. Cached for the
 // session; only refetched if the list is still empty.
 async function loadAssignableUsers({ force = false } = {}) {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   if (!force && DB.assignableUsers.length) return true;
   const result = await authorizedJsonRequest(`/orders/assignable-users?_=${Date.now()}`);
   DB.assignableUsers = Array.isArray(result?.users) ? result.users : [];
@@ -1326,6 +1349,7 @@ function persistLoggedInUser(user, token = '') {
   App.user = user;
   localStorage.setItem('ynt_user', JSON.stringify(user));
   if (token) localStorage.setItem('ynt_token', token);
+  _signedOutNoticeShown = false;
   resetNavSectionDefaults();
 }
 
@@ -1813,7 +1837,7 @@ let csrRecordsLoaded = false;
 // data. Pull them into DB.csrRecords; the per-role visibility (own vs all) is
 // enforced server-side, and the page still filters/sorts client-side.
 async function loadCsrRecordsFromBackend({ force = false } = {}) {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   if (csrRecordsLoaded && !force) return true;
   try {
     const result = await authorizedJsonRequest('/csr');
@@ -4773,7 +4797,7 @@ function getDataReportParams() {
 }
 
 async function loadDataReportSummary() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   dataReportSummaryLoading = true;
   try {
     const params = getDataReportParams();
@@ -14520,7 +14544,7 @@ function getSalesDateRange() {
 }
 
 async function loadSalesPageFromBackend() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   const perPage = parseInt(document.getElementById('sales-per-page')?.value || '10', 10) || 10;
   const requestId = ++salesPagedRequestId;
   salesPagedLoading = true;
@@ -15446,7 +15470,7 @@ function getRecordsSummaryQuery() {
 }
 
 async function refreshRecordsSummaryFromBackend() {
-  if (!App.user || !getAuthToken() || !getApiBase()) return false;
+  if (!hasActiveSession()) return false;
   recordsSummaryState = { ...recordsSummaryState, loading: true };
   const summary = await authorizedJsonRequest(`/orders/summary?${getRecordsSummaryQuery().toString()}`);
   recordsSummaryState = {

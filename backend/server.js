@@ -56,7 +56,25 @@ function loadEnvFile() {
 
 loadEnvFile();
 
+// A generated JWT_SECRET only survives a restart if it can be written somewhere
+// persistent. Container filesystems (Railway included) are rebuilt on every
+// deploy, so the .env write below is lost and the next boot signs a different
+// secret — silently invalidating every logged-in session. The dashboard then
+// renders empty pages instead of bouncing anyone to login, which is close to
+// impossible to diagnose from the outside. Refuse to start that way.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+  || Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+
 if (!process.env.JWT_SECRET) {
+  if (IS_PRODUCTION) {
+    console.error('[security] FATAL: JWT_SECRET is not set.');
+    console.error('[security] Refusing to boot with a generated secret in production — it changes on every');
+    console.error('[security] deploy, which signs out every user and leaves the dashboard showing no data.');
+    console.error('[security] Set JWT_SECRET in the service environment to 32+ random bytes of hex,');
+    console.error('[security] e.g. the output of: openssl rand -hex 32');
+    process.exit(1);
+  }
+
   const generated = crypto.randomBytes(32).toString('hex');
   process.env.JWT_SECRET = generated;
   try {
@@ -64,10 +82,10 @@ if (!process.env.JWT_SECRET) {
     const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
     if (!existing.includes('JWT_SECRET=')) {
       fs.appendFileSync(envPath, `\nJWT_SECRET=${generated}\n`, 'utf8');
-      console.log('[security] Generated JWT_SECRET saved to .env — sessions will survive restarts.');
+      console.log('[security] Generated a JWT_SECRET and saved it to backend/.env — local sessions will survive restarts.');
     }
   } catch {
-    console.warn('[security] JWT_SECRET not set and .env is not writable. All sessions will be invalidated on restart. Set JWT_SECRET in your environment.');
+    console.warn('[security] JWT_SECRET is not set and .env is not writable. Every restart will sign out all users. Set JWT_SECRET in your environment.');
   }
 }
 
