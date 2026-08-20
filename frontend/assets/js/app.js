@@ -133,6 +133,12 @@ function loadPage(page) {
     el.classList.toggle('active', el.dataset.page === page);
   });
 
+  // Highlight the section header that owns the active page (used by the collapsed icon rail)
+  document.querySelectorAll('.nav-section').forEach((section) => {
+    const label = section.querySelector('.nav-section-label');
+    if (label) label.classList.toggle('has-active', !!section.querySelector('.nav-item.active'));
+  });
+
   // Update breadcrumb
   const crumb = document.getElementById('page-breadcrumb-current');
   if (crumb) crumb.textContent = pageNames[page] || page;
@@ -1320,6 +1326,7 @@ function persistLoggedInUser(user, token = '') {
   App.user = user;
   localStorage.setItem('ynt_user', JSON.stringify(user));
   if (token) localStorage.setItem('ynt_token', token);
+  resetNavSectionDefaults();
 }
 
 function refreshCurrentUserChip() {
@@ -10090,12 +10097,18 @@ function getDefaultPageForCurrentUser() {
   return 'home';
 }
 
+// The System section (Users + Integrations) is Administrator-only, whatever
+// NAV_ACCESS says for the role.
+const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections'];
+
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
   const role = normalizeRoleName(App.user.role);
-  return NAV_ACCESS[role]
+  const pages = NAV_ACCESS[role]
     || NAV_ACCESS_BY_KEY[navAccessKey(role)]
     || ['home', 'rts-rate', 'data-report'];
+  if (isAdminUser()) return pages;
+  return pages.filter((page) => !ADMIN_ONLY_PAGES.includes(page));
 }
 
 function canAccessPage(page) {
@@ -10113,13 +10126,23 @@ function refreshSidebarAccess() {
   const hasRmo = ['rmo-management', 'sms-automations', 'odz-finder', 'calculators'].some((page) => accessiblePages.has(page));
   const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
   const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
-  const hasSystem = ['manage-users', 'api-connections'].some((page) => accessiblePages.has(page));
+  const hasSystem = isAdminUser() && ADMIN_ONLY_PAGES.some((page) => accessiblePages.has(page));
 
   const salesLabel = document.getElementById('nav-section-sales');
   const rmoLabel = document.getElementById('nav-section-rmo');
   const operationsLabel = document.getElementById('nav-section-operations');
   const reportsLabel = document.getElementById('nav-section-reports');
   const systemLabel = document.getElementById('nav-section-system');
+
+  const setSectionVisible = (sectionId, visible) => {
+    const wrap = document.getElementById('nav-section-wrap-' + sectionId);
+    if (wrap) wrap.style.display = visible ? '' : 'none';
+  };
+  setSectionVisible('sales', hasSales);
+  setSectionVisible('rmo', hasRmo);
+  setSectionVisible('operations', hasOperations);
+  setSectionVisible('reports', hasReports);
+  setSectionVisible('system', hasSystem);
 
   if (salesLabel) salesLabel.style.display = hasSales ? 'flex' : 'none';
   if (rmoLabel) rmoLabel.style.display = hasRmo ? 'flex' : 'none';
@@ -10145,6 +10168,8 @@ function refreshSidebarAccess() {
 }
 
 function toggleNavSection(sectionId) {
+  // While the sidebar is collapsed the section header is just the flyout trigger
+  if (document.getElementById('sidebar')?.classList.contains('collapsed')) return;
   const body = document.getElementById('nav-section-body-' + sectionId);
   const label = document.getElementById('nav-section-' + sectionId);
   if (!body) return;
@@ -10154,14 +10179,30 @@ function toggleNavSection(sectionId) {
   else localStorage.removeItem('nav_collapsed_' + sectionId);
 }
 
+const NAV_SECTION_IDS = ['main', 'sales', 'rmo', 'operations', 'reports', 'people', 'system'];
+const NAV_SECTION_OPEN_BY_DEFAULT = 'main';
+
+// Fresh login (and first ever visit) starts with only the Dashboard section expanded.
+function resetNavSectionDefaults() {
+  try {
+    NAV_SECTION_IDS.forEach((sectionId) => {
+      if (sectionId === NAV_SECTION_OPEN_BY_DEFAULT) localStorage.removeItem('nav_collapsed_' + sectionId);
+      else localStorage.setItem('nav_collapsed_' + sectionId, '1');
+    });
+    localStorage.setItem('nav_sections_seeded', '1');
+  } catch {}
+}
+
 function initNavSectionStates() {
-  ['main', 'sales', 'rmo', 'operations', 'reports', 'people', 'system'].forEach((sectionId) => {
-    if (localStorage.getItem('nav_collapsed_' + sectionId)) {
-      const body = document.getElementById('nav-section-body-' + sectionId);
-      const label = document.getElementById('nav-section-' + sectionId);
-      if (body) body.classList.add('collapsed');
-      if (label) label.classList.add('collapsed');
-    }
+  try {
+    if (!localStorage.getItem('nav_sections_seeded')) resetNavSectionDefaults();
+  } catch {}
+  NAV_SECTION_IDS.forEach((sectionId) => {
+    const isCollapsed = !!localStorage.getItem('nav_collapsed_' + sectionId);
+    const body = document.getElementById('nav-section-body-' + sectionId);
+    const label = document.getElementById('nav-section-' + sectionId);
+    if (body) body.classList.toggle('collapsed', isCollapsed);
+    if (label) label.classList.toggle('collapsed', isCollapsed);
   });
 }
 

@@ -62,11 +62,13 @@
       </div>
 
       <nav class="sidebar-nav">
+        <div class="nav-section" id="nav-section-wrap-main">
         <div class="nav-section-label" id="nav-section-main" onclick="toggleNavSection('main')">
-          Dashboard
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6.5L8 2l6 4.5V14a.5.5 0 01-.5.5h-4V10H6.5v4.5h-4A.5.5 0 012 14V6.5z"/></svg><span class="nav-section-title-text">Dashboard</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-main">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6.5L8 2l6 4.5V14a.5.5 0 01-.5.5h-4V10H6.5v4.5h-4A.5.5 0 012 14V6.5z"/></svg><span>Dashboard</span></div>
 
           <a class="nav-item" data-page="home" onclick="navigateTo('home')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -90,12 +92,15 @@
           </a>
 
         </div>
+        </div>
 
+        <div class="nav-section" id="nav-section-wrap-sales">
         <div class="nav-section-label" id="nav-section-sales" onclick="toggleNavSection('sales')">
-          Sales & Marketing
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 13.5h11"/><path d="M4.5 13.5V7"/><path d="M8 13.5V3.5"/><path d="M11.5 13.5V9"/></svg><span class="nav-section-title-text">Sales & Marketing</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-sales">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 13.5h11"/><path d="M4.5 13.5V7"/><path d="M8 13.5V3.5"/><path d="M11.5 13.5V9"/></svg><span>Sales & Marketing</span></div>
 
           <a class="nav-item" data-page="marketing-center" onclick="navigateTo('marketing-center')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -126,12 +131,15 @@
           </a>
 
         </div>
+        </div>
 
+        <div class="nav-section" id="nav-section-wrap-rmo">
         <div class="nav-section-label" id="nav-section-rmo" onclick="toggleNavSection('rmo')">
-          RMO Management
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75l5.5 2.75v7L8 14.25 2.5 11.5v-7L8 1.75z"/><path d="M2.5 4.5L8 7.25l5.5-2.75M8 7.25v7"/></svg><span class="nav-section-title-text">RMO Management</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-rmo">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.75l5.5 2.75v7L8 14.25 2.5 11.5v-7L8 1.75z"/><path d="M2.5 4.5L8 7.25l5.5-2.75M8 7.25v7"/></svg><span>RMO Management</span></div>
 
           <a class="nav-item" data-page="rmo-management" onclick="navigateTo('rmo-management')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -165,12 +173,15 @@
           </a>
 
         </div>
+        </div>
 
+        <div class="nav-section" id="nav-section-wrap-operations">
         <div class="nav-section-label" id="nav-section-operations" onclick="toggleNavSection('operations')">
-          Operations
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 4.5h8v6h-8z"/><path d="M9.5 7h2.5l2 2v1.5h-4.5z"/><circle cx="4.5" cy="12" r="1.25"/><circle cx="11.5" cy="12" r="1.25"/></svg><span class="nav-section-title-text">Operations</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-operations">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 4.5h8v6h-8z"/><path d="M9.5 7h2.5l2 2v1.5h-4.5z"/><circle cx="4.5" cy="12" r="1.25"/><circle cx="11.5" cy="12" r="1.25"/></svg><span>Operations</span></div>
 
           <a class="nav-item" data-page="daily-pickup" onclick="navigateTo('daily-pickup')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -194,12 +205,15 @@
           </a>
 
         </div>
+        </div>
 
+        <div class="nav-section" id="nav-section-wrap-reports">
         <div class="nav-section-label" id="nav-section-reports" onclick="toggleNavSection('reports')">
-          Reports
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13.5h12"/><path d="M3 11l3.5-4L9 9l4-5"/></svg><span class="nav-section-title-text">Reports</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-reports">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13.5h12"/><path d="M3 11l3.5-4L9 9l4-5"/></svg><span>Reports</span></div>
 
           <a class="nav-item" data-page="view-records" onclick="navigateTo('view-records')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -216,12 +230,15 @@
           </a>
 
         </div>
+        </div>
 
+        <div class="nav-section" id="nav-section-wrap-people">
         <div class="nav-section-label" id="nav-section-people" onclick="toggleNavSection('people')">
-          People
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.25"/><path d="M2 12.5c.7-1.9 2.3-3 4-3s3.3 1.1 4 3"/><path d="M10.75 3.1a2.25 2.25 0 010 3.9M11.5 9.8c1.2.35 2.1 1.35 2.6 2.7"/></svg><span class="nav-section-title-text">HR Management</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-people">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.25"/><path d="M2 12.5c.7-1.9 2.3-3 4-3s3.3 1.1 4 3"/><path d="M10.75 3.1a2.25 2.25 0 010 3.9M11.5 9.8c1.2.35 2.1 1.35 2.6 2.7"/></svg><span>HR Management</span></div>
 
           <a class="nav-item" data-page="hr" onclick="navigateTo('hr')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -245,12 +262,15 @@
           </a>
 
         </div>
+        </div>
 
+        <div class="nav-section" id="nav-section-wrap-system">
         <div class="nav-section-label" id="nav-section-system" onclick="toggleNavSection('system')">
-          System
+          <span class="nav-section-title"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8l1-5.5z"/></svg><span class="nav-section-title-text">System</span></span>
           <svg class="nav-section-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
         </div>
         <div class="nav-section-body" id="nav-section-body-system">
+          <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8l1-5.5z"/></svg><span>System</span></div>
 
           <a class="nav-item" id="manage-users-nav" data-page="manage-users" onclick="navigateTo('manage-users')" style="display:none;">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -266,6 +286,7 @@
             Integrations
           </a>
 
+        </div>
         </div>
       </nav>
 

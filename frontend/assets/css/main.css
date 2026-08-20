@@ -29,6 +29,7 @@
   --info-text: #1e40af;
   --navy: #0c1a2e;
   --navy-2: #112240;
+  --flyout-bg: #16283f;
   --gold: #d4a843;
   --gold-soft: #fef9ec;
   --sidebar-w: 256px;
@@ -81,7 +82,39 @@ body {
   color: var(--text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background 0.45s ease, color 0.45s ease;
+}
+
+/* ── Daylight wash ──────────────────────────────────────────
+   Light theme gets a warm sun glow in the top-right and a cool
+   sky wash on the left, mirroring the dark theme's night gradient.
+   It lives on its own fixed layer so switching themes crossfades
+   it out instead of hard-cutting between two gradient stacks. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(760px 500px at 93% -8%, rgba(255, 190, 77, 0.62) 0%, rgba(255, 216, 143, 0.3) 36%, transparent 66%),
+    radial-gradient(1000px 640px at 2% 4%, rgba(163, 207, 255, 0.4) 0%, transparent 58%),
+    linear-gradient(180deg, rgba(255, 247, 230, 0.95) 0%, rgba(255, 247, 230, 0) 62%);
+  opacity: 1;
+  transition: opacity 0.55s ease;
+  animation: daylight-drift 22s ease-in-out infinite alternate;
+}
+
+/* Sun creeps a little across the sky instead of sitting perfectly still. */
+@keyframes daylight-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-1.6%, 1.4%, 0) scale(1.07); }
+}
+
+[data-theme="dark"] body::before { opacity: 0; animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
 }
 
 [data-theme="dark"] .card,
@@ -461,6 +494,8 @@ body {
   margin-right: 2px;
 }
 .nav-section-label.collapsed .nav-section-chevron { transform: rotate(-90deg); }
+.nav-section-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nav-section-icon { display: none; width: 20px; height: 20px; flex-shrink: 0; }
 .nav-section-body {
   overflow: hidden;
   transition: max-height 0.22s ease, opacity 0.18s ease;
@@ -512,39 +547,93 @@ body {
 .sidebar.collapsed .sidebar-logo .brand-sub { display: none; }
 .sidebar.collapsed .logo-mark { width: 32px; height: 32px; margin: 0 auto; }
 
-.sidebar.collapsed .nav-section-label { display: none !important; }
-.sidebar.collapsed .nav-section-body { max-height: none !important; opacity: 1 !important; pointer-events: auto !important; }
+/* Collapsed: section headers become the icon rail, their bodies become flyouts */
+.sidebar.collapsed .sidebar-nav { overflow: visible; padding: 10px 0; }
+.sidebar.collapsed .nav-section { position: relative; }
 
-.sidebar.collapsed .nav-item {
+.sidebar.collapsed .nav-section-label {
   justify-content: center;
-  padding: 12px 0;
+  padding: 11px 0;
+  margin: 3px 10px;
+  border-radius: 10px;
   font-size: 0;
-  gap: 0;
-  border-left: none;
-  border-right: 2px solid transparent;
-  position: relative;
+  letter-spacing: 0;
+  color: rgba(255,255,255,0.6);
+  transition: background 0.16s, color 0.16s;
 }
-.sidebar.collapsed .nav-item.active {
-  border-right-color: var(--accent);
-}
-.sidebar.collapsed .nav-item svg { width: 20px; height: 20px; opacity: 0.9; }
-.sidebar.collapsed .nav-item:hover::after {
-  content: attr(data-page);
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  background: var(--navy);
+.sidebar.collapsed .nav-section-label .nav-section-title-text,
+.sidebar.collapsed .nav-section-label .nav-section-chevron { display: none; }
+.sidebar.collapsed .nav-section-icon { display: block; width: 20px; height: 20px; }
+.sidebar.collapsed .nav-section:hover > .nav-section-label,
+.sidebar.collapsed .nav-section-label.has-active {
+  background: rgba(255,255,255,0.08);
   color: #fff;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 11.5px;
-  white-space: nowrap;
-  text-transform: capitalize;
-  font-weight: 500;
-  z-index: 200;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
 }
+.sidebar.collapsed .nav-section-label.has-active { color: var(--accent); }
+
+.sidebar.collapsed .nav-section-body {
+  position: absolute;
+  left: 100%;
+  top: -6px;
+  min-width: 236px;
+  padding: 8px;
+  background: var(--flyout-bg, #101f31);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.45);
+  overflow: visible;
+  max-height: none !important;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+  z-index: 300;
+}
+.sidebar.collapsed .nav-section:hover > .nav-section-body,
+.sidebar.collapsed .nav-section:focus-within > .nav-section-body {
+  opacity: 1 !important;
+  visibility: visible;
+  pointer-events: auto !important;
+  transform: translateX(0);
+}
+
+.nav-flyout-head { display: none; }
+.sidebar.collapsed .nav-flyout-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(148,163,184,0.95);
+  white-space: nowrap;
+}
+.sidebar.collapsed .nav-flyout-head .nav-section-icon { color: var(--accent); }
+
+.sidebar.collapsed .nav-section-body .nav-item {
+  justify-content: flex-start;
+  gap: 12px;
+  margin: 1px 0;
+  padding: 9px 10px;
+  font-size: 14.5px;
+  border-left: none;
+  border-radius: 8px;
+  white-space: nowrap;
+  color: rgba(255,255,255,0.72);
+}
+.sidebar.collapsed .nav-section-body .nav-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+.sidebar.collapsed .nav-section-body .nav-item.active {
+  background: rgba(59,130,246,0.18);
+  color: #fff;
+}
+.sidebar.collapsed .nav-section-body .nav-item svg { width: 18px; height: 18px; opacity: 0.85; }
+.sidebar.collapsed .nav-item:hover::after { content: none; }
 
 .sidebar.collapsed .user-chip {
   flex-direction: column;
@@ -3634,6 +3723,7 @@ tfoot td {
   --text-muted: #5f6e8c;
   --navy: #0a1020;
   --navy-2: #0d1426;
+  --flyout-bg: #131c30;
 }
 
 [data-theme="dark"] body {
@@ -3673,7 +3763,6 @@ tfoot td {
   background: #5b8bff;
   box-shadow: 0 0 8px #5b8bff;
 }
-[data-theme="dark"] .sidebar.collapsed .nav-item.active::after { display: none; }
 [data-theme="dark"] .nav-item.active svg { color: #9cc0ff; }
 [data-theme="dark"] .nav-section-label { color: rgba(120, 138, 170, 0.7); }
 
