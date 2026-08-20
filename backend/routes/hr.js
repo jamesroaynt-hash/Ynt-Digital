@@ -163,6 +163,18 @@ function enumerateDates(from, to) {
   return out;
 }
 
+// Work on a scheduled rest day earns a premium on top of the day's base pay
+// (PH Labor Code Art. 93[a]: 130% of the daily rate for the first 8 hours).
+const REST_DAY_PREMIUM_RATE = 0.30;
+
+// Weekday (0=Sunday) for a bare YYYY-MM-DD. Parsed as UTC so the date string
+// never slips a day — same convention enumerateDates uses.
+function weekdayForDate(value) {
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+}
+
 function calculatePayroll(users, attendance, advances, approvedOtMap, range, rateHistory) {
   const byUser = new Map();
   const workedDatesByUser = new Map();
@@ -177,6 +189,8 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
       holiday_pay: 0,
       rest_days: 0,
       rest_day_pay: 0,
+      rest_days_worked: 0,
+      rest_day_premium: 0,
       cash_advances: 0,
       gross_pay: 0,
       net_pay: 0,
@@ -206,6 +220,16 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
       workedDatesByUser.get(userId).add(String(record.work_date));
       if (holidayPercentage > 100) {
         summary.holiday_pay += dayBase * ((holidayPercentage - 100) / 100);
+      }
+      // She came in on her rest day: pay the 30% premium on top of the base
+      // already counted above, for 130% of the day. The paid-rest-day loop
+      // below skips this date precisely because she worked it, so there is
+      // no double count.
+      const recordDayOff = Number(summary.user.day_off);
+      if (Number.isInteger(recordDayOff) && recordDayOff >= 0 && recordDayOff <= 6
+        && weekdayForDate(record.work_date) === recordDayOff) {
+        summary.rest_days_worked += 1;
+        summary.rest_day_premium += dayBase * REST_DAY_PREMIUM_RATE;
       }
     }
     summary.worked_minutes += workedMinutes;
@@ -242,7 +266,8 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
   });
 
   byUser.forEach((summary) => {
-    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay + summary.rest_day_pay;
+    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay
+      + summary.rest_day_pay + summary.rest_day_premium;
     summary.net_pay = summary.gross_pay - summary.cash_advances;
   });
 

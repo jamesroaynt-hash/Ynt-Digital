@@ -13677,6 +13677,7 @@ function buildPayslipDocument(slip) {
       ${row(`OT (${formatMinutes(totals.ot_minutes)})`, formatPHP(totals.ot_pay))}
       ${row('Holiday Pay', formatPHP(totals.holiday_pay))}
       ${Number(totals.rest_days || 0) > 0 ? row(`Rest Day Pay (${Number(totals.rest_days)})`, formatPHP(totals.rest_day_pay)) : ''}
+      ${Number(totals.rest_days_worked || 0) > 0 ? row(`Rest Day Premium +30% (${Number(totals.rest_days_worked)})`, formatPHP(totals.rest_day_premium)) : ''}
       ${row('Cash Advances', `-${formatPHP(totals.cash_advances)}`)}
       <div style="display:grid;grid-template-columns:1fr auto;padding:18px 20px;background:#eef4fb;">
         <div style="font-size:16px;font-weight:700;">Net Pay</div>
