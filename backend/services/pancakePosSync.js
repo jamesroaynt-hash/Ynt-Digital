@@ -505,13 +505,29 @@ const PANCAKE_STATUS_NAME = {
 // monetary value ×100 (e.g. ₱39,800 arrives instead of ₱398 for a 1-bottle order):
 //   715088462  = "GoutEase V2"
 //   1636064823 = "VeingGuard Main Branch"
+//   408076879  = "Lipomax Herbal Spray PH"
+//   1636077409 = "Toenail Repair PH"
+//   101065016  = "Health Tips - SambaCur"
+//   101065017  = "SambaCur Plus Advance"
+//   408064629  = "Vain Guard Pro Herbal Original"
 // Their real, correctly-priced counterparts ("GoutEase Advance Herbal Spray",
 // "VeinGuard") send pesos. Without this, COD, the RMO SRP column and the ROAS
 // Orders Amount are all 100× too high, and the automatic sync keeps re-importing
 // the raw ×100 values (a one-time DB fix gets overwritten). Divide by 100 at
 // ingest instead. Remove a shop id from this set once its Pancake prices are
 // corrected at the source, or these orders will read 100× too low.
-const PRICE_SCALE_X100_SHOPS = new Set(['715088462', '1636064823']);
+// POS_PRICE_SCALE_X100_SHOPS (comma-separated shop ids) adds more without a
+// deploy, for when the next mis-configured page shows up.
+const PRICE_SCALE_X100_SHOPS = new Set([
+  '715088462', '1636064823',
+  '408076879', '1636077409', '101065016', '101065017', '408064629',
+  ...String(process.env.POS_PRICE_SCALE_X100_SHOPS || '').split(',').map((id) => id.trim()).filter(Boolean),
+]);
+
+// Divisor that turns a shop's raw POS money value into pesos.
+function posPriceDivisor(shopId) {
+  return PRICE_SCALE_X100_SHOPS.has(String(shopId)) ? 100 : 1;
+}
 
 async function upsertOrder(db, shopId, item, connectionName = null) {
   const externalId = stringOrNull(item?.id);
@@ -617,7 +633,7 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   }
 
   // Scale ×100-configured shops back to pesos (see PRICE_SCALE_X100_SHOPS).
-  const priceDivisor = PRICE_SCALE_X100_SHOPS.has(String(resolvedShopId)) ? 100 : 1;
+  const priceDivisor = posPriceDivisor(resolvedShopId);
   const scaleMoney = (value) => { const n = numberOrNull(value); return n == null ? n : n / priceDivisor; };
   const orderItemsForStorage = item?.order_details || item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || [];
   const itemsForStorage = (priceDivisor === 1 || !Array.isArray(orderItemsForStorage))
@@ -1590,7 +1606,10 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const phone = rawPhone;
   const customer = rawCustomer || `Customer (${phone})`;
   const tags = getPosOrderTags(item);
-  const cod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
+  const rawCod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
+  // Same ×100 correction pos_orders applies — without it the dashboard mirror
+  // keeps the raw value and Data Report / ROAS read 100× too high.
+  const cod = rawCod / posPriceDivisor(stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id) || 'unknown');
   const sourceName = await getResolvedPosOrderSourceName(db, shopId, item);
   let confirmedBy = getPosConfirmedBy(item);
   // Resolve UUID to name if the confirmer was stored as a user ID
