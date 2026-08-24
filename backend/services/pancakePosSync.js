@@ -2610,6 +2610,30 @@ async function listAdsFromApi(db, payload = {}) {
   return result;
 }
 
+// The automatic sync only ever requests 'orders' (DEFAULT_RESOURCES), so a
+// newly connected shop would never get its currency stored, and every order it
+// imports would keep the raw ×100 value (see posPriceDivisor). Fetch /shops
+// once, the first time we sync a shop whose currency we don't know yet.
+async function ensureShopCurrency(db, baseUrl, apiKey, shopId) {
+  if (!shopId || !apiKey) return;
+  let known = null;
+  try {
+    known = (await getStoredShop(db, shopId))?.currency ?? null;
+  } catch {
+    return;
+  }
+  if (known) return;
+  try {
+    const response = await posRequest(baseUrl, '/shops', apiKey);
+    const shops = Array.isArray(response?.shops) ? response.shops : [];
+    for (const shop of shops) await upsertShop(db, shop);
+  } catch (err) {
+    // Non-fatal: the static PRICE_SCALE_X100_SHOPS fallback still applies, and
+    // the next cycle retries. Never block the order sync on this.
+    console.warn(`[pancake_pos] could not resolve shop currency for ${shopId}; prices may need scaling later: ${err.message}`);
+  }
+}
+
 async function collectPosData(db, payload = {}) {
   if (Array.isArray(payload.connections) && payload.connections.length) {
     const connections = payload.connections
@@ -2695,6 +2719,10 @@ async function collectPosData(db, payload = {}) {
     endDateTime: Number(payload.endDateTime ?? unixSecondsFromDate(new Date(), true)),
     updatedSince: payload.updatedSince !== undefined ? Number(payload.updatedSince) : null,
   };
+
+  if (resources.includes('orders')) {
+    await ensureShopCurrency(db, baseUrl, apiKey, shopId);
+  }
 
   const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
   const result = {
@@ -3032,6 +3060,14 @@ async function receiveWebhook(db, payload = {}) {
   const shopId = stringOrNull(payload.shop_id || payload.shopId || payload.shop?.id || savedConnections[0]?.shop_id);
   const orders = extractWebhookOrders(payload);
   const localIds = [];
+
+  // Same reason as in collectPosData: without a stored currency this shop's
+  // orders import at the raw ×100 scale, and the skip-unchanged guard means
+  // they are never rewritten on their own.
+  if (orders.length) {
+    const conn = savedConnections.find((c) => stringOrNull(c.shop_id) === shopId) || savedConnections[0];
+    await ensureShopCurrency(db, stringOrNull(conn?.base_url) || POS_API_BASE, stringOrNull(conn?.api_key), shopId);
+  }
 
   for (const item of orders) {
     const localId = await upsertOrder(db, shopId, item);
