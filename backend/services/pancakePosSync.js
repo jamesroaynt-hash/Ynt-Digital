@@ -440,14 +440,15 @@ async function upsertShop(db, item) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
   await db.prepare(`
-    INSERT INTO pos_shops (external_id, name, avatar_url, pages_json, link_post_marketer_json, raw_payload)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO pos_shops (external_id, name, avatar_url, pages_json, link_post_marketer_json, raw_payload, currency)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(external_id) DO UPDATE SET
       name = COALESCE(excluded.name, pos_shops.name),
       avatar_url = excluded.avatar_url,
       pages_json = excluded.pages_json,
       link_post_marketer_json = excluded.link_post_marketer_json,
       raw_payload = excluded.raw_payload,
+      currency = COALESCE(excluded.currency, pos_shops.currency),
       updated_at = datetime('now')
   `).run(
     externalId,
@@ -455,7 +456,10 @@ async function upsertShop(db, item) {
     stringOrNull(item?.avatar_url),
     safeJson(item?.pages || []),
     safeJson(item?.link_post_marketer || []),
-    rawPayloadForStorage(item)
+    rawPayloadForStorage(item),
+    // Drives the ×100 price divisor (see posPriceDivisor). raw_payload is
+    // stored as {} under the storage-retention policy, so keep it in a column.
+    stringOrNull(item?.currency)
   );
   invalidateStoredShopCache(externalId);
   return externalId;
@@ -502,31 +506,55 @@ const PANCAKE_STATUS_NAME = {
 };
 
 // Price-unit normalization. These POS shops are configured in Pancake with every
-// monetary value ×100 (e.g. ₱39,800 arrives instead of ₱398 for a 1-bottle order):
-//   715088462  = "GoutEase V2"
-//   1636064823 = "VeingGuard Main Branch"
-//   408076879  = "Lipomax Herbal Spray PH"
-//   1636077409 = "Toenail Repair PH"
-//   101065016  = "Health Tips - SambaCur"
-//   101065017  = "SambaCur Plus Advance"
-//   408064629  = "Vain Guard Pro Herbal Original"
-// Their real, correctly-priced counterparts ("GoutEase Advance Herbal Spray",
-// "VeinGuard") send pesos. Without this, COD, the RMO SRP column and the ROAS
-// Orders Amount are all 100× too high, and the automatic sync keeps re-importing
-// the raw ×100 values (a one-time DB fix gets overwritten). Divide by 100 at
-// ingest instead. Remove a shop id from this set once its Pancake prices are
-// corrected at the source, or these orders will read 100× too low.
-// POS_PRICE_SCALE_X100_SHOPS (comma-separated shop ids) adds more without a
-// deploy, for when the next mis-configured page shows up.
+// monetary value ×100 (e.g. ₱39,800 arrives instead of ₱398 for a 1-bottle order).
+// Pancake tells us which: the /shops record carries a `currency` of "PHP100"
+// for those shops and plain "PHP" for the correctly-priced ones (as of
+// 2026-08-24 that is 8 of 19 shops, and it matches the mis-priced set exactly).
+// So read the scale off the shop instead of maintaining a list by hand — a
+// hardcoded list silently mis-prices every newly connected page until someone
+// notices and ships a patch, which is how GoutEase, VeinGuard, Lipomax,
+// Toenail Repair, SambaCur and Dental Health Tips each got found late.
+// Without the divisor, COD, the RMO SRP column and the ROAS Orders Amount all
+// read 100× too high, and the automatic sync keeps re-importing the raw values
+// (a one-time DB fix gets overwritten). Divide at ingest instead.
+const CURRENCY_SCALE_RE = /^[A-Za-z]{3}(\d+)$/;
+
+// Fallback for shops not yet stored (first webhook can beat the shop sync).
+// POS_PRICE_SCALE_X100_SHOPS (comma-separated shop ids) still forces a shop
+// ×100 if one ever reports the wrong currency.
 const PRICE_SCALE_X100_SHOPS = new Set([
   '715088462', '1636064823',
   '408076879', '1636077409', '101065016', '101065017', '408064629',
+  '1636084722',
   ...String(process.env.POS_PRICE_SCALE_X100_SHOPS || '').split(',').map((id) => id.trim()).filter(Boolean),
 ]);
 
-// Divisor that turns a shop's raw POS money value into pesos.
-function posPriceDivisor(shopId) {
-  return PRICE_SCALE_X100_SHOPS.has(String(shopId)) ? 100 : 1;
+// Turn a Pancake currency code into the divisor that converts a raw POS money
+// value to pesos: "PHP" -> 1, "PHP100" -> 100.
+function divisorFromCurrency(currency) {
+  const match = CURRENCY_SCALE_RE.exec(String(currency || '').trim());
+  if (!match) return null;
+  const scale = Number(match[1]);
+  return Number.isFinite(scale) && scale > 0 ? scale : null;
+}
+
+// Divisor that turns a shop's raw POS money value into pesos. Prefers the
+// currency Pancake reported for the shop; falls back to the static list above
+// when the shop has not been stored yet.
+async function posPriceDivisor(db, shopId) {
+  const key = stringOrNull(shopId);
+  if (!key) return 1;
+  let currency = null;
+  try {
+    currency = (await getStoredShop(db, key))?.currency ?? null;
+  } catch {
+    currency = null;
+  }
+  // A known currency is authoritative in both directions: once a shop is fixed
+  // at the source it reports plain "PHP" and must stop being divided, so don't
+  // let the stale static list below keep scaling it 100× too low.
+  if (currency) return divisorFromCurrency(currency) || 1;
+  return PRICE_SCALE_X100_SHOPS.has(key) ? 100 : 1;
 }
 
 async function upsertOrder(db, shopId, item, connectionName = null) {
@@ -632,8 +660,8 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     }
   }
 
-  // Scale ×100-configured shops back to pesos (see PRICE_SCALE_X100_SHOPS).
-  const priceDivisor = posPriceDivisor(resolvedShopId);
+  // Scale ×100-configured shops back to pesos (see posPriceDivisor).
+  const priceDivisor = await posPriceDivisor(db, resolvedShopId);
   const scaleMoney = (value) => { const n = numberOrNull(value); return n == null ? n : n / priceDivisor; };
   const orderItemsForStorage = item?.order_details || item?.items || item?.products || item?.variations || item?.order_items || item?.line_items || [];
   const itemsForStorage = (priceDivisor === 1 || !Array.isArray(orderItemsForStorage))
@@ -1516,20 +1544,24 @@ function invalidateStoredShopCache(shopId) {
   else storedShopCache.delete(String(shopId));
 }
 
-async function findStoredPageName(db, shopId, pageId) {
+async function getStoredShop(db, shopId) {
   if (!shopId) return null;
   const key = String(shopId);
   const now = Date.now();
   let entry = storedShopCache.get(key);
   if (!entry || entry.expiresAt <= now) {
     const promise = db
-      .prepare('SELECT name, pages_json, raw_payload FROM pos_shops WHERE external_id = ? LIMIT 1')
+      .prepare('SELECT name, pages_json, raw_payload, currency FROM pos_shops WHERE external_id = ? LIMIT 1')
       .get(shopId)
       .catch((err) => { storedShopCache.delete(key); throw err; });
     entry = { expiresAt: now + STORED_SHOP_TTL_MS, promise };
     storedShopCache.set(key, entry);
   }
-  const shop = await entry.promise;
+  return (await entry.promise) || null;
+}
+
+async function findStoredPageName(db, shopId, pageId) {
+  const shop = await getStoredShop(db, shopId);
   if (!shop) return null;
 
   const pages = parseJsonObject(shop.pages_json, []);
@@ -1609,7 +1641,7 @@ async function transferPosOrderToDashboard(db, shopId, item) {
   const rawCod = numberOrNull(item?.cod ?? item?.cash ?? item?.total_price ?? item?.total) || 0;
   // Same ×100 correction pos_orders applies — without it the dashboard mirror
   // keeps the raw value and Data Report / ROAS read 100× too high.
-  const cod = rawCod / posPriceDivisor(stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id) || 'unknown');
+  const cod = rawCod / (await posPriceDivisor(db, shopId || item?.shop_id || item?.shop?.id || item?.page_id));
   const sourceName = await getResolvedPosOrderSourceName(db, shopId, item);
   let confirmedBy = getPosConfirmedBy(item);
   // Resolve UUID to name if the confirmer was stored as a user ID

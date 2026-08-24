@@ -321,6 +321,7 @@ CREATE TABLE IF NOT EXISTS pos_shops (
   pages_json TEXT,
   link_post_marketer_json TEXT,
   raw_payload TEXT NOT NULL,
+  currency TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

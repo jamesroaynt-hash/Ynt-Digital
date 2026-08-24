@@ -507,6 +507,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'partner_reason', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ad_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ads_source', 'TEXT');
+  ensureColumn(db, 'pos_shops', 'currency', 'TEXT');
   migratePosOrdersCompositeIdentity(db);
   migrateIntegrationSettingsMultiRow(db);
   ensureOrderStatusConstraint(db);
@@ -984,6 +985,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'partner_reason', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ad_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ads_source', 'TEXT');
+  await ensureColumnAsync(db, 'pos_shops', 'currency', 'TEXT');
   await migratePosOrdersCompositeIdentityAsync(db);
   await migratePosOrdersCodNumericAsync(db);
   await migrateIntegrationSettingsMultiRowAsync(db);
