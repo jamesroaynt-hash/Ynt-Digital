@@ -5,8 +5,8 @@
 // the same transform upsertOrder() applies at ingest (cod, shipping_fee, cash,
 // total_discount, and the item retail_price / price / variation_info prices).
 //
-// Run this ONCE per shop: it is not idempotent, a second --apply divides the
-// same rows again.
+// Safe to re-run: each row is divided only if it still looks un-scaled, so rows
+// the live sync already imported at the correct scale are left alone.
 //
 // Dry run:  node backend/scripts/fix_pos_price_scale.js <shopId>
 // Apply:    node backend/scripts/fix_pos_price_scale.js <shopId> --apply
@@ -53,6 +53,36 @@ function scaleItems(itemsJson) {
 
 const scaleMoney = (v) => (v === null || v === undefined ? v : Number(v) / DIVISOR);
 
+// Rows already imported at the right scale must not be divided a second time.
+// A ×100 shop's raw values are two orders of magnitude above its real prices
+// (₱399 arrives as 39900), so the largest money value on the row separates the
+// two cleanly. Anything below this is treated as already-scaled and skipped.
+const RAW_MIN = Number(process.env.POS_SCALE_RAW_MIN || 10000);
+
+function itemPrices(itemsJson) {
+  let items;
+  try { items = JSON.parse(itemsJson || '[]'); } catch { return []; }
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue;
+    for (const v of [it.retail_price, it.price, it.variation_info?.retail_price, it.variation_info?.retail_price_original]) {
+      if (typeof v === 'number' && Number.isFinite(v)) out.push(v);
+    }
+  }
+  return out;
+}
+
+// null = nothing to do (all zeroes), true = still raw, false = already scaled.
+function needsScaling(row) {
+  const values = [row.cod, row.shipping_fee, row.cash, row.total_discount]
+    .map((v) => Number(v) || 0)
+    .concat(itemPrices(row.items_json));
+  const max = values.reduce((a, b) => (b > a ? b : a), 0);
+  if (max === 0) return null;
+  return max >= RAW_MIN;
+}
+
 async function run() {
   if (!SHOP_ID) throw new Error('Usage: fix_pos_price_scale.js <shopId> [--apply]');
   const db = new PostgresClient(loadDatabaseUrl());
@@ -72,7 +102,7 @@ async function run() {
     );
   }
   console.log(`[scale ${SHOP_ID}] ${shop?.name || 'unknown shop'}, currency ${currency || 'unknown'}, divisor ${DIVISOR}`);
-  console.log('[scale] NOTE: run this ONCE per shop — a second --apply divides the same rows again.');
+  console.log(`[scale] skipping any row whose largest money value is already below ${RAW_MIN}`);
 
   const rows = await db.prepare(
     'SELECT id, external_id, cod, shipping_fee, cash, total_discount, items_json FROM pos_orders WHERE shop_id = ? ORDER BY id'
@@ -81,7 +111,12 @@ async function run() {
   if (!rows.length) { await db.close(); return; }
 
   let changed = 0;
+  let alreadyScaled = 0;
+  let empty = 0;
   for (const row of rows) {
+    const verdict = needsScaling(row);
+    if (verdict === null) { empty += 1; continue; }
+    if (verdict === false) { alreadyScaled += 1; continue; }
     const nextItems = scaleItems(row.items_json);
     const next = {
       cod: scaleMoney(row.cod),
@@ -101,7 +136,8 @@ async function run() {
     changed += 1;
   }
 
-  console.log(`[scale ${SHOP_ID}] ${APPLY ? 'updated' : 'would update'} ${changed} orders`);
+  console.log(`[scale ${SHOP_ID}] ${APPLY ? 'updated' : 'would update'} ${changed} orders`
+    + ` | left alone: ${alreadyScaled} already at the right scale, ${empty} with no money values`);
   if (APPLY) {
     const after = await db.prepare(
       'SELECT MIN(cod) AS mn, MAX(cod) AS mx, ROUND(AVG(cod),2) AS avg FROM pos_orders WHERE shop_id = ?'
