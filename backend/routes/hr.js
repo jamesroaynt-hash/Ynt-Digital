@@ -134,12 +134,14 @@ function buildApprovedOtMap(rows) {
   return map;
 }
 
+// OT is paid strictly from the approved request: the approved minutes ARE the
+// payable amount, whatever the clock happens to show. Minutes clocked past the
+// standard day without an approved request pay nothing.
 function payableOtMinutes(record, approvedMap) {
   if (!approvedMap) return 0;
   const approved = approvedMap.get(approvedOtKey(Number(record.user_id), String(record.work_date)));
   if (!Number.isFinite(approved) || approved <= 0) return 0;
-  const earnedOt = calculateOtMinutes(record);
-  return Math.min(approved, earnedOt);
+  return approved;
 }
 
 // Enumerate every calendar date in [from, to] inclusive, returning the date
@@ -435,7 +437,7 @@ module.exports = function hrRoutes(db) {
     const ids = users.map((user) => Number(user.id));
     const placeholders = ids.map(() => '?').join(',');
     const records = await db.prepare(`
-      SELECT a.*, u.full_name, u.username, u.role, u.daily_rate
+      SELECT a.*, u.full_name, u.username, u.role, u.daily_rate, u.day_off
       FROM attendance_records a
       JOIN users u ON u.id = a.user_id
       WHERE a.user_id IN (${placeholders}) AND a.work_date BETWEEN ? AND ?
@@ -448,7 +450,7 @@ module.exports = function hrRoutes(db) {
     const rateHistory = await loadRateHistoryMap(db, ids);
 
     // Approved OT for these users/dates so the table can show the OT that will
-    // actually be PAID (approved + earned), not just raw hours clocked past 8h.
+    // actually be PAID — the approved request — and not raw hours clocked past 8h.
     const approvedOt = await db.prepare(`
       SELECT user_id, work_date, requested_minutes
       FROM overtime_requests

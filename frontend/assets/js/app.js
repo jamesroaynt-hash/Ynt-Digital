@@ -4065,6 +4065,38 @@ function phHolidayBadge(dateStr) {
   return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${escapeHtml(h.type)}">🇵🇭 ${escapeHtml(h.name)}</span>`;
 }
 
+// 0=Sunday..6=Saturday for a YYYY-MM-DD string, or null when it isn't one.
+function weekdayForDateStr(dateStr) {
+  const m = String(dateStr || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+}
+
+// day_off is 0=Sunday..6=Saturday, or -1/null when the user has none.
+function isRestDayFor(dateStr, dayOff) {
+  const d = Number(dayOff);
+  if (!Number.isInteger(d) || d < 0 || d > 6) return false;
+  return weekdayForDateStr(dateStr) === d;
+}
+
+// Pill marking the user's rest day, in the same shape as the PH holiday pill.
+// Amber once the day is actually worked, since payroll then pays it at 130%.
+function restDayBadge(worked) {
+  const color = worked ? '#b45309' : '#0369a1';
+  const bg = worked ? '#fef3c7' : '#e0f2fe';
+  const label = worked ? 'Worked rest day +30%' : 'Rest day';
+  const title = worked ? 'Worked the scheduled rest day — paid at 130%' : 'Scheduled rest day';
+  return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${title}">${label}</span>`;
+}
+
+// The pills shown under a date: PH holiday first, then the rest-day marker.
+function attendanceDateBadges(dateStr, dayOff, worked) {
+  return [
+    getPhHoliday(dateStr) ? phHolidayBadge(dateStr) : '',
+    isRestDayFor(dateStr, dayOff) ? restDayBadge(worked) : '',
+  ].filter(Boolean).join('');
+}
+
 function renderAttendance() {
   const today = normalizeDateString(new Date());
   // Work Hours opens on the cutoff being worked right now, since that is the
@@ -11321,7 +11353,9 @@ function renderMyWorkHours(payslip) {
   const records = Array.isArray(payslip?.attendance) ? payslip.attendance : [];
   const totals = payslip?.totals || {};
   const totalWorked = records.reduce((sum, r) => sum + Number(r.worked_minutes || 0), 0);
-  const totalOt = records.reduce((sum, r) => sum + Number(r.calculated_ot_minutes || r.ot_minutes || 0), 0);
+  // Only approved OT counts: hours clocked past the standard day without an
+  // approved request are not paid, so showing them here would overstate.
+  const totalOt = records.reduce((sum, r) => sum + Number(r.payable_ot_minutes || 0), 0);
 
   // The cards render for any range, including a custom one with no punches in
   // it — rest-day pay still applies, and a blank panel answers nothing. The
@@ -11365,7 +11399,7 @@ function renderMyWorkHours(payslip) {
         <tbody>
           ${records.map((r) => {
             const worked = Number(r.worked_minutes || 0);
-            const ot = Number(r.calculated_ot_minutes || r.ot_minutes || 0);
+            const ot = Number(r.payable_ot_minutes || 0);
             const complete = r.time_in && r.time_out;
             const otApproved = Boolean(r.ot_approved);
             const otApprovedIcon = otApproved
@@ -12636,12 +12670,12 @@ function renderAttendanceLog() {
             <input type="number" min="0" id="att-modal-ot-minutes" class="form-control" placeholder="0">
           </div>
           <div class="form-group">
-            <label class="form-label">Holiday %</label>
+            <label class="form-label">Holiday premium (% of daily rate)</label>
             <select id="att-modal-holiday-pct" class="form-control">
-              <option value="100">100 — Regular day</option>
-              <option value="125">125 — Special Holiday</option>
-              <option value="150">150 — Regular Holiday</option>
-              <option value="200">200 — Double pay</option>
+              <option value="100">None — Regular day</option>
+              <option value="130">+30% — Special Holiday</option>
+              <option value="150">+50% — Special Holiday on rest day</option>
+              <option value="200">+100% — Regular Holiday</option>
             </select>
           </div>
         </div>
@@ -12999,7 +13033,12 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const otPay = otApproved && payableOt > 0 && dailyRate > 0
               ? (dailyRate / 480) * payableOt * 1.25
               : 0;
-            const dailySalary = basePay + otPay;
+            // Coming in on the scheduled rest day pays a 30% premium on top of
+            // the day, the same as payroll's rest_day_premium.
+            const restDay = isRestDayFor(record.work_date, record.day_off);
+            const restDayPremium = qualifies && restDay ? dailyRate * 0.3 : 0;
+            const dailySalary = basePay + restDayPremium + otPay;
+            const dateBadges = attendanceDateBadges(record.work_date, record.day_off, workedMins > 0 || hasCustomRate);
 
             // Schedule lookup for this user + date
             const sched = (hrState.scheduleMap || {})[`${record.user_id}|${record.work_date}`] || null;
@@ -13032,7 +13071,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
 
             return `
             <tr onclick="openAttendanceEditModal(${record.id})" style="cursor:pointer;" title="Click to edit">
-              <td><strong>${escapeHtml(record.work_date || '')}</strong>${getPhHoliday(record.work_date) ? `<div style="margin-top:3px;">${phHolidayBadge(record.work_date)}</div>` : ''}</td>
+              <td><strong>${escapeHtml(record.work_date || '')}</strong>${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}</td>
               <td>${escapeHtml(record.full_name || '')}${scheduleHtml}</td>
               <td>${timeTxt(record.time_in)}</td>
               <td>${timeTxt(record.break_out)}</td>
@@ -13045,7 +13084,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
                   ? `<span style="color:var(--text-muted);font-size:11px;" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
                   : '<span style="color:var(--text-muted)">—</span>')}</td>
               <td><strong>${(qualifies || otPay > 0)
-                ? `<span title="${qualifies ? `Day ${formatPHP(basePay)}` : 'Day not counted (under 4 hrs)'}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
+                ? `<span title="${qualifies ? `Day ${formatPHP(basePay)}` : 'Day not counted (under 4 hrs)'}${restDayPremium > 0 ? ` + rest day +30% ${formatPHP(restDayPremium)}` : ''}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
                 : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}</td>
             </tr>`;
           }).join('')}
@@ -13120,7 +13159,8 @@ function openAttendanceEditModal(recordId) {
   if (!record) return;
   document.getElementById('att-modal-record-id').value = recordId;
   document.getElementById('att-modal-title').textContent = `Edit — ${record.full_name || 'User'}`;
-  document.getElementById('att-modal-subtitle').textContent = record.work_date || '';
+  const modalBadges = attendanceDateBadges(record.work_date, record.day_off, Number(record.worked_minutes || 0) > 0);
+  document.getElementById('att-modal-subtitle').innerHTML = `<span style="display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;">${escapeHtml(record.work_date || '')}${modalBadges}</span>`;
   document.getElementById('att-modal-time-in').value = record.time_in || '';
   document.getElementById('att-modal-time-out').value = record.time_out || '';
   document.getElementById('att-modal-break-out').value = record.break_out || '';
@@ -13130,12 +13170,31 @@ function openAttendanceEditModal(recordId) {
   document.getElementById('att-modal-ot-minutes').value = record.ot_minutes || 0;
   const pctSelect = document.getElementById('att-modal-holiday-pct');
   const pct = String(Number(record.holiday_percentage || 100));
-  if ([...pctSelect.options].some((o) => o.value === pct)) pctSelect.value = pct;
-  else pctSelect.value = '100';
+  // Older records can carry a premium the picker no longer offers (125, say).
+  // Keep it selectable so simply opening the modal never quietly downgrades
+  // what the day pays.
+  [...pctSelect.options].filter((o) => o.dataset.legacy).forEach((o) => o.remove());
+  if (![...pctSelect.options].some((o) => o.value === pct)) {
+    const legacy = document.createElement('option');
+    legacy.value = pct;
+    legacy.textContent = `+${Number(pct) - 100}% — Legacy`;
+    legacy.dataset.legacy = '1';
+    pctSelect.appendChild(legacy);
+  }
+  pctSelect.value = pct;
   document.getElementById('att-modal-notes').value = record.notes || '';
   const overrideEl = document.getElementById('att-modal-rate-override');
   if (overrideEl) overrideEl.value = (record.rate_override === null || record.rate_override === undefined) ? '' : record.rate_override;
   openModal('edit-attendance-modal');
+}
+
+// The picker stores a total multiplier (130 = the daily rate plus a 30%
+// premium); name the day from the premium it carries.
+function holidayTypeForPremium(pct, existingType) {
+  if (Number(pct) <= 100) return 'Regular day';
+  if (Number(pct) >= 200) return 'Regular Holiday';
+  if (Number(pct) === 130 || Number(pct) === 150) return 'Special Holiday';
+  return existingType || 'Holiday';
 }
 
 async function saveAttendanceFromModal() {
@@ -13156,7 +13215,7 @@ async function saveAttendanceFromModal() {
         time_out: document.getElementById('att-modal-time-out')?.value || '',
         break_minutes: Number(record.break_minutes || 0),
         ot_minutes: Math.max(0, Number(document.getElementById('att-modal-ot-minutes')?.value || 0)),
-        holiday_type: holidayPercentage > 100 ? (record.holiday_type || 'Holiday') : 'Regular day',
+        holiday_type: holidayTypeForPremium(holidayPercentage, record.holiday_type),
         holiday_percentage: holidayPercentage,
         notes: document.getElementById('att-modal-notes')?.value || '',
         rate_override: document.getElementById('att-modal-rate-override')?.value ?? '',
@@ -13626,7 +13685,7 @@ function buildPayslipDocument(slip) {
         <td style="padding:9px 12px;">${escapeHtml(formatClock12(record.time_in)) || '—'}</td>
         <td style="padding:9px 12px;">${escapeHtml(formatClock12(record.time_out)) || '—'}</td>
         <td style="padding:9px 12px;">${formatMinutes(record.payable_ot_minutes || 0)}</td>
-        <td style="padding:9px 12px;">${holidayPct > 100 ? holidayPct : 0}%</td>
+        <td style="padding:9px 12px;">${holidayPct > 100 ? holidayPct - 100 : 0}%</td>
       </tr>`;
   }).join('') || `<tr><td colspan="5" style="padding:14px 12px;color:${muted};">No attendance records for this period.</td></tr>`;
 
