@@ -737,6 +737,10 @@ function ordersRoutes(db, { dispatch } = {}) {
     try {
       const stats = await pancakePosSync.fetchCustomerStats(db, phone, {
         shopId: String(req.query.shop_id || '').trim() || null,
+        // With an order in hand the counters can be read straight off it, which
+        // is exact and costs one call; without one they have to be hunted for
+        // by number.
+        orderId: String(req.query.order_id || '').trim() || null,
         refresh: String(req.query.refresh || '') === '1',
       });
       if (!stats) return res.status(400).json({ error: 'Not a usable PH mobile number.' });

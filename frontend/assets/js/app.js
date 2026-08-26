@@ -15829,6 +15829,9 @@ async function loadRmoCustomerStats(row, detail) {
   try {
     const query = new URLSearchParams({ phone });
     if (row.dataset.shop) query.set('shop_id', row.dataset.shop);
+    // With both, the backend reads the counters straight off this order rather
+    // than searching for the customer by number.
+    if (row.dataset.order) query.set('order_id', row.dataset.order);
     const result = await authorizedJsonRequest(`/orders/pos-orders/customer-stats?${query.toString()}`);
     const stats = result?.stats;
     // A number the POS has never sold to reports zeroes; keep whatever the row
@@ -15844,14 +15847,21 @@ async function loadRmoCustomerStats(row, detail) {
   }
 }
 
-function renderRmoCustomerCell(cell, history) {
+// The whole detail item, label included. The label names the source, because
+// the difference between Pancake's record of a customer and our own count of
+// the orders we happen to have synced is exactly what makes a number look wrong.
+function customerHistoryCell(history) {
   const block = customerHistoryBadges(history);
-  cell.innerHTML = block
-    ? `<div class="rmo-detail-item">
-        <span class="rmo-detail-label">Customer</span>
-        <span class="rmo-detail-value">${block}</span>
-      </div>`
-    : '';
+  if (!block) return '';
+  const label = history?.source === 'pancake' ? 'Customer · POS' : 'Customer · synced orders';
+  return `<div class="rmo-detail-item">
+    <span class="rmo-detail-label">${label}</span>
+    <span class="rmo-detail-value">${block}</span>
+  </div>`;
+}
+
+function renderRmoCustomerCell(cell, history) {
+  cell.innerHTML = customerHistoryCell(history);
 }
 
 // The best history we hold for an order's customer: what the POS told us when a
@@ -15963,7 +15973,7 @@ function renderPosOrdersTable() {
       // Sits in the detail row's first cell, under the order number and ahead of
       // Page, so the expanded row opens with who this customer has been. Prefers
       // anything already fetched from the POS over the counts the row came with.
-      const historyBlock = customerHistoryBadges(rmoCustomerHistory(order));
+      const historyBlock = customerHistoryCell(rmoCustomerHistory(order));
       const detailColumns = [
         [['Page', escapeHtml(order.page_name || '') || dash]],
         [['Rider Assign', escapeHtml(rider.name || '') || dash]],
@@ -15979,7 +15989,7 @@ function renderPosOrdersTable() {
         // Tags last: the edit button makes this the one interactive field.
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];
-      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" title="Click the row to show delivery details" onclick="toggleRmoRowDetails(event, this)">
+      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to show delivery details" onclick="toggleRmoRowDetails(event, this)">
         <td>
           <span class="rmo-check-cell">
             ${order.can_message
@@ -16009,12 +16019,7 @@ function renderPosOrdersTable() {
         </td>
       </tr>
       <tr class="rmo-detail-row" id="${detailId}" ${open ? '' : 'hidden'}>
-        <td class="rmo-detail-spacer">${historyBlock
-          ? `<div class="rmo-detail-item">
-            <span class="rmo-detail-label">Customer</span>
-            <span class="rmo-detail-value">${historyBlock}</span>
-          </div>`
-          : ''}</td>
+        <td class="rmo-detail-spacer">${historyBlock}</td>
         ${detailColumns.map((fields) => `<td>${fields.map(([label, value]) => `
           <div class="rmo-detail-item">
             <span class="rmo-detail-label">${label}</span>

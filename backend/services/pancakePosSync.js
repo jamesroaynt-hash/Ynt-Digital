@@ -557,7 +557,7 @@ async function posPriceDivisor(db, shopId) {
   return PRICE_SCALE_X100_SHOPS.has(key) ? 100 : 1;
 }
 
-async function upsertOrder(db, shopId, item, connectionName = null) {
+async function upsertOrder(db, shopId, item, connectionName = null, options = {}) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
   // Dashboard scope is 2026+. The Pancake "updated_at" fetch pass otherwise
@@ -638,14 +638,24 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   // every order, including the ones missing that timestamp.
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   const stored = await db.prepare(
-    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id, sprinter_name, sprinter_tel FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id, sprinter_name, sprinter_tel, customer_order_count FROM pos_orders WHERE shop_id = ? AND external_id = ?'
   ).get(resolvedShopId, externalId);
+  // A row stored before the customer counters existed can be filled in, but only
+  // when the caller asked for it: a manual re-sync from the Connections page
+  // opts in, the interval sync never does. One write per order, once — after
+  // that the counters are there and the guard closes again.
+  const customerStatsFillable = Boolean(
+    (options.backfillCustomerStats || options.backfill_customer_stats)
+    && stored
+    && stored.customer_order_count == null
+    && (customerCounts.orders != null || customerCounts.succeed != null || customerCounts.returned != null)
+  );
   if (incomingUpdatedAtRemote) {
     const psidAlreadyStored = stored && (stored.psid || !psid);
     const productUnchanged = stored && (stored.note_product === noteProduct);
     const partnerUnchanged = stored && ((stored.partner_status || null) === (partnerStatus || null));
     const adAlreadyStored = stored && (stored.ad_id || !adId);
-    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged && adAlreadyStored) {
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged && adAlreadyStored && !customerStatsFillable) {
       return externalId; // unchanged — no write needed
     }
   }
@@ -1953,7 +1963,7 @@ async function storeItems(db, resource, shopId, items, connectionName = null, op
     let localId = null;
     if (resource === 'shops') localId = await upsertShop(db, item);
     if (resource === 'warehouses') localId = await upsertWarehouse(db, shopId, item);
-    if (resource === 'orders') localId = await upsertOrder(db, shopId, item, connectionName);
+    if (resource === 'orders') localId = await upsertOrder(db, shopId, item, connectionName, options);
     if (resource === 'products') localId = await upsertProduct(db, shopId, item);
     if (resource === 'customers') localId = await upsertCustomer(db, shopId, item);
     if (resource === 'users') localId = await upsertUser(db, shopId, item);
@@ -2989,6 +2999,10 @@ async function collectPosData(db, payload = {}) {
         const items = await fetcher();
         const localIds = await storeItems(db, resource, shopId, items, result.connection_name, {
           transfer_dashboard_orders: payload.transfer_dashboard_orders === true || payload.transferDashboardOrders === true,
+          // Lets a re-sync fill in the customer counters on orders that predate
+          // them. Off unless asked for, so the interval sync stays a no-write
+          // pass over unchanged orders.
+          backfillCustomerStats: payload.backfill_customer_stats === true || payload.backfillCustomerStats === true,
         });
         result.resources[resource] = { count: items.length };
         result.sql_tables[resource] = { stored: localIds.length };
@@ -3309,6 +3323,18 @@ const CUSTOMER_STATS_MAX_SHOPS = Math.max(1, Number(process.env.POS_CUSTOMER_STA
 // Concurrent callers asking about the same number share one round of API calls.
 const customerStatsInFlight = new Map();
 
+// Shops these lookups may ask. getSavedConnections only returns the per-page
+// rows; a setup still running on the single legacy connection (the global
+// provider row, connection_id = '') has none of those, and without this the
+// lookups would quietly find no shop to ask and report zeroes.
+async function getLookupConnections(db) {
+  const saved = await getSavedConnections(db);
+  if (saved.length) return saved;
+  const row = await getSetting(db);
+  if (!row || !row.api_key || !row.page_id) return [];
+  return [rowToConnection(row)];
+}
+
 function normalizeCustomerPhone(value) {
   let text = String(value ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
   if (/^63\d{10}$/.test(text)) text = text.slice(2);
@@ -3353,44 +3379,45 @@ function customerStatsShape(row) {
   };
 }
 
-async function fetchCustomerStatsFromApi(db, phoneKey, preferredShopId) {
-  const connections = await getSavedConnections(db);
-  const usable = connections.filter((c) => c.api_key && c.shop_id && c.enabled !== 0);
-  // The order's own shop first: it is the one most likely to know this customer,
-  // and asking it first means the common case answers on the first call.
-  usable.sort((a, b) => (String(b.shop_id) === String(preferredShopId) ? 1 : 0)
-    - (String(a.shop_id) === String(preferredShopId) ? 1 : 0));
+// The exact path when we know which order we are asking about: Pancake's single
+// order endpoint returns the customer with its counters already attached, so
+// there is no phone to match and no shop to guess — the numbers come back
+// scoped to the shop that order belongs to, which is exactly what the POS shows
+// beside that customer.
+async function fetchOrderCustomerStats(db, shopId, orderId) {
+  const connections = await getLookupConnections(db);
+  const connection = connections.find((c) => String(c.shop_id) === String(shopId) && c.api_key)
+    // A shop we have orders for but no per-page connection row: any key that can
+    // read it will do, and the shop id is in the path either way.
+    || connections.find((c) => c.api_key);
+  if (!connection) return null;
 
-  const totals = { orders: 0, delivered: 0, returned: 0, purchased_amount: 0, last_order_at: null, shops: 0 };
-  let answered = false;
-  for (const connection of usable.slice(0, CUSTOMER_STATS_MAX_SHOPS)) {
-    let response;
-    try {
-      response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/customers`, connection.api_key, {
-        search: phoneKey,
-        page_size: 5,
-      });
-    } catch (error) {
-      // One unreadable shop must not lose the customer's history everywhere else.
-      console.warn(`[pos] customer lookup failed for shop ${connection.shop_id}: ${error.message}`);
-      continue;
-    }
-    answered = true;
-    const list = Array.isArray(response?.data) ? response.data : [];
-    for (const customer of list) {
-      if (!customerMatchesPhone(customer, phoneKey)) continue;
-      totals.shops += 1;
-      totals.orders += Number(customer.order_count || 0);
-      totals.delivered += Number(customer.succeed_order_count || 0);
-      totals.returned += Number(customer.returned_order_count || 0);
-      totals.purchased_amount += Number(customer.purchased_amount || 0);
-      const last = stringOrNull(customer.last_order_at);
-      if (last && (!totals.last_order_at || last > totals.last_order_at)) totals.last_order_at = last;
-    }
-  }
-  // Every shop errored — cache nothing, so the next look asks again.
-  if (!answered) throw new Error('No POS connection could be reached for this customer.');
+  const response = await posRequest(
+    connection.base_url,
+    `/shops/${shopId}/orders/${encodeURIComponent(orderId)}`,
+    connection.api_key
+  );
+  const item = response?.data || response?.order || response;
+  const counts = getPosCustomerCounts(item || {});
+  if (counts.orders == null && counts.succeed == null && counts.returned == null) return null;
 
+  const phoneKey = normalizeCustomerPhone(getPosCustomerPhone(item || {}, item?.shipping_address || {}));
+  const customer = item?.customer || {};
+  const totals = {
+    orders: Number(counts.orders || 0),
+    delivered: Number(counts.succeed || 0),
+    returned: Number(counts.returned || 0),
+    purchased_amount: Number(customer.purchased_amount || 0) || null,
+    last_order_at: stringOrNull(customer.last_order_at),
+    shops: 1,
+  };
+  // Cached under the customer's number so the next row for the same person —
+  // and the CSR tables, which only have a number — answer without a call.
+  if (phoneKey) await writeCustomerStats(db, phoneKey, totals);
+  return customerStatsShape({ ...totals, fetched_at: new Date().toISOString() });
+}
+
+async function writeCustomerStats(db, phoneKey, totals) {
   await db.prepare(`
     INSERT INTO pos_customer_stats (phone, orders, delivered, returned, purchased_amount, last_order_at, shops, fetched_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
@@ -3406,19 +3433,83 @@ async function fetchCustomerStatsFromApi(db, phoneKey, preferredShopId) {
     phoneKey, totals.orders, totals.delivered, totals.returned,
     totals.purchased_amount || null, totals.last_order_at, totals.shops
   );
+}
 
+async function fetchCustomerStatsFromApi(db, phoneKey, preferredShopId) {
+  const connections = await getLookupConnections(db);
+  const usable = connections.filter((c) => c.api_key && c.shop_id && c.enabled !== 0);
+  // The order's own shop first: it is the one most likely to know this customer,
+  // and asking it first means the common case answers on the first call.
+  usable.sort((a, b) => (String(b.shop_id) === String(preferredShopId) ? 1 : 0)
+    - (String(a.shop_id) === String(preferredShopId) ? 1 : 0));
+
+  const totals = { orders: 0, delivered: 0, returned: 0, purchased_amount: 0, last_order_at: null, shops: 0 };
+  let answered = false;
+  for (const connection of usable.slice(0, CUSTOMER_STATS_MAX_SHOPS)) {
+    // Pancake's search matches the number the way that shop stored it: a
+    // customer saved as +639171234567 is NOT found by 09171234567 (probed
+    // 2026-08-26 — the +63 and 63 forms return an empty list). So ask in every
+    // spelling and stop at the first that answers, or the history silently
+    // reads as zero for everyone stored in international format.
+    const bare = phoneKey.slice(1);
+    let list = [];
+    let failed = false;
+    for (const spelling of [phoneKey, bare, `+63${bare}`, `63${bare}`]) {
+      let response;
+      try {
+        response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/customers`, connection.api_key, {
+          search: spelling,
+          page_size: 5,
+        });
+      } catch (error) {
+        // One unreadable shop must not lose the customer's history everywhere else.
+        console.warn(`[pos] customer lookup failed for shop ${connection.shop_id}: ${error.message}`);
+        failed = true;
+        break;
+      }
+      const found = Array.isArray(response?.data) ? response.data : [];
+      if (found.length) { list = found; break; }
+    }
+    if (failed) continue;
+    answered = true;
+    for (const customer of list) {
+      if (!customerMatchesPhone(customer, phoneKey)) continue;
+      totals.shops += 1;
+      totals.orders += Number(customer.order_count || 0);
+      totals.delivered += Number(customer.succeed_order_count || 0);
+      totals.returned += Number(customer.returned_order_count || 0);
+      totals.purchased_amount += Number(customer.purchased_amount || 0);
+      const last = stringOrNull(customer.last_order_at);
+      if (last && (!totals.last_order_at || last > totals.last_order_at)) totals.last_order_at = last;
+    }
+  }
+  // Every shop errored — cache nothing, so the next look asks again.
+  if (!answered) throw new Error('No POS connection could be reached for this customer.');
+
+  await writeCustomerStats(db, phoneKey, totals);
   return customerStatsShape({ ...totals, fetched_at: new Date().toISOString() });
 }
 
 // Cached-first. `refresh` forces the round trip; otherwise anything fetched
 // inside the TTL is served from the table and costs no API call at all.
-async function fetchCustomerStats(db, phone, { shopId = null, refresh = false } = {}) {
+async function fetchCustomerStats(db, phone, { shopId = null, orderId = null, refresh = false } = {}) {
   const phoneKey = normalizeCustomerPhone(phone);
   if (!phoneKey) return null;
 
   if (!refresh) {
     const cached = await readCachedCustomerStats(db, phoneKey);
     if (cached && !cached.stale) return customerStatsShape(cached.row);
+  }
+
+  // Asking about a known order is both cheaper and exact, so try that first and
+  // only fall back to hunting for the customer by number.
+  if (shopId && orderId) {
+    try {
+      const fromOrder = await fetchOrderCustomerStats(db, shopId, orderId);
+      if (fromOrder) return fromOrder;
+    } catch (error) {
+      console.warn(`[pos] order customer lookup failed for ${shopId}/${orderId}: ${error.message}`);
+    }
   }
 
   if (customerStatsInFlight.has(phoneKey)) return customerStatsInFlight.get(phoneKey);

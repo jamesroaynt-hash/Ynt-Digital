@@ -956,7 +956,11 @@ module.exports = function integrationRoutes(db) {
 
   router.post('/pancake-pos/collect', async (req, res) => {
     try {
-      const result = await posSync.collectPosData(db, req.body || {});
+      // Somebody pressed Sync, so this pass is allowed to fill in the customer
+      // counters on orders stored before they existed — one write per such
+      // order, once. The interval sync never sets this and keeps skipping
+      // unchanged orders. Pass backfill_customer_stats: false to opt out.
+      const result = await posSync.collectPosData(db, { backfill_customer_stats: true, ...(req.body || {}) });
       res.status(202).json({
         message: 'Pancake POS data collection completed.',
         ...result,
