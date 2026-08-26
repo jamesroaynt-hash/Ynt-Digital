@@ -575,8 +575,9 @@ function ordersRoutes(db, { dispatch } = {}) {
   // the pair Pancake keeps on the customer and shows as badges beside them.
   // Two sources, in this order:
   //
-  //   1. What Pancake itself reported on the order (customer.recent_orders,
-  //      stored in customer_succeed_count / customer_returned_count). It covers
+  //   1. What Pancake itself reported on the order (succeed_order_count /
+  //      returned_order_count on its customer, stored in
+  //      customer_succeed_count / customer_returned_count). It covers
   //      the customer's whole history on that shop, including orders placed
   //      before we ever synced them, so it is the number that matches the POS.
   //      Only orders that have re-synced since those columns landed carry it:
@@ -724,6 +725,26 @@ function ordersRoutes(db, { dispatch } = {}) {
     }
     return out;
   }
+
+  // What Pancake knows about one customer, by phone. Asked for on demand — when
+  // an RMO row is expanded — because the stored counters only exist on orders
+  // that have synced since they landed, and re-syncing old orders to collect
+  // them is the egress this avoids. Cached per number, so a desk opening the
+  // same customer twice costs one API call.
+  r.get('/pos-orders/customer-stats', async (req, res) => {
+    const phone = String(req.query.phone || '').trim();
+    if (!phone) return res.status(400).json({ error: 'phone is required' });
+    try {
+      const stats = await pancakePosSync.fetchCustomerStats(db, phone, {
+        shopId: String(req.query.shop_id || '').trim() || null,
+        refresh: String(req.query.refresh || '') === '1',
+      });
+      if (!stats) return res.status(400).json({ error: 'Not a usable PH mobile number.' });
+      res.json({ phone, stats });
+    } catch (error) {
+      res.status(502).json({ error: error.message });
+    }
+  });
 
   r.get('/pos-orders/version', async (req, res) => {
     res.json({ version: await getPosOrdersVersion() });

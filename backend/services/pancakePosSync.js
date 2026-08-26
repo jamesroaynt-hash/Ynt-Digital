@@ -1359,9 +1359,8 @@ function getPosCustomerCounts(item = {}) {
     }
     return null;
   };
-  // customer.recent_orders is the shape the POS itself reads; the flat
-  // *_order_count fields are the older spelling of the same numbers. Take
-  // whichever this payload carries, preferring the explicit counters.
+  // The flat counters are what the live API actually sends; recent_orders is a
+  // tolerated alternative shape. Take whichever this payload carries.
   const recent = getPosCustomerRecentOrders(item);
   const succeed = pick('succeed_order_count', 'success_order_count', 'delivered_order_count');
   const returned = pick('returned_order_count', 'return_order_count', 'returned_count');
@@ -1373,14 +1372,12 @@ function getPosCustomerCounts(item = {}) {
   };
 }
 
-// How many of this customer's orders were delivered, and how many came back.
-// Pancake attaches the customer's history to every order it returns
-// (customer.recent_orders), and it reaches back past anything we have synced —
-// which is the whole point of reading it instead of counting our own rows.
-//
-// Two shapes have been seen in the wild, so accept both rather than betting on
-// one: a map of status -> how many, or a list of past orders to tally. Only the
-// two numbers are kept; the orders themselves are not stored.
+// A fallback reader for the customer history, used only when the confirmed
+// counters below are absent. The live API (probed 2026-08-26) puts them on the
+// order's customer as flat order_count / succeed_order_count /
+// returned_order_count and carries no recent_orders key at all — but a
+// recent_orders has been reported elsewhere, so a status -> count map or a list
+// of past orders to tally is still accepted. Only the two numbers are kept.
 const DELIVERED_KEYS = new Set(['delivered', 'succeed', 'success', 'successful', 'completed']);
 const RETURNED_KEYS = new Set(['returned', 'return', 'returning']);
 
@@ -3293,6 +3290,150 @@ async function pruneOldData(db, { retentionDays = 30, cutoffDate = null, batchSi
   };
 }
 
+/* ─── CUSTOMER STATS ────────────────────────────────────────
+ * What Pancake knows about a customer, asked for by phone number.
+ *
+ * The order payload already carries these counters on its `customer`
+ * (order_count / succeed_order_count / returned_order_count), so an order that
+ * syncs brings them along for free. What it cannot do is fill them in for a
+ * customer whose orders all predate that: re-writing settled orders just to
+ * collect a counter is exactly the egress we are avoiding. So the numbers are
+ * fetched straight from the POS instead, on demand, and cached per number.
+ *
+ * The counters are per shop, and one customer can have bought from several of
+ * our pages, so every connected shop is asked and the answers are added up —
+ * "their whole history with us", not their history on the page in front of you.
+ */
+const CUSTOMER_STATS_TTL_MS = Math.max(1, Number(process.env.POS_CUSTOMER_STATS_TTL_HOURS || 24)) * 3600000;
+const CUSTOMER_STATS_MAX_SHOPS = Math.max(1, Number(process.env.POS_CUSTOMER_STATS_MAX_SHOPS || 12));
+// Concurrent callers asking about the same number share one round of API calls.
+const customerStatsInFlight = new Map();
+
+function normalizeCustomerPhone(value) {
+  let text = String(value ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
+  if (/^63\d{10}$/.test(text)) text = text.slice(2);
+  if (/^9\d{9}$/.test(text)) text = `0${text}`;
+  return /^09\d{9}$/.test(text) ? text : '';
+}
+
+// Pancake's search is loose, so confirm the customer it returned really carries
+// the number asked about before counting their orders.
+function customerMatchesPhone(customer, phoneKey) {
+  const numbers = []
+    .concat(customer?.phone_numbers || [])
+    .concat(customer?.phone_number || [])
+    .concat(customer?.phone || []);
+  return numbers.some((value) => normalizeCustomerPhone(value) === phoneKey);
+}
+
+async function readCachedCustomerStats(db, phoneKey) {
+  const row = await db.prepare('SELECT * FROM pos_customer_stats WHERE phone = ?').get(phoneKey);
+  if (!row) return null;
+  const fetchedAt = Date.parse(String(row.fetched_at || '').replace(' ', 'T'));
+  const age = Number.isFinite(fetchedAt) ? Date.now() - fetchedAt : Infinity;
+  return { row, stale: age > CUSTOMER_STATS_TTL_MS };
+}
+
+function customerStatsShape(row) {
+  const delivered = Number(row.delivered || 0);
+  const returned = Number(row.returned || 0);
+  const settled = delivered + returned;
+  return {
+    orders: Number(row.orders || 0),
+    delivered,
+    returned,
+    // The rate Pancake itself reports: returns against the orders that actually
+    // finished, so orders still in transit don't flatter it.
+    return_rate: settled ? Math.round((returned / settled) * 100) : null,
+    purchased_amount: row.purchased_amount == null ? null : Number(row.purchased_amount),
+    last_order_at: row.last_order_at || null,
+    shops: Number(row.shops || 0),
+    source: 'pancake',
+    fetched_at: row.fetched_at || null,
+  };
+}
+
+async function fetchCustomerStatsFromApi(db, phoneKey, preferredShopId) {
+  const connections = await getSavedConnections(db);
+  const usable = connections.filter((c) => c.api_key && c.shop_id && c.enabled !== 0);
+  // The order's own shop first: it is the one most likely to know this customer,
+  // and asking it first means the common case answers on the first call.
+  usable.sort((a, b) => (String(b.shop_id) === String(preferredShopId) ? 1 : 0)
+    - (String(a.shop_id) === String(preferredShopId) ? 1 : 0));
+
+  const totals = { orders: 0, delivered: 0, returned: 0, purchased_amount: 0, last_order_at: null, shops: 0 };
+  let answered = false;
+  for (const connection of usable.slice(0, CUSTOMER_STATS_MAX_SHOPS)) {
+    let response;
+    try {
+      response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/customers`, connection.api_key, {
+        search: phoneKey,
+        page_size: 5,
+      });
+    } catch (error) {
+      // One unreadable shop must not lose the customer's history everywhere else.
+      console.warn(`[pos] customer lookup failed for shop ${connection.shop_id}: ${error.message}`);
+      continue;
+    }
+    answered = true;
+    const list = Array.isArray(response?.data) ? response.data : [];
+    for (const customer of list) {
+      if (!customerMatchesPhone(customer, phoneKey)) continue;
+      totals.shops += 1;
+      totals.orders += Number(customer.order_count || 0);
+      totals.delivered += Number(customer.succeed_order_count || 0);
+      totals.returned += Number(customer.returned_order_count || 0);
+      totals.purchased_amount += Number(customer.purchased_amount || 0);
+      const last = stringOrNull(customer.last_order_at);
+      if (last && (!totals.last_order_at || last > totals.last_order_at)) totals.last_order_at = last;
+    }
+  }
+  // Every shop errored — cache nothing, so the next look asks again.
+  if (!answered) throw new Error('No POS connection could be reached for this customer.');
+
+  await db.prepare(`
+    INSERT INTO pos_customer_stats (phone, orders, delivered, returned, purchased_amount, last_order_at, shops, fetched_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(phone) DO UPDATE SET
+      orders = excluded.orders,
+      delivered = excluded.delivered,
+      returned = excluded.returned,
+      purchased_amount = excluded.purchased_amount,
+      last_order_at = excluded.last_order_at,
+      shops = excluded.shops,
+      fetched_at = excluded.fetched_at
+  `).run(
+    phoneKey, totals.orders, totals.delivered, totals.returned,
+    totals.purchased_amount || null, totals.last_order_at, totals.shops
+  );
+
+  return customerStatsShape({ ...totals, fetched_at: new Date().toISOString() });
+}
+
+// Cached-first. `refresh` forces the round trip; otherwise anything fetched
+// inside the TTL is served from the table and costs no API call at all.
+async function fetchCustomerStats(db, phone, { shopId = null, refresh = false } = {}) {
+  const phoneKey = normalizeCustomerPhone(phone);
+  if (!phoneKey) return null;
+
+  if (!refresh) {
+    const cached = await readCachedCustomerStats(db, phoneKey);
+    if (cached && !cached.stale) return customerStatsShape(cached.row);
+  }
+
+  if (customerStatsInFlight.has(phoneKey)) return customerStatsInFlight.get(phoneKey);
+  const promise = fetchCustomerStatsFromApi(db, phoneKey, shopId)
+    .catch(async (error) => {
+      // Serve a stale number rather than nothing when the POS is unreachable.
+      const cached = await readCachedCustomerStats(db, phoneKey);
+      if (cached) return customerStatsShape(cached.row);
+      throw error;
+    })
+    .finally(() => customerStatsInFlight.delete(phoneKey));
+  customerStatsInFlight.set(phoneKey, promise);
+  return promise;
+}
+
 module.exports = {
   PROVIDER,
   POS_API_BASE,
@@ -3320,4 +3461,6 @@ module.exports = {
   cleanupMalformedDashboardOrders,
   normalizeSourceSheets,
   syncPancakePageUsers,
+  fetchCustomerStats,
+  normalizeCustomerPhone,
 };

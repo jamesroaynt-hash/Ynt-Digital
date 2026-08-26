@@ -1457,6 +1457,9 @@ const DB = {
   // Customer history keyed by normalized phone, for CSR records whose Order ID
   // matches no POS order.
   csrCustomerHistory: {},
+  // Pancake's own numbers for a customer, fetched when an RMO row is expanded.
+  // Kept for the session so re-opening a row, or a table repaint, costs nothing.
+  posCustomerStats: {},
   csrPosOrders: {},
   csrAgentNames: [],
   inventory: [],
@@ -9611,9 +9614,9 @@ function getRmoUndeliverableReason(order) {
   return order?.partner_reason || '';
 }
 
-// How many of this customer's orders arrived and how many came back — the pair
-// of numbers Pancake keeps on the customer (customer.recent_orders) and shows as
-// badges beside them. The backend sends `customer_history` on every POS order it
+// How many of this customer's orders arrived and how many came back, plus the
+// return rate Pancake computes from them — the numbers the POS shows as badges
+// beside a customer. The backend sends `customer_history` on every POS order it
 // returns (and on the CSR live-status lookup), or null when there is nothing to
 // report: a number nobody has delivered to and never returned draws no badges,
 // so a busy table only lights up where there is something to see.
@@ -9624,7 +9627,7 @@ function getRmoUndeliverableReason(order) {
 function customerHistoryBadges(history) {
   if (!history) return '';
   const delivered = Number(history.delivered) || 0;
-  const returns = Number(history.returns) || 0;
+  const returns = Number(history.returns ?? history.returned) || 0;
   if (!delivered && !returns) return '';
   const orders = Number(history.orders) || 0;
   const local = history.source !== 'pancake';
@@ -9633,11 +9636,21 @@ function customerHistoryBadges(history) {
   const of = orders ? ` of ${orders} order${orders === 1 ? '' : 's'}` : '';
   const badge = (cls, label, count) =>
     `<span class="cust-hist ${cls}${dim}" title="${escapeHtml(`${count} ${label.toLowerCase()}${of} — ${origin}`)}">${label} - ${count}</span>`;
-  // Stacked under the order number rather than inline: two labelled lines read
-  // at a glance, and the customer columns stay the width they were.
+  // The rate Pancake shows: returns against the orders that finished, so the
+  // ones still in transit don't flatter it. Toned by how bad it is — this is the
+  // number a desk uses to decide whether to ship another COD parcel.
+  const settled = delivered + returns;
+  const rate = settled ? Math.round((returns / settled) * 100) : null;
+  const rateTone = rate == null ? '' : (rate >= 20 ? ' cust-hist-rate-bad' : (rate >= 10 ? ' cust-hist-rate-warn' : ''));
+  const rateLine = rate == null ? '' : `<span class="cust-hist cust-hist-rate${rateTone}${dim}" title="${escapeHtml(`${returns} returned of ${settled} completed order${settled === 1 ? '' : 's'} — ${origin}`)}">Return rate - ${rate}%</span>`;
+  // Two labelled lines rather than inline badges: they read at a glance and cost
+  // the customer columns none of their width. On RMO this block lives in the
+  // row's expanded delivery details; the flat tables have no such row, so there
+  // it sits under the order number.
   return `<div class="cust-hist-stack">`
-    + (delivered ? badge('cust-hist-delivered', 'Delivered', delivered) : '')
-    + (returns ? badge('cust-hist-returns', 'Returned', returns) : '')
+    + badge('cust-hist-delivered', 'Delivered', delivered)
+    + badge('cust-hist-returns', 'Returned', returns)
+    + rateLine
     + `</div>`;
 }
 
@@ -15795,10 +15808,57 @@ function toggleRmoRowDetails(event, row) {
   detail.hidden = !open;
   row.classList.toggle('expanded', open);
 
+  if (open) loadRmoCustomerStats(row, detail);
+
   const key = row.dataset.key;
   if (!key) return;
   if (open) rmoExpandedRows.add(key);
   else rmoExpandedRows.delete(key);
+}
+
+// Pancake's numbers for this row's customer, if the POS has better than what the
+// row was served with. Only fires on expand — one API call per customer per
+// session, cached server-side too, so browsing the table costs nothing until
+// somebody actually opens a row.
+async function loadRmoCustomerStats(row, detail) {
+  const phone = row?.dataset?.phone || '';
+  const key = normalizePhoneKey(phone);
+  const cell = detail?.querySelector('.rmo-detail-spacer');
+  if (!key || !cell || DB.posCustomerStats[key] || cell.dataset.statsPending === key) return;
+  cell.dataset.statsPending = key;
+  try {
+    const query = new URLSearchParams({ phone });
+    if (row.dataset.shop) query.set('shop_id', row.dataset.shop);
+    const result = await authorizedJsonRequest(`/orders/pos-orders/customer-stats?${query.toString()}`);
+    const stats = result?.stats;
+    // A number the POS has never sold to reports zeroes; keep whatever the row
+    // already had rather than replacing it with nothing.
+    if (!stats || (!stats.delivered && !stats.returned)) return;
+    DB.posCustomerStats[key] = stats;
+    renderRmoCustomerCell(cell, stats);
+  } catch {
+    // Leave the counts the row came with — the POS being unreachable is not
+    // worth blanking a row the desk is reading.
+  } finally {
+    delete cell.dataset.statsPending;
+  }
+}
+
+function renderRmoCustomerCell(cell, history) {
+  const block = customerHistoryBadges(history);
+  cell.innerHTML = block
+    ? `<div class="rmo-detail-item">
+        <span class="rmo-detail-label">Customer</span>
+        <span class="rmo-detail-value">${block}</span>
+      </div>`
+    : '';
+}
+
+// The best history we hold for an order's customer: what the POS told us when a
+// row was expanded, else the counts the list was served with.
+function rmoCustomerHistory(order) {
+  const key = normalizePhoneKey(order?.customer_phone);
+  return (key && DB.posCustomerStats[key]) || order?.customer_history || null;
 }
 
 function renderPosOrdersTable() {
@@ -15900,6 +15960,10 @@ function renderPosOrdersTable() {
       // it takes the summary column and Confirmed By drops in underneath it.
       const courierFields = [['Courier', escapeHtml(getRmoCourier(order)) || dash]];
       if (showsReason) courierFields.push(['Confirmed By', escapeHtml(order.assigning_seller_name || '') || dash]);
+      // Sits in the detail row's first cell, under the order number and ahead of
+      // Page, so the expanded row opens with who this customer has been. Prefers
+      // anything already fetched from the POS over the counts the row came with.
+      const historyBlock = customerHistoryBadges(rmoCustomerHistory(order));
       const detailColumns = [
         [['Page', escapeHtml(order.page_name || '') || dash]],
         [['Rider Assign', escapeHtml(rider.name || '') || dash]],
@@ -15915,7 +15979,7 @@ function renderPosOrdersTable() {
         // Tags last: the edit button makes this the one interactive field.
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];
-      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" title="Click the row to show delivery details" onclick="toggleRmoRowDetails(event, this)">
+      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" title="Click the row to show delivery details" onclick="toggleRmoRowDetails(event, this)">
         <td>
           <span class="rmo-check-cell">
             ${order.can_message
@@ -15923,7 +15987,6 @@ function renderPosOrdersTable() {
               : '<span class="rmo-check-blank" title="No Messenger contact for this order">—</span>'}
             <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
           </span>
-          ${customerHistoryBadges(order.customer_history)}
         </td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div></td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
@@ -15946,7 +16009,12 @@ function renderPosOrdersTable() {
         </td>
       </tr>
       <tr class="rmo-detail-row" id="${detailId}" ${open ? '' : 'hidden'}>
-        <td class="rmo-detail-spacer"></td>
+        <td class="rmo-detail-spacer">${historyBlock
+          ? `<div class="rmo-detail-item">
+            <span class="rmo-detail-label">Customer</span>
+            <span class="rmo-detail-value">${historyBlock}</span>
+          </div>`
+          : ''}</td>
         ${detailColumns.map((fields) => `<td>${fields.map(([label, value]) => `
           <div class="rmo-detail-item">
             <span class="rmo-detail-label">${label}</span>

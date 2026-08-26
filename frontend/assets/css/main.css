@@ -3329,6 +3329,10 @@ tfoot td {
 
 .rmo-detail-value .rmo-tag-line { margin-top: 0; }
 
+/* Already sitting under its own label in the expanded row, so it needs no gap
+   of its own. */
+.rmo-detail-value .cust-hist-stack { margin-top: 0; }
+
 .rmo-tag-line {
   margin-top: 8px;
   display: flex;
@@ -3367,8 +3371,9 @@ tfoot td {
 }
 
 /* Customer history badges — how many of this customer's orders were delivered
-   and how many came back, the pair Pancake keeps on the customer. Stacked under
-   the order number wherever that customer appears (RMO, POS Orders, CSR). */
+   and how many came back, the pair Pancake keeps on the customer. Two stacked
+   lines, in RMO's expanded delivery details and under the order number in the
+   flat POS Orders / CSR tables. */
 .cust-hist-stack {
   display: flex;
   flex-direction: column;
@@ -3397,6 +3402,25 @@ tfoot td {
 .cust-hist-returns {
   background: var(--danger-soft);
   color: var(--danger-text);
+}
+
+/* The rate is neutral until it starts to matter, then it earns a colour. */
+.cust-hist-rate {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.cust-hist-rate-warn {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border-color: transparent;
+}
+
+.cust-hist-rate-bad {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: transparent;
 }
 
 /* A number counted from our own synced orders rather than reported by Pancake:

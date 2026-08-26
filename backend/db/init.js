@@ -508,8 +508,8 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'ad_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ads_source', 'TEXT');
   // The customer's history as Pancake reports it on the order payload
-  // (customer.recent_orders): how many of their orders were delivered, how many
-  // came back. Only orders that re-sync carry them, so every read falls back to
+  // (succeed_order_count / returned_order_count on the customer): how many of
+  // their orders were delivered, how many came back. Only orders that re-sync carry them, so every read falls back to
   // counting our own pos_orders rows for a customer whose orders all predate
   // this. The phone index is what makes that fallback cheap.
   ensureColumn(db, 'pos_orders', 'customer_order_count', 'INTEGER');
@@ -995,8 +995,8 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'ad_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ads_source', 'TEXT');
   // The customer's history as Pancake reports it on the order payload
-  // (customer.recent_orders): how many of their orders were delivered, how many
-  // came back. Only orders that re-sync carry them, so every read falls back to
+  // (succeed_order_count / returned_order_count on the customer): how many of
+  // their orders were delivered, how many came back. Only orders that re-sync carry them, so every read falls back to
   // counting our own pos_orders rows for a customer whose orders all predate
   // this. The phone index is what makes that fallback cheap.
   await ensureColumnAsync(db, 'pos_orders', 'customer_order_count', 'INTEGER');
