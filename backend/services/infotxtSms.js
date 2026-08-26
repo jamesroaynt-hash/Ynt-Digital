@@ -83,12 +83,21 @@ function templateKey(key) {
   return String(key).trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
+// A number that goes into a message is there to be dialled, so show the
+// 09XXXXXXXXX form wherever the stored value parses as a PH mobile (the
+// sprinter regex captures numbers without the trunk zero, and customer numbers
+// arrive as +63…/63… just as often). Anything unparseable is passed through as
+// stored rather than blanked — a landline or a note is still worth showing.
+function displayMobile(value) {
+  return normalizeMobile(value) || stringOrNull(value) || '';
+}
+
 function renderTemplate(template, row = {}) {
   const product = row.note_product || '';
   const page = row.page_name || '';
   const values = {
     rider: row.sprinter_name || 'Rider',
-    rider_phone: row.sprinter_tel || '',
+    rider_phone: displayMobile(row.sprinter_tel),
     status: row.status_name || '',
     tag: row.matched_tag || '',
     tracking: row.tracking_no || row.external_id || '',
@@ -96,7 +105,7 @@ function renderTemplate(template, row = {}) {
     shop: page || row.shop_id || '',
     customer: row.customer_name || '',
     customer_name: row.customer_name || '',
-    customer_phone: row.customer_phone || '',
+    customer_phone: displayMobile(row.customer_phone),
     product,
     product_name: product,
     page,
@@ -939,7 +948,13 @@ async function prepareBlast(db, payload = {}) {
       for (const mobile of mobiles) {
         // Rendered per recipient, and logged as rendered, so the send log shows
         // the text that actually went out rather than the template.
-        const text = truncate(renderTemplate(body, context.get(mobile) || {}), 1550);
+        // The recipient's own number is known even when no order is: seed it
+        // first so {customer phone} is never blank, and let any order context
+        // override it with the number that order actually stored.
+        const text = truncate(renderTemplate(body, {
+          customer_phone: mobile,
+          ...(context.get(mobile) || {}),
+        }), 1550);
         const log = await insertSmsLog(db, {
           provider: PROVIDER,
           event_key: `${batchId}:${mobile}`,

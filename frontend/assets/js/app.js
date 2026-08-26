@@ -2544,6 +2544,7 @@ function renderSmsAutomations() {
             <code>{product name}</code>, <code>{page name}</code>, <code>{customer}</code>.
             Spacing and case don't matter (<code>{Product Name}</code> works too), and anything else in braces is sent as written.
             A recipient with no order behind their number gets a blank there — check the count below before sending.
+            <code>{customer phone}</code> is the recipient's own number, so it is filled even without an order.
           </div>
         </div>
 
@@ -2581,7 +2582,7 @@ function renderSmsAutomations() {
         <div class="form-group">
           <label class="form-label">Content:</label>
           <textarea class="form-control" id="infotxt-rule-message" rows="7" placeholder="Enter content"></textarea>
-          <div class="field-help">Placeholders: <code>{rider}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>.</div>
+          <div class="field-help">Placeholders: <code>{rider}</code>, <code>{rider phone}</code>, <code>{status}</code>, <code>{tag}</code>, <code>{tracking}</code>, <code>{order_id}</code>, <code>{customer}</code>, <code>{customer phone}</code>, <code>{product}</code>, <code>{cod}</code>, <code>{shop}</code>. Spacing and case don't matter (<code>{Customer Phone}</code> works too), and the two numbers are written in 09XXXXXXXXX form so they can be dialled straight from the text.</div>
         </div>
       </div>
       <div class="modal-footer">
