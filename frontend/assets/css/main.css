@@ -3367,20 +3367,25 @@ tfoot td {
 }
 
 /* Customer history badges — how many of this customer's orders were delivered
-   and how many came back, the pair Pancake keeps on the customer. Rendered
-   wherever that customer appears (RMO, POS Orders, CSR Records). */
+   and how many came back, the pair Pancake keeps on the customer. Stacked under
+   the order number wherever that customer appears (RMO, POS Orders, CSR). */
+.cust-hist-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: 4px;
+}
+
 .cust-hist {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
   border-radius: 999px;
   padding: 1px 7px;
-  margin-left: 4px;
   font-size: 10px;
   font-weight: 700;
   line-height: 16px;
   white-space: nowrap;
-  vertical-align: middle;
   cursor: help;
 }
 

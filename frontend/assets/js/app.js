@@ -9631,10 +9631,14 @@ function customerHistoryBadges(history) {
   const dim = local ? ' cust-hist-local' : '';
   const origin = local ? 'counted from the orders synced here' : 'reported by Pancake';
   const of = orders ? ` of ${orders} order${orders === 1 ? '' : 's'}` : '';
-  const badge = (cls, icon, count, label) =>
-    `<span class="cust-hist ${cls}${dim}" title="${escapeHtml(`${count} ${label}${of} — ${origin}`)}">${icon} ${count}</span>`;
-  return (delivered ? badge('cust-hist-delivered', '✓', delivered, 'delivered') : '')
-    + (returns ? badge('cust-hist-returns', '↩', returns, 'returned') : '');
+  const badge = (cls, label, count) =>
+    `<span class="cust-hist ${cls}${dim}" title="${escapeHtml(`${count} ${label.toLowerCase()}${of} — ${origin}`)}">${label} - ${count}</span>`;
+  // Stacked under the order number rather than inline: two labelled lines read
+  // at a glance, and the customer columns stay the width they were.
+  return `<div class="cust-hist-stack">`
+    + (delivered ? badge('cust-hist-delivered', 'Delivered', delivered) : '')
+    + (returns ? badge('cust-hist-returns', 'Returned', returns) : '')
+    + `</div>`;
 }
 
 // Courier / shipping partner name from partner_json. Mirrors the courier
@@ -10515,8 +10519,8 @@ function renderRecCsrRows() {
     <td>${record.date}</td>
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
-    <td class="font-mono text-xs">${record.orderId || ''}</td>
-    <td>${record.customerName}${customerHistoryBadges(csrCustomerHistory(record))}</td>
+    <td class="font-mono text-xs">${record.orderId || ''}${customerHistoryBadges(csrCustomerHistory(record))}</td>
+    <td>${record.customerName}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
     <td>${statusBadge(csrLiveStatus(record))}</td>
@@ -10547,8 +10551,8 @@ function renderCSRTable() {
     <td>${record.date}</td>
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
-    <td class="font-mono text-xs">${record.orderId || ''}</td>
-    <td>${record.customerName}${customerHistoryBadges(csrCustomerHistory(record))}</td>
+    <td class="font-mono text-xs">${record.orderId || ''}${customerHistoryBadges(csrCustomerHistory(record))}</td>
+    <td>${record.customerName}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
     <td>${statusBadge(csrLiveStatus(record))}</td>
@@ -15919,8 +15923,9 @@ function renderPosOrdersTable() {
               : '<span class="rmo-check-blank" title="No Messenger contact for this order">—</span>'}
             <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
           </span>
+          ${customerHistoryBadges(order.customer_history)}
         </td>
-        <td><div class="rmo-item-main"><span class="rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</span>${customerHistoryBadges(order.customer_history)}</div></td>
+        <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div></td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(product)}</div></td>
@@ -15950,11 +15955,11 @@ function renderPosOrdersTable() {
       </tr>`;
     }
     return `<tr>
-      <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}</td>
+      <td class="font-mono text-xs">${escapeHtml(order.external_id || '')}${customerHistoryBadges(order.customer_history)}</td>
       <td class="font-mono text-xs">${escapeHtml(order.tracking_no || '') || dash}</td>
       <td>${escapeHtml(order.page_name || '') || dash}</td>
       <td>${escapeHtml(order.date || '')}</td>
-      <td style="font-weight:500">${escapeHtml(order.customer_name || '') || dash}${customerHistoryBadges(order.customer_history)}</td>
+      <td style="font-weight:500">${escapeHtml(order.customer_name || '') || dash}</td>
       <td class="font-mono text-xs">${escapeHtml(order.customer_phone || '') || dash}</td>
       <td>${escapeHtml(order.note_product || '') || dash}</td>
       <td>${tagLabels.map((t) => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('') || dash}</td>
