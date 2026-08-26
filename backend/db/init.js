@@ -507,6 +507,15 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'partner_reason', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ad_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ads_source', 'TEXT');
+  // The customer's history as Pancake reports it on the order payload
+  // (customer.recent_orders): how many of their orders were delivered, how many
+  // came back. Only orders that re-sync carry them, so every read falls back to
+  // counting our own pos_orders rows for a customer whose orders all predate
+  // this. The phone index is what makes that fallback cheap.
+  ensureColumn(db, 'pos_orders', 'customer_order_count', 'INTEGER');
+  ensureColumn(db, 'pos_orders', 'customer_succeed_count', 'INTEGER');
+  ensureColumn(db, 'pos_orders', 'customer_returned_count', 'INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_customer_phone ON pos_orders(customer_phone)');
   ensureColumn(db, 'pos_shops', 'currency', 'TEXT');
   migratePosOrdersCompositeIdentity(db);
   migrateIntegrationSettingsMultiRow(db);
@@ -985,6 +994,15 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'partner_reason', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ad_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ads_source', 'TEXT');
+  // The customer's history as Pancake reports it on the order payload
+  // (customer.recent_orders): how many of their orders were delivered, how many
+  // came back. Only orders that re-sync carry them, so every read falls back to
+  // counting our own pos_orders rows for a customer whose orders all predate
+  // this. The phone index is what makes that fallback cheap.
+  await ensureColumnAsync(db, 'pos_orders', 'customer_order_count', 'INTEGER');
+  await ensureColumnAsync(db, 'pos_orders', 'customer_succeed_count', 'INTEGER');
+  await ensureColumnAsync(db, 'pos_orders', 'customer_returned_count', 'INTEGER');
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_customer_phone ON pos_orders(customer_phone)');
   await ensureColumnAsync(db, 'pos_shops', 'currency', 'TEXT');
   await migratePosOrdersCompositeIdentityAsync(db);
   await migratePosOrdersCodNumericAsync(db);

@@ -578,6 +578,10 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
   }
   const customerName = getPosCustomerName(item, item?.shipping_address || {});
   const customerPhone = getPosCustomerPhone(item, item?.shipping_address || {});
+  // Ride along with whatever this payload already carries. Deliberately NOT part
+  // of the skip-unchanged guard below: an order nobody touched is not worth a
+  // write just to refresh a counter.
+  const customerCounts = getPosCustomerCounts(item);
   if (!customerName && !customerPhone) return null;
 
   const partner = item?.partner || {};
@@ -685,9 +689,10 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, sprinter_name, sprinter_tel,
-      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, ad_id, ads_source, raw_payload
+      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, ad_id, ads_source,
+      customer_order_count, customer_succeed_count, customer_returned_count, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -722,6 +727,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
       partner_reason = excluded.partner_reason,
       ad_id = COALESCE(excluded.ad_id, pos_orders.ad_id),
       ads_source = COALESCE(excluded.ads_source, pos_orders.ads_source),
+      customer_order_count = COALESCE(excluded.customer_order_count, pos_orders.customer_order_count),
+      customer_succeed_count = COALESCE(excluded.customer_succeed_count, pos_orders.customer_succeed_count),
+      customer_returned_count = COALESCE(excluded.customer_returned_count, pos_orders.customer_returned_count),
       raw_payload = excluded.raw_payload,
       updated_at = datetime('now')
   `).run(
@@ -762,6 +770,9 @@ async function upsertOrder(db, shopId, item, connectionName = null) {
     partnerReason,
     adId,
     adsSource,
+    customerCounts.orders,
+    customerCounts.succeed,
+    customerCounts.returned,
     rawPayloadForStorage(item)
   );
 
@@ -1329,6 +1340,96 @@ function getPosCustomerPhone(item = {}, shippingAddress = {}) {
     customer?.phone ||
     shippingAddress?.phone_number ||
     shippingAddress?.phone
+  );
+}
+
+// Pancake keeps a running history on the customer object of every order it
+// returns — how many orders that number has placed, how many arrived, how many
+// came back. It is the same trio the POS shows as badges beside a customer, and
+// it counts across the whole shop, including orders older than anything we
+// store. Field names differ between payload versions, so try each spelling and
+// leave the column NULL when none is present: a reader that finds no stored
+// count falls back to counting our own rows rather than showing a wrong zero.
+function getPosCustomerCounts(item = {}) {
+  const customer = item?.customer || {};
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const n = numberOrNull(customer?.[key] ?? item?.[key]);
+      if (n != null && n >= 0) return Math.round(n);
+    }
+    return null;
+  };
+  // customer.recent_orders is the shape the POS itself reads; the flat
+  // *_order_count fields are the older spelling of the same numbers. Take
+  // whichever this payload carries, preferring the explicit counters.
+  const recent = getPosCustomerRecentOrders(item);
+  const succeed = pick('succeed_order_count', 'success_order_count', 'delivered_order_count');
+  const returned = pick('returned_order_count', 'return_order_count', 'returned_count');
+  return {
+    orders: pick('order_count', 'orders_count', 'count_orders', 'total_order_count')
+      ?? (recent?.total ?? null),
+    succeed: succeed ?? (recent?.delivered ?? null),
+    returned: returned ?? (recent?.returned ?? null),
+  };
+}
+
+// How many of this customer's orders were delivered, and how many came back.
+// Pancake attaches the customer's history to every order it returns
+// (customer.recent_orders), and it reaches back past anything we have synced —
+// which is the whole point of reading it instead of counting our own rows.
+//
+// Two shapes have been seen in the wild, so accept both rather than betting on
+// one: a map of status -> how many, or a list of past orders to tally. Only the
+// two numbers are kept; the orders themselves are not stored.
+const DELIVERED_KEYS = new Set(['delivered', 'succeed', 'success', 'successful', 'completed']);
+const RETURNED_KEYS = new Set(['returned', 'return', 'returning']);
+
+function tallyRecentOrders(raw) {
+  if (!raw) return null;
+
+  if (Array.isArray(raw)) {
+    let delivered = 0;
+    let returned = 0;
+    for (const entry of raw) {
+      const status = String(
+        (entry && typeof entry === 'object' ? (entry.status_name ?? entry.status ?? entry.state) : entry) ?? ''
+      ).trim().toLowerCase();
+      if (DELIVERED_KEYS.has(status)) delivered += 1;
+      else if (RETURNED_KEYS.has(status)) returned += 1;
+    }
+    return { delivered, returned, total: raw.length };
+  }
+
+  if (typeof raw === 'object') {
+    // { data: [...] } / { orders: [...] } — one level of wrapping.
+    for (const key of ['data', 'orders', 'items', 'list']) {
+      if (Array.isArray(raw[key])) return tallyRecentOrders(raw[key]);
+    }
+    // Otherwise a status -> count map. Ignore it unless the values are numbers,
+    // so an object of nested order data is never read as counts.
+    const entries = Object.entries(raw).filter(([, value]) => numberOrNull(value) != null);
+    if (!entries.length) return null;
+    let delivered = null;
+    let returned = null;
+    let total = 0;
+    for (const [key, value] of entries) {
+      const name = String(key).trim().toLowerCase();
+      const count = Number(value);
+      total += count;
+      if (DELIVERED_KEYS.has(name)) delivered = (delivered || 0) + count;
+      else if (RETURNED_KEYS.has(name)) returned = (returned || 0) + count;
+    }
+    if (delivered == null && returned == null) return null;
+    return { delivered: delivered || 0, returned: returned || 0, total };
+  }
+
+  return null;
+}
+
+function getPosCustomerRecentOrders(item = {}) {
+  const customer = item?.customer || {};
+  return tallyRecentOrders(
+    customer.recent_orders ?? customer.recentOrders ?? customer.last_orders ?? item?.recent_orders ?? null
   );
 }
 

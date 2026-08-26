@@ -352,12 +352,18 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   partner_reason TEXT,
   ad_id TEXT,
   ads_source TEXT,
+  customer_order_count INTEGER,
+  customer_succeed_count INTEGER,
+  customer_returned_count INTEGER,
   raw_payload TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_pos_orders_shop ON pos_orders(shop_id, updated_at_remote DESC);
+-- Customer history badges look every listed order's number up at once, and the
+-- blast segment groups by it.
+CREATE INDEX IF NOT EXISTS idx_pos_orders_customer_phone ON pos_orders(customer_phone);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_orders_shop_external ON pos_orders(shop_id, external_id);
 
 CREATE TABLE IF NOT EXISTS google_orders (

@@ -570,6 +570,161 @@ function ordersRoutes(db, { dispatch } = {}) {
     }
   }
 
+  // ─── CUSTOMER HISTORY ───────────────────────────────────────
+  // How many of this customer's orders were delivered and how many came back —
+  // the pair Pancake keeps on the customer and shows as badges beside them.
+  // Two sources, in this order:
+  //
+  //   1. What Pancake itself reported on the order (customer.recent_orders,
+  //      stored in customer_succeed_count / customer_returned_count). It covers
+  //      the customer's whole history on that shop, including orders placed
+  //      before we ever synced them, so it is the number that matches the POS.
+  //      Only orders that have re-synced since those columns landed carry it:
+  //      the sync deliberately does not re-write an unchanged order just to
+  //      refresh a counter, so untouched rows stay NULL.
+  //   2. Counting the pos_orders rows we hold for that number. Always
+  //      available, but only sees the orders we have synced.
+  //
+  // Phones are matched on the normalized 09XXXXXXXXX form, because the same
+  // customer is stored as +63…/63…/9… across shops.
+  function posPhoneKey(value) {
+    let text = String(value ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
+    if (/^63\d{10}$/.test(text)) text = text.slice(2);
+    if (/^9\d{9}$/.test(text)) text = `0${text}`;
+    return /^09\d{9}$/.test(text) ? text : '';
+  }
+
+  // What counts as delivered and as returned when we count our own rows.
+  // 'returning' is deliberately excluded: it is still in transit, and Pancake's
+  // own counter reports completed returns, so counting it would make the two
+  // sources disagree in the same column.
+  const POS_RETURNED_STATUSES = ["'returned'"];
+  const POS_DELIVERED_STATUSES = ["'delivered'"];
+  const POS_HISTORY_CHUNK = 100;
+
+  async function posCustomerHistory(rows = [], extraPhones = []) {
+    const history = new Map();
+    const needLookup = new Map(); // phone key -> raw values seen, for the IN list
+
+    // Numbers with no order row in hand at all — CSR records typed by phone.
+    // They own no stored count, so they always take the lookup path.
+    for (const phone of extraPhones) {
+      const key = posPhoneKey(phone);
+      if (!key) continue;
+      const raws = needLookup.get(key) || new Set();
+      raws.add(String(phone));
+      needLookup.set(key, raws);
+    }
+
+    for (const row of rows) {
+      const key = posPhoneKey(row?.customer_phone);
+      if (!key) continue;
+      // A payload can report the delivered/returned pair without a total, so any
+      // one of the three counting as "Pancake told us" — and a repeat customer's
+      // rows disagree (each order snapshots the history as it was at the time),
+      // so the row that saw the most orders is the most recent truth.
+      const reported = [row?.customer_order_count, row?.customer_succeed_count, row?.customer_returned_count]
+        .some((value) => value != null && Number.isFinite(Number(value)));
+      if (reported) {
+        const delivered = Number(row.customer_succeed_count || 0);
+        const returns = Number(row.customer_returned_count || 0);
+        const orders = Number(row.customer_order_count || 0) || (delivered + returns);
+        const current = history.get(key);
+        if (!current || current.source !== 'pancake' || orders > current.orders) {
+          history.set(key, { orders, returns, delivered, source: 'pancake' });
+        }
+      } else if (!history.has(key)) {
+        const raws = needLookup.get(key) || new Set();
+        raws.add(String(row.customer_phone));
+        needLookup.set(key, raws);
+      }
+    }
+
+    // Only the numbers Pancake has told us nothing about reach the database.
+    const pending = [...needLookup.keys()].filter((key) => !history.has(key));
+    for (let i = 0; i < pending.length; i += POS_HISTORY_CHUNK) {
+      const chunk = pending.slice(i, i + POS_HISTORY_CHUNK);
+      const variants = [];
+      for (const key of chunk) {
+        const bare = key.slice(1);
+        variants.push(key, bare, `63${bare}`, `+63${bare}`, ...needLookup.get(key));
+      }
+      const unique = [...new Set(variants)];
+      // Counts our own rows, and picks up any Pancake count stored against this
+      // number on an order that isn't on screen — the same customer's newer
+      // order elsewhere in the table often carries it.
+      const found = await db.prepare(`
+        SELECT customer_phone,
+               COUNT(*) AS orders,
+               SUM(CASE WHEN status_name IN (${POS_RETURNED_STATUSES.join(',')}) THEN 1 ELSE 0 END) AS returns,
+               SUM(CASE WHEN status_name IN (${POS_DELIVERED_STATUSES.join(',')}) THEN 1 ELSE 0 END) AS delivered,
+               MAX(customer_order_count) AS pos_orders_count,
+               MAX(customer_returned_count) AS pos_returns_count,
+               MAX(customer_succeed_count) AS pos_delivered_count
+        FROM pos_orders
+        WHERE customer_phone IN (${unique.map(() => '?').join(',')})
+        GROUP BY customer_phone
+      `).all(...unique);
+      // Several raw spellings can collapse onto one key, so add our own counts up
+      // rather than letting the last row win; Pancake's own figure already spans
+      // every spelling, so the highest one reported wins instead.
+      for (const row of found || []) {
+        const key = posPhoneKey(row.customer_phone);
+        if (!key) continue;
+        const current = history.get(key) || { orders: 0, returns: 0, delivered: 0, source: 'local' };
+        const anyReported = [row.pos_orders_count, row.pos_delivered_count, row.pos_returns_count]
+          .some((value) => value != null && Number.isFinite(Number(value)));
+        if (anyReported) {
+          const delivered = Number(row.pos_delivered_count || 0);
+          const returns = Number(row.pos_returns_count || 0);
+          const orders = Number(row.pos_orders_count || 0) || (delivered + returns);
+          if (current.source !== 'pancake' || orders > current.orders) {
+            history.set(key, { orders, returns, delivered, source: 'pancake' });
+          }
+          continue;
+        }
+        if (current.source !== 'local') continue;
+        current.orders += Number(row.orders || 0);
+        current.returns += Number(row.returns || 0);
+        current.delivered += Number(row.delivered || 0);
+        history.set(key, current);
+      }
+    }
+
+    return history;
+  }
+
+  // The shape the tables render: how many of this customer's orders arrived and
+  // how many came back. Null when the number is unusable, unknown, or has
+  // nothing to report yet — a customer with no delivery and no return behind
+  // them draws no badges at all, rather than a pair of zeroes on every row.
+  function posHistoryFor(history, phone) {
+    const entry = history.get(posPhoneKey(phone));
+    if (!entry) return null;
+    const delivered = Number(entry.delivered || 0);
+    const returns = Number(entry.returns || 0);
+    if (!delivered && !returns) return null;
+    return {
+      delivered,
+      returns,
+      orders: Number(entry.orders || 0),
+      source: entry.source,
+    };
+  }
+
+  // The same history keyed by the normalized number, for callers that hold a
+  // phone rather than an order. Only the numbers that were asked about.
+  function historyByPhone(history, phones = []) {
+    const out = {};
+    for (const phone of phones) {
+      const key = posPhoneKey(phone);
+      if (!key || out[key]) continue;
+      const entry = posHistoryFor(history, phone);
+      if (entry) out[key] = entry;
+    }
+    return out;
+  }
+
   r.get('/pos-orders/version', async (req, res) => {
     res.json({ version: await getPosOrdersVersion() });
   });
@@ -578,18 +733,34 @@ function ordersRoutes(db, { dispatch } = {}) {
   r.get('/pos-orders/by-ids', async (req, res) => {
     const raw = String(req.query.ids || '');
     const ids = raw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
-    if (!ids.length) return res.json({ data: [] });
+    // Optional: numbers to report customer history for even when no order id
+    // matched. CSR records are typed by hand, so plenty of them carry a phone
+    // the POS knows and an Order ID it doesn't.
+    const phones = String(req.query.phones || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
+    if (!ids.length && !phones.length) return res.json({ data: [], history: {} });
+    if (!ids.length) {
+      const phoneOnly = await posCustomerHistory([], phones);
+      return res.json({ data: [], history: historyByPhone(phoneOnly, phones) });
+    }
     const vis = await posVisibilityFilter();
     const placeholders = ids.map(() => '?').join(',');
     const rows = await db.prepare(
-      `SELECT external_id, status_name, tracking_no FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
+      `SELECT external_id, status_name, tracking_no, customer_phone,
+              customer_order_count, customer_succeed_count, customer_returned_count
+       FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
     ).all(...ids, ...vis.params);
+    // CSR records read their live status from here, so the customer's history
+    // rides along on the same request rather than costing the page a second one.
+    const history = await posCustomerHistory(rows, phones);
     res.json({
       data: rows.map((row) => ({
         id: row.external_id,
         status: posDisplayStatus(row.status_name),
         tracking: row.tracking_no || '',
+        customer_phone: row.customer_phone || '',
+        customer_history: posHistoryFor(history, row.customer_phone),
       })),
+      history: historyByPhone(history, phones),
     });
   });
 
@@ -932,7 +1103,8 @@ function ordersRoutes(db, { dispatch } = {}) {
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason, items_json
+             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason, items_json,
+             customer_order_count, customer_succeed_count, customer_returned_count
       FROM pos_orders ${where}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
       LIMIT ? OFFSET ?
@@ -951,6 +1123,9 @@ function ordersRoutes(db, { dispatch } = {}) {
       });
       return acc;
     }, { products: new Set(), pages: new Set(), tags: new Set() });
+
+    // One extra query at most, over just this page's numbers.
+    const history = await posCustomerHistory(rows);
 
     res.json({
       data: rows.map((row) => ({
@@ -980,6 +1155,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         partner_status: row.partner_status || null,
         courier_note: row.courier_note || null,
         partner_reason: row.partner_reason || null,
+        customer_history: posHistoryFor(history, row.customer_phone),
       })),
       status_counts: statusCountRows,
       partner_counts: partnerCounts,

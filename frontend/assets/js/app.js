@@ -1454,6 +1454,9 @@ const DB = {
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
+  // Customer history keyed by normalized phone, for CSR records whose Order ID
+  // matches no POS order.
+  csrCustomerHistory: {},
   csrPosOrders: {},
   csrAgentNames: [],
   inventory: [],
@@ -1855,12 +1858,20 @@ async function loadCsrRecordsFromBackend({ force = false } = {}) {
 // the loaded CSR records. Stored in DB.csrPosOrders keyed by external_id.
 async function loadCsrLinkedPosOrders() {
   const ids = [...new Set(DB.csrRecords.map((r) => String(r.orderId || '').trim()).filter(Boolean))];
-  if (!ids.length) return;
+  // Customer history is asked for by number as well as by order id: a record
+  // typed with an Order ID the POS never saw still has a phone the POS knows.
+  // Both lists are capped server-side, so send the newest records' numbers first.
+  const phones = [...new Set(DB.csrRecords.map((r) => String(r.cellphoneNumber || '').trim()).filter(Boolean))];
+  if (!ids.length && !phones.length) return;
   try {
-    const result = await authorizedJsonRequest(`/orders/pos-orders/by-ids?ids=${encodeURIComponent(ids.join(','))}`);
+    const query = new URLSearchParams();
+    if (ids.length) query.set('ids', ids.join(','));
+    if (phones.length) query.set('phones', phones.join(','));
+    const result = await authorizedJsonRequest(`/orders/pos-orders/by-ids?${query.toString()}`);
     const map = {};
     (Array.isArray(result?.data) ? result.data : []).forEach((o) => { map[String(o.id)] = o; });
     DB.csrPosOrders = map;
+    DB.csrCustomerHistory = (result && typeof result.history === 'object' && result.history) || {};
   } catch {
     // non-fatal — live status falls back to stored value
   }
@@ -9600,6 +9611,32 @@ function getRmoUndeliverableReason(order) {
   return order?.partner_reason || '';
 }
 
+// How many of this customer's orders arrived and how many came back — the pair
+// of numbers Pancake keeps on the customer (customer.recent_orders) and shows as
+// badges beside them. The backend sends `customer_history` on every POS order it
+// returns (and on the CSR live-status lookup), or null when there is nothing to
+// report: a number nobody has delivered to and never returned draws no badges,
+// so a busy table only lights up where there is something to see.
+//
+// A count Pancake reported covers the customer's whole life on that shop; one we
+// counted from our own synced orders only covers what we hold, so it is drawn
+// dashed and says so in its tooltip.
+function customerHistoryBadges(history) {
+  if (!history) return '';
+  const delivered = Number(history.delivered) || 0;
+  const returns = Number(history.returns) || 0;
+  if (!delivered && !returns) return '';
+  const orders = Number(history.orders) || 0;
+  const local = history.source !== 'pancake';
+  const dim = local ? ' cust-hist-local' : '';
+  const origin = local ? 'counted from the orders synced here' : 'reported by Pancake';
+  const of = orders ? ` of ${orders} order${orders === 1 ? '' : 's'}` : '';
+  const badge = (cls, icon, count, label) =>
+    `<span class="cust-hist ${cls}${dim}" title="${escapeHtml(`${count} ${label}${of} — ${origin}`)}">${icon} ${count}</span>`;
+  return (delivered ? badge('cust-hist-delivered', '✓', delivered, 'delivered') : '')
+    + (returns ? badge('cust-hist-returns', '↩', returns, 'returned') : '');
+}
+
 // Courier / shipping partner name from partner_json. Mirrors the courier
 // extraction in pancakePosSync (partner.name → partner_name → shipping_partner_name).
 function getRmoCourier(order) {
@@ -10447,6 +10484,27 @@ function csrLiveTracking(record) {
   return (linked && linked.tracking) ? linked.tracking : (record.trackingNumber || '');
 }
 
+// Customer history for a CSR record: from the POS order it is linked to by Order
+// ID, or failing that from the record's own phone number. Both arrive on the
+// same lookup that already feeds the live status column, so this costs the page
+// nothing extra.
+function csrCustomerHistory(record) {
+  const linked = getCsrLinkedOrder(record)?.customer_history;
+  if (linked) return linked;
+  const key = normalizePhoneKey(record?.cellphoneNumber);
+  return (key && DB.csrCustomerHistory?.[key]) || null;
+}
+
+// The 09XXXXXXXXX form the backend keys customer history by. Mirrors posPhoneKey
+// in routes/_all.js: a number is stored as +63…/63…/9… depending on the shop, so
+// only the normalized form compares.
+function normalizePhoneKey(value) {
+  let text = String(value ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
+  if (/^63\d{10}$/.test(text)) text = text.slice(2);
+  if (/^9\d{9}$/.test(text)) text = `0${text}`;
+  return /^09\d{9}$/.test(text) ? text : '';
+}
+
 // Rows for the CSR Records tab on the View Records page (includes Order ID and
 // pulls live status/tracking from the linked Google Orders record).
 function renderRecCsrRows() {
@@ -10458,7 +10516,7 @@ function renderRecCsrRows() {
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
     <td class="font-mono text-xs">${record.orderId || ''}</td>
-    <td>${record.customerName}</td>
+    <td>${record.customerName}${customerHistoryBadges(csrCustomerHistory(record))}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
     <td>${statusBadge(csrLiveStatus(record))}</td>
@@ -10490,7 +10548,7 @@ function renderCSRTable() {
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
     <td class="font-mono text-xs">${record.orderId || ''}</td>
-    <td>${record.customerName}</td>
+    <td>${record.customerName}${customerHistoryBadges(csrCustomerHistory(record))}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
     <td>${statusBadge(csrLiveStatus(record))}</td>
@@ -15862,7 +15920,7 @@ function renderPosOrdersTable() {
             <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
           </span>
         </td>
-        <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div></td>
+        <td><div class="rmo-item-main"><span class="rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</span>${customerHistoryBadges(order.customer_history)}</div></td>
         <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
         <td><div class="rmo-item-main">${escapeHtml(product)}</div></td>
@@ -15896,7 +15954,7 @@ function renderPosOrdersTable() {
       <td class="font-mono text-xs">${escapeHtml(order.tracking_no || '') || dash}</td>
       <td>${escapeHtml(order.page_name || '') || dash}</td>
       <td>${escapeHtml(order.date || '')}</td>
-      <td style="font-weight:500">${escapeHtml(order.customer_name || '') || dash}</td>
+      <td style="font-weight:500">${escapeHtml(order.customer_name || '') || dash}${customerHistoryBadges(order.customer_history)}</td>
       <td class="font-mono text-xs">${escapeHtml(order.customer_phone || '') || dash}</td>
       <td>${escapeHtml(order.note_product || '') || dash}</td>
       <td>${tagLabels.map((t) => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('') || dash}</td>
@@ -17149,10 +17207,8 @@ function splitBlastNumbers(raw) {
   String(raw || '').split(/[\n\r,;]+/).forEach((entry) => {
     const text = entry.trim();
     if (!text) return;
-    let digits = text.replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '');
-    if (/^63\d{10}$/.test(digits)) digits = digits.slice(2);
-    if (/^9\d{9}$/.test(digits)) digits = `0${digits}`;
-    if (!/^09\d{9}$/.test(digits)) { invalid.push(text); return; }
+    const digits = normalizePhoneKey(text);
+    if (!digits) { invalid.push(text); return; }
     if (seen.has(digits)) return;
     seen.add(digits);
     valid.push(digits);

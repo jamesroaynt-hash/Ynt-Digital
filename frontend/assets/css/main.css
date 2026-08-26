@@ -3366,6 +3366,41 @@ tfoot td {
   font-weight: 800;
 }
 
+/* Customer history badges — how many of this customer's orders were delivered
+   and how many came back, the pair Pancake keeps on the customer. Rendered
+   wherever that customer appears (RMO, POS Orders, CSR Records). */
+.cust-hist {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.cust-hist-delivered {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+
+.cust-hist-returns {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+/* A number counted from our own synced orders rather than reported by Pancake:
+   same badge, dimmed, so nobody reads it as the POS figure. */
+.cust-hist-local {
+  opacity: .72;
+  border: 1px dashed currentColor;
+}
+
 .rmo-assign-btn {
   border: 1px dashed var(--border);
   background: transparent;
