@@ -603,19 +603,9 @@ function ordersRoutes(db, { dispatch } = {}) {
   const POS_DELIVERED_STATUSES = ["'delivered'"];
   const POS_HISTORY_CHUNK = 100;
 
-  async function posCustomerHistory(rows = [], extraPhones = []) {
+  async function posCustomerHistory(rows = []) {
     const history = new Map();
     const needLookup = new Map(); // phone key -> raw values seen, for the IN list
-
-    // Numbers with no order row in hand at all — CSR records typed by phone.
-    // They own no stored count, so they always take the lookup path.
-    for (const phone of extraPhones) {
-      const key = posPhoneKey(phone);
-      if (!key) continue;
-      const raws = needLookup.get(key) || new Set();
-      raws.add(String(phone));
-      needLookup.set(key, raws);
-    }
 
     for (const row of rows) {
       const key = posPhoneKey(row?.customer_phone);
@@ -713,19 +703,6 @@ function ordersRoutes(db, { dispatch } = {}) {
     };
   }
 
-  // The same history keyed by the normalized number, for callers that hold a
-  // phone rather than an order. Only the numbers that were asked about.
-  function historyByPhone(history, phones = []) {
-    const out = {};
-    for (const phone of phones) {
-      const key = posPhoneKey(phone);
-      if (!key || out[key]) continue;
-      const entry = posHistoryFor(history, phone);
-      if (entry) out[key] = entry;
-    }
-    return out;
-  }
-
   // What Pancake knows about one customer, by phone. Asked for on demand — when
   // an RMO row is expanded — because the stored counters only exist on orders
   // that have synced since they landed, and re-syncing old orders to collect
@@ -758,34 +735,18 @@ function ordersRoutes(db, { dispatch } = {}) {
   r.get('/pos-orders/by-ids', async (req, res) => {
     const raw = String(req.query.ids || '');
     const ids = raw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
-    // Optional: numbers to report customer history for even when no order id
-    // matched. CSR records are typed by hand, so plenty of them carry a phone
-    // the POS knows and an Order ID it doesn't.
-    const phones = String(req.query.phones || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 500);
-    if (!ids.length && !phones.length) return res.json({ data: [], history: {} });
-    if (!ids.length) {
-      const phoneOnly = await posCustomerHistory([], phones);
-      return res.json({ data: [], history: historyByPhone(phoneOnly, phones) });
-    }
+    if (!ids.length) return res.json({ data: [] });
     const vis = await posVisibilityFilter();
     const placeholders = ids.map(() => '?').join(',');
     const rows = await db.prepare(
-      `SELECT external_id, status_name, tracking_no, customer_phone,
-              customer_order_count, customer_succeed_count, customer_returned_count
-       FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
+      `SELECT external_id, status_name, tracking_no FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
     ).all(...ids, ...vis.params);
-    // CSR records read their live status from here, so the customer's history
-    // rides along on the same request rather than costing the page a second one.
-    const history = await posCustomerHistory(rows, phones);
     res.json({
       data: rows.map((row) => ({
         id: row.external_id,
         status: posDisplayStatus(row.status_name),
         tracking: row.tracking_no || '',
-        customer_phone: row.customer_phone || '',
-        customer_history: posHistoryFor(history, row.customer_phone),
       })),
-      history: historyByPhone(history, phones),
     });
   });
 

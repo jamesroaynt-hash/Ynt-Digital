@@ -1454,9 +1454,6 @@ const DB = {
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
-  // Customer history keyed by normalized phone, for CSR records whose Order ID
-  // matches no POS order.
-  csrCustomerHistory: {},
   // Pancake's own numbers for a customer, fetched when an RMO row is expanded.
   // Kept for the session so re-opening a row, or a table repaint, costs nothing.
   posCustomerStats: {},
@@ -1861,20 +1858,12 @@ async function loadCsrRecordsFromBackend({ force = false } = {}) {
 // the loaded CSR records. Stored in DB.csrPosOrders keyed by external_id.
 async function loadCsrLinkedPosOrders() {
   const ids = [...new Set(DB.csrRecords.map((r) => String(r.orderId || '').trim()).filter(Boolean))];
-  // Customer history is asked for by number as well as by order id: a record
-  // typed with an Order ID the POS never saw still has a phone the POS knows.
-  // Both lists are capped server-side, so send the newest records' numbers first.
-  const phones = [...new Set(DB.csrRecords.map((r) => String(r.cellphoneNumber || '').trim()).filter(Boolean))];
-  if (!ids.length && !phones.length) return;
+  if (!ids.length) return;
   try {
-    const query = new URLSearchParams();
-    if (ids.length) query.set('ids', ids.join(','));
-    if (phones.length) query.set('phones', phones.join(','));
-    const result = await authorizedJsonRequest(`/orders/pos-orders/by-ids?${query.toString()}`);
+    const result = await authorizedJsonRequest(`/orders/pos-orders/by-ids?ids=${encodeURIComponent(ids.join(','))}`);
     const map = {};
     (Array.isArray(result?.data) ? result.data : []).forEach((o) => { map[String(o.id)] = o; });
     DB.csrPosOrders = map;
-    DB.csrCustomerHistory = (result && typeof result.history === 'object' && result.history) || {};
   } catch {
     // non-fatal — live status falls back to stored value
   }
@@ -7691,6 +7680,7 @@ function renderCSR() {
   // dashboard without the Daily Record input form.
   const adminDashboardOnly = isAdminUser() || isCSRViewOnlyUser();
   const pageOptions = getCSRPageOptions();
+  const csrOptions = getCSRFilterOptions();
   const inputPanel = adminDashboardOnly ? '' : `
     <div class="card">
       <div class="card-header">
@@ -7823,6 +7813,9 @@ function renderCSR() {
         <option value="">All CSR Names</option>
         ${[...new Set([...DB.csrAgentNames, ...DB.csrRecords.map((r) => r.csrName)].filter(Boolean))].sort().map((n) => `<option value="${escapeHtml(n)}"${csrNameFilter === n ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}
       </select>` : ''}
+      ${csrFilterSelect('status', 'All Statuses', csrOptions.statuses, csrStatusFilter)}
+      ${csrFilterSelect('page', 'All Pages', csrOptions.pages, csrPageFilter)}
+      ${csrFilterSelect('sales-type', 'All Sales Types', csrOptions.salesTypes, csrSalesTypeFilter)}
     </div>
     <div style="overflow-x:auto;">
       <table id="csr-records-table">
@@ -9933,6 +9926,7 @@ function renderViewRecords() {
 
   <div id="rec-csr" class="tab-content active">
     <div class="table-container">
+      ${renderRecCsrFilters()}
       <table><thead><tr><th>Date</th><th>Name CSR</th><th>Page Name</th><th>Order ID</th><th>Customer</th><th>Cellphone</th><th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th></tr></thead>
         <tbody id="rec-csr-tbody">${renderRecCsrRows()}</tbody>
       </table>
@@ -10135,6 +10129,9 @@ let csrSearch = '';
 let csrDateFrom = '';
 let csrDateTo = '';
 let csrNameFilter = '';
+let csrStatusFilter = '';
+let csrPageFilter = '';
+let csrSalesTypeFilter = '';
 let editingCSRRecordId = '';
 
 function normalizeDateString(date) {
@@ -10409,6 +10406,21 @@ function getFilteredCSRRecords() {
     data = data.filter((record) => record.csrName === csrNameFilter);
   }
 
+  if (csrPageFilter) {
+    data = data.filter((record) => record.pageName === csrPageFilter);
+  }
+
+  if (csrSalesTypeFilter) {
+    data = data.filter((record) => record.salesType === csrSalesTypeFilter);
+  }
+
+  // Matched against the status actually shown in the table, which follows the
+  // linked order rather than the value stored on the record — filtering on the
+  // stored one would hide rows whose status has since moved on.
+  if (csrStatusFilter) {
+    data = data.filter((record) => csrLiveStatus(record) === csrStatusFilter);
+  }
+
   if (csrSearch) {
     const query = csrSearch.toLowerCase();
     data = data.filter((record) =>
@@ -10501,17 +10513,6 @@ function csrLiveTracking(record) {
   return (linked && linked.tracking) ? linked.tracking : (record.trackingNumber || '');
 }
 
-// Customer history for a CSR record: from the POS order it is linked to by Order
-// ID, or failing that from the record's own phone number. Both arrive on the
-// same lookup that already feeds the live status column, so this costs the page
-// nothing extra.
-function csrCustomerHistory(record) {
-  const linked = getCsrLinkedOrder(record)?.customer_history;
-  if (linked) return linked;
-  const key = normalizePhoneKey(record?.cellphoneNumber);
-  return (key && DB.csrCustomerHistory?.[key]) || null;
-}
-
 // The 09XXXXXXXXX form the backend keys customer history by. Mirrors posPhoneKey
 // in routes/_all.js: a number is stored as +63…/63…/9… depending on the shop, so
 // only the normalized form compares.
@@ -10524,15 +10525,54 @@ function normalizePhoneKey(value) {
 
 // Rows for the CSR Records tab on the View Records page (includes Order ID and
 // pulls live status/tracking from the linked Google Orders record).
+// The Records page's own copy of the three filters. Separate state from the CSR
+// page's, so the two tabs don't move each other.
+let recCsrStatusFilter = '';
+let recCsrPageFilter = '';
+let recCsrSalesTypeFilter = '';
+
+function setRecCsrFilter(kind) {
+  const value = document.getElementById(`rec-csr-${kind}-filter`)?.value || '';
+  if (kind === 'status') recCsrStatusFilter = value;
+  else if (kind === 'page') recCsrPageFilter = value;
+  else if (kind === 'sales-type') recCsrSalesTypeFilter = value;
+  refreshRecCsrTable();
+}
+
+function getFilteredRecCsrRecords() {
+  let data = DB.csrRecords || [];
+  if (recCsrPageFilter) data = data.filter((record) => record.pageName === recCsrPageFilter);
+  if (recCsrSalesTypeFilter) data = data.filter((record) => record.salesType === recCsrSalesTypeFilter);
+  // Matched against the status the row actually shows, which follows the linked
+  // order rather than the value stored on the record.
+  if (recCsrStatusFilter) data = data.filter((record) => csrLiveStatus(record) === recCsrStatusFilter);
+  return data;
+}
+
+// The toolbar above the tab's table. Rebuilt only when the page renders, so the
+// dropdowns keep their selection while the rows underneath repaint.
+function renderRecCsrFilters() {
+  const options = getCSRFilterOptions();
+  const opts = { idPrefix: 'rec-csr', handler: 'setRecCsrFilter' };
+  return `<div class="table-toolbar">
+    ${csrFilterSelect('status', 'All Statuses', options.statuses, recCsrStatusFilter, opts)}
+    ${csrFilterSelect('page', 'All Pages', options.pages, recCsrPageFilter, opts)}
+    ${csrFilterSelect('sales-type', 'All Sales Types', options.salesTypes, recCsrSalesTypeFilter, opts)}
+  </div>`;
+}
+
 function renderRecCsrRows() {
-  if (!DB.csrRecords.length) {
-    return '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records yet.</td></tr>';
+  const records = getFilteredRecCsrRecords();
+  if (!records.length) {
+    return `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">${
+      DB.csrRecords.length ? 'No CSR records match these filters.' : 'No CSR records yet.'
+    }</td></tr>`;
   }
-  return DB.csrRecords.map((record) => `<tr>
+  return records.map((record) => `<tr>
     <td>${record.date}</td>
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
-    <td class="font-mono text-xs">${record.orderId || ''}${customerHistoryBadges(csrCustomerHistory(record))}</td>
+    <td class="font-mono text-xs">${record.orderId || ''}</td>
     <td>${record.customerName}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
@@ -10545,8 +10585,9 @@ function renderRecCsrRows() {
 function refreshRecCsrTable() {
   const tbody = document.getElementById('rec-csr-tbody');
   if (tbody) tbody.innerHTML = renderRecCsrRows();
+  // The tab's count follows the filters, so it always describes what is on screen.
   const count = document.getElementById('rec-csr-count');
-  if (count) count.textContent = DB.csrRecords.length;
+  if (count) count.textContent = getFilteredRecCsrRecords().length;
 }
 
 function renderCSRTable() {
@@ -10564,7 +10605,7 @@ function renderCSRTable() {
     <td>${record.date}</td>
     <td style="font-weight:500">${record.csrName}</td>
     <td>${record.pageName}</td>
-    <td class="font-mono text-xs">${record.orderId || ''}${customerHistoryBadges(csrCustomerHistory(record))}</td>
+    <td class="font-mono text-xs">${record.orderId || ''}</td>
     <td>${record.customerName}</td>
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
@@ -10628,6 +10669,40 @@ function setCSRNameFilter() {
   csrNameFilter = document.getElementById('csr-name-filter')?.value || '';
   csrPage = 1;
   renderCSRTable();
+}
+
+// Status / Page / Type of Sales. One setter rather than three near-identical
+// ones, keyed by which dropdown fired.
+function setCSRRecordFilter(kind) {
+  const value = document.getElementById(`csr-${kind}-filter`)?.value || '';
+  if (kind === 'status') csrStatusFilter = value;
+  else if (kind === 'page') csrPageFilter = value;
+  else if (kind === 'sales-type') csrSalesTypeFilter = value;
+  csrPage = 1;
+  renderCSRTable();
+}
+
+// What the three dropdowns offer. Read from the records on hand so a filter can
+// never point at something nobody has, with the standard sales types folded in
+// so the list reads the same as the form's.
+function getCSRFilterOptions() {
+  const records = DB.csrRecords || [];
+  const distinct = (values) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return {
+    statuses: distinct(records.map((record) => csrLiveStatus(record))),
+    pages: distinct(records.map((record) => record.pageName)),
+    salesTypes: distinct([...CSR_SALES_TYPES, ...records.map((record) => record.salesType)]),
+  };
+}
+
+// A dropdown that keeps its selection across the re-render the filter triggers.
+// Shared by the CSR page and the Records page's CSR tab, which keep their own
+// selections — narrowing one has no business moving the other.
+function csrFilterSelect(kind, label, options, selected, { idPrefix = 'csr', handler = 'setCSRRecordFilter' } = {}) {
+  return `<select class="form-control" id="${idPrefix}-${kind}-filter" onchange="${handler}('${kind}')" style="min-width:150px;height:34px;font-size:13px;padding:6px 10px;">
+    <option value="">${label}</option>
+    ${options.map((option) => `<option value="${escapeHtml(option)}"${selected === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('')}
+  </select>`;
 }
 
 function setCSRFieldValue(id, value) {
