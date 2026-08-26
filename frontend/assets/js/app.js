@@ -7809,7 +7809,7 @@ function renderCSR() {
         <input type="date" class="form-control" id="csr-date-to">
         <button class="btn btn-secondary btn-sm" onclick="applyCSRCustomRange()">Apply</button>
       </div>
-      ${canViewAllCSRRecords() ? `<select class="form-control" id="csr-name-filter" onchange="setCSRNameFilter()" style="min-width:160px;height:34px;font-size:13px;padding:6px 10px;">
+      ${canViewAllCSRRecords() ? `<select class="rmo-select" id="csr-name-filter" onchange="setCSRNameFilter()">
         <option value="">All CSR Names</option>
         ${[...new Set([...DB.csrAgentNames, ...DB.csrRecords.map((r) => r.csrName)].filter(Boolean))].sort().map((n) => `<option value="${escapeHtml(n)}"${csrNameFilter === n ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}
       </select>` : ''}
@@ -10230,49 +10230,21 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
-  const hasSales = ['data-report', 'marketing-center', 'adspend-roas', 'csr', 'sales-marketing-tracker'].some((page) => accessiblePages.has(page));
-  const hasRmo = ['rmo-management', 'sms-automations', 'odz-finder', 'calculators'].some((page) => accessiblePages.has(page));
-  const hasOperations = ['daily-pickup', 'rts-scanning', 'rts-rate', 'scanning', 'inventory'].some((page) => accessiblePages.has(page));
-  const hasReports = ['data-report', 'view-records'].some((page) => accessiblePages.has(page));
-  const hasSystem = isAdminUser() && ADMIN_ONLY_PAGES.some((page) => accessiblePages.has(page));
-
-  const salesLabel = document.getElementById('nav-section-sales');
-  const rmoLabel = document.getElementById('nav-section-rmo');
-  const operationsLabel = document.getElementById('nav-section-operations');
-  const reportsLabel = document.getElementById('nav-section-reports');
-  const systemLabel = document.getElementById('nav-section-system');
-
-  const setSectionVisible = (sectionId, visible) => {
-    const wrap = document.getElementById('nav-section-wrap-' + sectionId);
-    if (wrap) wrap.style.display = visible ? '' : 'none';
-  };
-  setSectionVisible('sales', hasSales);
-  setSectionVisible('rmo', hasRmo);
-  setSectionVisible('operations', hasOperations);
-  setSectionVisible('reports', hasReports);
-  setSectionVisible('system', hasSystem);
-
-  if (salesLabel) salesLabel.style.display = hasSales ? 'flex' : 'none';
-  if (rmoLabel) rmoLabel.style.display = hasRmo ? 'flex' : 'none';
-  if (operationsLabel) operationsLabel.style.display = hasOperations ? 'flex' : 'none';
-  if (reportsLabel) reportsLabel.style.display = hasReports ? 'flex' : 'none';
-  if (systemLabel) systemLabel.style.display = hasSystem ? 'flex' : 'none';
-
-  const salesBody = document.getElementById('nav-section-body-sales');
-  const rmoBody = document.getElementById('nav-section-body-rmo');
-  const operationsBody = document.getElementById('nav-section-body-operations');
-  const reportsBody = document.getElementById('nav-section-body-reports');
-  const systemBody = document.getElementById('nav-section-body-system');
-  if (salesBody && !hasSales) salesBody.style.display = 'none';
-  else if (salesBody) salesBody.style.display = '';
-  if (rmoBody && !hasRmo) rmoBody.style.display = 'none';
-  else if (rmoBody) rmoBody.style.display = '';
-  if (operationsBody && !hasOperations) operationsBody.style.display = 'none';
-  else if (operationsBody) operationsBody.style.display = '';
-  if (reportsBody && !hasReports) reportsBody.style.display = 'none';
-  else if (reportsBody) reportsBody.style.display = '';
-  if (systemBody && !hasSystem) systemBody.style.display = 'none';
-  else if (systemBody) systemBody.style.display = '';
+  // A section whose every item is out of reach is hidden outright — header
+  // included — rather than left standing as an empty heading somebody can click.
+  // Read from the items actually in each section rather than a list kept
+  // alongside it: the list had drifted (Operations was held open for `rts-rate`
+  // and `scanning`, neither of which is in that menu any more, so every role saw
+  // the header) and HR Management had simply been left out of it.
+  document.querySelectorAll('.nav-section').forEach((section) => {
+    const items = [...section.querySelectorAll('.nav-item')];
+    const visible = items.some((item) => accessiblePages.has(item.dataset.page));
+    const label = section.querySelector('.nav-section-label');
+    const body = section.querySelector('.nav-section-body');
+    section.style.display = visible ? '' : 'none';
+    if (label) label.style.display = visible ? 'flex' : 'none';
+    if (body) body.style.display = visible ? '' : 'none';
+  });
 }
 
 function toggleNavSection(sectionId) {
@@ -10554,10 +10526,12 @@ function getFilteredRecCsrRecords() {
 function renderRecCsrFilters() {
   const options = getCSRFilterOptions();
   const opts = { idPrefix: 'rec-csr', handler: 'setRecCsrFilter' };
-  return `<div class="table-toolbar">
-    ${csrFilterSelect('status', 'All Statuses', options.statuses, recCsrStatusFilter, opts)}
-    ${csrFilterSelect('page', 'All Pages', options.pages, recCsrPageFilter, opts)}
-    ${csrFilterSelect('sales-type', 'All Sales Types', options.salesTypes, recCsrSalesTypeFilter, opts)}
+  return `<div class="rmo-toolbar">
+    <div class="rmo-toolbar-filters">
+      ${csrFilterSelect('status', 'All Statuses', options.statuses, recCsrStatusFilter, opts)}
+      ${csrFilterSelect('page', 'All Pages', options.pages, recCsrPageFilter, opts)}
+      ${csrFilterSelect('sales-type', 'All Sales Types', options.salesTypes, recCsrSalesTypeFilter, opts)}
+    </div>
   </div>`;
 }
 
@@ -10699,7 +10673,7 @@ function getCSRFilterOptions() {
 // Shared by the CSR page and the Records page's CSR tab, which keep their own
 // selections — narrowing one has no business moving the other.
 function csrFilterSelect(kind, label, options, selected, { idPrefix = 'csr', handler = 'setCSRRecordFilter' } = {}) {
-  return `<select class="form-control" id="${idPrefix}-${kind}-filter" onchange="${handler}('${kind}')" style="min-width:150px;height:34px;font-size:13px;padding:6px 10px;">
+  return `<select class="rmo-select" id="${idPrefix}-${kind}-filter" onchange="${handler}('${kind}')">
     <option value="">${label}</option>
     ${options.map((option) => `<option value="${escapeHtml(option)}"${selected === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('')}
   </select>`;
