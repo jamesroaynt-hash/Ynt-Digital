@@ -3342,16 +3342,6 @@ function normalizeCustomerPhone(value) {
   return /^09\d{9}$/.test(text) ? text : '';
 }
 
-// Pancake's search is loose, so confirm the customer it returned really carries
-// the number asked about before counting their orders.
-function customerMatchesPhone(customer, phoneKey) {
-  const numbers = []
-    .concat(customer?.phone_numbers || [])
-    .concat(customer?.phone_number || [])
-    .concat(customer?.phone || []);
-  return numbers.some((value) => normalizeCustomerPhone(value) === phoneKey);
-}
-
 async function readCachedCustomerStats(db, phoneKey) {
   const row = await db.prepare('SELECT * FROM pos_customer_stats WHERE phone = ?').get(phoneKey);
   if (!row) return null;
@@ -3446,34 +3436,27 @@ async function fetchCustomerStatsFromApi(db, phoneKey, preferredShopId) {
   const totals = { orders: 0, delivered: 0, returned: 0, purchased_amount: 0, last_order_at: null, shops: 0 };
   let answered = false;
   for (const connection of usable.slice(0, CUSTOMER_STATS_MAX_SHOPS)) {
-    // Pancake's search matches the number the way that shop stored it: a
-    // customer saved as +639171234567 is NOT found by 09171234567 (probed
-    // 2026-08-26 — the +63 and 63 forms return an empty list). So ask in every
-    // spelling and stop at the first that answers, or the history silently
-    // reads as zero for everyone stored in international format.
-    const bare = phoneKey.slice(1);
+    // Ask the ORDERS endpoint, not the customers one. Its search normalizes the
+    // number (probed 2026-08-26: 09…, +63…, 63… and the bare 9… all return the
+    // same customer's orders), while /customers?search matches only the exact
+    // spelling that shop stored — which is how a customer saved as +63 silently
+    // read as zero. The counters ride on the order's customer either way, and
+    // one row is enough to carry them.
     let list = [];
-    let failed = false;
-    for (const spelling of [phoneKey, bare, `+63${bare}`, `63${bare}`]) {
-      let response;
-      try {
-        response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/customers`, connection.api_key, {
-          search: spelling,
-          page_size: 5,
-        });
-      } catch (error) {
-        // One unreadable shop must not lose the customer's history everywhere else.
-        console.warn(`[pos] customer lookup failed for shop ${connection.shop_id}: ${error.message}`);
-        failed = true;
-        break;
-      }
-      const found = Array.isArray(response?.data) ? response.data : [];
-      if (found.length) { list = found; break; }
+    try {
+      const response = await posRequest(connection.base_url, `/shops/${connection.shop_id}/orders`, connection.api_key, {
+        search: phoneKey,
+        page_size: 1,
+      });
+      const rows = Array.isArray(response?.data) ? response.data : [];
+      list = rows.map((row) => row?.customer).filter(Boolean);
+    } catch (error) {
+      // One unreadable shop must not lose the customer's history everywhere else.
+      console.warn(`[pos] customer lookup failed for shop ${connection.shop_id}: ${error.message}`);
+      continue;
     }
-    if (failed) continue;
     answered = true;
     for (const customer of list) {
-      if (!customerMatchesPhone(customer, phoneKey)) continue;
       totals.shops += 1;
       totals.orders += Number(customer.order_count || 0);
       totals.delivered += Number(customer.succeed_order_count || 0);
