@@ -739,13 +739,15 @@ function ordersRoutes(db, { dispatch } = {}) {
     const vis = await posVisibilityFilter();
     const placeholders = ids.map(() => '?').join(',');
     const rows = await db.prepare(
-      `SELECT external_id, status_name, tracking_no FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
+      `SELECT external_id, status_name, tracking_no, shipping_address_json
+         FROM pos_orders WHERE external_id IN (${placeholders}) AND ${vis.clause}`
     ).all(...ids, ...vis.params);
     res.json({
       data: rows.map((row) => ({
         id: row.external_id,
         status: posDisplayStatus(row.status_name),
         tracking: row.tracking_no || '',
+        province: readNamedValue(parseJsonObject(row.shipping_address_json, {}), ['province', 'province_name', 'state', 'region']) || '',
       })),
     });
   });

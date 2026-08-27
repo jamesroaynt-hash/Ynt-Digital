@@ -7796,7 +7796,7 @@ function renderCSR() {
     <div class="table-toolbar">
       <div class="table-search">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-        <input type="text" placeholder="Search CSR, customer, page, tracking..." id="csr-search" oninput="filterCSRTable()">
+        <input type="text" placeholder="Search CSR, customer, province, page, tracking..." id="csr-search" oninput="filterCSRTable()">
       </div>
       <div class="table-filters" id="csr-filter-group">
         <button class="filter-pill active" data-csr-filter="daily" onclick="setCSRFilter('daily', this)">Daily</button>
@@ -7820,8 +7820,8 @@ function renderCSR() {
     <div style="overflow-x:auto;">
       <table id="csr-records-table">
         <thead><tr>
-          <th>Date</th><th>Name CSR</th><th>Page Name</th><th>Order ID</th><th>Customer</th><th>Cellphone</th>
-          <th>Type of Sales</th><th>Status</th><th>Price</th><th>Tracking Number</th><th>Actions</th>
+          <th>Order</th><th>Customer</th><th>Price</th><th>Type of Sale</th><th>Tracking No.</th>
+          <th>Status</th><th>Name CSR</th><th>Page Name</th><th>Actions</th>
         </tr></thead>
         <tbody id="csr-tbody"></tbody>
       </table>
@@ -10404,6 +10404,7 @@ function getFilteredCSRRecords() {
       || record.salesType.toLowerCase().includes(query)
       || record.status.toLowerCase().includes(query)
       || record.trackingNumber.toLowerCase().includes(query)
+      || csrLiveProvince(record).toLowerCase().includes(query)
     );
   }
 
@@ -10483,6 +10484,13 @@ function csrLiveStatus(record) {
 function csrLiveTracking(record) {
   const linked = getCsrLinkedOrder(record);
   return (linked && linked.tracking) ? linked.tracking : (record.trackingNumber || '');
+}
+
+// Province is never stored on the CSR record itself — it only comes from the
+// linked POS order's shipping address, so a row with no linked order shows none.
+function csrLiveProvince(record) {
+  const linked = getCsrLinkedOrder(record);
+  return (linked && linked.province) ? linked.province : '';
 }
 
 // The 09XXXXXXXXX form the backend keys customer history by. Mirrors posPhoneKey
@@ -10575,19 +10583,27 @@ function renderCSRTable() {
 
   const sliced = records.slice((csrPage - 1) * perPage, csrPage * perPage);
 
+  // Order and Customer are stacked cells — the order's id over its date, the
+  // customer's name over their number and province — so a row reads as two blocks
+  // instead of six narrow columns.
   tbody.innerHTML = sliced.map((record) => `<tr>
-    <td>${record.date}</td>
-    <td style="font-weight:500">${record.csrName}</td>
-    <td>${record.pageName}</td>
-    <td class="font-mono text-xs">${record.orderId || ''}</td>
-    <td>${record.customerName}</td>
-    <td class="font-mono text-xs">${record.cellphoneNumber}</td>
-    <td><span class="badge badge-info">${record.salesType}</span></td>
-    <td>${statusBadge(csrLiveStatus(record))}</td>
+    <td>
+      <div class="rmo-item-main font-mono text-xs">${escapeHtml(record.orderId || '—')}</div>
+      <div class="rmo-item-sub">${escapeHtml(record.date || '')}</div>
+    </td>
+    <td>
+      <div class="rmo-item-main">${escapeHtml(record.customerName || '—')}</div>
+      <div class="rmo-item-sub font-mono">${escapeHtml(record.cellphoneNumber || '')}</div>
+      <div class="rmo-item-sub">${escapeHtml(csrLiveProvince(record))}</div>
+    </td>
     <td>₱${Number(record.price || 0).toLocaleString()}</td>
-    <td class="font-mono text-xs">${csrLiveTracking(record)}</td>
+    <td><span class="badge badge-info">${escapeHtml(record.salesType || '')}</span></td>
+    <td class="font-mono text-xs">${escapeHtml(csrLiveTracking(record))}</td>
+    <td>${statusBadge(csrLiveStatus(record))}</td>
+    <td style="font-weight:500">${escapeHtml(record.csrName || '')}</td>
+    <td>${escapeHtml(record.pageName || '')}</td>
     <td>${canManageCSRRecord(record) ? `<div class="flex gap-2"><button class="btn btn-ghost btn-sm" onclick="editCSRRecord('${record.id}')">Edit</button><button class="btn btn-danger btn-sm" onclick="deleteCSRRecord('${record.id}')">Delete</button></div>` : ''}</td>
-  </tr>`).join('') || '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records found for the selected range.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">No CSR records found for the selected range.</td></tr>';
 
   const pagination = document.getElementById('csr-pagination');
   if (pagination) {
@@ -11477,6 +11493,9 @@ function renderMyWorkHours(payslip) {
   if (!wrap) return;
   const records = Array.isArray(payslip?.attendance) ? payslip.attendance : [];
   const totals = payslip?.totals || {};
+  // The rest-day marker needs the permanent day off, which rides along on the
+  // payslip's user (0=Sunday..6=Saturday, or -1 when they have none).
+  const dayOff = payslip?.user?.day_off;
   const totalWorked = records.reduce((sum, r) => sum + Number(r.worked_minutes || 0), 0);
   // Only approved OT counts: hours clocked past the standard day without an
   // approved request are not paid, so showing them here would overstate.
@@ -11530,8 +11549,9 @@ function renderMyWorkHours(payslip) {
             const otApprovedIcon = otApproved
               ? ' <span title="Overtime approved for this date" style="color:var(--success,#16a34a);font-weight:700;">✓</span>'
               : '';
+            const dateBadges = attendanceDateBadges(r.work_date, dayOff, worked > 0);
             return `<tr>
-              <td><strong>${escapeHtml(r.work_date || '')}</strong>${otApprovedIcon}</td>
+              <td><strong>${escapeHtml(r.work_date || '')}</strong>${otApprovedIcon}${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}</td>
               <td class="font-mono text-xs">${r.time_in ? escapeHtml(formatClock12(r.time_in)) : '—'}</td>
               <td class="font-mono text-xs">${r.break_out ? escapeHtml(formatClock12(r.break_out)) : '—'}</td>
               <td class="font-mono text-xs">${r.break_in ? escapeHtml(formatClock12(r.break_in)) : '—'}</td>
@@ -19277,7 +19297,9 @@ function exportTableCSV(tableId, filename) {
   if (!table) return;
   const rows = table.querySelectorAll('tr');
   const csv = Array.from(rows).map(row =>
-    Array.from(row.cells).map(cell => `"${cell.textContent.trim().replace(/"/g,'""')}"`).join(',')
+    // innerText, not textContent: a stacked cell renders on several lines, and
+    // textContent would run them together into one unreadable value.
+    Array.from(row.cells).map(cell => `"${(cell.innerText || cell.textContent || '').trim().replace(/\s*\n+\s*/g, ' / ').replace(/"/g,'""')}"`).join(',')
   ).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const a = document.createElement('a');
