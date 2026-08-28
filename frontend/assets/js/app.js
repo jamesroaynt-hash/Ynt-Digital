@@ -4320,16 +4320,6 @@ function renderEvaluationKpi() {
     </div>
   </div>
 
-  <div class="alert alert-warning" style="margin-bottom:12px;">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 10.5v.5"/></svg>
-    <div><strong>Flow prototype.</strong> These screens use sample data and do not save yet.</div>
-  </div>
-
-  <div class="alert alert-info" style="margin-bottom:20px;">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 4.75v.5"/></svg>
-    <div><strong>KPI slot is ready.</strong> Once the KPI grading sheet is finalised it can be attached here, or converted into the evaluation form, without changing the rest of the HR module.</div>
-  </div>
-
   <div class="card" style="margin-bottom:20px;">
     <div class="card-header">
       <div>
