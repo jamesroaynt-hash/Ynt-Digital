@@ -3951,7 +3951,47 @@ const EMPLOYEE_TRACKER_METRICS = [
   },
 ];
 
-let employeeTrackerState = { metric: 'standup', weekStart: '', employees: [], marks: {} };
+// Accounts carry a role but no department column, so the tracker derives the
+// department from the role each account already has — every existing account
+// lands in one straight away, with no migration and nothing to backfill by hand.
+// Keys are navAccessKey()'d, which is what makes "Sales & Marketing TL" and
+// "sales and marketing tl" the same department.
+const DEPARTMENT_BY_ROLE = {
+  administrator: 'Management',
+  hr: 'Human Resources',
+  'sales and marketing': 'Sales & Marketing',
+  'sales and marketing tl': 'Sales & Marketing',
+  csr: 'CSR',
+  'csr tl': 'CSR',
+  rmo: 'RMO',
+  'rmo tl': 'RMO',
+  logistics: 'Logistics',
+  trainee: 'Trainee',
+};
+// Read in org order rather than alphabetically; anything unmapped sorts last.
+const DEPARTMENT_ORDER = ['Management', 'Human Resources', 'Sales & Marketing', 'CSR', 'RMO', 'Logistics', 'Trainee', 'Unassigned'];
+
+function employeeDepartment(employee) {
+  return DEPARTMENT_BY_ROLE[navAccessKey(normalizeRoleName(employee?.role))] || 'Unassigned';
+}
+
+// Roster split into departments, in DEPARTMENT_ORDER, keeping only the ones
+// that actually have somebody in them.
+function employeeTrackerGroups() {
+  const groups = new Map();
+  employeeTrackerState.employees.forEach((employee) => {
+    const department = employeeDepartment(employee);
+    if (!groups.has(department)) groups.set(department, []);
+    groups.get(department).push(employee);
+  });
+  const rank = (name) => {
+    const index = DEPARTMENT_ORDER.indexOf(name);
+    return index === -1 ? DEPARTMENT_ORDER.length : index;
+  };
+  return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+}
+
+let employeeTrackerState = { metric: 'standup', weekStart: '', employees: [], marks: {}, collapsed: {} };
 
 // Dates here are handled as plain Y-M-D in local time. Letting Date parse them
 // as UTC would slide the whole week by a day for anyone east of UTC.
@@ -3997,13 +4037,50 @@ function etRangeLabel(weekStart) {
   return `${fmt(weekStart)} – ${fmt(etAddDays(weekStart, 6))}`;
 }
 
-function loadEmployeeTrackerMarks() {
+const EMPLOYEE_TRACKER_COLLAPSE_KEY = 'ynt_employee_tracker_collapsed';
+
+function readJsonSetting(key) {
   try {
-    const saved = JSON.parse(localStorage.getItem(EMPLOYEE_TRACKER_KEY) || '{}');
+    const saved = JSON.parse(localStorage.getItem(key) || '{}');
     return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
   }
+}
+
+function loadEmployeeTrackerMarks() {
+  return readJsonSetting(EMPLOYEE_TRACKER_KEY);
+}
+
+// Which departments are folded shut is a per-person view preference, so it is
+// remembered on the device the same way the marks are.
+function loadEmployeeTrackerCollapsed() {
+  return readJsonSetting(EMPLOYEE_TRACKER_COLLAPSE_KEY);
+}
+
+function saveEmployeeTrackerCollapsed() {
+  try {
+    localStorage.setItem(EMPLOYEE_TRACKER_COLLAPSE_KEY, JSON.stringify(employeeTrackerState.collapsed));
+  } catch {}
+}
+
+function toggleEmployeeTrackerDepartment(department) {
+  if (employeeTrackerState.collapsed[department]) delete employeeTrackerState.collapsed[department];
+  else employeeTrackerState.collapsed[department] = true;
+  saveEmployeeTrackerCollapsed();
+  renderEmployeeTrackerCard();
+}
+
+// Bulk control for the header button: shut everything only when something is
+// still open, so one button reads as "collapse all" then "expand all".
+function toggleAllEmployeeTrackerDepartments() {
+  const groups = employeeTrackerGroups();
+  const anyOpen = groups.some(([department]) => !employeeTrackerState.collapsed[department]);
+  employeeTrackerState.collapsed = anyOpen
+    ? Object.fromEntries(groups.map(([department]) => [department, true]))
+    : {};
+  saveEmployeeTrackerCollapsed();
+  renderEmployeeTrackerCard();
 }
 
 function saveEmployeeTrackerMarks() {
@@ -4027,6 +4104,7 @@ function renderEmployeeTracker() {
       <p>Standup, EOD and self-care compliance in one grid.</p>
     </div>
     <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="toggleAllEmployeeTrackerDepartments()">Collapse / Expand All</button>
       <button class="btn btn-secondary btn-sm" onclick="employeeTrackerThisWeek()">This Week</button>
     </div>
   </div>
@@ -4038,6 +4116,7 @@ function renderEmployeeTracker() {
 
 async function initEmployeeTracker() {
   employeeTrackerState.marks = loadEmployeeTrackerMarks();
+  employeeTrackerState.collapsed = loadEmployeeTrackerCollapsed();
   if (!employeeTrackerState.weekStart) employeeTrackerState.weekStart = etWeekStart(manilaToday());
   renderEmployeeTrackerCard();
   try {
@@ -4101,14 +4180,40 @@ function renderEmployeeTrackerCard() {
 }
 
 function renderEmployeeTrackerGrid(metric, weekStart) {
-  const employees = employeeTrackerState.employees;
-  if (!employees.length) {
+  const groups = employeeTrackerGroups();
+  if (!groups.length) {
     return '<div class="empty-state"><h3>No active accounts</h3><p>Add an account under Users and it will appear here.</p></div>';
   }
   const today = manilaToday();
   const days = Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i));
   const marks = employeeTrackerState.marks[metric.id] || {};
   const states = [['yes', '✓', metric.yes], ['rest', 'R', 'Rest Day'], ['no', '×', metric.no]];
+
+  const employeeRow = (employee) => {
+    const row = marks[employee.id] || {};
+    return `<tr>
+      <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
+      ${days.map((day) => `<td class="${day === today ? 'et-today' : ''}">
+        <div class="et-cell">
+          ${states.map(([state, glyph, label]) => `<button class="et-chip ${state}${row[day] === state ? ' active' : ''}" title="${escapeHtml(label)}" onclick="setEmployeeMark(${Number(employee.id)}, '${day}', '${state}')">${glyph}</button>`).join('')}
+        </div>
+      </td>`).join('')}
+    </tr>`;
+  };
+
+  // The header row is the collapse control, so the department name is the thing
+  // you click — there is no separate chevron target to hunt for.
+  const groupRow = (department, members, collapsed) => `
+    <tr class="et-group${collapsed ? ' collapsed' : ''}">
+      <td colspan="${days.length + 1}">
+        <button type="button" class="et-group-btn" aria-expanded="${collapsed ? 'false' : 'true'}"
+          onclick="toggleEmployeeTrackerDepartment('${escapeHtml(department)}')">
+          <svg class="et-group-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6l4 4 4-4"/></svg>
+          <span class="et-group-name">${escapeHtml(department)}</span>
+          <span class="et-group-count">${members.length}</span>
+        </button>
+      </td>
+    </tr>`;
 
   return `
   <div class="et-scroll">
@@ -4125,19 +4230,13 @@ function renderEmployeeTrackerGrid(metric, weekStart) {
           }).join('')}
         </tr>
       </thead>
-      <tbody>
-        ${employees.map((employee) => {
-          const row = marks[employee.id] || {};
-          return `<tr>
-            <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
-            ${days.map((day) => `<td class="${day === today ? 'et-today' : ''}">
-              <div class="et-cell">
-                ${states.map(([state, glyph, label]) => `<button class="et-chip ${state}${row[day] === state ? ' active' : ''}" title="${escapeHtml(label)}" onclick="setEmployeeMark(${Number(employee.id)}, '${day}', '${state}')">${glyph}</button>`).join('')}
-              </div>
-            </td>`).join('')}
-          </tr>`;
-        }).join('')}
-      </tbody>
+      ${groups.map(([department, members]) => {
+        const collapsed = !!employeeTrackerState.collapsed[department];
+        return `<tbody>
+          ${groupRow(department, members, collapsed)}
+          ${collapsed ? '' : members.map(employeeRow).join('')}
+        </tbody>`;
+      }).join('')}
     </table>
   </div>`;
 }
@@ -4147,7 +4246,9 @@ function renderEmployeeTrackerFootnote() {
   const source = canAccessPage('manage-users')
     ? '<a href="#" onclick="event.preventDefault();navigateTo(\'manage-users\')">Users</a>'
     : 'Users';
-  return `${count} active account${count === 1 ? '' : 's'} from ${source}. `
+  const departments = employeeTrackerGroups().length;
+  return `${count} active account${count === 1 ? '' : 's'} from ${source}, grouped into `
+    + `${departments} department${departments === 1 ? '' : 's'} by role. `
     + 'Add or deactivate an account there and this list follows. Marks are saved on this device only.';
 }
 
