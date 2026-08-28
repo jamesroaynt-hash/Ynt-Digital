@@ -9,8 +9,8 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'hr-dashboard', 'employee-tracker', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -160,6 +160,7 @@ function loadPage(page) {
     home: renderHome,
     'hr-dashboard': renderHrDashboardPage,
     'employee-tracker': renderEmployeeTracker,
+    'evaluation-kpi': renderEvaluationKpi,
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
     'rmo-management': renderRmoManagement,
@@ -198,6 +199,7 @@ const pageNames = {
   home: 'Home',
   'hr-dashboard': 'HR Dashboard',
   'employee-tracker': 'Employee Tracker',
+  'evaluation-kpi': 'Evaluation / KPI',
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
@@ -4282,6 +4284,175 @@ function shiftEmployeeTrackerWeek(direction) {
 function employeeTrackerThisWeek() {
   employeeTrackerState.weekStart = etWeekStart(manilaToday());
   renderEmployeeTrackerCard();
+}
+
+// ─── BI-MONTHLY EVALUATION / KPI ───────────────────────────
+// Evaluation periods are fixed two-month blocks — Jan–Feb, Mar–Apr and so on —
+// so everyone in a period shares one label instead of each carrying a window
+// that drifts with their own hire date.
+const EVALUATION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function evaluationPeriodFor(date) {
+  const parsed = etParseDate(date);
+  return { year: parsed.getFullYear(), startMonth: Math.floor(parsed.getMonth() / 2) * 2 };
+}
+
+function evaluationPeriodLabel(period) {
+  return `${EVALUATION_MONTHS[period.startMonth]}–${EVALUATION_MONTHS[period.startMonth + 1]} ${period.year}`;
+}
+
+function shiftEvaluationPeriod(period, blocks) {
+  const moved = new Date(period.year, period.startMonth + (blocks * 2), 1);
+  return { year: moved.getFullYear(), startMonth: moved.getMonth() };
+}
+
+let evaluationState = { employees: [], selectedId: null };
+
+function renderEvaluationKpi() {
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Bi-Monthly Evaluation / KPI</h1>
+      <p>Employee evaluation every two months.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-primary btn-sm" onclick="newEvaluationNotice()">+ New Evaluation</button>
+    </div>
+  </div>
+
+  <div class="alert alert-warning" style="margin-bottom:12px;">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3.5M8 10.5v.5"/></svg>
+    <div><strong>Flow prototype.</strong> These screens use sample data and do not save yet.</div>
+  </div>
+
+  <div class="alert alert-info" style="margin-bottom:20px;">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 4.75v.5"/></svg>
+    <div><strong>KPI slot is ready.</strong> Once the KPI grading sheet is finalised it can be attached here, or converted into the evaluation form, without changing the rest of the HR module.</div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Evaluation Queue</div>
+        <div class="card-subtitle">One row per employee per evaluation period.</div>
+      </div>
+    </div>
+    <div class="card-body" id="evaluation-queue-wrap">
+      <div class="empty-state"><h3>Loading queue</h3><p>Pulling the active account list.</p></div>
+    </div>
+  </div>
+
+  <div class="card" id="evaluation-record-card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Per-Employee Evaluation Record</div>
+        <div class="card-subtitle">Open a row above to see that employee's record.</div>
+      </div>
+    </div>
+    <div class="card-body" id="evaluation-record-wrap"></div>
+  </div>`;
+}
+
+async function initEvaluationKpi() {
+  try {
+    const result = await authorizedJsonRequest('/orders/assignable-users');
+    evaluationState.employees = Array.isArray(result?.users) ? result.users : [];
+  } catch {
+    evaluationState.employees = [];
+  }
+  if (!evaluationState.employees.some((e) => e.id === evaluationState.selectedId)) {
+    evaluationState.selectedId = evaluationState.employees[0]?.id ?? null;
+  }
+  if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationQueue();
+  renderEvaluationRecord();
+}
+
+function renderEvaluationQueue() {
+  const wrap = document.getElementById('evaluation-queue-wrap');
+  if (!wrap) return;
+  if (!evaluationState.employees.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No active accounts</h3><p>Add an account under Users and it will appear here.</p></div>';
+    return;
+  }
+  // The period everyone is queued for is the block today falls in — it is not
+  // graded until the block closes, so every row reads as Upcoming.
+  const period = evaluationPeriodLabel(evaluationPeriodFor(manilaToday()));
+
+  wrap.innerHTML = `
+  <div class="ev-scroll">
+    <table class="ev-table">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Period</th>
+          <th>KPI Grading Sheet</th>
+          <th>Evaluator</th>
+          <th>Score</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${evaluationState.employees.map((employee) => `
+          <tr class="${employee.id === evaluationState.selectedId ? 'ev-selected' : ''}">
+            <td><strong>${escapeHtml(employee.name || 'User')}</strong></td>
+            <td>${escapeHtml(period)}</td>
+            <td><span class="badge badge-gray">Awaiting KPI Sheet</span></td>
+            <td>Department Head / HR</td>
+            <td class="ev-muted">—</td>
+            <td><span class="badge badge-info">Upcoming</span></td>
+            <td><button class="btn btn-secondary btn-sm" onclick="selectEvaluationEmployee(${Number(employee.id)})">Open</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderEvaluationRecord() {
+  const wrap = document.getElementById('evaluation-record-wrap');
+  const card = document.getElementById('evaluation-record-card');
+  if (!wrap || !card) return;
+  const employee = evaluationState.employees.find((e) => e.id === evaluationState.selectedId);
+  const subtitle = card.querySelector('.card-subtitle');
+
+  if (!employee) {
+    if (subtitle) subtitle.textContent = 'Open a row above to see that employee’s record.';
+    wrap.innerHTML = '<div class="empty-state"><h3>No employee selected</h3><p>Open a row in the queue above.</p></div>';
+    return;
+  }
+  if (subtitle) subtitle.textContent = employee.name || 'User';
+
+  const current = evaluationPeriodFor(manilaToday());
+  // Nothing is stored behind these yet, so the two date tiles are computed and
+  // the two data tiles say plainly that there is nothing to show — better than
+  // a number nobody can trace back to a record.
+  const tiles = [
+    { label: 'Last Evaluation', value: 'None yet', meta: `Previous period ${evaluationPeriodLabel(shiftEvaluationPeriod(current, -1))}` },
+    { label: 'Next Evaluation', value: evaluationPeriodLabel(current), meta: 'Current period, not yet graded' },
+    { label: 'KPI Sheet', value: 'To Be Added', meta: 'Grading sheet not attached' },
+    { label: 'Evaluation History', value: '0 Records', meta: 'Nothing saved yet' },
+  ];
+
+  wrap.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:0;">
+      ${tiles.map((tile) => `
+        <div class="stat-card">
+          <div class="stat-label">${escapeHtml(tile.label)}</div>
+          <div class="stat-value" style="font-size:20px;">${escapeHtml(tile.value)}</div>
+          <div class="stat-meta">${escapeHtml(tile.meta)}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function selectEvaluationEmployee(userId) {
+  evaluationState.selectedId = Number(userId);
+  renderEvaluationQueue();
+  renderEvaluationRecord();
+}
+
+function newEvaluationNotice() {
+  showToast('info', 'Not wired yet', 'The evaluation form lands once the KPI grading sheet is final — it attaches here without changing the rest of HR.');
 }
 
 function renderHR() {
@@ -12794,6 +12965,10 @@ function initPage(page) {
 
   if (page === 'employee-tracker') {
     initEmployeeTracker().catch(() => {});
+  }
+
+  if (page === 'evaluation-kpi') {
+    initEvaluationKpi().catch(() => {});
   }
 
   if (page === 'rts-rate') {
