@@ -3978,6 +3978,12 @@ function employeeDepartment(employee) {
   return DEPARTMENT_BY_ROLE[navAccessKey(normalizeRoleName(employee?.role))] || 'Unassigned';
 }
 
+// Administrators are not tracked or rated as staff — the same rule payroll
+// already applies when it leaves them off the summary.
+function isAdministratorAccount(row) {
+  return normalizeRoleName(row?.role) === 'Administrator';
+}
+
 // Roster split into departments, in DEPARTMENT_ORDER, keeping only the ones
 // that actually have somebody in them.
 function employeeTrackerGroups() {
@@ -4110,7 +4116,8 @@ async function initEmployeeTracker() {
   renderEmployeeTrackerCard();
   try {
     const result = await authorizedJsonRequest('/orders/assignable-users');
-    employeeTrackerState.employees = Array.isArray(result?.users) ? result.users : [];
+    const users = Array.isArray(result?.users) ? result.users : [];
+    employeeTrackerState.employees = users.filter((user) => !isAdministratorAccount(user));
   } catch {
     employeeTrackerState.employees = [];
   }

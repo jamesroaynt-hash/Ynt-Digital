@@ -73,11 +73,15 @@ module.exports = function evaluationRoutes(db) {
     };
   }
 
-  async function activeUsers() {
+  // Who can be rated. Administrators are not rated as staff — the same rule
+  // payroll already applies when it leaves them off the summary. They still
+  // evaluate other people; this is only the list of subjects.
+  async function ratableUsers() {
     return db.prepare(`
       SELECT id, full_name, username, role
       FROM users
       WHERE is_active = 1
+        AND LOWER(TRIM(COALESCE(role, ''))) NOT IN ('administrator', 'admin')
       ORDER BY full_name COLLATE NOCASE ASC
     `).all();
   }
@@ -160,7 +164,7 @@ module.exports = function evaluationRoutes(db) {
       const canSeeScores = isHrManager(req.user);
       const weights = await loadWeights();
 
-      const users = (await activeUsers()).filter((user) => Number(user.id) !== viewerId);
+      const users = (await ratableUsers()).filter((user) => Number(user.id) !== viewerId);
       const mine = await db.prepare(`
         SELECT * FROM evaluations WHERE period = ? AND evaluator_id = ?
       `).all(period, viewerId);
@@ -212,7 +216,11 @@ module.exports = function evaluationRoutes(db) {
       if (!Number.isFinite(subjectId) || subjectId <= 0) return res.status(400).json({ error: 'Invalid subject' });
       if (subjectId === evaluatorId) return res.status(400).json({ error: 'You cannot evaluate yourself.' });
 
-      const subject = await db.prepare('SELECT id FROM users WHERE id = ? AND is_active = 1').get(subjectId);
+      const subject = await db.prepare(`
+        SELECT id FROM users
+        WHERE id = ? AND is_active = 1
+          AND LOWER(TRIM(COALESCE(role, ''))) NOT IN ('administrator', 'admin')
+      `).get(subjectId);
       if (!subject) return res.status(404).json({ error: 'Employee not found' });
 
       const canRateHr = isHrManager(req.user);
