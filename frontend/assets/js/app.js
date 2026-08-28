@@ -37,7 +37,7 @@ const NAV_ACCESS_BY_KEY = Object.fromEntries(
 );
 
 let managedUsers = [];
-let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [] };
+let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [], status: 'active' };
 let attendanceState = { today: null, date: '', advances: [], leaves: [], activeTab: 'clock' };
 let posUsersState = { users: [], total: 0, page: 1, perPage: 50, search: '', loading: false };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
@@ -4855,6 +4855,10 @@ function renderHR() {
         <div class="card-subtitle">Days worked, OT, holiday pay, cash advances, and net pay</div>
       </div>
       <div class="hr-toolbar">
+        <span class="hr-status-filter" id="hr-status-filter">
+          ${[['active', 'Active'], ['inactive', 'Non-Active'], ['all', 'All']].map(([value, label]) =>
+            `<button class="filter-pill ${(hrState.status || 'active') === value ? 'active' : ''}" data-status="${value}" onclick="setHRStatusFilter('${value}')">${label}</button>`).join('')}
+        </span>
         <select id="hr-month-filter" class="hr-toolbar-input" title="Month" onchange="applyHRMonthPeriod()">
           ${buildHRMonthOptions()}
         </select>
@@ -13620,13 +13624,33 @@ function formatMinutes(value) {
   return hours ? `${hours}h ${mins}m` : `${mins}m`;
 }
 
+// A row only carries is_active once the scope has been widened past active,
+// so an undefined flag means "active" rather than "unknown".
+function hrInactiveBadge(row) {
+  return row && row.is_active !== undefined && !Number(row.is_active)
+    ? ' <span class="badge badge-gray" style="font-size:9px;" title="Account is deactivated">Inactive</span>'
+    : '';
+}
+
 function getHRFilters() {
   const today = normalizeDateString(new Date());
   return {
     from: document.getElementById('hr-date-from')?.value || today,
     to: document.getElementById('hr-date-to')?.value || today,
     userId: document.getElementById('hr-user-filter')?.value || '',
+    status: hrState.status || 'active',
   };
+}
+
+// Active / Non-Active / All. A deactivated employee keeps their attendance and
+// any unpaid advance, so payroll has to be able to reach them for a final
+// payout — but the default stays on active, which is the everyday view.
+function setHRStatusFilter(status) {
+  hrState.status = status;
+  document.querySelectorAll('#hr-status-filter .filter-pill').forEach((pill) => {
+    pill.classList.toggle('active', pill.dataset.status === status);
+  });
+  loadHRDashboard();
 }
 
 // Build "YYYY-MM" month options for the last 12 months (current month first).
@@ -14116,7 +14140,7 @@ function renderAttendanceLogSummary() {
             const user = item.user || {};
             return `
               <tr>
-                <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
+                <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong>${hrInactiveBadge(user)}<div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
                 <td>${Number(item.days_worked || 0)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
@@ -14141,8 +14165,8 @@ function renderAttendanceLogSummary() {
 
 async function loadHRDashboard() {
   if (!canManageHR()) return;
-  const { from, to, userId } = getHRFilters();
-  const query = new URLSearchParams({ from, to, _: Date.now().toString() });
+  const { from, to, userId, status } = getHRFilters();
+  const query = new URLSearchParams({ from, to, status, _: Date.now().toString() });
   if (userId) query.set('user_id', userId);
 
   try {
@@ -14197,7 +14221,7 @@ function renderHRPayrollTable() {
             const user = item.user || {};
             return `
               <tr onclick="openPayrollEditModal(${user.id})" style="cursor:pointer;" title="Click to edit daily rate">
-                <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
+                <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong>${hrInactiveBadge(user)}<div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
                 <td><strong>${formatPHP(user.daily_rate)}</strong></td>
                 <td>${Number(item.days_worked || 0)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
@@ -14286,7 +14310,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             return `
             <tr onclick="openAttendanceEditModal(${record.id})" style="cursor:pointer;" title="Click to edit">
               <td><strong>${escapeHtml(record.work_date || '')}</strong>${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}</td>
-              <td>${escapeHtml(record.full_name || '')}${scheduleHtml}</td>
+              <td>${escapeHtml(record.full_name || '')}${hrInactiveBadge(record)}${scheduleHtml}</td>
               <td>${timeTxt(record.time_in)}</td>
               <td>${timeTxt(record.break_out)}</td>
               <td>${timeTxt(record.break_in)}</td>

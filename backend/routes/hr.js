@@ -327,13 +327,21 @@ module.exports = function hrRoutes(db) {
     next();
   }
 
+  // Scope defaults to active accounts, which is what every caller wanted before
+  // ?status existed. A deactivated employee still has attendance and unpaid
+  // advances behind them, so HR can widen this to reach a final payout.
   async function listUsersForScope(req) {
     if (!isHrManager(req.currentUser)) return [req.currentUser];
     const requestedId = Number(req.query?.user_id || 0);
-    const where = requestedId > 0 ? 'WHERE is_active = 1 AND id = ?' : 'WHERE is_active = 1';
-    const params = requestedId > 0 ? [requestedId] : [];
+    const status = String(req.query?.status || 'active').trim().toLowerCase();
+    const clauses = [];
+    const params = [];
+    if (status === 'inactive') clauses.push('is_active = 0');
+    else if (status !== 'all') clauses.push('is_active = 1');
+    if (requestedId > 0) { clauses.push('id = ?'); params.push(requestedId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     return db.prepare(`
-      SELECT id, username, full_name, role, daily_rate, day_off
+      SELECT id, username, full_name, role, daily_rate, day_off, is_active
       FROM users
       ${where}
       ORDER BY full_name COLLATE NOCASE ASC
@@ -437,7 +445,7 @@ module.exports = function hrRoutes(db) {
     const ids = users.map((user) => Number(user.id));
     const placeholders = ids.map(() => '?').join(',');
     const records = await db.prepare(`
-      SELECT a.*, u.full_name, u.username, u.role, u.daily_rate, u.day_off
+      SELECT a.*, u.full_name, u.username, u.role, u.daily_rate, u.day_off, u.is_active
       FROM attendance_records a
       JOIN users u ON u.id = a.user_id
       WHERE a.user_id IN (${placeholders}) AND a.work_date BETWEEN ? AND ?

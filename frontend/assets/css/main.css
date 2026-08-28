@@ -5263,3 +5263,7 @@ tfoot td {
 .eval-total-value { font-size: 24px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
 .eval-total-value span { font-size: 14px; font-weight: 500; color: var(--text-muted); }
 .eval-total-note { flex: 1; min-width: 220px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+
+/* ── HR Payroll: Active / Non-Active scope pills ────────────────────────── */
+.hr-status-filter { display: inline-flex; gap: 6px; margin-right: 4px; }
+.hr-status-filter .filter-pill { padding: 5px 12px; font-size: 12px; }
