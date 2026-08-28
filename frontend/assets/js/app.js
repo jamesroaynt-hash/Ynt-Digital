@@ -13624,6 +13624,44 @@ function formatMinutes(value) {
   return hours ? `${hours}h ${mins}m` : `${mins}m`;
 }
 
+// Deactivating is what stops someone signing in and drops them out of
+// Evaluation and the Employee Tracker, so the button says which way it goes
+// rather than relying on the row's badge alone.
+function renderUserActiveToggle(user) {
+  if (!canManageAccounts()) return '';
+  const active = Number(user?.is_active) !== 0;
+  const isSelf = Number(App.user?.id) === Number(user?.id);
+  return `<button class="btn ${active ? 'btn-danger' : 'btn-primary'} btn-sm"
+    onclick="setUserActive(${Number(user.id)}, ${active ? 'false' : 'true'})"
+    ${isSelf ? 'disabled title="You cannot deactivate your own account while signed in"' : `title="${active ? 'Stop this account signing in' : 'Let this account sign in again'}"`}>
+    ${active ? 'Deactivate' : 'Activate'}</button>`;
+}
+
+async function setUserActive(userId, active) {
+  if (!canManageAccounts()) {
+    showToast('warning', 'Access denied', 'Only Administrator or HR accounts can change this.');
+    return;
+  }
+  const item = (hrState.summary || []).find((entry) => Number(entry.user?.id) === Number(userId));
+  const name = item?.user?.full_name || item?.user?.username || 'this account';
+  const question = active
+    ? `Activate ${name}? They will be able to sign in and will reappear in Evaluation and the Employee Tracker.`
+    : `Deactivate ${name}? They will not be able to sign in, and will drop out of Evaluation and the Employee Tracker.`;
+  if (!window.confirm(question)) return;
+
+  try {
+    await authorizedJsonRequest(`/auth/users/${Number(userId)}/active`, {
+      method: 'PATCH',
+      body: JSON.stringify({ active: !!active }),
+    });
+    showToast('success', active ? 'Account activated' : 'Account deactivated',
+      `${name} ${active ? 'can sign in again.' : 'can no longer sign in.'}`);
+    await loadHRDashboard();
+  } catch (error) {
+    showToast('error', 'Could not update account', error.message || 'The account was not changed.');
+  }
+}
+
 // A row only carries is_active once the scope has been widened past active,
 // so an undefined flag means "active" rather than "unknown".
 function hrInactiveBadge(row) {
@@ -14215,7 +14253,7 @@ function renderHRPayrollTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Payslip</th></tr></thead>
+        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Payslip / Account</th></tr></thead>
         <tbody>
           ${hrState.summary.map((item) => {
             const user = item.user || {};
@@ -14230,7 +14268,10 @@ function renderHRPayrollTable() {
                 <td>${formatPHP(item.cash_advances)}</td>
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
                 <td onclick="event.stopPropagation();">
-                  <button class="btn btn-secondary btn-sm" onclick="printPayslip(${user.id})" title="Open this user's payslip">Print</button>
+                  <div class="flex gap-2">
+                    <button class="btn btn-secondary btn-sm" onclick="printPayslip(${user.id})" title="Open this user's payslip">Print</button>
+                    ${renderUserActiveToggle(user)}
+                  </div>
                 </td>
               </tr>`;
           }).join('')}

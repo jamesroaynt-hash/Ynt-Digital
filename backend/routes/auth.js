@@ -374,6 +374,39 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     });
   });
 
+  // Flip an account active or inactive. DELETE /users/:id already deactivates,
+  // but it refuses to touch a row that is already inactive, so there was no way
+  // back — a deactivated employee was stranded. requireAdmin covers
+  // Administrator and HR, which is who may do this.
+  router.patch('/users/:id/active', requireAdmin, async (req, res) => {
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
+    const active = req.body?.active ? 1 : 0;
+    if (req.user.id === userId && !active) {
+      return res.status(400).json({ error: 'You cannot deactivate your own account while signed in' });
+    }
+
+    const existing = await db.prepare('SELECT id, full_name, role, is_active FROM users WHERE id = ?').get(userId);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    if (!active && existing.is_active
+      && existing.role === 'Administrator' && (await getActiveAdminCount()) <= 1) {
+      return res.status(400).json({ error: 'At least one active administrator account must remain' });
+    }
+
+    await db.prepare(`
+      UPDATE users
+      SET is_active = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(active, userId);
+
+    res.json({ success: true, id: userId, is_active: active, full_name: existing.full_name });
+  });
+
   router.delete('/users/:id', requireAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
