@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/Images/yntlogo.png?v=20260603">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=20260818-starfield">
+<link rel="stylesheet" href="assets/css/main.css?v=20260828-hr-dashboard">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -75,6 +75,13 @@
               <path d="M2 6.5L8 2l6 4.5V14a.5.5 0 01-.5.5h-4V10H6.5v4.5h-4A.5.5 0 012 14V6.5z"/>
             </svg>
             Home
+          </a>
+
+          <a class="nav-item" data-page="hr-dashboard" onclick="navigateTo('hr-dashboard')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="2.5" width="5" height="5" rx="1.2"/><rect x="9" y="2.5" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="4.5" rx="1.2"/><rect x="9" y="9" width="5" height="4.5" rx="1.2"/>
+            </svg>
+            HR Dashboard
           </a>
 
           <a class="nav-item" data-page="data-report" onclick="navigateTo('data-report')">
@@ -261,6 +268,13 @@
             Schedule
           </a>
 
+          <a class="nav-item" data-page="employee-tracker" onclick="navigateTo('employee-tracker')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10M2 6h4.5"/>
+            </svg>
+            Employee Tracker
+          </a>
+
         </div>
         </div>
 
@@ -375,6 +389,6 @@
 </div>
 <!-- /app-root -->
 
-  <script src="assets/js/app.js?v=20260724-odz-hero-search"></script>
+  <script src="assets/js/app.js?v=20260828-hr-dashboard"></script>
 </body>
 </html>

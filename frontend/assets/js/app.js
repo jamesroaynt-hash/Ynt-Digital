@@ -9,8 +9,8 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'hr-dashboard', 'employee-tracker', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -158,6 +158,8 @@ function loadPage(page) {
   // Render page content
   const renderFns = {
     home: renderHome,
+    'hr-dashboard': renderHrDashboardPage,
+    'employee-tracker': renderEmployeeTracker,
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
     'rmo-management': renderRmoManagement,
@@ -194,6 +196,8 @@ function loadPage(page) {
 
 const pageNames = {
   home: 'Home',
+  'hr-dashboard': 'HR Dashboard',
+  'employee-tracker': 'Employee Tracker',
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
@@ -3769,6 +3773,425 @@ function renderOwnAccountSection() {
       </form>
     </div>
   </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HR DASHBOARD + EMPLOYEE TRACKER
+   ═══════════════════════════════════════════════════════════ */
+
+// The HR endpoints all speak Manila dates, so "today" has to be read in Manila
+// too — normalizeDateString() goes through toISOString() and lands a day early
+// for anyone opening the page before 8am local.
+function manilaToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+}
+
+// Quick Encode tiles. Each entry is a page id plus the copy on the tile; the
+// grid is filtered through canAccessPage so a role is never shown a door it
+// cannot open (Employee Record is Administrator-only, for one).
+const HR_QUICK_LINKS = [
+  { page: 'attendance-log', title: 'Timekeeping', desc: 'Attendance log, cash advances, OT and leave approvals.' },
+  { page: 'hr', title: 'Payroll', desc: 'Review the cutoff, adjustments, and printable payslips.' },
+  { page: 'employee-tracker', metric: 'standup', title: 'Standup', desc: '✓ Attended · R Rest Day · × Did Not Attend' },
+  { page: 'employee-tracker', metric: 'eod', title: 'EOD', desc: '✓ Submitted · R Rest Day · × Not Submitted' },
+  { page: 'employee-tracker', metric: 'selfcare', title: 'Self-Care', desc: '✓ Done · R Rest Day · × Not Done' },
+  { page: 'schedule', title: 'Schedule', desc: 'Shifts, rest days, holidays, and daily notes.' },
+  { page: 'attendance', title: 'Time & Attendance', desc: 'Time clock plus leave, OT and cash advance requests.' },
+  { page: 'manage-users', title: 'Employee Record', desc: 'Account, role, daily rate and contact details in one profile.' },
+];
+
+function renderHrDashboardPage() {
+  const links = HR_QUICK_LINKS.filter((link) => canAccessPage(link.page));
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>HR Dashboard</h1>
+      <p>Quick encode for the most-used HR actions.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadHrDashboardStats()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="stats-grid" id="hr-dash-stats">
+    ${renderHrDashboardStatCards(null)}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Quick Encode</div>
+        <div class="card-subtitle">Jump straight to the screen you need.</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="qe-grid">
+        ${links.map((link) => `
+          <button type="button" class="qe-card" onclick="${link.metric
+            ? `openEmployeeTracker('${link.metric}')`
+            : `navigateTo('${link.page}')`}">
+            <span class="qe-title">${escapeHtml(link.title)}</span>
+            <span class="qe-desc">${escapeHtml(link.desc)}</span>
+          </button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+// `stats` is null on first paint (and whenever a fetch fails) — the tiles keep
+// their shape and show an em dash rather than collapsing the row.
+function renderHrDashboardStatCards(stats) {
+  const num = (value) => (stats && Number.isFinite(value) ? String(value) : '—');
+  const cards = [
+    {
+      tone: 'blue',
+      label: 'Active Employees',
+      value: num(stats?.employees),
+      meta: 'active accounts',
+    },
+    {
+      tone: 'green',
+      label: 'Present Today',
+      value: num(stats?.present),
+      meta: stats ? `timed in of ${stats.employees}` : 'timed in today',
+    },
+    {
+      tone: 'amber',
+      label: 'Pending Approvals',
+      value: num(stats?.pending),
+      meta: stats ? `${stats.pendingOt} OT · ${stats.pendingLeave} leave` : 'OT and leave requests',
+    },
+    {
+      tone: 'red',
+      label: 'Unpaid Cash Advances',
+      value: num(stats?.unpaidCount),
+      meta: stats ? formatPHP(stats.unpaidAmount) : 'not yet deducted',
+    },
+  ];
+  return cards.map((card) => `
+    <div class="stat-card ${card.tone}">
+      <div class="stat-card-accent"></div>
+      <div class="stat-label">${escapeHtml(card.label)}</div>
+      <div class="stat-value">${escapeHtml(card.value)}</div>
+      <div class="stat-meta">${escapeHtml(card.meta)}</div>
+    </div>`).join('');
+}
+
+// One pass over the HR endpoints for the four counters. Each call is caught
+// on its own so a single failure (HR can read attendance but not every route)
+// degrades that tile instead of blanking the row.
+async function loadHrDashboardStats() {
+  const today = manilaToday();
+  const FROM = '2000-01-01';
+  const TO = '2999-12-31';
+  const get = (path) => authorizedJsonRequest(path).catch(() => null);
+
+  const [users, attendance, otRequests, leaveRequests, advances] = await Promise.all([
+    get('/orders/assignable-users'),
+    get(`/hr/attendance?from=${today}&to=${today}`),
+    get('/hr/ot-requests?status=pending'),
+    get(`/hr/leave-requests?from=${FROM}&to=${TO}`),
+    get(`/hr/cash-advances?from=${FROM}&to=${TO}`),
+  ]);
+
+  const employees = Array.isArray(users?.users) ? users.users.length : 0;
+  const records = Array.isArray(attendance?.records) ? attendance.records : [];
+  const present = records.filter((row) => row.time_in).length;
+  const pendingOt = Array.isArray(otRequests?.data)
+    ? otRequests.data.filter((row) => row.status === 'pending').length : 0;
+  const pendingLeave = Array.isArray(leaveRequests?.requests)
+    ? leaveRequests.requests.filter((row) => row.status === 'pending').length : 0;
+  const unpaid = Array.isArray(advances?.advances)
+    ? advances.advances.filter((row) => !Number(row.paid)) : [];
+
+  const stats = {
+    employees,
+    present,
+    pendingOt,
+    pendingLeave,
+    pending: pendingOt + pendingLeave,
+    unpaidCount: unpaid.length,
+    unpaidAmount: unpaid.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+  };
+
+  const wrap = document.getElementById('hr-dash-stats');
+  if (wrap) wrap.innerHTML = renderHrDashboardStatCards(stats);
+  return stats;
+}
+
+// ─── EMPLOYEE TRACKER ──────────────────────────────────────
+// Standup / EOD / self-care compliance as one week-at-a-time grid. Nothing
+// backs these three yet, so the marks live in localStorage on the device that
+// encoded them — the footer note says so plainly.
+const EMPLOYEE_TRACKER_KEY = 'ynt_employee_tracker';
+const EMPLOYEE_TRACKER_METRICS = [
+  {
+    id: 'standup',
+    tab: 'Standup',
+    title: 'Standup Meeting Attendance',
+    hint: 'Did the employee attend the daily standup? One click per employee per day — click an active state again to clear it.',
+    yes: 'Attended',
+    no: 'Not Attended',
+  },
+  {
+    id: 'eod',
+    tab: 'EOD',
+    title: 'EOD Report Submission',
+    hint: 'Did the employee send an end-of-day report? One click per employee per day — click an active state again to clear it.',
+    yes: 'Submitted',
+    no: 'Not Submitted',
+  },
+  {
+    id: 'selfcare',
+    tab: 'Self-Care',
+    title: 'Self-Care Compliance',
+    hint: 'Did the employee log their self-care for the day? One click per employee per day — click an active state again to clear it.',
+    yes: 'Done',
+    no: 'Not Done',
+  },
+];
+
+let employeeTrackerState = { metric: 'standup', weekStart: '', employees: [], marks: {} };
+
+// Dates here are handled as plain Y-M-D in local time. Letting Date parse them
+// as UTC would slide the whole week by a day for anyone east of UTC.
+function etParseDate(value) {
+  const [y, m, d] = String(value || '').split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function etYmd(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function etAddDays(value, days) {
+  const date = etParseDate(value);
+  date.setDate(date.getDate() + days);
+  return etYmd(date);
+}
+
+// Weeks run Sunday → Saturday, matching the column headers.
+function etWeekStart(value) {
+  const date = etParseDate(value);
+  date.setDate(date.getDate() - date.getDay());
+  return etYmd(date);
+}
+
+// Every week that touches the given month, so the week picker can label them
+// "Week 1 … Week 5" the way somebody reading a calendar would count them.
+function etWeeksInMonth(ym) {
+  const [year, month] = String(ym).split('-').map(Number);
+  const lastDay = new Date(year, month, 0);
+  const weeks = [];
+  let cursor = etWeekStart(`${ym}-01`);
+  while (etParseDate(cursor) <= lastDay) {
+    weeks.push(cursor);
+    cursor = etAddDays(cursor, 7);
+  }
+  return weeks;
+}
+
+function etRangeLabel(weekStart) {
+  const fmt = (value) => etParseDate(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${fmt(weekStart)} – ${fmt(etAddDays(weekStart, 6))}`;
+}
+
+function loadEmployeeTrackerMarks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EMPLOYEE_TRACKER_KEY) || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveEmployeeTrackerMarks() {
+  try {
+    localStorage.setItem(EMPLOYEE_TRACKER_KEY, JSON.stringify(employeeTrackerState.marks));
+  } catch {}
+}
+
+// Entry point for the HR Dashboard tiles: pick the metric first, then navigate,
+// so the page opens on the tab the tile promised.
+function openEmployeeTracker(metric) {
+  if (EMPLOYEE_TRACKER_METRICS.some((m) => m.id === metric)) employeeTrackerState.metric = metric;
+  navigateTo('employee-tracker');
+}
+
+function renderEmployeeTracker() {
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Employee Tracker</h1>
+      <p>Standup, EOD and self-care compliance in one grid.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="employeeTrackerThisWeek()">This Week</button>
+    </div>
+  </div>
+
+  <div class="card" id="employee-tracker-card">
+    <div class="empty-state"><h3>Loading tracker</h3><p>Pulling the active account list.</p></div>
+  </div>`;
+}
+
+async function initEmployeeTracker() {
+  employeeTrackerState.marks = loadEmployeeTrackerMarks();
+  if (!employeeTrackerState.weekStart) employeeTrackerState.weekStart = etWeekStart(manilaToday());
+  renderEmployeeTrackerCard();
+  try {
+    const result = await authorizedJsonRequest('/orders/assignable-users');
+    employeeTrackerState.employees = Array.isArray(result?.users) ? result.users : [];
+  } catch {
+    employeeTrackerState.employees = [];
+  }
+  if (App.currentPage === 'employee-tracker') renderEmployeeTrackerCard();
+}
+
+function renderEmployeeTrackerCard() {
+  const card = document.getElementById('employee-tracker-card');
+  if (!card) return;
+  const metric = EMPLOYEE_TRACKER_METRICS.find((m) => m.id === employeeTrackerState.metric)
+    || EMPLOYEE_TRACKER_METRICS[0];
+  const weekStart = employeeTrackerState.weekStart;
+  const ym = weekStart.slice(0, 7);
+  // weekStart is a Sunday inside `ym`, and etWeeksInMonth walks Sundays from the
+  // one on/before the 1st, so the current week is always one of these options.
+  const weeks = etWeeksInMonth(ym);
+
+  const monthOptions = [];
+  const now = etParseDate(manilaToday());
+  for (let i = -1; i < 12; i += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const label = date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    monthOptions.push(`<option value="${value}"${value === ym ? ' selected' : ''}>${label}</option>`);
+  }
+
+  card.innerHTML = `
+    <div class="card-header et-header">
+      <div>
+        <div class="card-title">${escapeHtml(metric.title)}</div>
+        <div class="card-subtitle">${escapeHtml(metric.hint)}</div>
+      </div>
+      <div class="et-toolbar">
+        <select class="et-select" id="et-month" title="Month" onchange="setEmployeeTrackerMonth(this.value)">
+          ${monthOptions.join('')}
+        </select>
+        <select class="et-select" id="et-week" title="Week" onchange="setEmployeeTrackerWeek(this.value)">
+          ${weeks.map((start, i) => `<option value="${start}"${start === weekStart ? ' selected' : ''}>Week ${i + 1} · ${escapeHtml(etRangeLabel(start))}</option>`).join('')}
+        </select>
+        <button class="et-nav" onclick="shiftEmployeeTrackerWeek(-1)" title="Previous week" aria-label="Previous week">←</button>
+        <button class="et-nav" onclick="shiftEmployeeTrackerWeek(1)" title="Next week" aria-label="Next week">→</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="et-tabs">
+        ${EMPLOYEE_TRACKER_METRICS.map((m) => `<button class="filter-pill ${m.id === metric.id ? 'active' : ''}" onclick="setEmployeeTrackerMetric('${m.id}')">${escapeHtml(m.tab)}</button>`).join('')}
+      </div>
+      <div class="et-legend">
+        <span><i class="et-chip yes">✓</i>${escapeHtml(metric.yes)}</span>
+        <span><i class="et-chip rest">R</i>Rest Day</span>
+        <span><i class="et-chip no">×</i>${escapeHtml(metric.no)}</span>
+      </div>
+      ${renderEmployeeTrackerGrid(metric, weekStart)}
+      <div class="et-foot">${renderEmployeeTrackerFootnote()}</div>
+    </div>`;
+}
+
+function renderEmployeeTrackerGrid(metric, weekStart) {
+  const employees = employeeTrackerState.employees;
+  if (!employees.length) {
+    return '<div class="empty-state"><h3>No active accounts</h3><p>Add an account under Users and it will appear here.</p></div>';
+  }
+  const today = manilaToday();
+  const days = Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i));
+  const marks = employeeTrackerState.marks[metric.id] || {};
+  const states = [['yes', '✓', metric.yes], ['rest', 'R', 'Rest Day'], ['no', '×', metric.no]];
+
+  return `
+  <div class="et-scroll">
+    <table class="et-table">
+      <thead>
+        <tr>
+          <th class="et-name-col">Employee</th>
+          ${days.map((day) => {
+            const date = etParseDate(day);
+            return `<th class="${day === today ? 'et-today' : ''}">
+              <span class="et-dow">${date.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+              <span class="et-date">${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+            </th>`;
+          }).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${employees.map((employee) => {
+          const row = marks[employee.id] || {};
+          return `<tr>
+            <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
+            ${days.map((day) => `<td class="${day === today ? 'et-today' : ''}">
+              <div class="et-cell">
+                ${states.map(([state, glyph, label]) => `<button class="et-chip ${state}${row[day] === state ? ' active' : ''}" title="${escapeHtml(label)}" onclick="setEmployeeMark(${Number(employee.id)}, '${day}', '${state}')">${glyph}</button>`).join('')}
+              </div>
+            </td>`).join('')}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderEmployeeTrackerFootnote() {
+  const count = employeeTrackerState.employees.length;
+  const source = canAccessPage('manage-users')
+    ? '<a href="#" onclick="event.preventDefault();navigateTo(\'manage-users\')">Users</a>'
+    : 'Users';
+  return `${count} active account${count === 1 ? '' : 's'} from ${source}. `
+    + 'Add or deactivate an account there and this list follows. Marks are saved on this device only.';
+}
+
+// One click per employee per day; clicking the state that is already set clears
+// it, so a mis-tap is undone the same way it was made.
+function setEmployeeMark(userId, date, state) {
+  const metric = employeeTrackerState.metric;
+  const byMetric = employeeTrackerState.marks[metric] || (employeeTrackerState.marks[metric] = {});
+  const row = byMetric[userId] || (byMetric[userId] = {});
+  if (row[date] === state) delete row[date];
+  else row[date] = state;
+  saveEmployeeTrackerMarks();
+  renderEmployeeTrackerCard();
+}
+
+function setEmployeeTrackerMetric(metric) {
+  employeeTrackerState.metric = metric;
+  renderEmployeeTrackerCard();
+}
+
+function setEmployeeTrackerWeek(weekStart) {
+  employeeTrackerState.weekStart = weekStart;
+  renderEmployeeTrackerCard();
+}
+
+// Picking a month lands on the week holding today when it is the current month,
+// so jumping back and forward again returns where you started.
+function setEmployeeTrackerMonth(ym) {
+  const today = manilaToday();
+  const weeks = etWeeksInMonth(ym);
+  employeeTrackerState.weekStart = today.slice(0, 7) === ym
+    ? etWeekStart(today)
+    : (weeks[0] || employeeTrackerState.weekStart);
+  renderEmployeeTrackerCard();
+}
+
+function shiftEmployeeTrackerWeek(direction) {
+  employeeTrackerState.weekStart = etAddDays(employeeTrackerState.weekStart, direction * 7);
+  renderEmployeeTrackerCard();
+}
+
+function employeeTrackerThisWeek() {
+  employeeTrackerState.weekStart = etWeekStart(manilaToday());
+  renderEmployeeTrackerCard();
 }
 
 function renderHR() {
@@ -12273,6 +12696,14 @@ function initPage(page) {
 
   if (page === 'attendance') {
     initAttendancePage();
+  }
+
+  if (page === 'hr-dashboard') {
+    loadHrDashboardStats().catch(() => {});
+  }
+
+  if (page === 'employee-tracker') {
+    initEmployeeTracker().catch(() => {});
   }
 
   if (page === 'rts-rate') {
