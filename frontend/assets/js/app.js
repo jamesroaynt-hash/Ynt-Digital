@@ -11,14 +11,14 @@ const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logist
 const NAV_ACCESS = {
   Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -154,6 +154,7 @@ function loadPage(page) {
   }
   loginScreen.innerHTML = '';
   refreshSidebarAccess();
+  refreshEvaluationTopbarButton().catch(() => {});
 
   // Render page content
   const renderFns = {
@@ -199,7 +200,7 @@ const pageNames = {
   home: 'Home',
   'hr-dashboard': 'HR Dashboard',
   'employee-tracker': 'Employee Tracker',
-  'evaluation-kpi': 'Evaluation / KPI',
+  'evaluation-kpi': 'Monthly Evaluation / KPI',
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
   'rmo-management': 'RMO Management',
@@ -4286,49 +4287,120 @@ function employeeTrackerThisWeek() {
   renderEmployeeTrackerCard();
 }
 
-// ─── BI-MONTHLY EVALUATION / KPI ───────────────────────────
-// Evaluation periods are fixed two-month blocks — Jan–Feb, Mar–Apr and so on —
-// so everyone in a period shares one label instead of each carrying a window
-// that drifts with their own hire date.
-const EVALUATION_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// ─── MONTHLY EVALUATION / KPI ──────────────────────────────
+// Every active account rates every other one — never themselves — during the
+// last three days of the month. Scores are HR/Administrator only; a peer sees
+// nothing but whether they have submitted.
+const EVALUATION_CATEGORIES = [
+  {
+    id: 'character',
+    label: 'Character',
+    hrOnly: false,
+    criteria: ['Attitude', 'Respect', 'Teamwork', 'Responsibility', 'Honesty', 'Professional behavior', 'Willingness to help'],
+  },
+  {
+    id: 'attendance',
+    label: 'Attendance',
+    hrOnly: false,
+    criteria: ['Punctuality', 'Absences', 'Tardiness', 'Reliability', 'Compliance with work schedule'],
+  },
+  {
+    id: 'eod',
+    label: 'EOD / Self-Care',
+    hrOnly: false,
+    criteria: ['Completes End-of-Day reports', 'Properly updates work records', 'Organizes work before leaving', 'Takes care of company equipment and resources', 'Maintains proper workplace discipline', 'Completes required daily documentation'],
+  },
+  {
+    id: 'performance',
+    label: 'Performance',
+    hrOnly: false,
+    criteria: ['Quality of work', 'Productivity', 'Accuracy', 'Efficiency', 'Problem-solving', 'Initiative', 'Follows instructions', 'Completes assigned tasks', 'Consistency', 'Works independently'],
+  },
+  {
+    id: 'hr',
+    label: 'Final Rate HR',
+    hrOnly: true,
+    criteria: ['Overall professional assessment', 'Leadership and team feedback', 'Overall reliability', 'Improvement through the period', 'Overall suitability for the role'],
+  },
+];
 
-function evaluationPeriodFor(date) {
-  const parsed = etParseDate(date);
-  return { year: parsed.getFullYear(), startMonth: Math.floor(parsed.getMonth() / 2) * 2 };
+// What each star actually means, so two evaluators reading the same behaviour
+// land on the same number instead of scoring to their own private scale.
+const EVALUATION_STAR_MEANINGS = {
+  1: 'Unacceptable — falls far short, needs immediate correction.',
+  2: 'Very poor — rarely reaches the standard.',
+  3: 'Poor — reaches the standard only occasionally.',
+  4: 'Below expectations — inconsistent, needs close supervision.',
+  5: 'Approaching expectations — meets part of the standard.',
+  6: 'Fair — meets the basic standard, but needs reminders.',
+  7: 'Meets expectations — reliable and consistent.',
+  8: 'Exceeds expectations — consistently above the standard.',
+  9: 'Outstanding — sets the standard for others.',
+  10: 'Exemplary — exceptional in every observed instance.',
+};
+
+const EVALUATION_LEVELS = [
+  { min: 95, label: 'Exceptional', tone: 'success' },
+  { min: 90, label: 'Outstanding', tone: 'success' },
+  { min: 85, label: 'Excellent', tone: 'success' },
+  { min: 80, label: 'Very Good', tone: 'info' },
+  { min: 75, label: 'Good', tone: 'info' },
+  { min: 70, label: 'Satisfactory', tone: 'warning' },
+  { min: 60, label: 'Needs Improvement', tone: 'warning' },
+  { min: 0, label: 'Poor', tone: 'danger' },
+];
+
+function evaluationLevelFor(score) {
+  return EVALUATION_LEVELS.find((level) => score >= level.min) || EVALUATION_LEVELS[EVALUATION_LEVELS.length - 1];
 }
 
 function evaluationPeriodLabel(period) {
-  return `${EVALUATION_MONTHS[period.startMonth]}–${EVALUATION_MONTHS[period.startMonth + 1]} ${period.year}`;
+  const [year, month] = String(period || '').split('-').map(Number);
+  if (!year || !month) return String(period || '');
+  return `${new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' })} ${year}`;
 }
 
-function shiftEvaluationPeriod(period, blocks) {
-  const moved = new Date(period.year, period.startMonth + (blocks * 2), 1);
-  return { year: moved.getFullYear(), startMonth: moved.getMonth() };
-}
+let evaluationState = {
+  period: '',
+  window: null,
+  weights: null,
+  canSeeScores: false,
+  rows: [],
+  selectedId: null,
+  // The rating currently being filled in the modal.
+  draft: null,
+};
 
-let evaluationState = { employees: [], selectedId: null };
+// Which categories this user is responsible for. Only HR/Administrator carry
+// Final Rate HR — a peer's submission leaves that 10% for HR to fill.
+function evaluationCategoriesForViewer() {
+  return EVALUATION_CATEGORIES.filter((category) => !category.hrOnly || evaluationState.canSeeScores);
+}
 
 function renderEvaluationKpi() {
   return `
   <div class="page-header">
     <div class="page-title">
-      <h1>Bi-Monthly Evaluation / KPI</h1>
-      <p>Employee evaluation every two months.</p>
+      <h1>Monthly Evaluation / KPI</h1>
+      <p>Employee evaluation every month.</p>
     </div>
     <div class="page-actions">
-      <button class="btn btn-primary btn-sm" onclick="newEvaluationNotice()">+ New Evaluation</button>
+      <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
     </div>
   </div>
+
+  <div id="evaluation-window-wrap"></div>
+  <div id="evaluation-weights-wrap"></div>
 
   <div class="card" style="margin-bottom:20px;">
     <div class="card-header">
       <div>
         <div class="card-title">Evaluation Queue</div>
-        <div class="card-subtitle">One row per employee per evaluation period.</div>
+        <div class="card-subtitle">One row per employee per evaluation period. You are not on this list — nobody rates themselves.</div>
       </div>
     </div>
     <div class="card-body" id="evaluation-queue-wrap">
-      <div class="empty-state"><h3>Loading queue</h3><p>Pulling the active account list.</p></div>
+      <div class="empty-state"><h3>Loading queue</h3><p>Pulling the evaluation period.</p></div>
     </div>
   </div>
 
@@ -4340,34 +4412,160 @@ function renderEvaluationKpi() {
       </div>
     </div>
     <div class="card-body" id="evaluation-record-wrap"></div>
+  </div>
+
+  ${renderEvaluationModal()}`;
+}
+
+function renderEvaluationModal() {
+  return `
+  <div class="modal-overlay" id="evaluation-modal">
+    <div class="modal" style="max-width:820px;">
+      <div class="modal-header">
+        <div class="modal-title" id="evaluation-modal-title">Evaluate</div>
+        <button class="modal-close" onclick="closeModal('evaluation-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="eval-meta" id="evaluation-modal-meta"></div>
+        <div id="evaluation-modal-categories"></div>
+        <div class="eval-total" id="evaluation-modal-total"></div>
+        <div class="form-group">
+          <label class="form-label">HR Comments</label>
+          <textarea id="evaluation-hr-comments" class="form-control" rows="2" placeholder="Observed behaviour and performance during the period."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Employee Comments</label>
+          <textarea id="evaluation-employee-comments" class="form-control" rows="2" placeholder="Anything the employee raised."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Recommendation</label>
+          <textarea id="evaluation-recommendation" class="form-control" rows="2" placeholder="What should happen next."></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button type="button" class="btn btn-primary" style="flex:1;" onclick="submitEvaluation()">Submit Evaluation</button>
+          <button type="button" class="btn btn-secondary" onclick="closeModal('evaluation-modal')">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 
 async function initEvaluationKpi() {
   try {
-    const result = await authorizedJsonRequest('/orders/assignable-users');
-    evaluationState.employees = Array.isArray(result?.users) ? result.users : [];
-  } catch {
-    evaluationState.employees = [];
+    const result = await authorizedJsonRequest(`/evaluations/queue?_=${Date.now()}`);
+    evaluationState.period = result.period;
+    evaluationState.window = result.window;
+    evaluationState.weights = result.weights;
+    evaluationState.canSeeScores = !!result.can_see_scores;
+    evaluationState.rows = Array.isArray(result.data) ? result.data : [];
+  } catch (error) {
+    evaluationState.rows = [];
+    showToast('error', 'Evaluation load failed', error.message || 'Could not load the evaluation queue.');
   }
-  if (!evaluationState.employees.some((e) => e.id === evaluationState.selectedId)) {
-    evaluationState.selectedId = evaluationState.employees[0]?.id ?? null;
+  if (!evaluationState.rows.some((row) => row.id === evaluationState.selectedId)) {
+    evaluationState.selectedId = evaluationState.rows[0]?.id ?? null;
   }
   if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationWindowNotice();
+  renderEvaluationWeights();
   renderEvaluationQueue();
   renderEvaluationRecord();
+}
+
+function renderEvaluationWindowNotice() {
+  const wrap = document.getElementById('evaluation-window-wrap');
+  const win = evaluationState.window;
+  if (!wrap || !win) return;
+  const period = evaluationPeriodLabel(win.period);
+  wrap.innerHTML = win.open
+    ? `<div class="alert alert-success" style="margin-bottom:16px;">
+         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 5L6 12l-3-3"/></svg>
+         <div><strong>${escapeHtml(period)} evaluation is open.</strong> Fill it in by ${escapeHtml(win.closes_on)} — the form closes after that and cannot be reopened.</div>
+       </div>`
+    : `<div class="alert alert-info" style="margin-bottom:16px;">
+         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
+         <div><strong>${escapeHtml(period)} evaluation opens ${escapeHtml(win.opens_on)}.</strong> It stays open for three days, until ${escapeHtml(win.closes_on)}.</div>
+       </div>`;
+}
+
+// HR/Administrator can retune the split. It has to total 100 or every score
+// would silently be capped below it, so the server rejects anything else.
+function renderEvaluationWeights() {
+  const wrap = document.getElementById('evaluation-weights-wrap');
+  if (!wrap) return;
+  if (!evaluationState.canSeeScores || !evaluationState.weights) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Category Weights</div>
+          <div class="card-subtitle">How much each category is worth. Must total 100%.</div>
+        </div>
+        <div class="eval-weight-total" id="evaluation-weight-total"></div>
+      </div>
+      <div class="card-body">
+        <div class="eval-weight-grid">
+          ${EVALUATION_CATEGORIES.map((category) => `
+            <div class="eval-weight-field">
+              <label class="form-label">${escapeHtml(category.label)}</label>
+              <div class="eval-weight-input">
+                <input type="number" min="0" max="100" step="0.5" class="form-control"
+                  id="evaluation-weight-${category.id}" value="${Number(evaluationState.weights[category.id] || 0)}"
+                  oninput="refreshEvaluationWeightTotal()">
+                <span>%</span>
+              </div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:14px;">
+          <button class="btn btn-primary btn-sm" onclick="saveEvaluationWeights()">Save Weights</button>
+        </div>
+      </div>
+    </div>`;
+  refreshEvaluationWeightTotal();
+}
+
+function readEvaluationWeightInputs() {
+  const weights = {};
+  EVALUATION_CATEGORIES.forEach((category) => {
+    weights[category.id] = Number(document.getElementById(`evaluation-weight-${category.id}`)?.value || 0);
+  });
+  return weights;
+}
+
+function refreshEvaluationWeightTotal() {
+  const el = document.getElementById('evaluation-weight-total');
+  if (!el) return;
+  const weights = readEvaluationWeightInputs();
+  const total = Math.round(EVALUATION_CATEGORIES.reduce((sum, c) => sum + weights[c.id], 0) * 10) / 10;
+  const ok = Math.abs(total - 100) < 0.01;
+  el.className = `eval-weight-total ${ok ? 'ok' : 'bad'}`;
+  el.textContent = `Total ${total}%`;
+}
+
+async function saveEvaluationWeights() {
+  try {
+    const result = await authorizedJsonRequest('/evaluations/config', {
+      method: 'PUT',
+      body: JSON.stringify(readEvaluationWeightInputs()),
+    });
+    evaluationState.weights = result.weights;
+    showToast('success', 'Weights saved', 'New category weights apply to every score.');
+    renderEvaluationQueue();
+    renderEvaluationRecord();
+  } catch (error) {
+    showToast('error', 'Could not save weights', error.message || 'Check that the categories total 100%.');
+  }
 }
 
 function renderEvaluationQueue() {
   const wrap = document.getElementById('evaluation-queue-wrap');
   if (!wrap) return;
-  if (!evaluationState.employees.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No active accounts</h3><p>Add an account under Users and it will appear here.</p></div>';
+  if (!evaluationState.rows.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>Nobody to evaluate</h3><p>You are the only active account, so there is nobody else to rate.</p></div>';
     return;
   }
-  // The period everyone is queued for is the block today falls in — it is not
-  // graded until the block closes, so every row reads as Upcoming.
-  const period = evaluationPeriodLabel(evaluationPeriodFor(manilaToday()));
+  const period = evaluationPeriodLabel(evaluationState.period);
+  const open = !!evaluationState.window?.open;
 
   wrap.innerHTML = `
   <div class="ev-scroll">
@@ -4384,54 +4582,97 @@ function renderEvaluationQueue() {
         </tr>
       </thead>
       <tbody>
-        ${evaluationState.employees.map((employee) => `
-          <tr class="${employee.id === evaluationState.selectedId ? 'ev-selected' : ''}">
-            <td><strong>${escapeHtml(employee.name || 'User')}</strong></td>
+        ${evaluationState.rows.map((row) => `
+          <tr class="${row.id === evaluationState.selectedId ? 'ev-selected' : ''}"
+            onclick="selectEvaluationEmployee(${Number(row.id)})" style="cursor:pointer;" title="Show this employee's record">
+            <td><strong>${escapeHtml(row.name || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(employeeDepartment(row))}</div></td>
             <td>${escapeHtml(period)}</td>
             <td><span class="badge badge-gray">Awaiting KPI Sheet</span></td>
-            <td>Department Head / HR</td>
-            <td class="ev-muted">—</td>
-            <td><span class="badge badge-info">Upcoming</span></td>
-            <td><button class="btn btn-secondary btn-sm" onclick="selectEvaluationEmployee(${Number(employee.id)})">Open</button></td>
+            <td>${escapeHtml(row.role || 'Peer')}</td>
+            <td>${renderEvaluationScoreCell(row)}</td>
+            <td>${row.submitted
+              ? '<span class="badge badge-success">Submitted</span>'
+              : (open ? '<span class="badge badge-warning">Pending</span>' : '<span class="badge badge-gray">Not open</span>')}</td>
+            <td onclick="event.stopPropagation();"><button class="btn ${row.submitted ? 'btn-secondary' : 'btn-primary'} btn-sm"
+              onclick="openEvaluationForm(${Number(row.id)})"${open ? '' : ' disabled title="Opens ' + escapeHtml(evaluationState.window?.opens_on || '') + '"'}>
+              ${row.submitted ? 'Edit' : 'Evaluate'}</button></td>
           </tr>`).join('')}
       </tbody>
     </table>
   </div>`;
 }
 
+// A peer never sees a score, only HR/Administrator. The cell says so plainly
+// rather than showing a dash that reads as "not rated yet".
+function renderEvaluationScoreCell(row) {
+  if (!evaluationState.canSeeScores) return '<span class="ev-muted">HR only</span>';
+  const result = row.result;
+  if (!result || !result.responses) return '<span class="ev-muted">—</span>';
+  const level = evaluationLevelFor(result.score);
+  const partial = result.covered_weight < 99.99
+    ? ` <span class="ev-muted">of ${result.covered_weight}% rated</span>` : '';
+  return `<strong>${result.score}</strong>${partial}
+    <div><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span></div>`;
+}
+
 function renderEvaluationRecord() {
   const wrap = document.getElementById('evaluation-record-wrap');
   const card = document.getElementById('evaluation-record-card');
   if (!wrap || !card) return;
-  const employee = evaluationState.employees.find((e) => e.id === evaluationState.selectedId);
+  const row = evaluationState.rows.find((r) => r.id === evaluationState.selectedId);
   const subtitle = card.querySelector('.card-subtitle');
+  if (subtitle) subtitle.textContent = row ? (row.name || 'User') : 'Open a row above to see that employee’s record.';
 
-  if (!employee) {
-    if (subtitle) subtitle.textContent = 'Open a row above to see that employee’s record.';
+  if (!row) {
     wrap.innerHTML = '<div class="empty-state"><h3>No employee selected</h3><p>Open a row in the queue above.</p></div>';
     return;
   }
-  if (subtitle) subtitle.textContent = employee.name || 'User';
+  if (!evaluationState.canSeeScores) {
+    wrap.innerHTML = '<div class="empty-state"><h3>Scores are HR only</h3><p>Your ratings are recorded but only HR and Administrators can see the results.</p></div>';
+    return;
+  }
 
-  const current = evaluationPeriodFor(manilaToday());
-  // Nothing is stored behind these yet, so the two date tiles are computed and
-  // the two data tiles say plainly that there is nothing to show — better than
-  // a number nobody can trace back to a record.
-  const tiles = [
-    { label: 'Last Evaluation', value: 'None yet', meta: `Previous period ${evaluationPeriodLabel(shiftEvaluationPeriod(current, -1))}` },
-    { label: 'Next Evaluation', value: evaluationPeriodLabel(current), meta: 'Current period, not yet graded' },
-    { label: 'KPI Sheet', value: 'To Be Added', meta: 'Grading sheet not attached' },
-    { label: 'Evaluation History', value: '0 Records', meta: 'Nothing saved yet' },
-  ];
-
+  const result = row.result || { score: 0, covered_weight: 0, per_category: {}, responses: 0 };
+  const level = evaluationLevelFor(result.score);
   wrap.innerHTML = `
-    <div class="stats-grid" style="margin-bottom:0;">
-      ${tiles.map((tile) => `
-        <div class="stat-card">
-          <div class="stat-label">${escapeHtml(tile.label)}</div>
-          <div class="stat-value" style="font-size:20px;">${escapeHtml(tile.value)}</div>
-          <div class="stat-meta">${escapeHtml(tile.meta)}</div>
-        </div>`).join('')}
+    <div class="stats-grid" style="margin-bottom:16px;">
+      <div class="stat-card">
+        <div class="stat-label">Final Score</div>
+        <div class="stat-value">${result.responses ? `${result.score}<span style="font-size:15px;color:var(--text-muted);"> / 100</span>` : '—'}</div>
+        <div class="stat-meta">${result.responses ? `${result.covered_weight}% of the weight rated` : 'No ratings yet'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Performance Level</div>
+        <div class="stat-value" style="font-size:20px;">${result.responses ? escapeHtml(level.label) : '—'}</div>
+        <div class="stat-meta">${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Responses</div>
+        <div class="stat-value">${result.responses}</div>
+        <div class="stat-meta">evaluators submitted</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Department</div>
+        <div class="stat-value" style="font-size:20px;">${escapeHtml(employeeDepartment(row))}</div>
+        <div class="stat-meta">${escapeHtml(row.role || 'No role set')}</div>
+      </div>
+    </div>
+    <div class="ev-scroll">
+      <table class="ev-table">
+        <thead><tr><th>Category</th><th>Weight</th><th>Average Stars</th><th>Contribution</th></tr></thead>
+        <tbody>
+          ${EVALUATION_CATEGORIES.map((category) => {
+            const stars = result.per_category?.[category.id];
+            const weight = Number(evaluationState.weights?.[category.id] || 0);
+            return `<tr>
+              <td><strong>${escapeHtml(category.label)}</strong></td>
+              <td>${weight}%</td>
+              <td>${stars === null || stars === undefined ? '<span class="ev-muted">Not rated</span>' : `${stars} / 10`}</td>
+              <td>${stars === null || stars === undefined ? '<span class="ev-muted">—</span>' : `${Math.round((stars / 10) * weight * 10) / 10}%`}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
     </div>`;
 }
 
@@ -4441,8 +4682,150 @@ function selectEvaluationEmployee(userId) {
   renderEvaluationRecord();
 }
 
-function newEvaluationNotice() {
-  showToast('info', 'Not wired yet', 'The evaluation form lands once the KPI grading sheet is final — it attaches here without changing the rest of HR.');
+// ─── Rating form ───────────────────────────────────────────
+function openEvaluationForm(userId) {
+  const row = evaluationState.rows.find((r) => r.id === Number(userId));
+  if (!row) return;
+  if (!evaluationState.window?.open) {
+    showToast('warning', 'Evaluation is closed', `It opens ${evaluationState.window?.opens_on} for three days.`);
+    return;
+  }
+  evaluationState.selectedId = row.id;
+  // Re-opening a submitted evaluation starts from what was saved, so a revision
+  // is an edit rather than a blank form.
+  evaluationState.draft = { subjectId: row.id, stars: { ...(row.my_rating || {}) } };
+  renderEvaluationQueue();
+
+  document.getElementById('evaluation-modal-title').textContent = `Evaluate ${row.name || 'User'}`;
+  document.getElementById('evaluation-modal-meta').innerHTML = `
+    <div><span>Employee</span><strong>${escapeHtml(row.name || 'User')}</strong></div>
+    <div><span>Department</span><strong>${escapeHtml(employeeDepartment(row))}</strong></div>
+    <div><span>Position</span><strong>${escapeHtml(row.role || 'Not set')}</strong></div>
+    <div><span>Evaluation Period</span><strong>${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</strong></div>
+    <div><span>Evaluator</span><strong>${escapeHtml(App.user?.name || App.user?.username || 'You')}</strong></div>`;
+  ['hr-comments', 'employee-comments', 'recommendation'].forEach((field) => {
+    const el = document.getElementById(`evaluation-${field}`);
+    if (el) el.value = '';
+  });
+  renderEvaluationCategories();
+  openModal('evaluation-modal');
+}
+
+function renderEvaluationCategories() {
+  const wrap = document.getElementById('evaluation-modal-categories');
+  if (!wrap) return;
+  const stars = evaluationState.draft?.stars || {};
+  wrap.innerHTML = evaluationCategoriesForViewer().map((category) => {
+    const value = Number(stars[category.id] || 0);
+    const weight = Number(evaluationState.weights?.[category.id] || 0);
+    return `
+    <div class="eval-cat">
+      <div class="eval-cat-head">
+        <div>
+          <div class="eval-cat-name">${escapeHtml(category.label)}</div>
+          <div class="eval-cat-criteria">${category.criteria.map(escapeHtml).join(' · ')}</div>
+        </div>
+        <span class="eval-cat-weight">${weight}%</span>
+      </div>
+      <div class="eval-stars" role="radiogroup" aria-label="${escapeHtml(category.label)} rating">
+        ${Array.from({ length: 10 }, (_, i) => i + 1).map((n) => `
+          <button type="button" class="eval-star ${n <= value ? 'on' : ''}"
+            title="${n} — ${escapeHtml(EVALUATION_STAR_MEANINGS[n])}"
+            aria-label="${n} of 10"
+            onclick="setEvaluationStars('${category.id}', ${n})">★</button>`).join('')}
+        <span class="eval-star-value">${value ? `${value}/10` : 'Not rated'}</span>
+      </div>
+      <div class="eval-star-meaning">${value ? escapeHtml(EVALUATION_STAR_MEANINGS[value]) : 'Pick a star to see what it means.'}</div>
+    </div>`;
+  }).join('');
+  renderEvaluationTotal();
+}
+
+function setEvaluationStars(categoryId, stars) {
+  if (!evaluationState.draft) return;
+  evaluationState.draft.stars[categoryId] = Number(stars);
+  renderEvaluationCategories();
+}
+
+// Live preview of what this evaluator is contributing. It is deliberately not
+// presented as the final score — that combines every evaluator's ratings.
+function renderEvaluationTotal() {
+  const el = document.getElementById('evaluation-modal-total');
+  if (!el) return;
+  const categories = evaluationCategoriesForViewer();
+  const stars = evaluationState.draft?.stars || {};
+  const available = categories.reduce((sum, c) => sum + Number(evaluationState.weights?.[c.id] || 0), 0);
+  const earned = categories.reduce((sum, c) => {
+    const value = Number(stars[c.id] || 0);
+    return sum + (value ? (value / 10) * Number(evaluationState.weights?.[c.id] || 0) : 0);
+  }, 0);
+  const rounded = Math.round(earned * 10) / 10;
+  const complete = categories.every((c) => Number(stars[c.id] || 0) > 0);
+  const level = evaluationLevelFor((rounded / (available || 100)) * 100);
+  el.innerHTML = `
+    <div>
+      <div class="eval-total-label">Your rating</div>
+      <div class="eval-total-value">${rounded} <span>of ${Math.round(available * 10) / 10}%</span></div>
+    </div>
+    <div class="eval-total-note">
+      ${complete
+        ? `Reads as <strong>${escapeHtml(level.label)}</strong> on its own. The employee's final score combines every evaluator's ratings${evaluationState.canSeeScores ? '' : ', plus HR’s Final Rate HR'}.`
+        : 'Rate every category to submit.'}
+    </div>`;
+}
+
+async function submitEvaluation() {
+  const draft = evaluationState.draft;
+  if (!draft) return;
+  const categories = evaluationCategoriesForViewer();
+  const missing = categories.find((c) => !Number(draft.stars[c.id] || 0));
+  if (missing) {
+    showToast('warning', 'Incomplete', `Rate ${missing.label} before submitting.`);
+    return;
+  }
+  const payload = { subject_id: draft.subjectId };
+  categories.forEach((c) => { payload[c.id] = Number(draft.stars[c.id]); });
+  payload.hr_comments = document.getElementById('evaluation-hr-comments')?.value || '';
+  payload.employee_comments = document.getElementById('evaluation-employee-comments')?.value || '';
+  payload.recommendation = document.getElementById('evaluation-recommendation')?.value || '';
+
+  try {
+    await authorizedJsonRequest('/evaluations', { method: 'POST', body: JSON.stringify(payload) });
+    closeModal('evaluation-modal');
+    showToast('success', 'Evaluation submitted', 'Your rating was recorded.');
+    await initEvaluationKpi();
+    refreshEvaluationTopbarButton({ force: true }).catch(() => {});
+  } catch (error) {
+    showToast('error', 'Could not submit', error.message || 'The evaluation was not saved.');
+  }
+}
+
+// The topbar shortcut. It carries a dot while the window is open and this user
+// still has somebody left to rate, so an open window is visible from any page.
+let _evalTopbarCheckedAt = 0;
+const EVAL_TOPBAR_TTL_MS = 5 * 60 * 1000;
+
+async function refreshEvaluationTopbarButton({ force = false } = {}) {
+  const button = document.getElementById('topbar-eval-btn');
+  if (!button) return;
+  if (!canAccessPage('evaluation-kpi')) { button.style.display = 'none'; return; }
+  button.style.display = 'inline-flex';
+  // /queue walks every active user and the period's evaluations, and this runs
+  // on every navigation — so re-ask at most every few minutes unless the caller
+  // knows something changed.
+  if (!force && Date.now() - _evalTopbarCheckedAt < EVAL_TOPBAR_TTL_MS) return;
+  _evalTopbarCheckedAt = Date.now();
+  try {
+    const result = await authorizedJsonRequest(`/evaluations/queue?_=${Date.now()}`);
+    const pending = (result.data || []).filter((row) => !row.submitted).length;
+    button.classList.toggle('has-dot', !!result.window?.open && pending > 0);
+    button.title = result.window?.open
+      ? `${pending} left to evaluate — closes ${result.window.closes_on}`
+      : `Evaluation opens ${result.window?.opens_on}`;
+  } catch {
+    button.classList.remove('has-dot');
+    _evalTopbarCheckedAt = 0;
+  }
 }
 
 function renderHR() {

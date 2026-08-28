@@ -5120,3 +5120,146 @@ tfoot td {
    as one thing rather than a table and an unrelated panel. */
 .ev-table tbody tr.ev-selected td { background: var(--accent-soft); }
 .ev-muted { color: var(--text-muted); }
+
+/* ── Topbar evaluation shortcut ─────────────────────────────────────────── */
+.topbar-eval-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  height: 34px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.topbar-eval-btn:hover { background: var(--surface-3); color: var(--text-primary); }
+.topbar-eval-btn svg { width: 15px; height: 15px; }
+/* The dot only appears while the window is open and something is still
+   unrated, so it reads as "there is work" rather than decoration. */
+.topbar-eval-btn.has-dot::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--surface);
+}
+@media (max-width: 720px) { .topbar-eval-btn span { display: none; } }
+
+/* ── Evaluation: category weights ───────────────────────────────────────── */
+.eval-weight-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.eval-weight-input { display: flex; align-items: center; gap: 6px; }
+.eval-weight-input .form-control { text-align: right; }
+.eval-weight-input span { font-size: 12.5px; color: var(--text-muted); }
+.eval-weight-total {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.eval-weight-total.ok  { color: var(--success-text); background: var(--success-soft); }
+.eval-weight-total.bad { color: var(--danger-text);  background: var(--danger-soft); }
+@media (max-width: 900px) { .eval-weight-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── Evaluation: rating form ────────────────────────────────────────────── */
+.eval-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.eval-meta > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.eval-meta span {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.eval-meta strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eval-cat {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.eval-cat:first-child { padding-top: 0; }
+.eval-cat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.eval-cat-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.eval-cat-criteria { margin-top: 2px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+.eval-cat-weight {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 2px 9px;
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+.eval-stars { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; margin-top: 10px; }
+.eval-star {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--border-strong);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color var(--transition), transform var(--transition);
+}
+.eval-star:hover { transform: scale(1.15); }
+.eval-star.on { color: var(--warning); }
+.eval-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.eval-star-value { margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.eval-star-meaning { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+
+.eval-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+  padding: 14px 16px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.eval-total-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.eval-total-value { font-size: 24px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
+.eval-total-value span { font-size: 14px; font-weight: 500; color: var(--text-muted); }
+.eval-total-note { flex: 1; min-width: 220px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
