@@ -4037,49 +4037,36 @@ function etRangeLabel(weekStart) {
   return `${fmt(weekStart)} – ${fmt(etAddDays(weekStart, 6))}`;
 }
 
-const EMPLOYEE_TRACKER_COLLAPSE_KEY = 'ynt_employee_tracker_collapsed';
-
-function readJsonSetting(key) {
+function loadEmployeeTrackerMarks() {
   try {
-    const saved = JSON.parse(localStorage.getItem(key) || '{}');
+    const saved = JSON.parse(localStorage.getItem(EMPLOYEE_TRACKER_KEY) || '{}');
     return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
   }
 }
 
-function loadEmployeeTrackerMarks() {
-  return readJsonSetting(EMPLOYEE_TRACKER_KEY);
-}
-
-// Which departments are folded shut is a per-person view preference, so it is
-// remembered on the device the same way the marks are.
-function loadEmployeeTrackerCollapsed() {
-  return readJsonSetting(EMPLOYEE_TRACKER_COLLAPSE_KEY);
-}
-
-function saveEmployeeTrackerCollapsed() {
-  try {
-    localStorage.setItem(EMPLOYEE_TRACKER_COLLAPSE_KEY, JSON.stringify(employeeTrackerState.collapsed));
-  } catch {}
+// The page always opens with every department shut, so you pick the team you
+// came for instead of scrolling past the rest. Nothing is remembered between
+// visits on purpose — expanding a department is a decision about this visit.
+function collapseAllEmployeeTrackerDepartments() {
+  employeeTrackerState.collapsed = Object.fromEntries(
+    employeeTrackerGroups().map(([department]) => [department, true])
+  );
 }
 
 function toggleEmployeeTrackerDepartment(department) {
   if (employeeTrackerState.collapsed[department]) delete employeeTrackerState.collapsed[department];
   else employeeTrackerState.collapsed[department] = true;
-  saveEmployeeTrackerCollapsed();
   renderEmployeeTrackerCard();
 }
 
 // Bulk control for the header button: shut everything only when something is
 // still open, so one button reads as "collapse all" then "expand all".
 function toggleAllEmployeeTrackerDepartments() {
-  const groups = employeeTrackerGroups();
-  const anyOpen = groups.some(([department]) => !employeeTrackerState.collapsed[department]);
-  employeeTrackerState.collapsed = anyOpen
-    ? Object.fromEntries(groups.map(([department]) => [department, true]))
-    : {};
-  saveEmployeeTrackerCollapsed();
+  const anyOpen = employeeTrackerGroups().some(([department]) => !employeeTrackerState.collapsed[department]);
+  if (anyOpen) collapseAllEmployeeTrackerDepartments();
+  else employeeTrackerState.collapsed = {};
   renderEmployeeTrackerCard();
 }
 
@@ -4116,7 +4103,6 @@ function renderEmployeeTracker() {
 
 async function initEmployeeTracker() {
   employeeTrackerState.marks = loadEmployeeTrackerMarks();
-  employeeTrackerState.collapsed = loadEmployeeTrackerCollapsed();
   if (!employeeTrackerState.weekStart) employeeTrackerState.weekStart = etWeekStart(manilaToday());
   renderEmployeeTrackerCard();
   try {
@@ -4125,6 +4111,9 @@ async function initEmployeeTracker() {
   } catch {
     employeeTrackerState.employees = [];
   }
+  // The departments only exist once the roster has landed, so shut them here
+  // rather than in the state defaults.
+  collapseAllEmployeeTrackerDepartments();
   if (App.currentPage === 'employee-tracker') renderEmployeeTrackerCard();
 }
 
