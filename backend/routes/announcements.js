@@ -1,11 +1,15 @@
 const express = require('express');
 
+// Administrator, HR and Operation all manage HR: Operation was granted HR's
+// access, so it clears every gate HR clears. Role text is typed by hand on
+// accounts, hence the lowercase compare and the plural spelling.
+const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operations']);
+
 module.exports = function announcementsRoutes(db) {
   const router = express.Router();
 
   function canManage(req) {
-    const role = String(req.user?.role || '').trim();
-    return role === 'Administrator' || role === 'HR';
+    return HR_MANAGER_ROLES.has(String(req.user?.role || '').trim().toLowerCase());
   }
 
   router.get('/', async (req, res) => {

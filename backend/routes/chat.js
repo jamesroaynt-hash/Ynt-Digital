@@ -1,5 +1,10 @@
 const express = require('express');
 
+// Administrator, HR and Operation all moderate: Operation was granted HR's
+// access, so it clears every gate HR clears. Role text is typed by hand on
+// accounts, hence the lowercase compare and the plural spelling.
+const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operations']);
+
 // Internal team group chat: one shared channel every dashboard user can read and
 // post to. Kept deliberately simple — the frontend polls GET /?after=<id> for new
 // messages rather than using websockets.
@@ -9,8 +14,7 @@ module.exports = function chatRoutes(db) {
   const MAX_BODY = 2000;
 
   function canModerate(req) {
-    const role = String(req.user?.role || '').trim();
-    return role === 'Administrator' || role === 'HR';
+    return HR_MANAGER_ROLES.has(String(req.user?.role || '').trim().toLowerCase());
   }
 
   // GET /            → latest messages (chronological, capped)

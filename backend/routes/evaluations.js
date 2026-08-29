@@ -2,6 +2,11 @@ const express = require('express');
 
 const MANILA_TIMEZONE = 'Asia/Manila';
 
+// Administrator, HR and Operation all manage HR: Operation was granted HR's
+// access, so it clears every gate HR clears. Role text is typed by hand on
+// accounts, hence the lowercase compare and the plural spelling.
+const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operations']);
+
 // Everything here is decided in Manila time. The window is only three days
 // wide, so reading the date in UTC would open and close it on the wrong day
 // for every user.
@@ -95,8 +100,7 @@ const PASSED_VALUES = ['PASSED', 'NOT PASSED'];
 const DEVELOPMENT_WORD_LIMIT = 1000;
 
 function isHrManager(user) {
-  const role = String(user?.role || '').trim();
-  return role === 'Administrator' || role === 'HR';
+  return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
 // Item scores are percentages, 0-100. Anything outside that is not a rating.

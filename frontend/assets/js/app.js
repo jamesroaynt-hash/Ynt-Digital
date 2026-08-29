@@ -7,10 +7,12 @@ const App = {
   user: JSON.parse(localStorage.getItem('ynt_user') || 'null'),
   currentPage: 'home',
 };
-const ROLE_OPTIONS = ['HR', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
+const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
   Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  // Operation runs on HR's access, page for page.
+  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -35,6 +37,8 @@ function navAccessKey(role) {
 const NAV_ACCESS_BY_KEY = Object.fromEntries(
   Object.entries(NAV_ACCESS).map(([role, pages]) => [navAccessKey(role), pages])
 );
+// Same reason: an account typed as "Operations" is the Operation role.
+NAV_ACCESS_BY_KEY.operations = NAV_ACCESS.Operation;
 
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [], status: 'active' };
@@ -3505,7 +3509,7 @@ function chatMessageHtml(msg) {
   const when = msg.created_at
     ? new Date(String(msg.created_at).replace(' ', 'T')).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : '';
-  const canDelete = mine || ['Administrator', 'HR'].includes(String(App.user?.role || '').trim());
+  const canDelete = mine || canManageHR();
   const delBtn = canDelete
     ? `<button onclick="deleteChatMessage(${msg.id})" title="Delete" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:12px;padding:0 2px;line-height:1;">✕</button>`
     : '';
@@ -3694,6 +3698,7 @@ function renderTimeClockCard() {
 function getUserRoleBadgeClass(role) {
   const normalizedRole = normalizeRoleName(role);
   if (normalizedRole === 'Administrator') return 'badge-purple';
+  if (/^operations?$/i.test(normalizedRole)) return 'badge-warning';
   if (normalizedRole === 'HR') return 'badge-warning';
   if (normalizedRole.includes('CSR')) return 'badge-info';
   return 'badge-gray';
@@ -3962,6 +3967,8 @@ const EMPLOYEE_TRACKER_METRICS = [
 const DEPARTMENT_BY_ROLE = {
   administrator: 'Management',
   hr: 'Human Resources',
+  operation: 'Operations',
+  operations: 'Operations',
   'sales and marketing': 'Sales & Marketing',
   'sales and marketing tl': 'Sales & Marketing',
   csr: 'CSR',
@@ -3972,7 +3979,7 @@ const DEPARTMENT_BY_ROLE = {
   trainee: 'Trainee',
 };
 // Read in org order rather than alphabetically; anything unmapped sorts last.
-const DEPARTMENT_ORDER = ['Management', 'Human Resources', 'Sales & Marketing', 'CSR', 'RMO', 'Logistics', 'Trainee', 'Unassigned'];
+const DEPARTMENT_ORDER = ['Management', 'Human Resources', 'Operations', 'Sales & Marketing', 'CSR', 'RMO', 'Logistics', 'Trainee', 'Unassigned'];
 
 function employeeDepartment(employee) {
   return DEPARTMENT_BY_ROLE[navAccessKey(normalizeRoleName(employee?.role))] || 'Unassigned';
@@ -11412,12 +11419,19 @@ function isHRUser() {
   return normalizeText(normalizeRoleName(App.user?.role)) === 'hr';
 }
 
+// Operation carries HR's access — the same pages and the same management
+// rights — so everything gated on HR asks for this one too.
+function isOperationUser() {
+  const role = normalizeText(normalizeRoleName(App.user?.role));
+  return role === 'operation' || role === 'operations';
+}
+
 function canManageAccounts() {
-  return isAdminUser() || isHRUser();
+  return isAdminUser() || isHRUser() || isOperationUser();
 }
 
 function canManageHR() {
-  return isAdminUser() || isHRUser();
+  return isAdminUser() || isHRUser() || isOperationUser();
 }
 
 function isLogisticsUser() {

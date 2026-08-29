@@ -1,10 +1,16 @@
 const express = require('express');
 
+// Administrator, HR and Operation may manage accounts: Operation was granted
+// HR's access, so it clears every gate HR clears. Role text is typed by hand
+// on accounts, hence the lowercase compare and the plural spelling.
+const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operations']);
+
 module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlocklist = new Map(), loginAttempts = new Map() } = {}) {
   const router = express.Router();
   const allowedRoles = new Set([
     'Administrator',
     'HR',
+    'Operation',
     'Trainee',
     'RMO',
     'RMO TL',
@@ -55,7 +61,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
 
   async function requireAdmin(req, res, next) {
     const user = await getRequestUser(req);
-    if (!user || !['Administrator', 'HR'].includes(String(user.role || '').trim())) {
+    if (!user || !HR_MANAGER_ROLES.has(String(user.role || '').trim().toLowerCase())) {
       return res.status(403).json({ error: 'Administrator or HR access required' });
     }
     req.user = user;
@@ -71,11 +77,17 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     next();
   }
 
+  // A role can arrive from the dropdown or hand-typed through the API, so it is
+  // matched case-insensitively and handed back in its canonical spelling —
+  // otherwise "OPERATION" would silently be filed as the fallback role.
+  const canonicalRoles = new Map([...allowedRoles].map((role) => [role.toLowerCase(), role]));
+  canonicalRoles.set('admin', 'Administrator');
+  canonicalRoles.set('operations', 'Operation');
+
   function normalizeRole(role, fallback = 'Trainee') {
-    const rawValue = String(role || fallback).trim() || fallback;
-    const value = rawValue.toLowerCase() === 'admin' ? 'Administrator' : rawValue;
+    const value = String(role || fallback).trim() || fallback;
     if (value.toLowerCase() === 'staff') return fallback;
-    return allowedRoles.has(value) ? value : fallback;
+    return canonicalRoles.get(value.toLowerCase()) || fallback;
   }
 
   async function getActiveAdminCount() {
@@ -284,15 +296,16 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
         CASE
           WHEN role = 'Administrator' THEN 0
           WHEN role = 'HR' THEN 1
-          WHEN role = 'CSR' THEN 2
-          WHEN role = 'CSR TL' THEN 3
-          WHEN role = 'Trainee' THEN 4
-          WHEN role = 'RMO' THEN 5
-          WHEN role = 'RMO TL' THEN 6
-          WHEN role = 'Logistics' THEN 7
-          WHEN role = 'Sales and Marketing' THEN 8
-          WHEN role = 'Sales and Marketing TL' THEN 9
-          ELSE 9
+          WHEN role = 'Operation' THEN 2
+          WHEN role = 'CSR' THEN 3
+          WHEN role = 'CSR TL' THEN 4
+          WHEN role = 'Trainee' THEN 5
+          WHEN role = 'RMO' THEN 6
+          WHEN role = 'RMO TL' THEN 7
+          WHEN role = 'Logistics' THEN 8
+          WHEN role = 'Sales and Marketing' THEN 9
+          WHEN role = 'Sales and Marketing TL' THEN 10
+          ELSE 10
         END,
         full_name COLLATE NOCASE ASC,
         username COLLATE NOCASE ASC
