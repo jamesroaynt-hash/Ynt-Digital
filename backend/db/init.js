@@ -393,6 +393,7 @@ function runMigrations(db) {
   ensureColumn(db, 'orders', 'confirmed_by', 'TEXT');
   ensureColumn(db, 'inventory', 'active', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'expenses', 'classification', "TEXT NOT NULL DEFAULT 'OPEX'");
+  ensureColumn(db, 'expenses', 'receipt_url', 'TEXT');
   ensureColumn(db, 'attendance_records', 'break2_out', 'TEXT');
   ensureColumn(db, 'attendance_records', 'break2_in', 'TEXT');
   // Per-day rate override: NULL = use the effective-dated rate; a number overrides
@@ -887,6 +888,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'orders', 'confirmed_by', 'TEXT');
   await ensureColumnAsync(db, 'inventory', 'active', 'INTEGER NOT NULL DEFAULT 1');
   await ensureColumnAsync(db, 'expenses', 'classification', "TEXT NOT NULL DEFAULT 'OPEX'");
+  await ensureColumnAsync(db, 'expenses', 'receipt_url', 'TEXT');
   await ensureColumnAsync(db, 'attendance_records', 'break2_out', 'TEXT');
   await ensureColumnAsync(db, 'attendance_records', 'break2_in', 'TEXT');
   // Per-day rate override: NULL = use the effective-dated rate; a number overrides

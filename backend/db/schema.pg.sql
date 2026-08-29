@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS expenses (
   unit_price REAL NOT NULL DEFAULT 0,
   total_amt REAL GENERATED ALWAYS AS (quantity * unit_price) STORED,
   noted_by TEXT,
+  -- Link to the receipt, normally a Google Drive file shared by whoever logged it.
+  receipt_url TEXT,
   created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

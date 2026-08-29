@@ -1640,12 +1640,22 @@ function expensesRoutes(db) {
     res.json({ data: await db.prepare(sql).all(...params), total });
   });
 
+  // Receipts are linked, not uploaded: the file lives in Google Drive and the
+  // expense keeps the URL. Only http(s) is stored, so a stored link can never
+  // be a javascript: or data: URL the receipt viewer would then open.
+  function cleanReceiptUrl(value) {
+    const url = String(value || '').trim();
+    if (!url) return null;
+    if (!/^https?:\/\//i.test(url)) return null;
+    return url.slice(0, 2000);
+  }
+
   r.post('/', async (req, res) => {
-    const { exp_date, category, classification, item_name, quantity, unit_price, noted_by } = req.body;
+    const { exp_date, category, classification, item_name, quantity, unit_price, noted_by, receipt_url } = req.body;
     if (!category || !item_name || !unit_price) return res.status(400).json({ error: 'Required fields missing' });
     const cls = ALLOWED_CLASSIFICATIONS.has(classification) ? classification : 'OPEX';
     const ref = `EXP-${String(Date.now()).slice(-6)}`;
-    await db.prepare(`INSERT INTO expenses (expense_ref,exp_date,category,classification,item_name,quantity,unit_price,noted_by,created_by) VALUES (?,?,?,?,?,?,?,?,?)`).run(ref, exp_date||new Date().toISOString().split('T')[0], category, cls, item_name, quantity||1, unit_price, noted_by||null, req.user?.id||1);
+    await db.prepare(`INSERT INTO expenses (expense_ref,exp_date,category,classification,item_name,quantity,unit_price,noted_by,receipt_url,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(ref, exp_date||new Date().toISOString().split('T')[0], category, cls, item_name, quantity||1, unit_price, noted_by||null, cleanReceiptUrl(receipt_url), req.user?.id||1);
     res.status(201).json({ expense_ref: ref });
   });
 

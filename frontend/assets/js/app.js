@@ -9917,6 +9917,11 @@ function renderExpenses() {
         </div>
         <div class="form-group"><label class="form-label">Noted By</label><input type="text" class="form-control" id="exp-noted" value="${App.user?.full_name || App.user?.name || ''}"></div>
         <div class="form-group">
+          <label class="form-label">Google Drive Link</label>
+          <input type="url" class="form-control" id="exp-receipt" placeholder="https://drive.google.com/file/d/.../view">
+          <div class="field-help">Paste the link to the receipt in Drive. Share it as “Anyone with the link” so the View button can show it.</div>
+        </div>
+        <div class="form-group">
           <label class="form-label">Total Amount</label>
           <div class="input-group">
             <span class="input-addon">₱</span>
@@ -9927,6 +9932,24 @@ function renderExpenses() {
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeModal('expense-log-modal')">Cancel</button>
         <button class="btn btn-primary" onclick="saveExpense()">Save Expense</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receipt viewer: the Drive file itself, without leaving the page -->
+  <div class="modal-overlay" id="expense-receipt-modal">
+    <div class="modal" style="max-width:820px;">
+      <div class="modal-header">
+        <div class="modal-title" id="expense-receipt-title">Receipt</div>
+        <button class="modal-close" onclick="closeExpenseReceipt()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="exp-receipt-meta" id="expense-receipt-meta"></div>
+        <div class="exp-receipt-view" id="expense-receipt-view"></div>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-secondary" id="expense-receipt-open" href="#" target="_blank" rel="noopener noreferrer">Open in Drive</a>
+        <button class="btn btn-primary" onclick="closeExpenseReceipt()">Close</button>
       </div>
     </div>
   </div>
@@ -10006,10 +10029,11 @@ function renderExpenses() {
           <div class="exp-filter-summary" id="exp-filter-summary"></div>
         </div>
         <table id="expenses-table">
-          <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Noted By</th></tr></thead>
+          <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Noted By</th><th>Receipt</th></tr></thead>
           <tbody id="exp-tbody">
             ${DB.expenses.map(e => `<tr data-classification="${escapeHtml(e.classification || 'OPEX')}"
-              data-category="${escapeHtml(e.category || '')}" data-month="${escapeHtml(String(e.date || '').slice(0, 7))}" data-total="${Number(e.total) || 0}">
+              data-category="${escapeHtml(e.category || '')}" data-month="${escapeHtml(String(e.date || '').slice(0, 7))}" data-total="${Number(e.total) || 0}"
+              data-search="${escapeHtml([e.id, e.date, e.category, e.classification, e.item, e.noted].join(' ').toLowerCase())}">
               <td class="font-mono text-xs text-muted">${e.id}</td>
               <td>${e.date}</td>
               <td><span class="badge ${catBadge(e.category)}">${e.category}</span></td>
@@ -10019,6 +10043,9 @@ function renderExpenses() {
               <td>₱${e.price.toLocaleString()}</td>
               <td><strong>₱${e.total.toLocaleString()}</strong></td>
               <td>${e.noted}</td>
+              <td>${e.receipt
+                ? `<button class="btn btn-secondary btn-sm" onclick="openExpenseReceipt('${escapeHtml(e.id)}')">View</button>`
+                : '<span class="text-muted text-xs">No link</span>'}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -10117,6 +10144,67 @@ function catBadge(cat) {
 
 function classBadge(cls) {
   return { COGS: 'badge-danger', OPEX: 'badge-info', CAPEX: 'badge-success' }[cls] || 'badge-gray';
+}
+
+// ─── Expense receipts ──────────────────────────────────────
+// Receipts are linked rather than uploaded: the file stays in Google Drive and
+// the expense keeps the URL. Only http(s) links are ever followed, so a link
+// stored before this check existed can't hand javascript: to the viewer.
+function isHttpUrl(url) {
+  return /^https?:\/\//i.test(String(url || '').trim());
+}
+
+// A Drive share link points at Drive's own viewer page, not at the file, so the
+// file id is pulled out and swapped for the /preview embed — which renders
+// images and PDFs alike for anyone the file is shared with.
+function driveFileId(url) {
+  const text = String(url || '');
+  const match = text.match(/\/file\/d\/([A-Za-z0-9_-]{10,})/)
+    || text.match(/[?&]id=([A-Za-z0-9_-]{10,})/)
+    || text.match(/\/d\/([A-Za-z0-9_-]{10,})/);
+  return match ? match[1] : '';
+}
+
+function expenseReceiptEmbedHtml(url) {
+  const fileId = driveFileId(url);
+  if (fileId) {
+    return `<iframe src="https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview"
+      title="Receipt" loading="lazy" allowfullscreen></iframe>`;
+  }
+  if (/\.(png|jpe?g|gif|webp|bmp|avif)(\?|#|$)/i.test(url)) {
+    return `<img src="${escapeHtml(url)}" alt="Receipt">`;
+  }
+  // Some other link — a Drive folder, a Dropbox share, a plain page. It cannot
+  // be embedded reliably, so the footer's Open button is the way through.
+  return `<div class="empty-state"><h3>Cannot preview this link</h3>
+    <p>Open it in a new tab with the button below.</p></div>`;
+}
+
+function openExpenseReceipt(expenseId) {
+  const expense = DB.expenses.find((row) => String(row.id) === String(expenseId));
+  const url = String(expense?.receipt || '').trim();
+  if (!isHttpUrl(url)) {
+    showToast('warning', 'No receipt link', 'This expense has no Google Drive link saved.');
+    return;
+  }
+  document.getElementById('expense-receipt-title').textContent = `Receipt — ${expense.item || expense.id}`;
+  document.getElementById('expense-receipt-meta').innerHTML = `
+    <div><span>Date</span><strong>${escapeHtml(expense.date || '')}</strong></div>
+    <div><span>Category</span><strong>${escapeHtml(expense.category || '')}</strong></div>
+    <div><span>Total</span><strong>₱${Number(expense.total || 0).toLocaleString()}</strong></div>
+    <div><span>Noted By</span><strong>${escapeHtml(expense.noted || '—')}</strong></div>`;
+  document.getElementById('expense-receipt-view').innerHTML = expenseReceiptEmbedHtml(url);
+  const openLink = document.getElementById('expense-receipt-open');
+  if (openLink) openLink.href = url;
+  openModal('expense-receipt-modal');
+}
+
+// Clearing the frame on the way out stops Drive loading in the background once
+// the receipt has been read.
+function closeExpenseReceipt() {
+  const view = document.getElementById('expense-receipt-view');
+  if (view) view.innerHTML = '';
+  closeModal('expense-receipt-modal');
 }
 
 function setExpClassFilter(cls, btn) {
@@ -17942,8 +18030,8 @@ async function performScan(pageId, scanType) {
 // ─── EXPENSE HELPERS ───────────────────────────────────────
 function openExpenseModal() {
   const dateEl = document.getElementById('exp-date');
-  if (dateEl) dateEl.value = new Date().toISOString().split('T')[0];
-  ['exp-cat','exp-item','exp-price','exp-total'].forEach((id) => {
+  if (dateEl) dateEl.value = manilaToday();
+  ['exp-cat','exp-item','exp-price','exp-total','exp-receipt'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = id === 'exp-cat' ? '' : '';
   });
@@ -17976,6 +18064,7 @@ async function loadExpensesFromBackend() {
       price: Number(r.unit_price || 0),
       total: Number(r.quantity || 1) * Number(r.unit_price || 0),
       noted: r.noted_by || '',
+      receipt: r.receipt_url || '',
     }));
   } catch (e) {
     // keep existing DB.expenses if fetch fails
@@ -17990,9 +18079,16 @@ async function saveExpense() {
   const qty = parseInt(document.getElementById('exp-qty')?.value || 0);
   const price = parseFloat(document.getElementById('exp-price')?.value || 0);
   const noted = document.getElementById('exp-noted')?.value || App.user?.full_name || App.user?.name || '';
+  const receipt = (document.getElementById('exp-receipt')?.value || '').trim();
 
   if (!date || !category || !item || qty < 1 || price <= 0) {
     showToast('error', 'Validation failed', 'Please fill in all required fields.');
+    return;
+  }
+  // A link that is not http(s) would save fine and then refuse to open, so it
+  // is caught here rather than at View time.
+  if (receipt && !isHttpUrl(receipt)) {
+    showToast('error', 'Check the link', 'The Google Drive link must start with https://');
     return;
   }
 
@@ -18007,6 +18103,7 @@ async function saveExpense() {
         quantity: qty,
         unit_price: price,
         noted_by: noted,
+        receipt_url: receipt,
       }),
     });
     showToast('success', 'Expense saved', `${item} — ₱${(qty * price).toLocaleString()}`);
@@ -18260,7 +18357,9 @@ function applyExpenseFilters() {
   let shown = 0;
   let total = 0;
   rows.forEach((row) => {
-    const visible = (!search || row.textContent.toLowerCase().includes(search))
+    // Search the row's own fields, not its rendered text — otherwise "view"
+    // would match every row carrying a receipt button.
+    const visible = (!search || (row.dataset.search || row.textContent.toLowerCase()).includes(search))
       && (category === 'All' || row.dataset.category === category)
       && (classification === 'All' || (row.dataset.classification || 'OPEX') === classification)
       && (!month || row.dataset.month === month);

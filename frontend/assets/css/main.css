@@ -1341,6 +1341,36 @@ textarea.form-control { min-height: 90px; resize: vertical; }
   white-space: nowrap;
 }
 
+/* Expenses: the receipt viewer — the linked Drive file, shown in place. */
+.exp-receipt-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px 16px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.exp-receipt-meta > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.exp-receipt-meta span {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.exp-receipt-meta strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.exp-receipt-view {
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.exp-receipt-view iframe { display: block; width: 100%; height: 60vh; min-height: 420px; border: 0; }
+.exp-receipt-view img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
+
 .table-search svg {
   position: absolute;
   left: 11px; top: 50%;
