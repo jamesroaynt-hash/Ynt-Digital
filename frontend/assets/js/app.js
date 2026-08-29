@@ -4295,56 +4295,63 @@ function employeeTrackerThisWeek() {
 }
 
 // ─── MONTHLY EVALUATION / KPI ──────────────────────────────
-// Every active account rates every other one — never themselves — during the
-// last three days of the month. Scores are HR/Administrator only; a peer sees
-// nothing but whether they have submitted.
-const EVALUATION_CATEGORIES = [
+// The company's Evaluation Matrix (General Evaluation) sheet, filled in the
+// dashboard: four criteria worth 25% each, rated item by item as a percentage.
+// A criterion's AVERAGE is the mean of its items, its OVERALL is that average
+// against the criterion's total percentage, and the over-all percentage is the
+// sum of the four. Every active account rates every other one — never
+// themselves — during the last three days of the month, and only
+// HR/Administrator sees the resulting scores.
+const EVALUATION_CRITERIA = [
   {
-    id: 'character',
-    label: 'Character',
-    hrOnly: false,
-    criteria: ['Attitude', 'Respect', 'Teamwork', 'Responsibility', 'Honesty', 'Professional behavior', 'Willingness to help'],
+    id: 'communication',
+    label: 'Communication Skills',
+    items: [
+      { key: 'interaction', label: 'Interaction' },
+      { key: 'collab_team_work', label: 'Collab/Team work' },
+    ],
   },
   {
-    id: 'attendance',
-    label: 'Attendance',
-    hrOnly: false,
-    criteria: ['Punctuality', 'Absences', 'Tardiness', 'Reliability', 'Compliance with work schedule'],
+    id: 'attitude',
+    label: 'Attitude',
+    items: [
+      { key: 'sociability', label: 'Sociability' },
+      { key: 'compliance', label: 'Compliance' },
+      { key: 'promptness', label: 'Promptness (urgency)' },
+      { key: 'commitment', label: 'Commitment' },
+      { key: 'initiative', label: 'Initiative' },
+    ],
   },
   {
-    id: 'eod',
-    label: 'EOD / Self-Care',
-    hrOnly: false,
-    criteria: ['Completes End-of-Day reports', 'Properly updates work records', 'Organizes work before leaving', 'Takes care of company equipment and resources', 'Maintains proper workplace discipline', 'Completes required daily documentation'],
+    id: 'skills',
+    label: 'Skills',
+    items: [
+      { key: 'rapport', label: 'Rapport w/ Customers' },
+      { key: 'proper_opening', label: 'Proper Opening' },
+      { key: 'problem_solving', label: 'Problem Solving' },
+      { key: 'closing_after_sales', label: 'Closing & After sales' },
+      { key: 'get_the_cash', label: 'Get the cash' },
+      { key: 'item_knowledge', label: 'Item Knowledge/Product Research' },
+      { key: 'follow_up_scripting', label: 'Follow-up & Scripting' },
+      { key: 'call_structure', label: 'Call Structure' },
+    ],
   },
   {
-    id: 'performance',
-    label: 'Performance',
-    hrOnly: false,
-    criteria: ['Quality of work', 'Productivity', 'Accuracy', 'Efficiency', 'Problem-solving', 'Initiative', 'Follows instructions', 'Completes assigned tasks', 'Consistency', 'Works independently'],
-  },
-  {
-    id: 'hr',
-    label: 'Final Rate HR',
-    hrOnly: true,
-    criteria: ['Overall professional assessment', 'Leadership and team feedback', 'Overall reliability', 'Improvement through the period', 'Overall suitability for the role'],
+    id: 'technical',
+    label: 'Technical Skills',
+    items: [
+      { key: 'google_sheet_tracker', label: 'Google Sheet/Tracker/Inventory' },
+      { key: 'creating_response', label: 'Creating Response/ script/spiel' },
+      { key: 'basic_troubleshooting', label: 'Basic Troubleshooting' },
+      { key: 'facebook_proficiency', label: 'Facebook Proficiency/Pancake/Botcake' },
+      { key: 'chat_gpt', label: 'Maximization of chat gpt' },
+      { key: 'pages_group', label: 'Familiarity with Pages/Group' },
+    ],
   },
 ];
 
-// What each star actually means, so two evaluators reading the same behaviour
-// land on the same number instead of scoring to their own private scale.
-const EVALUATION_STAR_MEANINGS = {
-  1: 'Unacceptable — falls far short, needs immediate correction.',
-  2: 'Very poor — rarely reaches the standard.',
-  3: 'Poor — reaches the standard only occasionally.',
-  4: 'Below expectations — inconsistent, needs close supervision.',
-  5: 'Approaching expectations — meets part of the standard.',
-  6: 'Fair — meets the basic standard, but needs reminders.',
-  7: 'Meets expectations — reliable and consistent.',
-  8: 'Exceeds expectations — consistently above the standard.',
-  9: 'Outstanding — sets the standard for others.',
-  10: 'Exemplary — exceptional in every observed instance.',
-};
+// The development box on the sheet is capped at a thousand words.
+const EVALUATION_WORD_LIMIT = 1000;
 
 const EVALUATION_LEVELS = [
   { min: 95, label: 'Exceptional', tone: 'success' },
@@ -4367,6 +4374,20 @@ function evaluationPeriodLabel(period) {
   return `${new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' })} ${year}`;
 }
 
+// A cell on the sheet is a percentage or it is blank — anything outside 0-100
+// is not a rating and must not be averaged as if it were a zero.
+function evaluationPercentValue(raw) {
+  if (raw === null || raw === undefined || String(raw).trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 100) return null;
+  return value;
+}
+
+function evaluationPercentText(value, places = 2) {
+  if (value === null || value === undefined) return '—';
+  return `${Number(value).toFixed(places)}%`;
+}
+
 let evaluationState = {
   period: '',
   window: null,
@@ -4374,14 +4395,15 @@ let evaluationState = {
   canSeeScores: false,
   rows: [],
   selectedId: null,
-  // The rating currently being filled in the modal.
+  // The matrix currently being filled in the modal.
   draft: null,
+  // The selected employee's full sheet, notes included (HR/Administrator).
+  summary: null,
 };
 
-// Which categories this user is responsible for. Only HR/Administrator carry
-// Final Rate HR — a peer's submission leaves that 10% for HR to fill.
-function evaluationCategoriesForViewer() {
-  return EVALUATION_CATEGORIES.filter((category) => !category.hrOnly || evaluationState.canSeeScores);
+function evaluationWeightOf(criterionId) {
+  const weight = Number(evaluationState.weights?.[criterionId]);
+  return Number.isFinite(weight) ? weight : 25;
 }
 
 function renderEvaluationKpi() {
@@ -4389,7 +4411,7 @@ function renderEvaluationKpi() {
   <div class="page-header">
     <div class="page-title">
       <h1>Monthly Evaluation / KPI</h1>
-      <p>Employee evaluation every month.</p>
+      <p>Evaluation Matrix — General Evaluation, filled every month.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
@@ -4427,27 +4449,56 @@ function renderEvaluationKpi() {
 function renderEvaluationModal() {
   return `
   <div class="modal-overlay" id="evaluation-modal">
-    <div class="modal" style="max-width:820px;">
+    <div class="modal" style="max-width:900px;">
       <div class="modal-header">
         <div class="modal-title" id="evaluation-modal-title">Evaluate</div>
         <button class="modal-close" onclick="closeModal('evaluation-modal')">×</button>
       </div>
       <div class="modal-body">
+        <div class="ev-sheet-head">
+          <div class="ev-sheet-brand">YNT DIGITAL MARKETING COMPANY</div>
+          <div class="ev-sheet-title">Evaluation Matrix</div>
+          <div class="ev-sheet-sub">General Evaluation</div>
+        </div>
         <div class="eval-meta" id="evaluation-modal-meta"></div>
-        <div id="evaluation-modal-categories"></div>
-        <div class="eval-total" id="evaluation-modal-total"></div>
-        <div class="form-group">
-          <label class="form-label">HR Comments</label>
-          <textarea id="evaluation-hr-comments" class="form-control" rows="2" placeholder="Observed behaviour and performance during the period."></textarea>
+        <div id="evaluation-matrix-wrap"></div>
+
+        <div class="ev-sheet-block">
+          <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish:</div>
+          <textarea id="evaluation-development" class="form-control" rows="5"
+            placeholder="What this employee should work on next, and how." oninput="refreshEvaluationWordCount()"></textarea>
+          <div class="ev-sheet-note" id="evaluation-word-count">maximun 1000 words</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Employee Comments</label>
-          <textarea id="evaluation-employee-comments" class="form-control" rows="2" placeholder="Anything the employee raised."></textarea>
+
+        <div class="ev-sheet-block ev-sheet-policies">
+          <div class="ev-sheet-block-title">POLICIES:</div>
+          <p>Attendance policy (3 lates = 1 absent). Be <strong>on time</strong> and if there's a problem that will affect to you daily attendance and performance, <strong>ALWAYS INFORM AHEAD OF TIME</strong> (atleast 2hrs before your shift).</p>
         </div>
-        <div class="form-group">
-          <label class="form-label">Recommendation</label>
-          <textarea id="evaluation-recommendation" class="form-control" rows="2" placeholder="What should happen next."></textarea>
+
+        <div class="ev-sheet-block">
+          <div class="ev-sheet-block-title">I RECOMMEND:</div>
+          <div class="ev-recommend">
+            <div class="form-group">
+              <label class="form-label" for="evaluation-proceed">Proceed to Final Evaluation</label>
+              <select id="evaluation-proceed" class="form-control">
+                <option value="">Not stated</option>
+                <option value="YES">YES</option>
+                <option value="NO">NO</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="evaluation-passed">Passed or not passed?</label>
+              <select id="evaluation-passed" class="form-control">
+                <option value="">Not stated</option>
+                <option value="PASSED">PASSED</option>
+                <option value="NOT PASSED">NOT PASSED</option>
+              </select>
+            </div>
+          </div>
         </div>
+
+        <div class="ev-sheet-sign" id="evaluation-sign"></div>
+
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button type="button" class="btn btn-primary" style="flex:1;" onclick="submitEvaluation()">Submit Evaluation</button>
           <button type="button" class="btn btn-secondary" onclick="closeModal('evaluation-modal')">Cancel</button>
@@ -4471,12 +4522,14 @@ async function initEvaluationKpi() {
   }
   if (!evaluationState.rows.some((row) => row.id === evaluationState.selectedId)) {
     evaluationState.selectedId = evaluationState.rows[0]?.id ?? null;
+    evaluationState.summary = null;
   }
   if (App.currentPage !== 'evaluation-kpi') return;
   renderEvaluationWindowNotice();
   renderEvaluationWeights();
   renderEvaluationQueue();
   renderEvaluationRecord();
+  loadEvaluationSummary();
 }
 
 function renderEvaluationWindowNotice() {
@@ -4495,8 +4548,9 @@ function renderEvaluationWindowNotice() {
        </div>`;
 }
 
-// HR/Administrator can retune the split. It has to total 100 or every score
-// would silently be capped below it, so the server rejects anything else.
+// HR/Administrator can retune the TOTAL PERCENTAGE column. It has to total 100
+// or every score would silently be capped below it, so the server rejects
+// anything else.
 function renderEvaluationWeights() {
   const wrap = document.getElementById('evaluation-weights-wrap');
   if (!wrap) return;
@@ -4505,26 +4559,26 @@ function renderEvaluationWeights() {
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header">
         <div>
-          <div class="card-title">Category Weights</div>
-          <div class="card-subtitle">How much each category is worth. Must total 100%.</div>
+          <div class="card-title">Total Percentage per Criteria</div>
+          <div class="card-subtitle">What each criteria is worth on the matrix. Must total 100%.</div>
         </div>
         <div class="eval-weight-total" id="evaluation-weight-total"></div>
       </div>
       <div class="card-body">
         <div class="eval-weight-grid">
-          ${EVALUATION_CATEGORIES.map((category) => `
+          ${EVALUATION_CRITERIA.map((criterion) => `
             <div class="eval-weight-field">
-              <label class="form-label">${escapeHtml(category.label)}</label>
+              <label class="form-label">${escapeHtml(criterion.label)}</label>
               <div class="eval-weight-input">
                 <input type="number" min="0" max="100" step="0.5" class="form-control"
-                  id="evaluation-weight-${category.id}" value="${Number(evaluationState.weights[category.id] || 0)}"
+                  id="evaluation-weight-${criterion.id}" value="${evaluationWeightOf(criterion.id)}"
                   oninput="refreshEvaluationWeightTotal()">
                 <span>%</span>
               </div>
             </div>`).join('')}
         </div>
         <div style="margin-top:14px;">
-          <button class="btn btn-primary btn-sm" onclick="saveEvaluationWeights()">Save Weights</button>
+          <button class="btn btn-primary btn-sm" onclick="saveEvaluationWeights()">Save Total Percentages</button>
         </div>
       </div>
     </div>`;
@@ -4533,8 +4587,8 @@ function renderEvaluationWeights() {
 
 function readEvaluationWeightInputs() {
   const weights = {};
-  EVALUATION_CATEGORIES.forEach((category) => {
-    weights[category.id] = Number(document.getElementById(`evaluation-weight-${category.id}`)?.value || 0);
+  EVALUATION_CRITERIA.forEach((criterion) => {
+    weights[criterion.id] = Number(document.getElementById(`evaluation-weight-${criterion.id}`)?.value || 0);
   });
   return weights;
 }
@@ -4543,7 +4597,7 @@ function refreshEvaluationWeightTotal() {
   const el = document.getElementById('evaluation-weight-total');
   if (!el) return;
   const weights = readEvaluationWeightInputs();
-  const total = Math.round(EVALUATION_CATEGORIES.reduce((sum, c) => sum + weights[c.id], 0) * 10) / 10;
+  const total = Math.round(EVALUATION_CRITERIA.reduce((sum, c) => sum + weights[c.id], 0) * 10) / 10;
   const ok = Math.abs(total - 100) < 0.01;
   el.className = `eval-weight-total ${ok ? 'ok' : 'bad'}`;
   el.textContent = `Total ${total}%`;
@@ -4556,11 +4610,10 @@ async function saveEvaluationWeights() {
       body: JSON.stringify(readEvaluationWeightInputs()),
     });
     evaluationState.weights = result.weights;
-    showToast('success', 'Weights saved', 'New category weights apply to every score.');
-    renderEvaluationQueue();
-    renderEvaluationRecord();
+    showToast('success', 'Saved', 'The new total percentages apply to every score.');
+    await initEvaluationKpi();
   } catch (error) {
-    showToast('error', 'Could not save weights', error.message || 'Check that the categories total 100%.');
+    showToast('error', 'Could not save', error.message || 'Check that the criteria total 100%.');
   }
 }
 
@@ -4579,11 +4632,10 @@ function renderEvaluationQueue() {
     <table class="ev-table">
       <thead>
         <tr>
-          <th>Employee</th>
+          <th>Name</th>
+          <th>Position</th>
           <th>Period</th>
-          <th>KPI Grading Sheet</th>
-          <th>Evaluator</th>
-          <th>Score</th>
+          <th>Over All Percentage</th>
           <th>Status</th>
           <th>Action</th>
         </tr>
@@ -4593,9 +4645,8 @@ function renderEvaluationQueue() {
           <tr class="${row.id === evaluationState.selectedId ? 'ev-selected' : ''}"
             onclick="selectEvaluationEmployee(${Number(row.id)})" style="cursor:pointer;" title="Show this employee's record">
             <td><strong>${escapeHtml(row.name || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(employeeDepartment(row))}</div></td>
+            <td>${escapeHtml(row.role || 'Not set')}</td>
             <td>${escapeHtml(period)}</td>
-            <td><span class="badge badge-gray">Awaiting KPI Sheet</span></td>
-            <td>${escapeHtml(row.role || 'Peer')}</td>
             <td>${renderEvaluationScoreCell(row)}</td>
             <td>${row.submitted
               ? '<span class="badge badge-success">Submitted</span>'
@@ -4618,7 +4669,7 @@ function renderEvaluationScoreCell(row) {
   const level = evaluationLevelFor(result.score);
   const partial = result.covered_weight < 99.99
     ? ` <span class="ev-muted">of ${result.covered_weight}% rated</span>` : '';
-  return `<strong>${result.score}</strong>${partial}
+  return `<strong>${evaluationPercentText(result.score)}</strong>${partial}
     <div><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span></div>`;
 }
 
@@ -4639,14 +4690,14 @@ function renderEvaluationRecord() {
     return;
   }
 
-  const result = row.result || { score: 0, covered_weight: 0, per_category: {}, responses: 0 };
+  const result = row.result || { score: 0, covered_weight: 0, per_criteria: {}, responses: 0 };
   const level = evaluationLevelFor(result.score);
   wrap.innerHTML = `
     <div class="stats-grid" style="margin-bottom:16px;">
       <div class="stat-card">
-        <div class="stat-label">Final Score</div>
-        <div class="stat-value">${result.responses ? `${result.score}<span style="font-size:15px;color:var(--text-muted);"> / 100</span>` : '—'}</div>
-        <div class="stat-meta">${result.responses ? `${result.covered_weight}% of the weight rated` : 'No ratings yet'}</div>
+        <div class="stat-label">Over All Percentage</div>
+        <div class="stat-value">${result.responses ? evaluationPercentText(result.score) : '—'}</div>
+        <div class="stat-meta">${result.responses ? `${result.covered_weight}% of the matrix rated` : 'No ratings yet'}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Performance Level</div>
@@ -4659,37 +4710,105 @@ function renderEvaluationRecord() {
         <div class="stat-meta">evaluators submitted</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Department</div>
+        <div class="stat-label">Position</div>
         <div class="stat-value" style="font-size:20px;">${escapeHtml(employeeDepartment(row))}</div>
         <div class="stat-meta">${escapeHtml(row.role || 'No role set')}</div>
       </div>
     </div>
-    <div class="ev-scroll">
-      <table class="ev-table">
-        <thead><tr><th>Category</th><th>Weight</th><th>Average Stars</th><th>Contribution</th></tr></thead>
-        <tbody>
-          ${EVALUATION_CATEGORIES.map((category) => {
-            const stars = result.per_category?.[category.id];
-            const weight = Number(evaluationState.weights?.[category.id] || 0);
-            return `<tr>
-              <td><strong>${escapeHtml(category.label)}</strong></td>
-              <td>${weight}%</td>
-              <td>${stars === null || stars === undefined ? '<span class="ev-muted">Not rated</span>' : `${stars} / 10`}</td>
-              <td>${stars === null || stars === undefined ? '<span class="ev-muted">—</span>' : `${Math.round((stars / 10) * weight * 10) / 10}%`}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
+    ${renderEvaluationResultMatrix(result)}
+    <div id="evaluation-record-notes"></div>`;
+  renderEvaluationRecordNotes();
+}
+
+// The same matrix, read-only, holding the average of every evaluator's sheet.
+function renderEvaluationResultMatrix(result) {
+  return `
+  <div class="ev-scroll">
+    <table class="ev-table ev-matrix">
+      <thead>
+        <tr>
+          <th>Total Percentage</th><th>Criteria</th><th>Items</th>
+          <th>Percentage</th><th>Average</th><th>Overall</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${EVALUATION_CRITERIA.map((criterion) => {
+          const scored = result.per_criteria?.[criterion.id] || {};
+          const span = criterion.items.length;
+          return criterion.items.map((item, index) => {
+            const percent = scored.items?.[item.key];
+            const lead = index === 0
+              ? `<td rowspan="${span}" class="ev-matrix-weight">${evaluationWeightOf(criterion.id)}%</td>
+                 <td rowspan="${span}" class="ev-matrix-criteria">${escapeHtml(criterion.label.toUpperCase())}</td>`
+              : '';
+            const tail = index === 0
+              ? `<td rowspan="${span}" class="ev-matrix-avg">${scored.average === null || scored.average === undefined ? '<span class="ev-muted">Not rated</span>' : evaluationPercentText(scored.average, 1)}</td>
+                 <td rowspan="${span}" class="ev-matrix-avg">${scored.overall === null || scored.overall === undefined ? '<span class="ev-muted">—</span>' : evaluationPercentText(scored.overall)}</td>`
+              : '';
+            return `<tr>${lead}<td>${escapeHtml(item.label)}</td>
+              <td>${percent === null || percent === undefined ? '<span class="ev-muted">—</span>' : evaluationPercentText(percent, 1)}</td>${tail}</tr>`;
+          }).join('');
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// Everything the evaluators wrote about this employee: the development notes
+// and the recommendation, one block per submitted sheet.
+function renderEvaluationRecordNotes() {
+  const wrap = document.getElementById('evaluation-record-notes');
+  if (!wrap) return;
+  const responses = evaluationState.summary?.responses || [];
+  if (!responses.length) {
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="ev-notes">
+      <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish</div>
+      ${responses.map((response) => `
+        <div class="ev-note">
+          <div class="ev-note-head">
+            <strong>${escapeHtml(response.evaluator_name || 'Evaluator')}</strong>
+            <span class="ev-muted">${escapeHtml(response.date_evaluated || '')}</span>
+          </div>
+          <div class="ev-note-body">${response.development_areas
+            ? escapeHtml(response.development_areas).replace(/\n/g, '<br>')
+            : '<span class="ev-muted">No notes written.</span>'}</div>
+          <div class="ev-note-foot">
+            <span>Proceed to Final Evaluation: <strong>${escapeHtml(response.proceed_to_final || '—')}</strong></span>
+            <span>Passed or not passed: <strong>${escapeHtml(response.passed || '—')}</strong></span>
+          </div>
+        </div>`).join('')}
     </div>`;
+}
+
+// The queue carries the scores but not the written notes; those are one more
+// request, made only when HR opens an employee's record.
+async function loadEvaluationSummary() {
+  const subjectId = evaluationState.selectedId;
+  if (!evaluationState.canSeeScores || !subjectId) { evaluationState.summary = null; return; }
+  try {
+    const summary = await authorizedJsonRequest(`/evaluations/summary/${subjectId}?_=${Date.now()}`);
+    if (evaluationState.selectedId !== subjectId) return;
+    evaluationState.summary = summary;
+  } catch {
+    evaluationState.summary = null;
+  }
+  if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationRecordNotes();
 }
 
 function selectEvaluationEmployee(userId) {
   evaluationState.selectedId = Number(userId);
+  evaluationState.summary = null;
   renderEvaluationQueue();
   renderEvaluationRecord();
+  loadEvaluationSummary();
 }
 
-// ─── Rating form ───────────────────────────────────────────
+// ─── The matrix form ───────────────────────────────────────
 function openEvaluationForm(userId) {
   const row = evaluationState.rows.find((r) => r.id === Number(userId));
   if (!row) return;
@@ -4698,108 +4817,173 @@ function openEvaluationForm(userId) {
     return;
   }
   evaluationState.selectedId = row.id;
-  // Re-opening a submitted evaluation starts from what was saved, so a revision
-  // is an edit rather than a blank form.
-  evaluationState.draft = { subjectId: row.id, stars: { ...(row.my_rating || {}) } };
+  // Re-opening a submitted sheet starts from what was saved, so a revision is
+  // an edit rather than a blank matrix.
+  const saved = row.my_sheet || {};
+  evaluationState.draft = { subjectId: row.id, items: { ...(saved.items || {}) } };
   renderEvaluationQueue();
 
+  const today = manilaToday();
   document.getElementById('evaluation-modal-title').textContent = `Evaluate ${row.name || 'User'}`;
   document.getElementById('evaluation-modal-meta').innerHTML = `
-    <div><span>Employee</span><strong>${escapeHtml(row.name || 'User')}</strong></div>
-    <div><span>Department</span><strong>${escapeHtml(employeeDepartment(row))}</strong></div>
+    <div><span>Name</span><strong>${escapeHtml(row.name || 'User')}</strong></div>
     <div><span>Position</span><strong>${escapeHtml(row.role || 'Not set')}</strong></div>
+    <div><span>Date Evaluated</span><strong>${escapeHtml(saved.date_evaluated || today)}</strong></div>
     <div><span>Evaluation Period</span><strong>${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</strong></div>
-    <div><span>Evaluator</span><strong>${escapeHtml(App.user?.name || App.user?.username || 'You')}</strong></div>`;
-  ['hr-comments', 'employee-comments', 'recommendation'].forEach((field) => {
-    const el = document.getElementById(`evaluation-${field}`);
-    if (el) el.value = '';
-  });
-  renderEvaluationCategories();
+    <div><span>Over All Percentage</span><strong id="evaluation-overall">0.00%</strong></div>`;
+  document.getElementById('evaluation-sign').innerHTML = `
+    <div><span>Noted by</span><strong>${escapeHtml(App.user?.name || App.user?.username || 'You')}</strong></div>
+    <div><span>Position</span><strong>${escapeHtml(App.user?.role || 'Evaluator')}</strong></div>
+    <div><span>Date</span><strong>${escapeHtml(today)}</strong></div>`;
+
+  const development = document.getElementById('evaluation-development');
+  if (development) development.value = saved.development_areas || '';
+  const proceed = document.getElementById('evaluation-proceed');
+  if (proceed) proceed.value = saved.proceed_to_final || '';
+  const passed = document.getElementById('evaluation-passed');
+  if (passed) passed.value = saved.passed || '';
+
+  renderEvaluationMatrix();
+  refreshEvaluationWordCount();
   openModal('evaluation-modal');
 }
 
-function renderEvaluationCategories() {
-  const wrap = document.getElementById('evaluation-modal-categories');
+// The sheet itself. The percentage cells are inputs; AVERAGE, OVERALL and the
+// over-all percentage are computed as they are typed, never re-rendering the
+// table — retyping a cell must not cost the caret.
+function renderEvaluationMatrix() {
+  const wrap = document.getElementById('evaluation-matrix-wrap');
   if (!wrap) return;
-  const stars = evaluationState.draft?.stars || {};
-  wrap.innerHTML = evaluationCategoriesForViewer().map((category) => {
-    const value = Number(stars[category.id] || 0);
-    const weight = Number(evaluationState.weights?.[category.id] || 0);
-    return `
-    <div class="eval-cat">
-      <div class="eval-cat-head">
-        <div>
-          <div class="eval-cat-name">${escapeHtml(category.label)}</div>
-          <div class="eval-cat-criteria">${category.criteria.map(escapeHtml).join(' · ')}</div>
-        </div>
-        <span class="eval-cat-weight">${weight}%</span>
-      </div>
-      <div class="eval-stars" role="radiogroup" aria-label="${escapeHtml(category.label)} rating">
-        ${Array.from({ length: 10 }, (_, i) => i + 1).map((n) => `
-          <button type="button" class="eval-star ${n <= value ? 'on' : ''}"
-            title="${n} — ${escapeHtml(EVALUATION_STAR_MEANINGS[n])}"
-            aria-label="${n} of 10"
-            onclick="setEvaluationStars('${category.id}', ${n})">★</button>`).join('')}
-        <span class="eval-star-value">${value ? `${value}/10` : 'Not rated'}</span>
-      </div>
-      <div class="eval-star-meaning">${value ? escapeHtml(EVALUATION_STAR_MEANINGS[value]) : 'Pick a star to see what it means.'}</div>
-    </div>`;
-  }).join('');
-  renderEvaluationTotal();
+  const items = evaluationState.draft?.items || {};
+  wrap.innerHTML = `
+  <div class="ev-scroll">
+    <table class="ev-table ev-matrix">
+      <thead>
+        <tr>
+          <th>Total Percentage</th><th>Criteria</th><th>Items</th>
+          <th>Percentage</th><th>Average</th><th>Overall</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${EVALUATION_CRITERIA.map((criterion) => {
+          const span = criterion.items.length;
+          return criterion.items.map((item, index) => {
+            const value = items[item.key];
+            const lead = index === 0
+              ? `<td rowspan="${span}" class="ev-matrix-weight">${evaluationWeightOf(criterion.id)}%</td>
+                 <td rowspan="${span}" class="ev-matrix-criteria">${escapeHtml(criterion.label.toUpperCase())}</td>`
+              : '';
+            const tail = index === 0
+              ? `<td rowspan="${span}" class="ev-matrix-avg" id="evaluation-average-${criterion.id}">0%</td>
+                 <td rowspan="${span}" class="ev-matrix-avg" id="evaluation-overall-${criterion.id}">0.00%</td>`
+              : '';
+            return `<tr>${lead}
+              <td>${escapeHtml(item.label)}</td>
+              <td class="ev-matrix-cell">
+                <input type="number" class="form-control ev-matrix-input" min="0" max="100" step="1"
+                  id="evaluation-item-${item.key}" value="${value === null || value === undefined ? '' : Number(value)}"
+                  aria-label="${escapeHtml(item.label)} percentage"
+                  oninput="setEvaluationItemPercent('${item.key}', this.value)"><span>%</span>
+              </td>${tail}</tr>`;
+          }).join('');
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+  refreshEvaluationMatrixTotals();
 }
 
-function setEvaluationStars(categoryId, stars) {
+function setEvaluationItemPercent(itemKey, raw) {
   if (!evaluationState.draft) return;
-  evaluationState.draft.stars[categoryId] = Number(stars);
-  renderEvaluationCategories();
+  evaluationState.draft.items[itemKey] = String(raw).trim() === '' ? '' : raw;
+  refreshEvaluationMatrixTotals();
 }
 
-// Live preview of what this evaluator is contributing. It is deliberately not
-// presented as the final score — that combines every evaluator's ratings.
-function renderEvaluationTotal() {
-  const el = document.getElementById('evaluation-modal-total');
+// AVERAGE is the mean of the criterion's rated items, OVERALL is that average
+// against the criterion's total percentage, and the over-all percentage is the
+// sum of the four — the same arithmetic the server repeats across evaluators.
+function evaluationDraftTotals() {
+  const items = evaluationState.draft?.items || {};
+  const perCriteria = {};
+  let overall = 0;
+  let complete = true;
+  EVALUATION_CRITERIA.forEach((criterion) => {
+    const rated = criterion.items
+      .map((item) => evaluationPercentValue(items[item.key]))
+      .filter((value) => value !== null);
+    if (rated.length !== criterion.items.length) complete = false;
+    const weight = evaluationWeightOf(criterion.id);
+    if (!rated.length) {
+      perCriteria[criterion.id] = { average: null, overall: null };
+      return;
+    }
+    const average = rated.reduce((sum, value) => sum + value, 0) / rated.length;
+    const contribution = (average / 100) * weight;
+    perCriteria[criterion.id] = { average, overall: contribution };
+    overall += contribution;
+  });
+  return { perCriteria, overall, complete };
+}
+
+function refreshEvaluationMatrixTotals() {
+  const totals = evaluationDraftTotals();
+  EVALUATION_CRITERIA.forEach((criterion) => {
+    const scored = totals.perCriteria[criterion.id];
+    const averageEl = document.getElementById(`evaluation-average-${criterion.id}`);
+    const overallEl = document.getElementById(`evaluation-overall-${criterion.id}`);
+    if (averageEl) averageEl.textContent = scored.average === null ? '0%' : evaluationPercentText(scored.average, 1);
+    if (overallEl) overallEl.textContent = scored.overall === null ? '0.00%' : evaluationPercentText(scored.overall);
+  });
+  const overallEl = document.getElementById('evaluation-overall');
+  if (overallEl) overallEl.textContent = evaluationPercentText(totals.overall);
+}
+
+function refreshEvaluationWordCount() {
+  const el = document.getElementById('evaluation-word-count');
+  const text = document.getElementById('evaluation-development')?.value || '';
   if (!el) return;
-  const categories = evaluationCategoriesForViewer();
-  const stars = evaluationState.draft?.stars || {};
-  const available = categories.reduce((sum, c) => sum + Number(evaluationState.weights?.[c.id] || 0), 0);
-  const earned = categories.reduce((sum, c) => {
-    const value = Number(stars[c.id] || 0);
-    return sum + (value ? (value / 10) * Number(evaluationState.weights?.[c.id] || 0) : 0);
-  }, 0);
-  const rounded = Math.round(earned * 10) / 10;
-  const complete = categories.every((c) => Number(stars[c.id] || 0) > 0);
-  const level = evaluationLevelFor((rounded / (available || 100)) * 100);
-  el.innerHTML = `
-    <div>
-      <div class="eval-total-label">Your rating</div>
-      <div class="eval-total-value">${rounded} <span>of ${Math.round(available * 10) / 10}%</span></div>
-    </div>
-    <div class="eval-total-note">
-      ${complete
-        ? `Reads as <strong>${escapeHtml(level.label)}</strong> on its own. The employee's final score combines every evaluator's ratings${evaluationState.canSeeScores ? '' : ', plus HR’s Final Rate HR'}.`
-        : 'Rate every category to submit.'}
-    </div>`;
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const over = words > EVALUATION_WORD_LIMIT;
+  el.className = `ev-sheet-note${over ? ' ev-sheet-note-bad' : ''}`;
+  el.textContent = over
+    ? `${words} words — maximum ${EVALUATION_WORD_LIMIT} words`
+    : `${words} / ${EVALUATION_WORD_LIMIT} words`;
 }
 
 async function submitEvaluation() {
   const draft = evaluationState.draft;
   if (!draft) return;
-  const categories = evaluationCategoriesForViewer();
-  const missing = categories.find((c) => !Number(draft.stars[c.id] || 0));
-  if (missing) {
-    showToast('warning', 'Incomplete', `Rate ${missing.label} before submitting.`);
+  const items = {};
+  for (const criterion of EVALUATION_CRITERIA) {
+    for (const item of criterion.items) {
+      const percent = evaluationPercentValue(draft.items[item.key]);
+      if (percent === null) {
+        showToast('warning', 'Incomplete matrix', `Rate "${item.label}" from 0 to 100% before submitting.`);
+        document.getElementById(`evaluation-item-${item.key}`)?.focus();
+        return;
+      }
+      items[item.key] = percent;
+    }
+  }
+  const development = document.getElementById('evaluation-development')?.value || '';
+  if (development.trim() && development.trim().split(/\s+/).length > EVALUATION_WORD_LIMIT) {
+    showToast('warning', 'Too long', `Keep the development notes under ${EVALUATION_WORD_LIMIT} words.`);
     return;
   }
-  const payload = { subject_id: draft.subjectId };
-  categories.forEach((c) => { payload[c.id] = Number(draft.stars[c.id]); });
-  payload.hr_comments = document.getElementById('evaluation-hr-comments')?.value || '';
-  payload.employee_comments = document.getElementById('evaluation-employee-comments')?.value || '';
-  payload.recommendation = document.getElementById('evaluation-recommendation')?.value || '';
 
   try {
-    await authorizedJsonRequest('/evaluations', { method: 'POST', body: JSON.stringify(payload) });
+    await authorizedJsonRequest('/evaluations', {
+      method: 'POST',
+      body: JSON.stringify({
+        subject_id: draft.subjectId,
+        items,
+        development_areas: development,
+        proceed_to_final: document.getElementById('evaluation-proceed')?.value || '',
+        passed: document.getElementById('evaluation-passed')?.value || '',
+      }),
+    });
     closeModal('evaluation-modal');
-    showToast('success', 'Evaluation submitted', 'Your rating was recorded.');
+    showToast('success', 'Evaluation submitted', 'The matrix was recorded.');
     await initEvaluationKpi();
     refreshEvaluationTopbarButton({ force: true }).catch(() => {});
   } catch (error) {

@@ -5156,10 +5156,10 @@ tfoot td {
 }
 @media (max-width: 720px) { .topbar-eval-btn span { display: none; } }
 
-/* ── Evaluation: category weights ───────────────────────────────────────── */
+/* ── Evaluation: total percentage per criteria ──────────────────────────── */
 .eval-weight-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 .eval-weight-input { display: flex; align-items: center; gap: 6px; }
@@ -5176,7 +5176,12 @@ tfoot td {
 @media (max-width: 900px) { .eval-weight-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* ── Evaluation: rating form ────────────────────────────────────────────── */
+/* The sheet header sticks while the 21 item rows scroll under it, so the
+   over-all percentage stays in view as the cells are filled. */
 .eval-meta {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px 16px;
@@ -5202,67 +5207,101 @@ tfoot td {
   text-overflow: ellipsis;
 }
 
-.eval-cat {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
-}
-.eval-cat:first-child { padding-top: 0; }
-.eval-cat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.eval-cat-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-.eval-cat-criteria { margin-top: 2px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
-.eval-cat-weight {
-  flex-shrink: 0;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  padding: 2px 9px;
-  background: var(--surface-3);
-  border-radius: 999px;
-}
-.eval-stars { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; margin-top: 10px; }
-.eval-star {
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--border-strong);
-  background: none;
-  border: 0;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: color var(--transition), transform var(--transition);
-}
-.eval-star:hover { transform: scale(1.15); }
-.eval-star.on { color: var(--warning); }
-.eval-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.eval-star-value { margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
-.eval-star-meaning { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
-
-.eval-total {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin: 16px 0;
-  padding: 14px 16px;
-  background: var(--accent-soft);
+/* The printed sheet's masthead, kept so the on-screen form is recognisably
+   the same document people already fill in on paper. */
+.ev-sheet-head {
+  text-align: center;
+  padding: 12px 16px;
+  margin-bottom: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  background: var(--surface-2);
 }
-.eval-total-label {
+.ev-sheet-brand {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ev-sheet-title { margin-top: 4px; font-size: 17px; font-weight: 700; color: var(--text-primary); }
+.ev-sheet-sub { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+
+/* The matrix: TOTAL PERCENTAGE and CRITERIA span their group's item rows, the
+   way the merged cells do on the sheet. */
+.ev-matrix td, .ev-matrix th { padding: 8px 12px; }
+.ev-matrix .ev-matrix-weight,
+.ev-matrix .ev-matrix-criteria,
+.ev-matrix .ev-matrix-avg {
+  vertical-align: middle;
+  text-align: center;
+  font-weight: 600;
+  background: var(--surface-2);
+  border-left: 1px solid var(--border);
+}
+.ev-matrix .ev-matrix-weight { border-left: 0; }
+.ev-matrix .ev-matrix-criteria {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  white-space: normal;
+  max-width: 130px;
+}
+.ev-matrix .ev-matrix-avg { color: var(--text-primary); }
+.ev-matrix-cell { display: flex; align-items: center; gap: 6px; }
+.ev-matrix-cell span { font-size: 12px; color: var(--text-muted); }
+.ev-matrix-input { width: 86px; text-align: right; padding: 5px 8px; }
+
+/* Development notes, policies and the recommendation, in sheet order. */
+.ev-sheet-block { margin-top: 18px; }
+.ev-sheet-block-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.ev-sheet-note { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+.ev-sheet-note-bad { color: var(--danger-text); font-weight: 600; }
+.ev-sheet-policies {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.ev-sheet-policies p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+.ev-recommend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ev-recommend .form-group { margin-bottom: 0; }
+.ev-sheet-sign {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  margin: 18px 0 4px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.ev-sheet-sign > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ev-sheet-sign span {
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
-.eval-total-value { font-size: 24px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
-.eval-total-value span { font-size: 14px; font-weight: 500; color: var(--text-muted); }
-.eval-total-note { flex: 1; min-width: 220px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+.ev-sheet-sign strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+
+/* What the evaluators wrote, on the record card. */
+.ev-notes { margin-top: 18px; }
+.ev-note {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.ev-note-head { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.ev-note-body { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-secondary); }
+.ev-note-foot { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; font-size: 11.5px; color: var(--text-muted); }
+@media (max-width: 700px) { .ev-recommend { grid-template-columns: 1fr; } }
 
 /* ── HR Payroll: Active / Non-Active scope pills ────────────────────────── */
 .hr-status-filter { display: inline-flex; gap: 6px; margin-right: 4px; }

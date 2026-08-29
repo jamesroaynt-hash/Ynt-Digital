@@ -616,22 +616,18 @@ CREATE TABLE IF NOT EXISTS marketing_entries (
 CREATE INDEX IF NOT EXISTS idx_marketing_entries_date ON marketing_entries(entry_date DESC);
 CREATE INDEX IF NOT EXISTS idx_marketing_entries_page ON marketing_entries(page);
 
--- One row per evaluator per subject per period. A peer fills the four
--- behavioural categories; HR additionally fills hr_stars, which is why the
--- columns are nullable rather than split across two tables.
+-- One row per evaluator per subject per period — one filled-in Evaluation
+-- Matrix. `items` is the JSON map of item key to percentage; keeping the 21
+-- items in one column means adding a row to the sheet is not a migration.
 CREATE TABLE IF NOT EXISTS evaluations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   period TEXT NOT NULL,
   subject_id INTEGER NOT NULL REFERENCES users(id),
   evaluator_id INTEGER NOT NULL REFERENCES users(id),
-  character_stars INTEGER,
-  attendance_stars INTEGER,
-  eod_stars INTEGER,
-  performance_stars INTEGER,
-  hr_stars INTEGER,
-  hr_comments TEXT,
-  employee_comments TEXT,
-  recommendation TEXT,
+  items TEXT,
+  development_areas TEXT,
+  proceed_to_final TEXT,
+  passed TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(period, subject_id, evaluator_id)
@@ -640,14 +636,14 @@ CREATE TABLE IF NOT EXISTS evaluations (
 CREATE INDEX IF NOT EXISTS idx_evaluations_period_subject ON evaluations(period, subject_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_evaluator ON evaluations(period, evaluator_id);
 
--- Category weights, editable by HR/Administrator. Single row, pinned to id 1.
+-- The matrix's TOTAL PERCENTAGE column, editable by HR/Administrator.
+-- Single row, pinned to id 1.
 CREATE TABLE IF NOT EXISTS evaluation_weights (
   id INTEGER PRIMARY KEY CHECK (id = 1),
-  character_weight REAL NOT NULL DEFAULT 20,
-  attendance_weight REAL NOT NULL DEFAULT 15,
-  eod_weight REAL NOT NULL DEFAULT 15,
-  performance_weight REAL NOT NULL DEFAULT 40,
-  hr_weight REAL NOT NULL DEFAULT 10,
+  communication_weight REAL NOT NULL DEFAULT 25,
+  attitude_weight REAL NOT NULL DEFAULT 25,
+  skills_weight REAL NOT NULL DEFAULT 25,
+  technical_weight REAL NOT NULL DEFAULT 25,
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

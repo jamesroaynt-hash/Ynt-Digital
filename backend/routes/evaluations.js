@@ -33,25 +33,83 @@ function evaluationWindow(today = manilaDate()) {
   };
 }
 
-const CATEGORIES = [
-  { id: 'character', column: 'character_stars', weightColumn: 'character_weight' },
-  { id: 'attendance', column: 'attendance_stars', weightColumn: 'attendance_weight' },
-  { id: 'eod', column: 'eod_stars', weightColumn: 'eod_weight' },
-  { id: 'performance', column: 'performance_stars', weightColumn: 'performance_weight' },
-  { id: 'hr', column: 'hr_stars', weightColumn: 'hr_weight' },
+// The Evaluation Matrix (General Evaluation) sheet, one for one: four criteria
+// worth 25% each, every criterion rated item by item as a percentage. A
+// criterion's AVERAGE is the mean of its items; its OVERALL is that average
+// against the criterion's total percentage.
+const CRITERIA = [
+  {
+    id: 'communication',
+    label: 'Communication Skills',
+    weightColumn: 'communication_weight',
+    items: [
+      { key: 'interaction', label: 'Interaction' },
+      { key: 'collab_team_work', label: 'Collab/Team work' },
+    ],
+  },
+  {
+    id: 'attitude',
+    label: 'Attitude',
+    weightColumn: 'attitude_weight',
+    items: [
+      { key: 'sociability', label: 'Sociability' },
+      { key: 'compliance', label: 'Compliance' },
+      { key: 'promptness', label: 'Promptness (urgency)' },
+      { key: 'commitment', label: 'Commitment' },
+      { key: 'initiative', label: 'Initiative' },
+    ],
+  },
+  {
+    id: 'skills',
+    label: 'Skills',
+    weightColumn: 'skills_weight',
+    items: [
+      { key: 'rapport', label: 'Rapport w/ Customers' },
+      { key: 'proper_opening', label: 'Proper Opening' },
+      { key: 'problem_solving', label: 'Problem Solving' },
+      { key: 'closing_after_sales', label: 'Closing & After sales' },
+      { key: 'get_the_cash', label: 'Get the cash' },
+      { key: 'item_knowledge', label: 'Item Knowledge/Product Research' },
+      { key: 'follow_up_scripting', label: 'Follow-up & Scripting' },
+      { key: 'call_structure', label: 'Call Structure' },
+    ],
+  },
+  {
+    id: 'technical',
+    label: 'Technical Skills',
+    weightColumn: 'technical_weight',
+    items: [
+      { key: 'google_sheet_tracker', label: 'Google Sheet/Tracker/Inventory' },
+      { key: 'creating_response', label: 'Creating Response/ script/spiel' },
+      { key: 'basic_troubleshooting', label: 'Basic Troubleshooting' },
+      { key: 'facebook_proficiency', label: 'Facebook Proficiency/Pancake/Botcake' },
+      { key: 'chat_gpt', label: 'Maximization of chat gpt' },
+      { key: 'pages_group', label: 'Familiarity with Pages/Group' },
+    ],
+  },
 ];
-const PEER_CATEGORIES = CATEGORIES.filter((c) => c.id !== 'hr');
+
+const PROCEED_VALUES = ['YES', 'NO'];
+const PASSED_VALUES = ['PASSED', 'NOT PASSED'];
+// The sheet caps the development notes at a thousand words.
+const DEVELOPMENT_WORD_LIMIT = 1000;
 
 function isHrManager(user) {
   const role = String(user?.role || '').trim();
   return role === 'Administrator' || role === 'HR';
 }
 
-function normalizeStars(value) {
+// Item scores are percentages, 0-100. Anything outside that is not a rating.
+function normalizePercent(value) {
   if (value === null || value === undefined || value === '') return null;
-  const stars = Math.round(Number(value));
-  if (!Number.isFinite(stars) || stars < 1 || stars > 10) return null;
-  return stars;
+  const percent = Math.round(Number(value) * 10) / 10;
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  return percent;
+}
+
+function round(value, places = 2) {
+  const factor = 10 ** places;
+  return Math.round(value * factor) / factor;
 }
 
 function trimmedOrNull(value) {
@@ -59,18 +117,38 @@ function trimmedOrNull(value) {
   return text || null;
 }
 
+function parseItems(row) {
+  try {
+    const parsed = JSON.parse(row?.items || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// Rows filed under the old star form carry no items. They are not a filled-in
+// matrix, so they neither count as submitted nor drag a score down — the
+// evaluator is simply asked for the matrix instead.
+function hasMatrix(row) {
+  return Object.keys(parseItems(row)).length > 0;
+}
+
+function pickFromList(value, allowed) {
+  const text = String(value ?? '').trim().toUpperCase();
+  return allowed.includes(text) ? text : null;
+}
+
 module.exports = function evaluationRoutes(db) {
   const router = express.Router();
 
   async function loadWeights() {
     const row = await db.prepare('SELECT * FROM evaluation_weights WHERE id = 1').get();
-    return {
-      character: Number(row?.character_weight ?? 20),
-      attendance: Number(row?.attendance_weight ?? 15),
-      eod: Number(row?.eod_weight ?? 15),
-      performance: Number(row?.performance_weight ?? 40),
-      hr: Number(row?.hr_weight ?? 10),
-    };
+    const weights = {};
+    CRITERIA.forEach((criterion) => {
+      const stored = Number(row?.[criterion.weightColumn]);
+      weights[criterion.id] = Number.isFinite(stored) ? stored : 25;
+    });
+    return weights;
   }
 
   // Who can be rated. Administrators are not rated as staff — the same rule
@@ -86,41 +164,68 @@ module.exports = function evaluationRoutes(db) {
     `).all();
   }
 
-  // A subject's score is the weighted average of every rating submitted about
-  // them. Peer categories average across all evaluators; the HR category is
-  // whatever HR entered. A category nobody has rated earns nothing and is
-  // reported as uncovered, so a partial score is never mistaken for a low one.
+  // A subject's matrix is every evaluator's sheet averaged item by item: each
+  // item averages across whoever rated it, the criterion averages its rated
+  // items, and OVERALL is that average against the criterion's total
+  // percentage. A criterion nobody rated earns nothing and is reported as
+  // uncovered, so a partial score is never mistaken for a low one.
   function scoreFor(rows, weights) {
-    let earned = 0;
+    const sheets = rows.filter(hasMatrix).map(parseItems);
+    let score = 0;
     let covered = 0;
-    const perCategory = {};
-    CATEGORIES.forEach((category) => {
-      const stars = rows
-        .map((row) => normalizeStars(row[category.column]))
-        .filter((value) => value !== null);
-      const weight = Number(weights[category.id] || 0);
-      if (!stars.length) {
-        perCategory[category.id] = null;
+    const perCriteria = {};
+
+    CRITERIA.forEach((criterion) => {
+      const weight = Number(weights[criterion.id] || 0);
+      const itemAverages = {};
+      const rated = [];
+      criterion.items.forEach((item) => {
+        const values = sheets
+          .map((sheet) => normalizePercent(sheet[item.key]))
+          .filter((value) => value !== null);
+        if (!values.length) {
+          itemAverages[item.key] = null;
+          return;
+        }
+        const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+        itemAverages[item.key] = round(average, 1);
+        rated.push(average);
+      });
+
+      if (!rated.length) {
+        perCriteria[criterion.id] = { weight, average: null, overall: null, items: itemAverages };
         return;
       }
-      const average = stars.reduce((sum, value) => sum + value, 0) / stars.length;
-      perCategory[category.id] = Math.round(average * 10) / 10;
-      earned += (average / 10) * weight;
+      const average = rated.reduce((sum, value) => sum + value, 0) / rated.length;
+      const overall = (average / 100) * weight;
+      perCriteria[criterion.id] = {
+        weight,
+        average: round(average, 1),
+        overall: round(overall),
+        items: itemAverages,
+      };
+      score += overall;
       covered += weight;
     });
+
     return {
-      score: Math.round(earned * 10) / 10,
-      covered_weight: Math.round(covered * 10) / 10,
-      per_category: perCategory,
-      responses: rows.length,
+      score: round(score),
+      covered_weight: round(covered, 1),
+      per_criteria: perCriteria,
+      responses: sheets.length,
     };
   }
 
-  // Current period, window state and the weights. Everyone may read this —
-  // it carries no scores.
+  // Current period, window state, the matrix itself and the weights. Everyone
+  // may read this — it carries no scores.
   router.get('/config', async (req, res) => {
     try {
-      res.json({ window: evaluationWindow(), weights: await loadWeights(), can_manage: isHrManager(req.user) });
+      res.json({
+        window: evaluationWindow(),
+        weights: await loadWeights(),
+        criteria: CRITERIA,
+        can_manage: isHrManager(req.user),
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -130,24 +235,24 @@ module.exports = function evaluationRoutes(db) {
     if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
     try {
       const next = {};
-      for (const category of CATEGORIES) {
-        const value = Number(req.body?.[category.id]);
+      for (const criterion of CRITERIA) {
+        const value = Number(req.body?.[criterion.id]);
         if (!Number.isFinite(value) || value < 0 || value > 100) {
-          return res.status(400).json({ error: `Invalid weight for ${category.id}` });
+          return res.status(400).json({ error: `Invalid total percentage for ${criterion.label}` });
         }
-        next[category.id] = Math.round(value * 10) / 10;
+        next[criterion.id] = round(value, 1);
       }
-      const total = CATEGORIES.reduce((sum, category) => sum + next[category.id], 0);
+      const total = CRITERIA.reduce((sum, criterion) => sum + next[criterion.id], 0);
       // A split that does not reach 100 would quietly cap every score below it.
       if (Math.abs(total - 100) > 0.01) {
-        return res.status(400).json({ error: `Weights must total 100% (currently ${Math.round(total * 10) / 10}%)` });
+        return res.status(400).json({ error: `Total percentage must add up to 100% (currently ${round(total, 1)}%)` });
       }
       await db.prepare(`
         UPDATE evaluation_weights
-        SET character_weight = ?, attendance_weight = ?, eod_weight = ?,
-            performance_weight = ?, hr_weight = ?, updated_by = ?, updated_at = datetime('now')
+        SET communication_weight = ?, attitude_weight = ?, skills_weight = ?,
+            technical_weight = ?, updated_by = ?, updated_at = datetime('now')
         WHERE id = 1
-      `).run(next.character, next.attendance, next.eod, next.performance, next.hr, req.user?.id || null);
+      `).run(next.communication, next.attitude, next.skills, next.technical, req.user?.id || null);
       res.json({ weights: next });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -181,15 +286,22 @@ module.exports = function evaluationRoutes(db) {
       }
 
       const rows = users.map((user) => {
-        const submitted = mineBySubject.get(Number(user.id)) || null;
+        const mineForSubject = mineBySubject.get(Number(user.id)) || null;
+        const submitted = mineForSubject && hasMatrix(mineForSubject) ? mineForSubject : null;
         const entry = {
           id: user.id,
           name: user.full_name || user.username,
           role: user.role || null,
           submitted: !!submitted,
-          my_rating: submitted ? Object.fromEntries(
-            CATEGORIES.map((category) => [category.id, normalizeStars(submitted[category.column])])
-          ) : null,
+          // What this evaluator already filled in, so re-opening the sheet is
+          // an edit rather than a blank form.
+          my_sheet: submitted ? {
+            items: parseItems(submitted),
+            development_areas: submitted.development_areas || '',
+            proceed_to_final: submitted.proceed_to_final || '',
+            passed: submitted.passed || '',
+            date_evaluated: String(submitted.updated_at || submitted.created_at || '').slice(0, 10),
+          } : null,
         };
         if (canSeeScores) {
           entry.result = scoreFor(allBySubject.get(Number(user.id)) || [], weights);
@@ -197,7 +309,7 @@ module.exports = function evaluationRoutes(db) {
         return entry;
       });
 
-      res.json({ period, window, weights, can_see_scores: canSeeScores, data: rows });
+      res.json({ period, window, weights, criteria: CRITERIA, can_see_scores: canSeeScores, data: rows });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -223,43 +335,41 @@ module.exports = function evaluationRoutes(db) {
       `).get(subjectId);
       if (!subject) return res.status(404).json({ error: 'Employee not found' });
 
-      const canRateHr = isHrManager(req.user);
-      const values = {};
-      for (const category of PEER_CATEGORIES) {
-        const stars = normalizeStars(req.body?.[category.id]);
-        if (stars === null) return res.status(400).json({ error: `Rate ${category.id} from 1 to 10 stars.` });
-        values[category.column] = stars;
+      // Every item on the sheet has to carry a percentage — a half-filled
+      // matrix would average as if the blank items were never part of it.
+      const submitted = req.body?.items && typeof req.body.items === 'object' ? req.body.items : {};
+      const items = {};
+      for (const criterion of CRITERIA) {
+        for (const item of criterion.items) {
+          const percent = normalizePercent(submitted[item.key]);
+          if (percent === null) {
+            return res.status(400).json({ error: `Rate "${item.label}" from 0 to 100%.` });
+          }
+          items[item.key] = percent;
+        }
       }
-      // Only HR/Administrator carry the Final Rate HR category; a peer's
-      // submission simply leaves it unrated for HR to fill in later.
-      values.hr_stars = canRateHr ? normalizeStars(req.body?.hr) : null;
-      if (canRateHr && values.hr_stars === null) {
-        return res.status(400).json({ error: 'Rate Final Rate HR from 1 to 10 stars.' });
+
+      const development = trimmedOrNull(req.body?.development_areas);
+      if (development && development.split(/\s+/).length > DEVELOPMENT_WORD_LIMIT) {
+        return res.status(400).json({ error: `Areas that require development is limited to ${DEVELOPMENT_WORD_LIMIT} words.` });
       }
 
       await db.prepare(`
         INSERT INTO evaluations (
-          period, subject_id, evaluator_id,
-          character_stars, attendance_stars, eod_stars, performance_stars, hr_stars,
-          hr_comments, employee_comments, recommendation
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          period, subject_id, evaluator_id, items,
+          development_areas, proceed_to_final, passed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(period, subject_id, evaluator_id) DO UPDATE SET
-          character_stars = excluded.character_stars,
-          attendance_stars = excluded.attendance_stars,
-          eod_stars = excluded.eod_stars,
-          performance_stars = excluded.performance_stars,
-          hr_stars = excluded.hr_stars,
-          hr_comments = excluded.hr_comments,
-          employee_comments = excluded.employee_comments,
-          recommendation = excluded.recommendation,
+          items = excluded.items,
+          development_areas = excluded.development_areas,
+          proceed_to_final = excluded.proceed_to_final,
+          passed = excluded.passed,
           updated_at = datetime('now')
       `).run(
-        window.period, subjectId, evaluatorId,
-        values.character_stars, values.attendance_stars, values.eod_stars,
-        values.performance_stars, values.hr_stars,
-        trimmedOrNull(req.body?.hr_comments),
-        trimmedOrNull(req.body?.employee_comments),
-        trimmedOrNull(req.body?.recommendation),
+        window.period, subjectId, evaluatorId, JSON.stringify(items),
+        development,
+        pickFromList(req.body?.proceed_to_final, PROCEED_VALUES),
+        pickFromList(req.body?.passed, PASSED_VALUES),
       );
 
       res.json({ saved: true, period: window.period, subject_id: subjectId });
@@ -283,7 +393,21 @@ module.exports = function evaluationRoutes(db) {
         WHERE e.period = ? AND e.subject_id = ?
         ORDER BY e.updated_at DESC
       `).all(period, subjectId);
-      res.json({ period, weights, result: scoreFor(rows, weights), responses: rows });
+      res.json({
+        period,
+        weights,
+        criteria: CRITERIA,
+        result: scoreFor(rows, weights),
+        responses: rows.filter(hasMatrix).map((row) => ({
+          evaluator_id: row.evaluator_id,
+          evaluator_name: row.evaluator_name || row.evaluator_username,
+          items: parseItems(row),
+          development_areas: row.development_areas || '',
+          proceed_to_final: row.proceed_to_final || '',
+          passed: row.passed || '',
+          date_evaluated: String(row.updated_at || row.created_at || '').slice(0, 10),
+        })),
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -318,3 +442,4 @@ module.exports = function evaluationRoutes(db) {
 };
 
 module.exports.evaluationWindow = evaluationWindow;
+module.exports.CRITERIA = CRITERIA;
