@@ -9840,9 +9840,37 @@ async function saveEditItem() {
 }
 
 // ─── RENDER: EXPENSES ──────────────────────────────────────
+// Expenses list filters, held together so month, category, classification and
+// search narrow the table instead of each one undoing the last. The month
+// starts on the current Manila month — the page opens on what has been spent
+// this month rather than on everything ever logged.
+let expenseFilters = {
+  search: '',
+  category: 'All',
+  classification: 'All',
+  month: manilaToday().slice(0, 7),
+};
+
+// Every month that has an expense in it, newest first, with the current month
+// always offered even before anything is logged in it.
+function expenseMonthOptions() {
+  const months = new Set(DB.expenses
+    .map((expense) => String(expense.date || '').slice(0, 7))
+    .filter((month) => /^\d{4}-\d{2}$/.test(month)));
+  months.add(manilaToday().slice(0, 7));
+  if (expenseFilters.month) months.add(expenseFilters.month);
+  return [...months].sort().reverse();
+}
+
+function expenseMonthLabel(month) {
+  const [year, monthNumber] = String(month || '').split('-').map(Number);
+  if (!year || !monthNumber) return String(month || '');
+  return `${new Date(year, monthNumber - 1, 1).toLocaleString('en-US', { month: 'long' })} ${year}`;
+}
+
 function renderExpenses() {
   const totalExp = DB.expenses.reduce((s, e) => s + e.total, 0);
-  const thisMonth = DB.expenses.filter(e => e.date.startsWith(new Date().toISOString().slice(0,7)));
+  const thisMonth = DB.expenses.filter(e => e.date.startsWith(manilaToday().slice(0, 7)));
   const monthTotal = thisMonth.reduce((s, e) => s + e.total, 0);
 
   return `
@@ -9908,7 +9936,7 @@ function renderExpenses() {
       <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
       <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Credit Received</div><div class="stat-value" style="font-size:18px;" id="exp-credit-total">₱0</div></div>
       <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Net Expenses</div><div class="stat-value" style="font-size:18px;" id="exp-net-total">₱${totalExp.toLocaleString()}</div></div>
-      <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">This Month</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
+      <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">${escapeHtml(expenseMonthLabel(manilaToday().slice(0, 7)))}</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
     </div>
 
     <div class="tabs" style="margin-bottom:16px;">
@@ -9957,23 +9985,31 @@ function renderExpenses() {
         <div class="table-toolbar">
           <div class="table-search">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-            <input type="text" placeholder="Search expenses..." id="exp-search" oninput="filterExpTable()">
+            <input type="text" placeholder="Search expenses..." id="exp-search" value="${escapeHtml(expenseFilters.search)}" oninput="filterExpTable()">
           </div>
+          <select class="form-control exp-month-select" id="exp-month" title="Month" onchange="setExpMonthFilter(this.value)">
+            <option value=""${expenseFilters.month ? '' : ' selected'}>All months</option>
+            ${expenseMonthOptions().map((month) =>
+              `<option value="${month}"${expenseFilters.month === month ? ' selected' : ''}>${escapeHtml(expenseMonthLabel(month))}</option>`
+            ).join('')}
+          </select>
           <div class="table-filters">
-            ${['All','Load','Utility','Product Supplies','Product','Shipping Fee','Transfer Fee','Others'].map((c,i) =>
-              `<button class="filter-pill ${i===0?'active':''}" onclick="setExpCatFilter('${c}',this)">${c}</button>`
+            ${['All','Load','Utility','Product Supplies','Product','Shipping Fee','Transfer Fee','Others'].map((c) =>
+              `<button class="filter-pill ${expenseFilters.category === c ? 'active' : ''}" onclick="setExpCatFilter('${c}',this)">${c}</button>`
             ).join('')}
           </div>
           <div class="table-filters" style="margin-left:8px;">
-            ${['All','OPEX','COGS','CAPEX'].map((c,i) =>
-              `<button class="filter-pill exp-class-pill ${i===0?'active':''}" onclick="setExpClassFilter('${c}',this)">${c}</button>`
+            ${['All','OPEX','COGS','CAPEX'].map((c) =>
+              `<button class="filter-pill exp-class-pill ${expenseFilters.classification === c ? 'active' : ''}" onclick="setExpClassFilter('${c}',this)">${c}</button>`
             ).join('')}
           </div>
+          <div class="exp-filter-summary" id="exp-filter-summary"></div>
         </div>
         <table id="expenses-table">
           <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Noted By</th></tr></thead>
           <tbody id="exp-tbody">
-            ${DB.expenses.map(e => `<tr data-classification="${escapeHtml(e.classification || 'OPEX')}">
+            ${DB.expenses.map(e => `<tr data-classification="${escapeHtml(e.classification || 'OPEX')}"
+              data-category="${escapeHtml(e.category || '')}" data-month="${escapeHtml(String(e.date || '').slice(0, 7))}" data-total="${Number(e.total) || 0}">
               <td class="font-mono text-xs text-muted">${e.id}</td>
               <td>${e.date}</td>
               <td><span class="badge ${catBadge(e.category)}">${e.category}</span></td>
@@ -9999,7 +10035,7 @@ function renderExpenses() {
 function renderExpenseSummary() {
   const allCats = ['Load', 'Utility', 'Product Supplies', 'Product', 'Shipping Fee', 'Transfer Fee', 'Others'];
   const grandTotal = DB.expenses.reduce((s, e) => s + e.total, 0);
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = manilaToday().slice(0, 7);
 
   const byCategory = allCats.map((cat) => {
     const items = DB.expenses.filter((e) => e.category === cat);
@@ -10086,11 +10122,8 @@ function classBadge(cls) {
 function setExpClassFilter(cls, btn) {
   btn.parentElement.querySelectorAll('.filter-pill').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
-  const rows = document.querySelectorAll('#exp-tbody tr');
-  rows.forEach((row) => {
-    if (cls === 'All') { row.style.display = ''; return; }
-    row.style.display = row.dataset.classification === cls ? '' : 'none';
-  });
+  expenseFilters.classification = cls;
+  applyExpenseFilters();
 }
 
 async function saveCredit() {
@@ -13645,9 +13678,13 @@ function initPage(page) {
   }
 
   if (page === 'expenses') {
+    // The table is rendered whole and narrowed in place, so the month filter
+    // has to be applied to the rows every time they are drawn.
+    applyExpenseFilters();
     loadExpensesFromBackend().then(() => {
       if (App.currentPage !== 'expenses') return;
       document.getElementById('main-page-content').innerHTML = renderExpenses();
+      applyExpenseFilters();
       loadExpenseCredits().catch(() => {});
     }).catch(() => {});
     loadExpenseCredits().catch(() => {});
@@ -17975,8 +18012,12 @@ async function saveExpense() {
     showToast('success', 'Expense saved', `${item} — ₱${(qty * price).toLocaleString()}`);
     closeModal('expense-log-modal');
     await loadExpensesFromBackend();
+    // Follow the entry that was just logged: an expense back-dated to another
+    // month would otherwise be saved into a month the table is not showing.
+    if (expenseFilters.month) expenseFilters.month = String(date).slice(0, 7);
     if (App.currentPage === 'expenses') {
       document.getElementById('main-page-content').innerHTML = renderExpenses();
+      applyExpenseFilters();
       loadExpenseCredits().catch(() => {});
     }
   } catch (err) {
@@ -18195,21 +18236,46 @@ function filterRecordsByStatus(tbodyId, status, btn) {
 }
 
 function filterExpTable() {
-  const q = (document.getElementById('exp-search')?.value || '').toLowerCase();
-  const rows = document.querySelectorAll('#exp-tbody tr');
-  rows.forEach(row => {
-    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
+  expenseFilters.search = (document.getElementById('exp-search')?.value || '').toLowerCase();
+  applyExpenseFilters();
 }
 
 function setExpCatFilter(cat, btn) {
-  document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
+  btn.parentElement.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  expenseFilters.category = cat;
+  applyExpenseFilters();
+}
+
+function setExpMonthFilter(month) {
+  expenseFilters.month = month || '';
+  applyExpenseFilters();
+}
+
+// One pass over the rows for all four filters — narrowing by month and then by
+// category has to leave both applied, which a per-filter show/hide could not do.
+function applyExpenseFilters() {
+  const { search, category, classification, month } = expenseFilters;
   const rows = document.querySelectorAll('#exp-tbody tr');
-  rows.forEach(row => {
-    const catCell = row.cells[2]?.textContent?.trim();
-    row.style.display = (cat === 'All' || catCell === cat) ? '' : 'none';
+  let shown = 0;
+  let total = 0;
+  rows.forEach((row) => {
+    const visible = (!search || row.textContent.toLowerCase().includes(search))
+      && (category === 'All' || row.dataset.category === category)
+      && (classification === 'All' || (row.dataset.classification || 'OPEX') === classification)
+      && (!month || row.dataset.month === month);
+    row.style.display = visible ? '' : 'none';
+    if (visible) {
+      shown += 1;
+      total += Number(row.dataset.total || 0);
+    }
   });
+  const summary = document.getElementById('exp-filter-summary');
+  if (summary) {
+    summary.textContent = rows.length
+      ? `${shown} of ${rows.length} · ₱${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : '';
+  }
 }
 
 // ─── EXPORT CSV ────────────────────────────────────────────

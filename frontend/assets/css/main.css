@@ -1326,6 +1326,21 @@ textarea.form-control { min-height: 90px; resize: vertical; }
   max-width: 280px;
 }
 
+/* Expenses: month filter and the count/total it narrows the table to. */
+.exp-month-select {
+  width: auto;
+  min-width: 150px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.exp-filter-summary {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .table-search svg {
   position: absolute;
   left: 11px; top: 50%;
