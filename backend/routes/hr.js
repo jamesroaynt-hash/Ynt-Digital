@@ -149,42 +149,21 @@ function payableOtMinutes(record, approvedMap) {
   return approved;
 }
 
-// Enumerate every calendar date in [from, to] inclusive, returning the date
-// string plus its weekday (0=Sunday..6=Saturday). UTC math keeps the weekday
-// stable regardless of server timezone.
-function enumerateDates(from, to) {
-  const out = [];
-  const parse = (s) => {
-    const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
-  };
-  const start = parse(from);
-  const end = parse(to);
-  if (start === null || end === null || start > end) return out;
-  const DAY = 86400000;
-  for (let t = start; t <= end; t += DAY) {
-    const d = new Date(t);
-    const date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    out.push({ date, weekday: d.getUTCDay() });
-  }
-  return out;
-}
-
-// Work on a scheduled rest day earns a premium on top of the day's base pay
-// (PH Labor Code Art. 93[a]: 130% of the daily rate for the first 8 hours).
+// No work, no pay: a rest day nobody worked pays nothing. Coming in on it is
+// paid for in full plus this 30% premium, and the whole of it — the day's own
+// pay included — is booked as overtime rather than as a regular work day.
 const REST_DAY_PREMIUM_RATE = 0.30;
 
 // Weekday (0=Sunday) for a bare YYYY-MM-DD. Parsed as UTC so the date string
-// never slips a day — same convention enumerateDates uses.
+// never slips a day.
 function weekdayForDate(value) {
   const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
 }
 
-function calculatePayroll(users, attendance, advances, approvedOtMap, range, rateHistory) {
+function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistory) {
   const byUser = new Map();
-  const workedDatesByUser = new Map();
   users.forEach((user) => {
     byUser.set(Number(user.id), {
       user,
@@ -197,15 +176,11 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
       base_pay: 0,
       ot_pay: 0,
       holiday_pay: 0,
-      rest_days: 0,
-      rest_day_pay: 0,
       rest_days_worked: 0,
-      rest_day_premium: 0,
       cash_advances: 0,
       gross_pay: 0,
       net_pay: 0,
     });
-    workedDatesByUser.set(Number(user.id), new Set());
   });
 
   attendance.forEach((record) => {
@@ -224,49 +199,32 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
     const overridden = hasRateOverride(record);
     const dayBase = overridden ? dailyRate : cappedWorkedMinutes * perMinuteRate;
 
+    const recordDayOff = Number(summary.user.day_off);
+    const restDayWorked = Number.isInteger(recordDayOff) && recordDayOff >= 0 && recordDayOff <= 6
+      && weekdayForDate(record.work_date) === recordDayOff;
+
     if (workedMinutes > 0 || overridden) {
-      summary.days_worked += 1;
-      summary.days_paid += overridden ? 1 : cappedWorkedMinutes / STANDARD_DAY_MINUTES;
-      summary.base_pay += dayBase;
-      workedDatesByUser.get(userId).add(String(record.work_date));
+      if (restDayWorked) {
+        // She came in on her rest day. The day is still paid — prorated the
+        // same as any other — and earns 30% on top, but none of it is a
+        // regular work day: the day's own pay and its premium both land in OT,
+        // so days worked and base pay are untouched.
+        summary.rest_days_worked += 1;
+        summary.ot_minutes += cappedWorkedMinutes;
+        summary.ot_pay += dayBase * (1 + REST_DAY_PREMIUM_RATE);
+      } else {
+        summary.days_worked += 1;
+        summary.days_paid += overridden ? 1 : cappedWorkedMinutes / STANDARD_DAY_MINUTES;
+        summary.base_pay += dayBase;
+      }
       if (holidayPercentage > 100) {
         summary.holiday_pay += dayBase * ((holidayPercentage - 100) / 100);
-      }
-      // She came in on her rest day: pay the 30% premium on top of the base
-      // already counted above, for 130% of the day. The paid-rest-day loop
-      // below skips this date precisely because she worked it, so there is
-      // no double count.
-      const recordDayOff = Number(summary.user.day_off);
-      if (Number.isInteger(recordDayOff) && recordDayOff >= 0 && recordDayOff <= 6
-        && weekdayForDate(record.work_date) === recordDayOff) {
-        summary.rest_days_worked += 1;
-        summary.rest_day_premium += dayBase * REST_DAY_PREMIUM_RATE;
       }
     }
     summary.worked_minutes += workedMinutes;
     summary.ot_minutes += otMinutes;
     summary.ot_pay += perMinuteRate > 0 ? perMinuteRate * otMinutes * 1.25 : 0;
   });
-
-  // Paid rest days: for each user with a permanent day off, pay one daily rate
-  // for every rest-day date in the period that has no attendance (worked rest
-  // days are already paid through their attendance record above).
-  if (range && range.from && range.to) {
-    const calendar = enumerateDates(range.from, range.to);
-    byUser.forEach((summary, userId) => {
-      const dayOff = Number(summary.user.day_off);
-      if (!Number.isInteger(dayOff) || dayOff < 0 || dayOff > 6) return;
-      const rows = rateHistory && rateHistory.get(userId);
-      const workedDates = workedDatesByUser.get(userId);
-      calendar.forEach(({ date, weekday }) => {
-        if (weekday !== dayOff || workedDates.has(date)) return;
-        const dailyRate = rateOnDate(rows, date, summary.user.daily_rate);
-        if (dailyRate <= 0) return;
-        summary.rest_days += 1;
-        summary.rest_day_pay += dailyRate;
-      });
-    });
-  }
 
   // An advance marked Paid is already settled, so deducting it here would take
   // the same money twice. Only outstanding advances reduce net pay.
@@ -278,8 +236,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
 
   byUser.forEach((summary) => {
     summary.days_paid = Math.round(summary.days_paid * 100) / 100;
-    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay
-      + summary.rest_day_pay + summary.rest_day_premium;
+    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay;
     summary.net_pay = summary.gross_pay - summary.cash_advances;
   });
 
@@ -662,7 +619,7 @@ module.exports = function hrRoutes(db) {
     `).all(...ids, from, to);
 
     const rateHistory = await loadRateHistoryMap(db, ids);
-    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), { from, to }, rateHistory) });
+    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), rateHistory) });
   });
 
   router.get('/cash-advances', async (req, res) => {
@@ -902,7 +859,7 @@ module.exports = function hrRoutes(db) {
     `).all(userId, from, to);
     const approvedOtMap = buildApprovedOtMap(approvedOt);
     const rateHistory = await loadRateHistoryMap(db, [userId]);
-    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, { from, to }, rateHistory);
+    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, rateHistory);
 
     // The rate that applied over this period, not whatever users.daily_rate
     // holds today — those differ for any past period after a raise. If the rate
