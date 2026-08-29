@@ -12721,11 +12721,14 @@ async function loadMyOTRequests() {
 }
 
 async function deleteOTRequest(id) {
-  if (!confirm('Cancel this OT request?')) return;
+  if (!confirm('Delete this OT request? Approved hours will stop being paid.')) return;
   try {
     await authorizedJsonRequest(`/hr/ot-requests/${id}`, { method: 'DELETE' });
+    if (hrOtEditingId === Number(id)) hrOtEditingId = null;
     loadMyOTRequests();
-    if (typeof loadHRPendingOT === 'function') loadHRPendingOT();
+    refreshOTPanel();
+    if (App.currentPage === 'hr') loadHRDashboard();
+    if (App.currentPage === 'attendance-log') loadAttendanceLogDashboard();
   } catch (err) {
     showToast('error', 'Delete failed', err.message);
   }
@@ -12788,39 +12791,100 @@ function refreshOTPanel() {
 }
 
 // All OT requests across users (approved/rejected/pending), newest first, so HR
-// has a record of past OT keyed to the work date it was requested for.
+// has a record of past OT keyed to the work date it was requested for. Held in
+// memory so a row can be opened for editing without re-fetching the list.
+let hrOtHistoryRows = [];
+let hrOtEditingId = null;
+
 async function loadHROTHistory() {
   const wrap = document.getElementById('hr-ot-history-list');
   if (!wrap) return;
   try {
     const result = await authorizedJsonRequest('/hr/ot-requests');
-    const rows = Array.isArray(result?.data) ? result.data : [];
-    if (!rows.length) {
-      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:14px 0;">No OT requests yet.</div>';
-      return;
-    }
-    wrap.innerHTML = `
+    hrOtHistoryRows = Array.isArray(result?.data) ? result.data : [];
+    renderHROTHistory();
+  } catch (err) {
+    hrOtHistoryRows = [];
+    wrap.innerHTML = `<div style="color:var(--text-muted);">Failed: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderHROTHistory() {
+  const wrap = document.getElementById('hr-ot-history-list');
+  if (!wrap) return;
+  if (!hrOtHistoryRows.length) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:14px 0;">No OT requests yet.</div>';
+    return;
+  }
+  wrap.innerHTML = `
       <table class="data-table" style="font-size:13px;">
-        <thead><tr><th>User</th><th>Work Date</th><th>Hours</th><th>Status</th><th>Reviewer</th><th>Reviewed</th><th>Reason</th></tr></thead>
+        <thead><tr><th>User</th><th>Work Date</th><th>Hours</th><th>Status</th><th>Reviewer</th><th>Reviewed</th><th>Reason</th><th>Actions</th></tr></thead>
         <tbody>
-          ${rows.map((r) => {
+          ${hrOtHistoryRows.map((r) => {
             const cls = r.status === 'approved' ? 'badge-success' : r.status === 'rejected' ? 'badge-danger' : 'badge-warning';
             const hours = (Number(r.requested_minutes || 0) / 60).toFixed(2);
             const reviewed = r.reviewed_at ? escapeHtml(String(r.reviewed_at).slice(0, 10)) : '—';
+            const editing = hrOtEditingId === Number(r.id);
+            // OT is paid strictly from the approved request, so correcting an
+            // approved one is done here rather than by deleting and re-filing it.
+            const hoursCell = editing
+              ? `<input type="number" id="ot-hours-${r.id}" class="form-control" style="width:92px;padding:4px 8px;"
+                   min="0.25" max="24" step="0.25" value="${hours}">`
+              : `${hours}h`;
+            const actions = editing
+              ? `<button class="btn btn-primary btn-sm" onclick="saveOTRequestHours(${r.id})">Save</button>
+                 <button class="btn btn-secondary btn-sm" onclick="cancelOTRequestEdit()">Cancel</button>`
+              : `<button class="btn btn-secondary btn-sm" onclick="startOTRequestEdit(${r.id})" title="Correct the approved hours">Edit</button>
+                 ${r.status === 'approved'
+                   ? `<button class="btn btn-secondary btn-sm" onclick="reviewOTRequest(${r.id}, 'rejected')" title="Withdraw this approval">Reject</button>`
+                   : `<button class="btn btn-primary btn-sm" onclick="reviewOTRequest(${r.id}, 'approved')">Approve</button>`}
+                 <button class="btn btn-ghost btn-sm" onclick="deleteOTRequest(${r.id})" title="Delete this request">×</button>`;
             return `<tr>
               <td><strong>${escapeHtml(r.user_name || '')}</strong></td>
               <td>${escapeHtml(r.work_date || '')}</td>
-              <td>${hours}h</td>
+              <td>${hoursCell}</td>
               <td><span class="badge ${cls}">${escapeHtml(r.status)}</span></td>
               <td>${escapeHtml(r.reviewer_name || '—')}</td>
               <td>${reviewed}</td>
               <td style="max-width:220px;white-space:normal;">${escapeHtml(r.reason || '-')}</td>
+              <td style="white-space:nowrap;">${actions}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>`;
+}
+
+function startOTRequestEdit(id) {
+  hrOtEditingId = Number(id);
+  renderHROTHistory();
+  document.getElementById(`ot-hours-${id}`)?.focus();
+}
+
+function cancelOTRequestEdit() {
+  hrOtEditingId = null;
+  renderHROTHistory();
+}
+
+// Saving revised hours re-stamps the reviewer, and payroll picks the new figure
+// up straight away — approved OT minutes ARE the payable amount.
+async function saveOTRequestHours(id) {
+  const hours = Number(document.getElementById(`ot-hours-${id}`)?.value);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
+    showToast('warning', 'Check the hours', 'Enter OT hours between 0.25 and 24.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest(`/hr/ot-requests/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ requested_minutes: Math.round(hours * 60) }),
+    });
+    hrOtEditingId = null;
+    showToast('success', 'OT updated', `#${id} set to ${hours.toFixed(2)}h`);
+    await loadHROTHistory();
+    if (App.currentPage === 'hr') loadHRDashboard();
+    if (App.currentPage === 'attendance-log') loadAttendanceLogDashboard();
   } catch (err) {
-    wrap.innerHTML = `<div style="color:var(--text-muted);">Failed: ${escapeHtml(err.message)}</div>`;
+    showToast('error', 'Update failed', err.message);
   }
 }
 
@@ -12831,8 +12895,12 @@ async function reviewOTRequest(id, status) {
       body: JSON.stringify({ status }),
     });
     showToast('success', `Request ${status}`, `#${id}`);
+    hrOtEditingId = null;
     refreshOTPanel();
     if (App.currentPage === 'hr') loadHRDashboard();
+    // Reviewing after the fact changes what is paid, so the Work Hours table
+    // has to be re-read rather than left showing the old approval.
+    if (App.currentPage === 'attendance-log') loadAttendanceLogDashboard();
   } catch (err) {
     showToast('error', 'Update failed', err.message);
   }

@@ -978,17 +978,50 @@ module.exports = function hrRoutes(db) {
     }
   });
 
+  // Review an OT request, or revise one that was already reviewed: HR can
+  // correct the hours on an approved request and can send it back to pending
+  // or reject it after the fact. OT is paid strictly from the approved
+  // request, so this is the only way to fix an approval that was wrong.
   router.patch('/ot-requests/:id', requireCurrentUser, async (req, res) => {
     if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
     const id = Number(req.params.id);
-    const status = String(req.body?.status || '').trim();
-    if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'status must be approved or rejected' });
-    await db.prepare(`
-      UPDATE overtime_requests
-      SET status = ?, reviewed_by = ?, reviewed_at = datetime('now')
-      WHERE id = ?
-    `).run(status, req.user.id, id);
-    res.json({ id, status });
+    const existing = await db.prepare('SELECT * FROM overtime_requests WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+
+    const hasStatus = req.body?.status !== undefined && req.body?.status !== null && req.body?.status !== '';
+    const hasMinutes = req.body?.requested_minutes !== undefined && req.body?.requested_minutes !== null && req.body?.requested_minutes !== '';
+    if (!hasStatus && !hasMinutes) return res.status(400).json({ error: 'Nothing to update' });
+
+    const status = hasStatus ? String(req.body.status).trim() : String(existing.status || 'pending');
+    if (!['approved', 'rejected', 'pending'].includes(status)) {
+      return res.status(400).json({ error: 'status must be approved, rejected or pending' });
+    }
+
+    let minutes = Math.round(Number(existing.requested_minutes || 0));
+    if (hasMinutes) {
+      minutes = Math.round(Number(req.body.requested_minutes));
+      if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 24 * 60) {
+        return res.status(400).json({ error: 'requested_minutes must be between 1 and 1440' });
+      }
+    }
+
+    // Revising a request is itself a review, so the reviewer and the timestamp
+    // move to whoever made the change. Sending one back to pending clears them
+    // so it reappears in the queue as unreviewed.
+    if (status === 'pending') {
+      await db.prepare(`
+        UPDATE overtime_requests
+        SET status = 'pending', requested_minutes = ?, reviewed_by = NULL, reviewed_at = NULL
+        WHERE id = ?
+      `).run(minutes, id);
+    } else {
+      await db.prepare(`
+        UPDATE overtime_requests
+        SET status = ?, requested_minutes = ?, reviewed_by = ?, reviewed_at = datetime('now')
+        WHERE id = ?
+      `).run(status, minutes, req.user.id, id);
+    }
+    res.json({ id, status, requested_minutes: minutes });
   });
 
   router.delete('/ot-requests/:id', requireCurrentUser, async (req, res) => {
