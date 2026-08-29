@@ -4440,7 +4440,10 @@ function renderEvaluationKpi() {
     </div>
   </div>
 
-  <div class="card" id="evaluation-record-card">
+  <!-- HR/Administrator only. Hidden until the queue says this viewer may see
+       scores, so a peer is never shown the card at all — an empty "scores are
+       HR only" panel was just a locked door with a sign on it. -->
+  <div class="card" id="evaluation-record-card" style="display:none;">
     <div class="card-header">
       <div>
         <div class="card-title">Per-Employee Evaluation Record</div>
@@ -4633,6 +4636,10 @@ function renderEvaluationQueue() {
   }
   const period = evaluationPeriodLabel(evaluationState.period);
   const open = !!evaluationState.window?.open;
+  // The score column and the row's record are HR/Administrator only, so for a
+  // peer the column is not rendered at all rather than repeating "HR only"
+  // down the table, and a row is not clickable — there is nothing to open.
+  const showScores = !!evaluationState.canSeeScores;
 
   wrap.innerHTML = `
   <div class="ev-scroll">
@@ -4642,19 +4649,19 @@ function renderEvaluationQueue() {
           <th>Name</th>
           <th>Position</th>
           <th>Period</th>
-          <th>Over All Percentage</th>
+          ${showScores ? '<th>Over All Percentage</th>' : ''}
           <th>Status</th>
           <th>Action</th>
         </tr>
       </thead>
       <tbody>
         ${evaluationState.rows.map((row) => `
-          <tr class="${row.id === evaluationState.selectedId ? 'ev-selected' : ''}"
-            onclick="selectEvaluationEmployee(${Number(row.id)})" style="cursor:pointer;" title="Show this employee's record">
+          <tr class="${showScores && row.id === evaluationState.selectedId ? 'ev-selected' : ''}"
+            ${showScores ? `onclick="selectEvaluationEmployee(${Number(row.id)})" style="cursor:pointer;" title="Show this employee's record"` : ''}>
             <td><strong>${escapeHtml(row.name || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(employeeDepartment(row))}</div></td>
             <td>${escapeHtml(row.role || 'Not set')}</td>
             <td>${escapeHtml(period)}</td>
-            <td>${renderEvaluationScoreCell(row)}</td>
+            ${showScores ? `<td>${renderEvaluationScoreCell(row)}</td>` : ''}
             <td>${row.submitted
               ? '<span class="badge badge-success">Submitted</span>'
               : (open ? '<span class="badge badge-warning">Pending</span>' : '<span class="badge badge-gray">Not open</span>')}</td>
@@ -4667,10 +4674,9 @@ function renderEvaluationQueue() {
   </div>`;
 }
 
-// A peer never sees a score, only HR/Administrator. The cell says so plainly
-// rather than showing a dash that reads as "not rated yet".
+// Only ever called for HR/Administrator — the column is dropped for everyone
+// else — so an unrated employee is the only "no score" case left to say.
 function renderEvaluationScoreCell(row) {
-  if (!evaluationState.canSeeScores) return '<span class="ev-muted">HR only</span>';
   const result = row.result;
   if (!result || !result.responses) return '<span class="ev-muted">—</span>';
   const level = evaluationLevelFor(result.score);
@@ -4684,16 +4690,21 @@ function renderEvaluationRecord() {
   const wrap = document.getElementById('evaluation-record-wrap');
   const card = document.getElementById('evaluation-record-card');
   if (!wrap || !card) return;
+  // A peer never sees this card. The server withholds the scores either way;
+  // this keeps the page from showing them a panel they can do nothing with.
+  if (!evaluationState.canSeeScores) {
+    card.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  card.style.display = '';
+
   const row = evaluationState.rows.find((r) => r.id === evaluationState.selectedId);
   const subtitle = card.querySelector('.card-subtitle');
   if (subtitle) subtitle.textContent = row ? (row.name || 'User') : 'Open a row above to see that employee’s record.';
 
   if (!row) {
     wrap.innerHTML = '<div class="empty-state"><h3>No employee selected</h3><p>Open a row in the queue above.</p></div>';
-    return;
-  }
-  if (!evaluationState.canSeeScores) {
-    wrap.innerHTML = '<div class="empty-state"><h3>Scores are HR only</h3><p>Your ratings are recorded but only HR and Administrators can see the results.</p></div>';
     return;
   }
 
@@ -4832,12 +4843,16 @@ function openEvaluationForm(userId) {
 
   const today = manilaToday();
   document.getElementById('evaluation-modal-title').textContent = `Evaluate ${row.name || 'User'}`;
+  // NAME with POSITION under it, and the over-all percentage beside the period
+  // it belongs to — the same stacking the printed sheet uses.
   document.getElementById('evaluation-modal-meta').innerHTML = `
-    <div><span>Name</span><strong>${escapeHtml(row.name || 'User')}</strong></div>
-    <div><span>Position</span><strong>${escapeHtml(row.role || 'Not set')}</strong></div>
+    <div class="eval-meta-stack">
+      <div><span>Name</span><strong>${escapeHtml(row.name || 'User')}</strong></div>
+      <div><span>Position</span><strong>${escapeHtml(row.role || 'Not set')}</strong></div>
+    </div>
     <div><span>Date Evaluated</span><strong>${escapeHtml(saved.date_evaluated || today)}</strong></div>
     <div><span>Evaluation Period</span><strong>${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</strong></div>
-    <div><span>Over All Percentage</span><strong id="evaluation-overall">0.00%</strong></div>`;
+    <div><span>Over All Percentage</span><strong id="evaluation-overall" class="eval-meta-total">0.00%</strong></div>`;
   document.getElementById('evaluation-sign').innerHTML = `
     <div><span>Noted by</span><strong>${escapeHtml(App.user?.name || App.user?.username || 'You')}</strong></div>
     <div><span>Position</span><strong>${escapeHtml(App.user?.role || 'Evaluator')}</strong></div>

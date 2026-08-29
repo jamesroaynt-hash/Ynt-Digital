@@ -5251,6 +5251,11 @@ tfoot td {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* NAME carries POSITION under it, the way the sheet stacks them. */
+.eval-meta .eval-meta-stack { gap: 10px; }
+.eval-meta .eval-meta-stack > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The over-all percentage is the number the sheet is filled in for. */
+.eval-meta .eval-meta-total { font-size: 16px; font-weight: 700; color: var(--accent); }
 
 /* The printed sheet's masthead, kept so the on-screen form is recognisably
    the same document people already fill in on paper. */
