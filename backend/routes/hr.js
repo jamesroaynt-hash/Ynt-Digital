@@ -189,6 +189,9 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
     byUser.set(Number(user.id), {
       user,
       days_worked: 0,
+      // Days actually PAID: half a day worked is half a day paid, so this is
+      // the sum of each day's fraction rather than a count of days present.
+      days_paid: 0,
       worked_minutes: 0,
       ot_minutes: 0,
       base_pay: 0,
@@ -223,6 +226,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
 
     if (workedMinutes > 0 || overridden) {
       summary.days_worked += 1;
+      summary.days_paid += overridden ? 1 : cappedWorkedMinutes / STANDARD_DAY_MINUTES;
       summary.base_pay += dayBase;
       workedDatesByUser.get(userId).add(String(record.work_date));
       if (holidayPercentage > 100) {
@@ -273,6 +277,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, range, rat
   });
 
   byUser.forEach((summary) => {
+    summary.days_paid = Math.round(summary.days_paid * 100) / 100;
     summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay
       + summary.rest_day_pay + summary.rest_day_premium;
     summary.net_pay = summary.gross_pay - summary.cash_advances;

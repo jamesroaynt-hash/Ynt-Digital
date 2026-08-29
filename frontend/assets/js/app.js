@@ -14482,6 +14482,16 @@ async function toggleCashAdvancePaid(id, paid) {
   }
 }
 
+// Days present, and — when a short day made them differ — the days actually
+// paid. Four hours on the clock is half a day of pay, so "6 (5.5 paid)" is the
+// honest reading of a period with one half day in it.
+function formatWorkDays(item) {
+  const worked = Number(item?.days_worked || 0);
+  const paid = Number(item?.days_paid ?? worked);
+  if (!worked || Math.abs(paid - worked) < 0.01) return String(worked);
+  return `${worked} <span class="text-xs text-muted">(${paid} paid)</span>`;
+}
+
 function renderAttendanceLogSummary() {
   const wrap = document.getElementById('al-summary-wrap');
   if (!wrap) return;
@@ -14509,7 +14519,7 @@ function renderAttendanceLogSummary() {
             return `
               <tr>
                 <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong>${hrInactiveBadge(user)}<div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
-                <td>${Number(item.days_worked || 0)}</td>
+                <td>${formatWorkDays(item)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
                 <td>${formatPHP(item.cash_advances)}</td>
@@ -14591,7 +14601,7 @@ function renderHRPayrollTable() {
               <tr onclick="openPayrollEditModal(${user.id})" style="cursor:pointer;" title="Click to edit daily rate">
                 <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong>${hrInactiveBadge(user)}<div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
                 <td><strong>${formatPHP(user.daily_rate)}</strong></td>
-                <td>${Number(item.days_worked || 0)}</td>
+                <td>${formatWorkDays(item)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
                 <td>${formatPHP(item.ot_pay)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
@@ -14630,23 +14640,34 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const payableOt = Number(record.payable_ot_minutes || 0);
             const earnedOt = Number(record.calculated_ot_minutes || record.ot_minutes || 0);
             // A per-day rate is set by hand for that day, so it is paid as
-            // entered and shown as paid — the short-day rule doesn't apply to a
-            // figure someone chose on purpose.
+            // entered — a figure someone chose on purpose is not prorated.
             const hasCustomRate = record.rate_override !== null && record.rate_override !== undefined;
-            const qualifies = workedMins >= 240 || hasCustomRate;
+            const paidDay = workedMins > 0 || hasCustomRate;
             const holidayPct = Number(record.holiday_percentage || 100);
             const dailyRate = Number(record.daily_rate || 0);
-            const basePay = qualifies ? dailyRate * (holidayPct / 100) : 0;
+            // Half a day worked is half a day paid: the base is the day's rate
+            // against the minutes actually on the clock, capped at 8 hours.
+            // This is the same formula payroll uses, so the column and the
+            // payslip agree.
+            const dayFraction = Math.min(workedMins, 480) / 480;
+            const dayBase = hasCustomRate ? dailyRate : dailyRate * dayFraction;
+            const basePay = paidDay ? dayBase * (holidayPct / 100) : 0;
             // Approved overtime is paid at 1.25x the minute rate, the same
             // formula payroll uses, so the column matches the payslip.
             const otPay = otApproved && payableOt > 0 && dailyRate > 0
               ? (dailyRate / 480) * payableOt * 1.25
               : 0;
             // Coming in on the scheduled rest day pays a 30% premium on top of
-            // the day, the same as payroll's rest_day_premium.
+            // the day worked — 130% of it — the same as payroll's
+            // rest_day_premium, and on the prorated base for a short day.
             const restDay = isRestDayFor(record.work_date, record.day_off);
-            const restDayPremium = qualifies && restDay ? dailyRate * 0.3 : 0;
+            const restDayPremium = paidDay && restDay ? dayBase * 0.3 : 0;
             const dailySalary = basePay + restDayPremium + otPay;
+            // A part day says so, so ₱419.25 on a ₱645 rate reads as half a
+            // day paid rather than as a wrong number.
+            const partDayNote = paidDay && !hasCustomRate && workedMins < 480
+              ? `<div class="text-xs text-muted">${Math.round(dayFraction * 100)}% of a day</div>`
+              : '';
             const dateBadges = attendanceDateBadges(record.work_date, record.day_off, workedMins > 0 || hasCustomRate);
 
             // Schedule lookup for this user + date
@@ -14686,15 +14707,15 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
               <td>${timeTxt(record.break_out)}</td>
               <td>${timeTxt(record.break_in)}</td>
               <td>${timeTxt(record.time_out)}</td>
-              <td>${workedMins ? `<span class="${qualifies ? '' : 'text-muted'}">${formatMinutes(workedMins)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+              <td>${workedMins ? `<span>${formatMinutes(workedMins)}</span>${partDayNote}` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td>${otApproved && payableOt > 0
                 ? `<span class="badge badge-success" title="Approved OT (paid)">${formatMinutes(payableOt)}</span>`
                 : (earnedOt > 0
                   ? `<span style="color:var(--text-muted);font-size:11px;" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
                   : '<span style="color:var(--text-muted)">—</span>')}</td>
-              <td><strong>${(qualifies || otPay > 0)
-                ? `<span title="${qualifies ? `Day ${formatPHP(basePay)}` : 'Day not counted (under 4 hrs)'}${restDayPremium > 0 ? ` + rest day +30% ${formatPHP(restDayPremium)}` : ''}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
-                : '<span class="text-muted text-xs">< 4 hrs</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}</td>
+              <td><strong>${(paidDay || otPay > 0)
+                ? `<span title="Day ${formatPHP(basePay)}${!hasCustomRate && workedMins < 480 ? ` (${Math.round(dayFraction * 100)}% of ${formatPHP(dailyRate)})` : ''}${restDayPremium > 0 ? ` + rest day +30% ${formatPHP(restDayPremium)}` : ''}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
+                : '<span class="text-muted text-xs">—</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}${restDayPremium > 0 ? ' <span class="badge badge-info" style="font-size:9px;" title="Worked on the scheduled rest day — +30%">+30%</span>' : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -15170,7 +15191,7 @@ function buildPayrollSheetDocument(rows, from, to) {
           <div style="font-size:11px;color:${muted};">${escapeHtml(formatRoleLabel(user.role))}</div>
         </td>
         <td style="${cell}">${formatPHP(user.daily_rate)}</td>
-        <td style="${cell}">${Number(item.days_worked || 0)}</td>
+        <td style="${cell}">${Number(item.days_paid ?? item.days_worked ?? 0)}</td>
         <td style="${cell}">${formatMinutes(item.ot_minutes)}</td>
         <td style="${cell}">${formatPHP(item.ot_pay)}</td>
         <td style="${cell}">${formatPHP(item.holiday_pay)}</td>
@@ -15216,7 +15237,7 @@ function buildPayrollSheetDocument(rows, from, to) {
       <tr style="background:${navy};color:#fff;">
         <th style="${head}border-radius:8px 0 0 8px;">User</th>
         <th style="${head}">Rate / Day</th>
-        <th style="${head}">Days</th>
+        <th style="${head}">Days Paid</th>
         <th style="${head}">OT</th>
         <th style="${head}">OT Pay</th>
         <th style="${head}">Holiday</th>
@@ -15230,7 +15251,7 @@ function buildPayrollSheetDocument(rows, from, to) {
       <tr style="background:#eef4fb;">
         <td style="padding:12px;font-weight:700;">Total — ${rows.length} ${rows.length === 1 ? 'employee' : 'employees'}</td>
         <td style="padding:12px;"></td>
-        <td style="padding:12px;font-weight:700;">${sum('days_worked')}</td>
+        <td style="padding:12px;font-weight:700;">${Math.round(rows.reduce((total, item) => total + Number(item.days_paid ?? item.days_worked ?? 0), 0) * 100) / 100}</td>
         <td style="padding:12px;"></td>
         <td style="padding:12px;font-weight:700;">${formatPHP(sum('ot_pay'))}</td>
         <td style="padding:12px;font-weight:700;">${formatPHP(sum('holiday_pay'))}</td>
@@ -15341,6 +15362,8 @@ function buildPayslipDocument(slip) {
 
     <div style="border:1px solid ${line};border-radius:12px;overflow:hidden;">
       ${row('Days Worked', Number(totals.days_worked || 0))}
+      ${Math.abs(Number(totals.days_paid ?? totals.days_worked ?? 0) - Number(totals.days_worked || 0)) >= 0.01
+        ? row('Days Paid (part days prorated)', Number(totals.days_paid || 0)) : ''}
       ${row('Base Pay', formatPHP(totals.base_pay))}
       ${row(`OT (${formatMinutes(totals.ot_minutes)})`, formatPHP(totals.ot_pay))}
       ${row('Holiday Pay', formatPHP(totals.holiday_pay))}
