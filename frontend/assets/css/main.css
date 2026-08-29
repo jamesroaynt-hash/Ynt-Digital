@@ -5232,7 +5232,7 @@ tfoot td {
   gap: 10px 16px;
   padding: 14px 16px;
   margin-bottom: 16px;
-  background: var(--surface-2);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
@@ -5260,7 +5260,7 @@ tfoot td {
   margin-bottom: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 .ev-sheet-brand {
   font-size: 10.5px;
@@ -5281,10 +5281,20 @@ tfoot td {
   vertical-align: middle;
   text-align: center;
   font-weight: 600;
-  background: var(--surface-2);
+  /* The same tint the table header carries. --surface-2 is DARKER than the
+     card in the dark theme, which read as holes punched either side of the
+     item rows rather than as label cells. */
+  background: var(--surface-3);
   border-left: 1px solid var(--border);
 }
 .ev-matrix .ev-matrix-weight { border-left: 0; }
+/* The matrix is a form to fill in, not a list to pick from, so a row does not
+   light up under the pointer — the hover tint only made the merged cells and
+   the item cells disagree again. */
+.ev-matrix tbody tr:hover td { background: none; }
+.ev-matrix tbody tr:hover .ev-matrix-weight,
+.ev-matrix tbody tr:hover .ev-matrix-criteria,
+.ev-matrix tbody tr:hover .ev-matrix-avg { background: var(--surface-3); }
 .ev-matrix .ev-matrix-criteria {
   font-size: 11.5px;
   letter-spacing: 0.04em;
@@ -5311,7 +5321,7 @@ tfoot td {
   padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 .ev-sheet-policies p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
 .ev-recommend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -5341,7 +5351,7 @@ tfoot td {
   margin-bottom: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 .ev-note-head { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
 .ev-note-body { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-secondary); }
