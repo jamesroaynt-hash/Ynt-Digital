@@ -5366,3 +5366,111 @@ tfoot td {
 /* ── HR Payroll: Active / Non-Active scope pills ────────────────────────── */
 .hr-status-filter { display: inline-flex; gap: 6px; margin-right: 4px; }
 .hr-status-filter .filter-pill { padding: 5px 12px; font-size: 12px; }
+
+/* ─── PICKUP FILL-UP SHEET ────────────────────────────────
+   A grid you type into, so the cells are tight and the derived columns are
+   visually distinct from the ones staff fill in. */
+.pickup-sheet {
+  min-width: 900px;
+  border: 1px solid var(--border);
+}
+
+.pickup-sheet th.pickup-sheet-caption {
+  background: var(--gold);
+  color: #1f1602;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 9px 12px;
+}
+
+[data-theme="dark"] .pickup-sheet th.pickup-sheet-caption {
+  background: var(--gold);
+  color: #1f1602;
+}
+
+.pickup-sheet thead th {
+  text-align: center;
+  padding: 9px 8px;
+  border-right: 1px solid var(--border);
+}
+
+.pickup-sheet thead th:first-child { text-align: left; }
+.pickup-sheet thead th:last-child { border-right: none; }
+
+.pickup-sheet tbody td,
+.pickup-sheet tfoot td {
+  padding: 5px 8px;
+  border-right: 1px solid var(--border);
+}
+
+.pickup-sheet tbody td:last-child,
+.pickup-sheet tfoot td:last-child { border-right: none; }
+.pickup-sheet tbody tr:hover { background: transparent; }
+.pickup-sheet td.num { text-align: center; }
+
+.pickup-sheet .pickup-sheet-product { min-width: 210px; }
+.pickup-sheet .pickup-sheet-product select {
+  height: 34px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pickup-sheet .pickup-sheet-input {
+  height: 34px;
+  width: 72px;
+  margin: 0 auto;
+  padding: 4px 6px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pickup-sheet .pickup-sheet-input.wide { width: 104px; }
+
+/* Chrome/Safari spinners eat the little width these cells have. */
+.pickup-sheet .pickup-sheet-input::-webkit-outer-spin-button,
+.pickup-sheet .pickup-sheet-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pickup-sheet .pickup-sheet-input { -moz-appearance: textfield; }
+
+.pickup-sheet .pickup-sheet-derived {
+  background: var(--surface-2);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.pickup-sheet .pickup-sheet-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color var(--transition), background var(--transition);
+}
+
+.pickup-sheet .pickup-sheet-remove:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.pickup-sheet tfoot .pickup-sheet-total td {
+  background: var(--surface-3);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  border-top: 2px solid var(--border-strong);
+}
+
+.pickup-sheet tfoot .pickup-sheet-total td:first-child {
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 12px;
+}

@@ -371,7 +371,7 @@ async function createApp() {
         expenses: ['GET /api/expenses', 'POST /api/expenses', 'DELETE /api/expenses/:id'],
         hr: ['GET /api/hr/attendance', 'POST /api/hr/clock', 'GET /api/hr/summary'],
         scans: ['GET /api/scans', 'POST /api/scans', 'GET /api/scans/lookup/:tracking'],
-        pickups: ['GET /api/pickups', 'POST /api/pickups'],
+        pickups: ['GET /api/pickups', 'POST /api/pickups', 'GET /api/pickups/sheet', 'PUT /api/pickups/sheet', 'GET /api/pickups/sheet/recent'],
         api_keys: ['GET /api/api-keys', 'POST /api/api-keys', 'DELETE /api/api-keys/:id'],
         webhooks: ['GET /api/webhooks', 'POST /api/webhooks', 'PATCH /api/webhooks/:id', 'DELETE /api/webhooks/:id', 'GET /api/webhooks/:id/deliveries'],
         integrations: ['GET /api/integrations/pancake-pos/status', 'GET /api/integrations/google-sheets/status'],

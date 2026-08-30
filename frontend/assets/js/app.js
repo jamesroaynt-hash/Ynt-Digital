@@ -10327,64 +10327,291 @@ function renderDailyPickup() {
   </div>
 
   <div id="pickup-tab-log" class="tab-content active">
-  <div style="display:grid; grid-template-columns:420px 1fr; gap:20px; align-items:start;">
-    <div class="card" style="position:sticky; top:80px;">
-      <div class="card-header"><div class="card-title">Log Pickup</div></div>
-      <div class="card-body">
-        <div class="form-group"><label class="form-label">Date <span class="required">*</span></label><input type="date" class="form-control" id="pu-date" value="${new Date().toISOString().split('T')[0]}"></div>
-        <div class="form-group"><label class="form-label">Product Name <span class="required">*</span></label>
-          <select class="form-control" id="pu-product">
-            <option value="">Select product...</option>
-            ${DB.inventory.filter(i=>i.type==='Product').map(i=>`<option>${i.name}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label class="form-label">Type <span class="required">*</span></label>
-          <select class="form-control" id="pu-type"><option>Product</option><option>Supplies</option></select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">How many customer orders? <span class="required">*</span></label>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            ${[1,2,3,4,'Others'].map(n => `
-              <button class="filter-pill" id="orders-pill-${n}" onclick="selectOrders(${JSON.stringify(n)},this)">${n}</button>
-            `).join('')}
-          </div>
-          <input type="number" class="form-control mt-2 hidden" id="pu-orders-custom" placeholder="Enter number of orders..." min="1">
-          <input type="hidden" id="pu-orders" value="">
-        </div>
-        <div class="form-group"><label class="form-label">Total Pieces (all orders) <span class="required">*</span></label><input type="number" class="form-control" id="pu-pieces" placeholder="Total pieces to pickup" min="1"></div>
-        <div class="form-group"><label class="form-label">Notes</label><textarea class="form-control" id="pu-notes" placeholder="Any pickup notes..."></textarea></div>
-        <button class="btn btn-success w-full" onclick="savePickup()">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h12M2 4h12M2 12h8"/></svg>
-          Save to Daily Pickup
-        </button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header"><div class="card-title">Pickup Records</div><span class="badge badge-info">${DB.dailyPickups.length} total</span></div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead><tr><th>ID</th><th>Date</th><th>Product</th><th>Type</th><th>Orders</th><th>Pieces</th><th>Notes</th></tr></thead>
-          <tbody id="pickup-tbody">
-            ${DB.dailyPickups.map(p => `<tr>
-              <td class="font-mono text-xs text-muted">${p.id}</td>
-              <td>${p.date}</td>
-              <td style="font-weight:500">${p.product}</td>
-              <td><span class="badge ${p.type==='Product'?'badge-info':'badge-gray'}">${p.type}</span></td>
-              <td style="text-align:center"><strong>${p.customerOrders}</strong></td>
-              <td style="text-align:center"><strong>${p.totalPieces}</strong></td>
-              <td class="text-secondary text-sm">${p.notes || '—'}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+    ${renderPickupSheetPanel()}
   </div>
 
   <div id="pickup-tab-status" class="tab-content">
     ${renderPickupStatusPanel()}
   </div>`;
+}
+
+/* ─── PICKUP FILL-UP SHEET ─────────────────────────────────
+   The Log Pickup tab is a spreadsheet, one row per product: the day's orders
+   are counted into the 1/2/3/4/5+ pcs columns, and everything to the right of
+   them — Total, Pcs and the footer — is derived, so the totals can never drift
+   from the numbers they are made of. Pending and Total COD are the only other
+   typed cells. Saved per date, so changing the date opens that day's sheet. */
+
+const PICKUP_BUCKETS = [
+  { key: 'pcs1', label: '1 PCS', pcs: 1 },
+  { key: 'pcs2', label: '2 PCS', pcs: 2 },
+  { key: 'pcs3', label: '3 PCS', pcs: 3 },
+  { key: 'pcs4', label: '4 PCS', pcs: 4 },
+  // A 5+ order counts as 5 pcs — the least it can be. The sheet does not
+  // record how far past 5 an order actually went.
+  { key: 'pcs5plus', label: '5 + PCS', pcs: 5 },
+];
+const PICKUP_SHEET_COLSPAN = 11;
+const PICKUP_SHEET_MIN_ROWS = 8;
+let pickupSheetDate = '';
+let pickupSheetRows = [];
+let pickupSheetSaving = false;
+
+function blankPickupSheetRow() {
+  return { product: '', pcs1: 0, pcs2: 0, pcs3: 0, pcs4: 0, pcs5plus: 0, pending: 0, totalCod: 0 };
+}
+
+function pickupRowTotals(row) {
+  return PICKUP_BUCKETS.reduce((acc, bucket) => {
+    const count = Math.max(0, Math.trunc(Number(row?.[bucket.key]) || 0));
+    acc.total += count;
+    acc.pcs += count * bucket.pcs;
+    return acc;
+  }, { total: 0, pcs: 0 });
+}
+
+// A blank sheet still shows empty lines so it reads as a form to fill in
+// rather than an empty table.
+function padPickupSheetRows(rows) {
+  const padded = [...rows];
+  while (padded.length < PICKUP_SHEET_MIN_ROWS) padded.push(blankPickupSheetRow());
+  return padded;
+}
+
+function renderPickupSheetPanel() {
+  if (!pickupSheetDate) pickupSheetDate = new Date().toISOString().split('T')[0];
+  return `
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <div class="card-title">Pickup Fill-Up Sheet</div>
+          <div class="card-subtitle">Count each product's orders into the 1–5+ pcs columns. Total and Pcs compute themselves.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="date" class="form-control" id="pickup-sheet-date" style="width:170px;" value="${pickupSheetDate}" onchange="changePickupSheetDate()">
+          <button class="btn btn-secondary btn-sm" type="button" onclick="addPickupSheetRow()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+            Add Row
+          </button>
+          <button class="btn btn-success btn-sm" type="button" id="pickup-sheet-save" onclick="savePickupSheet()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8.5l3.5 3.5L13 5"/></svg>
+            Save Sheet
+          </button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="pickup-sheet">
+          <thead>
+            <tr><th class="pickup-sheet-caption" colspan="${PICKUP_SHEET_COLSPAN}" id="pickup-sheet-caption">${escapeHtml(formatPickupSheetDate(pickupSheetDate))}</th></tr>
+            <tr>
+              <th>Product</th>
+              ${PICKUP_BUCKETS.map((b) => `<th class="num">${b.label}</th>`).join('')}
+              <th class="num">Total</th>
+              <th class="num">Pending</th>
+              <th class="num">Total COD</th>
+              <th class="num">Pcs</th>
+              <th aria-label="Remove row"></th>
+            </tr>
+          </thead>
+          <tbody id="pickup-sheet-body">
+            <tr><td colspan="${PICKUP_SHEET_COLSPAN}" style="text-align:center;padding:24px;color:var(--text-muted)">Loading…</td></tr>
+          </tbody>
+          <tfoot id="pickup-sheet-foot"></tfoot>
+        </table>
+      </div>
+    </div>`;
+}
+
+function formatPickupSheetDate(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// The product picker lists the pages the dashboard actually has data for. A
+// saved row whose page has since disappeared keeps its own name as an option,
+// so opening an old sheet never silently blanks a row.
+function pickupSheetProductOptions(current) {
+  const pages = getAvailablePageNames();
+  const options = pages.length ? pages : getCSRPageOptions();
+  const all = current && !options.includes(current) ? [current, ...options] : options;
+  return `<option value="">Select page…</option>${all
+    .map((p) => `<option value="${escapeHtml(p)}"${p === current ? ' selected' : ''}>${escapeHtml(p)}</option>`)
+    .join('')}`;
+}
+
+function renderPickupSheetBody() {
+  const body = document.getElementById('pickup-sheet-body');
+  if (!body) return;
+  pickupSheetRows = padPickupSheetRows(pickupSheetRows);
+  body.innerHTML = pickupSheetRows.map((row, i) => {
+    const totals = pickupRowTotals(row);
+    return `<tr>
+      <td class="pickup-sheet-product">
+        <select class="form-control" onchange="updatePickupSheetCell(${i},'product',this.value)">
+          ${pickupSheetProductOptions(row.product)}
+        </select>
+      </td>
+      ${PICKUP_BUCKETS.map((b) => `<td class="num"><input type="number" min="0" step="1" class="form-control pickup-sheet-input" value="${row[b.key] || ''}" placeholder="0" oninput="updatePickupSheetCell(${i},'${b.key}',this.value)"></td>`).join('')}
+      <td class="num pickup-sheet-derived" id="pickup-total-${i}">${totals.total || ''}</td>
+      <td class="num"><input type="number" min="0" step="1" class="form-control pickup-sheet-input" value="${row.pending || ''}" placeholder="0" oninput="updatePickupSheetCell(${i},'pending',this.value)"></td>
+      <td class="num"><input type="number" min="0" step="0.01" class="form-control pickup-sheet-input wide" value="${row.totalCod || ''}" placeholder="0.00" oninput="updatePickupSheetCell(${i},'totalCod',this.value)"></td>
+      <td class="num pickup-sheet-derived" id="pickup-pcs-${i}">${totals.pcs || 0}</td>
+      <td class="num"><button class="pickup-sheet-remove" type="button" title="Remove this row" onclick="removePickupSheetRow(${i})">&times;</button></td>
+    </tr>`;
+  }).join('');
+  renderPickupSheetFoot();
+}
+
+function renderPickupSheetFoot() {
+  const foot = document.getElementById('pickup-sheet-foot');
+  if (!foot) return;
+  const totals = pickupSheetRows.reduce((acc, row) => {
+    const rowTotals = pickupRowTotals(row);
+    PICKUP_BUCKETS.forEach((b) => { acc[b.key] += Math.max(0, Math.trunc(Number(row[b.key]) || 0)); });
+    acc.total += rowTotals.total;
+    acc.pcs += rowTotals.pcs;
+    acc.pending += Math.max(0, Math.trunc(Number(row.pending) || 0));
+    acc.totalCod += Math.max(0, Number(row.totalCod) || 0);
+    return acc;
+  }, { pcs1: 0, pcs2: 0, pcs3: 0, pcs4: 0, pcs5plus: 0, total: 0, pending: 0, totalCod: 0, pcs: 0 });
+
+  foot.innerHTML = `<tr class="pickup-sheet-total">
+    <td>Total Pcs</td>
+    ${PICKUP_BUCKETS.map((b) => `<td class="num">${totals[b.key].toLocaleString()}</td>`).join('')}
+    <td class="num">${totals.total.toLocaleString()}</td>
+    <td class="num">${totals.pending.toLocaleString()}</td>
+    <td class="num">${totals.totalCod ? formatPeso(totals.totalCod) : '0'}</td>
+    <td class="num">${totals.pcs.toLocaleString()}</td>
+    <td></td>
+  </tr>`;
+}
+
+// Typing repaints only the derived cells, so the caret never jumps out of the
+// input the way a full re-render of the grid would make it.
+function updatePickupSheetCell(index, field, value) {
+  const row = pickupSheetRows[index];
+  if (!row) return;
+  if (field === 'product') {
+    row.product = String(value || '');
+  } else if (field === 'totalCod') {
+    row.totalCod = Math.max(0, Number(value) || 0);
+  } else {
+    row[field] = Math.max(0, Math.trunc(Number(value) || 0));
+  }
+  const totals = pickupRowTotals(row);
+  const totalCell = document.getElementById(`pickup-total-${index}`);
+  const pcsCell = document.getElementById(`pickup-pcs-${index}`);
+  if (totalCell) totalCell.textContent = totals.total || '';
+  if (pcsCell) pcsCell.textContent = totals.pcs || 0;
+  renderPickupSheetFoot();
+}
+
+function addPickupSheetRow() {
+  pickupSheetRows.push(blankPickupSheetRow());
+  renderPickupSheetBody();
+}
+
+function removePickupSheetRow(index) {
+  if (!pickupSheetRows[index]) return;
+  pickupSheetRows.splice(index, 1);
+  renderPickupSheetBody();
+}
+
+function changePickupSheetDate() {
+  const value = document.getElementById('pickup-sheet-date')?.value;
+  pickupSheetDate = value || new Date().toISOString().split('T')[0];
+  const caption = document.getElementById('pickup-sheet-caption');
+  if (caption) caption.textContent = formatPickupSheetDate(pickupSheetDate);
+  loadPickupSheet().catch(() => {});
+}
+
+async function loadPickupSheet() {
+  if (!pickupSheetDate) pickupSheetDate = new Date().toISOString().split('T')[0];
+  const body = document.getElementById('pickup-sheet-body');
+  try {
+    const result = await authorizedJsonRequest(`/pickups/sheet?date=${encodeURIComponent(pickupSheetDate)}`);
+    pickupSheetRows = Array.isArray(result?.rows)
+      ? result.rows.map((row) => ({ ...blankPickupSheetRow(), ...row }))
+      : [];
+  } catch (error) {
+    pickupSheetRows = [];
+    if (body) {
+      body.innerHTML = `<tr><td colspan="${PICKUP_SHEET_COLSPAN}" style="text-align:center;padding:24px;color:var(--danger)">Could not load this sheet: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+      const foot = document.getElementById('pickup-sheet-foot');
+      if (foot) foot.innerHTML = '';
+      return;
+    }
+  }
+  renderPickupSheetBody();
+}
+
+// The whole day is saved at once — the grid is edited as one sheet, so it is
+// replaced as one. Rows with no product picked are dropped by the server.
+async function savePickupSheet() {
+  if (pickupSheetSaving) return;
+  const rows = pickupSheetRows.filter((row) => row.product);
+  const duplicate = rows.find((row, i) => rows.findIndex((other) => other.product === row.product) !== i);
+  if (duplicate) {
+    showToast('error', 'Duplicate product', `${duplicate.product} is on more than one row — merge them first.`);
+    return;
+  }
+
+  pickupSheetSaving = true;
+  const button = document.getElementById('pickup-sheet-save');
+  if (button) button.disabled = true;
+  try {
+    const result = await authorizedJsonRequest('/pickups/sheet', {
+      method: 'PUT',
+      body: JSON.stringify({ date: pickupSheetDate, rows }),
+    });
+    pickupSheetRows = Array.isArray(result?.rows)
+      ? result.rows.map((row) => ({ ...blankPickupSheetRow(), ...row }))
+      : rows;
+    renderPickupSheetBody();
+    const saved = result?.saved ?? rows.length;
+    showToast('success', 'Sheet saved', `${saved} product${saved === 1 ? '' : 's'} for ${formatPickupSheetDate(pickupSheetDate)}.`);
+    loadPickupSheetRecords().catch(() => {});
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save the pickup sheet.');
+  } finally {
+    pickupSheetSaving = false;
+    if (button) button.disabled = false;
+  }
+}
+
+// Rows for the Daily Pickups tab on the Records page: the saved sheet, flattened
+// across dates. Total and Pcs come from the server, derived the same way the
+// sheet derives them.
+function renderRecPickupRows() {
+  const rows = DB.dailyPickups || [];
+  if (!rows.length) {
+    return `<tr><td colspan="${PICKUP_SHEET_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">No pickup sheets saved yet.</td></tr>`;
+  }
+  return rows.map((row) => `<tr>
+    <td>${escapeHtml(row.date || '')}</td>
+    <td style="font-weight:500">${escapeHtml(row.product || '')}</td>
+    ${PICKUP_BUCKETS.map((b) => `<td style="text-align:right">${Number(row[b.key] || 0).toLocaleString()}</td>`).join('')}
+    <td style="text-align:right"><strong>${Number(row.total || 0).toLocaleString()}</strong></td>
+    <td style="text-align:right">${Number(row.pending || 0).toLocaleString()}</td>
+    <td style="text-align:right">${row.totalCod ? formatPeso(row.totalCod) : '—'}</td>
+    <td style="text-align:right"><strong>${Number(row.pcs || 0).toLocaleString()}</strong></td>
+  </tr>`).join('');
+}
+
+function refreshRecPickupsTable() {
+  const tbody = document.getElementById('rec-pickups-tbody');
+  if (tbody) tbody.innerHTML = renderRecPickupRows();
+  const count = document.getElementById('rec-pickups-count');
+  if (count) count.textContent = (DB.dailyPickups || []).length;
+}
+
+// Recent saved rows across every date — feeds the Daily Pickups tab on Records.
+async function loadPickupSheetRecords() {
+  const result = await authorizedJsonRequest('/pickups/sheet/recent?limit=300');
+  DB.dailyPickups = Array.isArray(result?.rows) ? result.rows : [];
+  return DB.dailyPickups;
 }
 
 // Pickup Status tab: per-page count of orders moved to "Waiting for pickup" plus
@@ -11328,7 +11555,7 @@ function renderViewRecords() {
   <div class="tabs" id="records-tabs">
     <button class="tab-btn active" onclick="switchTab(this,'rec-csr')">CSR Records (<span id="rec-csr-count">${DB.csrRecords.length}</span>)</button>
     <button class="tab-btn" onclick="switchTab(this,'rec-expenses')">Expenses (${DB.expenses.length})</button>
-    <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (${DB.dailyPickups.length})</button>
+    <button class="tab-btn" onclick="switchTab(this,'rec-pickups')">Daily Pickups (<span id="rec-pickups-count">${DB.dailyPickups.length}</span>)</button>
   </div>
 
   <div id="rec-csr" class="tab-content active">
@@ -11355,14 +11582,8 @@ function renderViewRecords() {
 
   <div id="rec-pickups" class="tab-content">
     <div class="table-container">
-      <table><thead><tr><th>ID</th><th>Date</th><th>Product</th><th>Type</th><th>Orders</th><th>Pieces</th><th>Notes</th></tr></thead>
-        <tbody>${DB.dailyPickups.map(p => `<tr>
-          <td class="font-mono text-xs text-muted">${p.id}</td><td>${p.date}</td>
-          <td style="font-weight:500">${p.product}</td>
-          <td><span class="badge ${p.type==='Product'?'badge-info':'badge-gray'}">${p.type}</span></td>
-          <td>${p.customerOrders}</td><td>${p.totalPieces}</td>
-          <td class="text-secondary text-sm">${p.notes||'—'}</td>
-        </tr>`).join('')}</tbody>
+      <table><thead><tr><th>Date</th><th>Product</th>${PICKUP_BUCKETS.map((b) => `<th style="text-align:right">${b.label}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">Pending</th><th style="text-align:right">Total COD</th><th style="text-align:right">Pcs</th></tr></thead>
+        <tbody id="rec-pickups-tbody">${renderRecPickupRows()}</tbody>
       </table>
     </div>
   </div>
@@ -13893,7 +14114,24 @@ function initPage(page) {
     if (odzTab === 'search') document.getElementById('odz-quick-search')?.focus();
   }
 
+  if (page === 'daily-pickup') {
+    pickupSheetDate = new Date().toISOString().split('T')[0];
+    const sheetDateInput = document.getElementById('pickup-sheet-date');
+    if (sheetDateInput) sheetDateInput.value = pickupSheetDate;
+    loadPickupSheet().catch(() => {});
+    // Page names for the product picker come from whatever order data is loaded.
+    if (!DB.sheetRecordsForReport.length) {
+      loadSheetRecordsForDataReport()
+        .then(() => { if (App.currentPage === 'daily-pickup') renderPickupSheetBody(); })
+        .catch(() => {});
+    }
+  }
+
   if (page === 'view-records') {
+    // Daily Pickups tab reads the saved fill-up sheets.
+    loadPickupSheetRecords()
+      .then(() => { if (App.currentPage === 'view-records') refreshRecPickupsTable(); })
+      .catch(() => {});
     // CSR Records tab is server-backed; pull the latest entries, then repaint.
     loadCsrRecordsFromBackend({ force: true })
       .then(() => { if (App.currentPage === 'view-records') refreshRecCsrTable(); })
@@ -18247,63 +18485,6 @@ async function saveExpense() {
   } catch (err) {
     showToast('error', 'Save failed', err.message || 'Could not save expense.');
   }
-}
-
-// ─── PICKUP HELPERS ────────────────────────────────────────
-function selectOrders(val, btn) {
-  document.querySelectorAll('[id^="orders-pill-"]').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  const custom = document.getElementById('pu-orders-custom');
-  const hidden = document.getElementById('pu-orders');
-  if (val === 'Others') {
-    custom.classList.remove('hidden');
-    hidden.value = '';
-  } else {
-    custom.classList.add('hidden');
-    hidden.value = val;
-  }
-}
-
-function savePickup() {
-  const date = document.getElementById('pu-date')?.value;
-  const product = document.getElementById('pu-product')?.value;
-  const type = document.getElementById('pu-type')?.value;
-  const pieces = document.getElementById('pu-pieces')?.value;
-  const notes = document.getElementById('pu-notes')?.value || '';
-  let orders = document.getElementById('pu-orders')?.value;
-  if (!orders) orders = document.getElementById('pu-orders-custom')?.value;
-
-  if (!date || !product || !pieces || !orders) {
-    showToast('error', 'Incomplete form', 'Please fill in all required fields.'); return;
-  }
-
-  const newPU = {
-    id: `PU-${String(DB.dailyPickups.length + 1).padStart(4, '0')}`,
-    date, product, type, customerOrders: parseInt(orders),
-    totalPieces: parseInt(pieces), notes,
-  };
-
-  DB.dailyPickups.unshift(newPU);
-
-  const tbody = document.getElementById('pickup-tbody');
-  if (tbody) {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td class="font-mono text-xs text-muted">${newPU.id}</td>
-      <td>${newPU.date}</td>
-      <td style="font-weight:500">${newPU.product}</td>
-      <td><span class="badge ${newPU.type==='Product'?'badge-info':'badge-gray'}">${newPU.type}</span></td>
-      <td>${newPU.customerOrders}</td>
-      <td>${newPU.totalPieces}</td>
-      <td class="text-secondary text-sm">${newPU.notes||'—'}</td>`;
-    tbody.insertBefore(row, tbody.firstChild);
-  }
-
-  showToast('success', 'Pickup saved', `${product} — ${pieces} pieces`);
-
-  ['pu-notes','pu-pieces'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  document.getElementById('pu-orders').value = '';
-  document.querySelectorAll('[id^="orders-pill-"]').forEach(b => b.classList.remove('active'));
 }
 
 // ─── INVENTORY HELPERS ─────────────────────────────────────

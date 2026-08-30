@@ -189,6 +189,28 @@ CREATE TABLE IF NOT EXISTS daily_pickups (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- One row per product on a day's pickup fill-up sheet. The 1/2/3/4/5+ columns
+-- hold the ORDER count in each bucket; total orders and total pieces are
+-- derived from them, so only the buckets, pending and COD are stored.
+CREATE TABLE IF NOT EXISTS pickup_sheet_rows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sheet_date TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  row_order INTEGER NOT NULL DEFAULT 0,
+  pcs1 INTEGER NOT NULL DEFAULT 0,
+  pcs2 INTEGER NOT NULL DEFAULT 0,
+  pcs3 INTEGER NOT NULL DEFAULT 0,
+  pcs4 INTEGER NOT NULL DEFAULT 0,
+  pcs5plus INTEGER NOT NULL DEFAULT 0,
+  pending INTEGER NOT NULL DEFAULT 0,
+  total_cod REAL NOT NULL DEFAULT 0,
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(sheet_date, product_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pickup_sheet_rows_date ON pickup_sheet_rows(sheet_date DESC);
+
 CREATE TABLE IF NOT EXISTS scan_records (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   scan_ref TEXT NOT NULL UNIQUE,

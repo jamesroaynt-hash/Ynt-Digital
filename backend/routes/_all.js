@@ -1717,6 +1717,99 @@ function pickupsRoutes(db) {
     res.status(201).json({ pickup_ref: ref });
   });
 
+  /* ── Pickup fill-up sheet ──────────────────────────────────
+     A day's sheet is one row per product with the order counts split into
+     1/2/3/4/5+ pcs buckets. Total orders and total pieces are derived on read
+     so the stored numbers can never disagree with the columns they come from. */
+
+  const SHEET_COLS = ['pcs1', 'pcs2', 'pcs3', 'pcs4', 'pcs5plus'];
+  const toInt = (v) => Math.max(0, Math.trunc(Number(v) || 0));
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  function mapSheetRow(row) {
+    const buckets = SHEET_COLS.map((c) => toInt(row[c]));
+    return {
+      product: row.product_name || '',
+      date: row.sheet_date,
+      pcs1: buckets[0],
+      pcs2: buckets[1],
+      pcs3: buckets[2],
+      pcs4: buckets[3],
+      pcs5plus: buckets[4],
+      pending: toInt(row.pending),
+      totalCod: Number(row.total_cod || 0),
+      // Total orders, then pieces: a 5+ order is counted as 5 pcs, the least it
+      // can be — the sheet does not record how far past 5 it went.
+      total: buckets.reduce((sum, n) => sum + n, 0),
+      pcs: buckets.reduce((sum, n, i) => sum + n * (i + 1), 0),
+    };
+  }
+
+  r.get('/sheet', async (req, res) => {
+    const date = String(req.query.date || '').slice(0, 10) || today();
+    const rows = await db.prepare(
+      'SELECT * FROM pickup_sheet_rows WHERE sheet_date = ? ORDER BY row_order ASC, id ASC'
+    ).all(date);
+    res.json({ date, rows: rows.map(mapSheetRow) });
+  });
+
+  // Flat feed of saved sheet rows, newest day first — powers the Daily Pickups
+  // tab on the Records page.
+  r.get('/sheet/recent', async (req, res) => {
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 300));
+    const rows = await db.prepare(
+      'SELECT * FROM pickup_sheet_rows ORDER BY sheet_date DESC, row_order ASC, id ASC LIMIT ?'
+    ).all(limit);
+    res.json({ rows: rows.map(mapSheetRow) });
+  });
+
+  // Saves a whole day at once: the sheet is edited as a grid, so the day's rows
+  // are replaced wholesale rather than diffed cell by cell. A row with no
+  // product name is a blank line in the grid and is dropped.
+  r.put('/sheet', async (req, res) => {
+    const date = String(req.body?.date || '').slice(0, 10) || today();
+    const incoming = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (incoming.length > 200) {
+      return res.status(400).json({ error: 'Too many rows — a sheet holds at most 200 products' });
+    }
+
+    const seen = new Set();
+    const clean = [];
+    for (const raw of incoming) {
+      const product = String(raw?.product || '').trim();
+      if (!product) continue;
+      const key = product.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clean.push({
+        product,
+        pcs1: toInt(raw.pcs1), pcs2: toInt(raw.pcs2), pcs3: toInt(raw.pcs3),
+        pcs4: toInt(raw.pcs4), pcs5plus: toInt(raw.pcs5plus),
+        pending: toInt(raw.pending),
+        totalCod: Math.max(0, Number(raw.totalCod) || 0),
+      });
+    }
+
+    await db.prepare('DELETE FROM pickup_sheet_rows WHERE sheet_date = ?').run(date);
+    for (let i = 0; i < clean.length; i += 1) {
+      const row = clean[i];
+      await db.prepare(`
+        INSERT INTO pickup_sheet_rows (
+          sheet_date, product_name, row_order, pcs1, pcs2, pcs3, pcs4, pcs5plus,
+          pending, total_cod, updated_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        date, row.product, i, row.pcs1, row.pcs2, row.pcs3, row.pcs4, row.pcs5plus,
+        row.pending, row.totalCod, req.user?.id || null
+      );
+    }
+
+    const saved = await db.prepare(
+      'SELECT * FROM pickup_sheet_rows WHERE sheet_date = ? ORDER BY row_order ASC, id ASC'
+    ).all(date);
+    res.json({ date, rows: saved.map(mapSheetRow), saved: saved.length });
+  });
+
   return r;
 }
 
