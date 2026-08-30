@@ -287,11 +287,18 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     });
   });
 
+  // Active accounts by default, so every existing caller is unchanged. HR asks
+  // for 'inactive' or 'all' when it needs to reach someone who has left — their
+  // attendance and any unpaid advance outlive the account.
   router.get('/users', requireAdmin, async (req, res) => {
+    const status = String(req.query?.status || 'active').trim().toLowerCase();
+    const where = status === 'inactive' ? 'WHERE is_active = 0'
+      : status === 'all' ? ''
+      : 'WHERE is_active = 1';
     const users = await db.prepare(`
       SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active, created_at, updated_at
       FROM users
-      WHERE is_active = 1
+      ${where}
       ORDER BY
         CASE
           WHEN role = 'Administrator' THEN 0

@@ -14613,6 +14613,10 @@ function renderAttendanceLog() {
         <div class="card-subtitle">Pick a payroll period, or set a custom date range</div>
       </div>
       <div class="hr-toolbar">
+        <span class="hr-status-filter" id="al-status-filter">
+          ${[['active', 'Active'], ['inactive', 'Non-Active'], ['all', 'All']].map(([value, label]) =>
+            `<button class="filter-pill ${attendanceLogStatus === value ? 'active' : ''}" data-status="${value}" onclick="setAttendanceLogStatusFilter('${value}')">${label}</button>`).join('')}
+        </span>
         <select id="al-month-filter" class="hr-toolbar-input" title="Month" onchange="applyAttendanceLogMonthPeriod()">
           ${buildHRMonthOptions()}
         </select>
@@ -14789,13 +14793,52 @@ function renderAttendanceLog() {
   </div>`;
 }
 
+// Active / Non-Active / All, kept apart from the payroll page's own filter so
+// switching one does not silently move the other.
+let attendanceLogStatus = 'active';
+
 function getAttendanceLogFilters() {
   const today = normalizeDateString(new Date());
   return {
     from: document.getElementById('al-date-from')?.value || today,
     to: document.getElementById('al-date-to')?.value || today,
     userId: document.getElementById('al-user-filter')?.value || '',
+    status: attendanceLogStatus,
   };
+}
+
+// A deactivated employee keeps every day they worked, so HR has to be able to
+// reach them — for a final payout, a dispute, or a record request months later.
+// The picker is rebuilt from the chosen scope, since the account it names is
+// the one thing that changes with it.
+async function setAttendanceLogStatusFilter(status) {
+  attendanceLogStatus = status;
+  document.querySelectorAll('#al-status-filter .filter-pill').forEach((pill) => {
+    pill.classList.toggle('active', pill.dataset.status === status);
+  });
+  await populateAttendanceLogUsers();
+  loadAttendanceLogDashboard();
+}
+
+// Fills the user picker for the current scope. The previously chosen user is
+// kept if they are still in the list, so flipping to All and back does not
+// throw away the selection.
+async function populateAttendanceLogUsers() {
+  const filter = document.getElementById('al-user-filter');
+  if (!filter) return;
+  const previous = filter.value;
+  try {
+    const data = await authorizedJsonRequest(`/auth/users?status=${encodeURIComponent(attendanceLogStatus)}`);
+    const users = Array.isArray(data?.users) ? data.users : [];
+    filter.innerHTML = [
+      '<option value="">All users</option>',
+      ...users.map((user) => `<option value="${user.id}">${escapeHtml(user.full_name)} (${escapeHtml(formatRoleLabel(user.role))})${
+        user.is_active ? '' : ' — non-active'}</option>`),
+    ].join('');
+    filter.value = users.some((user) => String(user.id) === previous) ? previous : '';
+  } catch (error) {
+    showToast('error', 'Users unavailable', error.message || 'Could not load users.');
+  }
 }
 
 async function initAttendanceLogPage() {
@@ -14806,22 +14849,8 @@ async function initAttendanceLogPage() {
     if (wrap) wrap.innerHTML = '<div class="empty-state"><h3>HR access required</h3><p>Your account cannot view the attendance log.</p></div>';
     return;
   }
-  try {
-    if (!hrState.users.length) {
-      const data = await authorizedJsonRequest('/auth/users');
-      hrState.users = Array.isArray(data?.users) ? data.users : [];
-    }
-    const filter = document.getElementById('al-user-filter');
-    if (filter && !filter.dataset.ready) {
-      filter.innerHTML = [
-        '<option value="">All users</option>',
-        ...hrState.users.map((u) => `<option value="${u.id}">${escapeHtml(u.full_name)} (${escapeHtml(formatRoleLabel(u.role))})</option>`),
-      ].join('');
-      filter.dataset.ready = '1';
-    }
-  } catch (error) {
-    showToast('error', 'Users unavailable', error.message || 'Could not load users.');
-  }
+  attendanceLogStatus = 'active';
+  await populateAttendanceLogUsers();
   // Open on the current payroll period rather than month-start-to-today.
   await applyAttendanceLogMonthPeriod();
   loadHRAnnouncements().catch(() => {});
@@ -14830,11 +14859,13 @@ async function initAttendanceLogPage() {
 
 async function loadAttendanceLogDashboard() {
   if (!canManageHR()) return;
-  const { from, to, userId } = getAttendanceLogFilters();
-  const query = new URLSearchParams({ from, to, _: Date.now().toString() });
+  const { from, to, userId, status } = getAttendanceLogFilters();
+  const query = new URLSearchParams({ from, to, status, _: Date.now().toString() });
   if (userId) query.set('user_id', userId);
 
-  // Schedules need the full date range without user filter so we can look up any user's schedule
+  // Schedules need the full date range without user filter so we can look up any
+  // user's schedule. No status here: /hr/schedules never filtered on is_active,
+  // so a non-active user's schedule already comes back.
   const scheduleQuery = new URLSearchParams({ from, to });
   if (userId) scheduleQuery.set('user_id', userId);
 
