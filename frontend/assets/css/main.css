@@ -5228,10 +5228,17 @@ tfoot td {
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px 16px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
+  /* 140px, not 150px: at 150 the fifth field dropped to a row of its own under
+     a header that was already two lines tall, so the band cost three rows to
+     say five things. Five columns fit the modal, and the whole header is one
+     row again. */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  /* The single-line fields centre against the two-line NAME/POSITION column,
+     so the band reads as one row rather than a ragged top edge. */
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -5252,10 +5259,10 @@ tfoot td {
   text-overflow: ellipsis;
 }
 /* NAME carries POSITION under it, the way the sheet stacks them. */
-.eval-meta .eval-meta-stack { gap: 10px; }
+.eval-meta .eval-meta-stack { gap: 7px; }
 .eval-meta .eval-meta-stack > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 /* The over-all percentage is the number the sheet is filled in for. */
-.eval-meta .eval-meta-total { font-size: 16px; font-weight: 700; color: var(--accent); }
+.eval-meta .eval-meta-total { font-size: 15px; font-weight: 700; color: var(--accent); line-height: 1.2; }
 
 /* The printed sheet's masthead, kept so the on-screen form is recognisably
    the same document people already fill in on paper. */
@@ -5280,26 +5287,31 @@ tfoot td {
 /* The matrix: TOTAL PERCENTAGE and CRITERIA span their group's item rows, the
    way the merged cells do on the sheet. */
 .ev-matrix td, .ev-matrix th { padding: 8px 12px; }
+
+/* The header band is the printed sheet's: white paper, black type, in both
+   themes. Everything under it sits on ONE ground — the merged label cells and
+   the item rows used to carry different tints, which read as a dark strip
+   punched through the middle of the sheet. The rule covers the read-only
+   matrix and the fill-up form alike, and the pointer changes nothing: this is
+   a form to fill in, not a list to pick from. */
+.ev-matrix thead th {
+  background: #ffffff;
+  color: #000000;
+  border-bottom: 1px solid var(--border-strong);
+}
+.ev-matrix tbody td,
+.ev-matrix tbody tr:hover td {
+  background: var(--surface-3);
+}
 .ev-matrix .ev-matrix-weight,
 .ev-matrix .ev-matrix-criteria,
 .ev-matrix .ev-matrix-avg {
   vertical-align: middle;
   text-align: center;
   font-weight: 600;
-  /* The same tint the table header carries. --surface-2 is DARKER than the
-     card in the dark theme, which read as holes punched either side of the
-     item rows rather than as label cells. */
-  background: var(--surface-3);
   border-left: 1px solid var(--border);
 }
 .ev-matrix .ev-matrix-weight { border-left: 0; }
-/* The matrix is a form to fill in, not a list to pick from, so a row does not
-   light up under the pointer — the hover tint only made the merged cells and
-   the item cells disagree again. */
-.ev-matrix tbody tr:hover td { background: none; }
-.ev-matrix tbody tr:hover .ev-matrix-weight,
-.ev-matrix tbody tr:hover .ev-matrix-criteria,
-.ev-matrix tbody tr:hover .ev-matrix-avg { background: var(--surface-3); }
 .ev-matrix .ev-matrix-criteria {
   font-size: 11.5px;
   letter-spacing: 0.04em;
