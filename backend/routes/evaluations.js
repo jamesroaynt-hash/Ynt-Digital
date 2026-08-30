@@ -103,6 +103,13 @@ function isHrManager(user) {
   return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
+// Evaluations are anonymous to HR and Operation — only the Administrator sees
+// who wrote which sheet. Role text is typed by hand, so both spellings count.
+function isAdministrator(user) {
+  const role = String(user?.role || '').trim().toLowerCase();
+  return role === 'administrator' || role === 'admin';
+}
+
 // Item scores are percentages, 0-100. Anything outside that is not a rating.
 function normalizePercent(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -383,9 +390,13 @@ module.exports = function evaluationRoutes(db) {
   });
 
   // Full result for one employee, scores included — HR/Administrator only.
+  // HR and Operation read the sheets without their authors: the evaluator's
+  // name never leaves the server for them, so it cannot be read out of the
+  // network tab either. The rows themselves keep the evaluator_id.
   router.get('/summary/:subjectId', async (req, res) => {
     if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
     try {
+      const namesVisible = isAdministrator(req.user);
       const window = evaluationWindow();
       const period = String(req.query?.period || window.period);
       const subjectId = Number(req.params.subjectId);
@@ -402,9 +413,16 @@ module.exports = function evaluationRoutes(db) {
         weights,
         criteria: CRITERIA,
         result: scoreFor(rows, weights),
-        responses: rows.filter(hasMatrix).map((row) => ({
-          evaluator_id: row.evaluator_id,
-          evaluator_name: row.evaluator_name || row.evaluator_username,
+        anonymous: !namesVisible,
+        responses: rows.filter(hasMatrix).map((row, index) => ({
+          ...(namesVisible
+            ? {
+              evaluator_id: row.evaluator_id,
+              evaluator_name: row.evaluator_name || row.evaluator_username,
+            }
+            // Numbered by the order they come back in, which shifts as sheets
+            // are revised — nothing to line up across periods.
+            : { evaluator_label: `Evaluator ${index + 1}` }),
           items: parseItems(row),
           development_areas: row.development_areas || '',
           proceed_to_final: row.proceed_to_final || '',

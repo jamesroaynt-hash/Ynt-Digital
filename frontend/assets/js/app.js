@@ -4774,7 +4774,9 @@ function renderEvaluationResultMatrix(result) {
 }
 
 // Everything the evaluators wrote about this employee: the development notes
-// and the recommendation, one block per submitted sheet.
+// and the recommendation, one block per submitted sheet. HR and Operation get
+// the sheets without their authors — the server sends them a numbered label
+// instead of a name, so there is no identity here to leak.
 function renderEvaluationRecordNotes() {
   const wrap = document.getElementById('evaluation-record-notes');
   if (!wrap) return;
@@ -4786,10 +4788,13 @@ function renderEvaluationRecordNotes() {
   wrap.innerHTML = `
     <div class="ev-notes">
       <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish</div>
+      ${evaluationState.summary?.anonymous
+        ? '<div class="ev-muted" style="margin:-2px 0 12px;font-size:12px;">Submissions are anonymous — evaluators are not named.</div>'
+        : ''}
       ${responses.map((response) => `
         <div class="ev-note">
           <div class="ev-note-head">
-            <strong>${escapeHtml(response.evaluator_name || 'Evaluator')}</strong>
+            <strong>${escapeHtml(response.evaluator_name || response.evaluator_label || 'Evaluator')}</strong>
             <span class="ev-muted">${escapeHtml(response.date_evaluated || '')}</span>
           </div>
           <div class="ev-note-body">${response.development_areas
