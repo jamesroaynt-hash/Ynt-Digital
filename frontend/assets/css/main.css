@@ -5385,9 +5385,12 @@ tfoot td {
   padding: 9px 12px;
 }
 
+/* The solid gold bar is far too bright against a dark page — keep the gold as
+   the accent and let the bar sit at the surface's own depth. */
 [data-theme="dark"] .pickup-sheet th.pickup-sheet-caption {
-  background: var(--gold);
-  color: #1f1602;
+  background: var(--surface-3);
+  color: var(--gold);
+  border-bottom: 2px solid var(--gold);
 }
 
 .pickup-sheet thead th {
