@@ -11,13 +11,14 @@ const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR
 const NAV_ACCESS = {
   Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  // Operation runs on HR's access, page for page.
-  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  // Operation runs on HR's access, page for page, plus CSR Records — every
+  // role except HR files its own CSR daily records.
+  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'csr', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
@@ -8962,12 +8963,11 @@ function renderMarketingCenter() {
 // ─── RENDER: INVENTORY ──────────────────────────────────────
 function renderCSR() {
   const today = new Date().toISOString().split('T')[0];
-  // Admins and view-only roles (Logistics, Sales & Marketing) see the records
-  // dashboard without the Daily Record input form.
-  const adminDashboardOnly = isAdminUser() || isCSRViewOnlyUser();
+  // Every role that reaches this page files its own daily records, so the input
+  // form is always shown. Oversight roles additionally see everyone's entries.
   const pageOptions = getCSRPageOptions();
   const csrOptions = getCSRFilterOptions();
-  const inputPanel = adminDashboardOnly ? '' : `
+  const inputPanel = `
     <div class="card">
       <div class="card-header">
         <div><div class="card-title">Daily Record Input</div><div class="card-subtitle">Pick a page, enter the Order ID, then the details auto-fill from Google Orders.</div></div>
@@ -9061,7 +9061,7 @@ function renderCSR() {
 
   return `
   <div class="page-header">
-    <div class="page-title"><h1>CSR Daily Records</h1><p>Admins and CSR TL can view all CSR entries. CSR users only see and edit their own sales records.</p></div>
+    <div class="page-title"><h1>CSR Daily Records</h1><p>Everyone files their own daily records here. Admins, CSR TL, Logistics and Sales &amp; Marketing can view all CSR entries.</p></div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-records-table', 'csr-daily-records')">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
@@ -9070,7 +9070,7 @@ function renderCSR() {
     </div>
   </div>
 
-  <div class="${adminDashboardOnly ? '' : 'split-layout'}" style="margin-bottom:20px;">
+  <div class="split-layout" style="margin-bottom:20px;">
     ${inputPanel}
 
     <div class="summary-stack">
@@ -11739,14 +11739,14 @@ function canManageCSRRecord(record) {
   return isAdminUser() || isCurrentUserCSRRecord(record);
 }
 
-// Roles that can see the CSR Records page but only to view — no Daily Record
-// input form and no edit/delete (Logistics, Sales and Marketing, S&M TL).
-function isCSRViewOnlyUser() {
+// Oversight roles: they file their own records like everyone else, but the
+// table shows them every agent's entries (Logistics, Sales and Marketing, S&M TL).
+function isCSROversightUser() {
   return isLogisticsUser() || isSalesMarketingUser();
 }
 
 function canViewAllCSRRecords() {
-  return isAdminUser() || isCSRViewOnlyUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
+  return isAdminUser() || isCSROversightUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
 }
 
 function getCSRPrimaryButtonLabel() {

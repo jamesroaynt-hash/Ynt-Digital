@@ -2034,13 +2034,14 @@ function csrRoutes(db) {
     res.json({ data: rows.map(mapRow) });
   });
 
-  // Returns all active CSR/Trainee user names — used to populate the Name filter
+  // Returns the names of everyone who files CSR records — every active user
+  // except HR, who has no CSR Records page. Used to populate the Name filter
   // even for agents who have not yet submitted any records.
   r.get('/agents', async (req, res) => {
     const rows = await db.prepare(`
       SELECT COALESCE(NULLIF(full_name,''), username) AS name
       FROM users
-      WHERE is_active = 1 AND role IN ('CSR', 'CSR TL', 'Trainee')
+      WHERE is_active = 1 AND TRIM(COALESCE(role,'')) <> 'HR'
       ORDER BY name COLLATE NOCASE ASC
     `).all();
     res.json({ names: rows.map((r) => r.name).filter(Boolean) });
