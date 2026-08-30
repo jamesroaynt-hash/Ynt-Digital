@@ -4407,6 +4407,8 @@ let evaluationState = {
   draft: null,
   // The selected employee's full sheet, notes included (HR/Administrator).
   summary: null,
+  // Index of the single evaluation opened from the list, or null for the list.
+  openResponse: null,
 };
 
 function evaluationWeightOf(criterionId) {
@@ -4454,7 +4456,8 @@ function renderEvaluationKpi() {
     <div class="card-body" id="evaluation-record-wrap"></div>
   </div>
 
-  ${renderEvaluationModal()}`;
+  ${renderEvaluationModal()}
+  ${renderEvaluationResponsesModal()}`;
 }
 
 function renderEvaluationModal() {
@@ -4658,7 +4661,7 @@ function renderEvaluationQueue() {
       <tbody>
         ${evaluationState.rows.map((row) => `
           <tr class="${showScores && row.id === evaluationState.selectedId ? 'ev-selected' : ''}"
-            ${showScores ? `onclick="selectEvaluationEmployee(${Number(row.id)})" style="cursor:pointer;" title="Show this employee's record"` : ''}>
+            ${showScores ? `onclick="selectEvaluationEmployee(${Number(row.id)})" style="cursor:pointer;" title="Open this employee's submitted evaluations"` : ''}>
             <td><strong>${escapeHtml(row.name || 'User')}</strong><div class="text-xs text-muted">${escapeHtml(employeeDepartment(row))}</div></td>
             <td>${escapeHtml(row.role || 'Not set')}</td>
             <td>${escapeHtml(period)}</td>
@@ -4822,14 +4825,155 @@ async function loadEvaluationSummary() {
   }
   if (App.currentPage !== 'evaluation-kpi') return;
   renderEvaluationRecordNotes();
+  renderEvaluationResponses();
 }
 
 function selectEvaluationEmployee(userId) {
   evaluationState.selectedId = Number(userId);
   evaluationState.summary = null;
+  evaluationState.openResponse = null;
   renderEvaluationQueue();
   renderEvaluationRecord();
+  // The card below holds the average; the modal holds the sheets it is made
+  // of, so HR can read any one evaluator's ratings on their own.
+  openModal('evaluation-responses-modal');
+  renderEvaluationResponses();
   loadEvaluationSummary();
+}
+
+/* ─── The evaluations written about one employee ───────────
+   Opened by clicking a name in the queue: every submitted sheet for the
+   selected period, each openable on its own. Who wrote which sheet comes from
+   the server — a name for the Administrator, "Evaluator 1, 2, 3…" for HR and
+   Operation, who read the sheets anonymously. */
+
+function renderEvaluationResponsesModal() {
+  return `
+  <div class="modal-overlay" id="evaluation-responses-modal">
+    <div class="modal" style="max-width:900px;">
+      <div class="modal-header">
+        <div class="modal-title" id="evaluation-responses-title">Evaluations</div>
+        <button class="modal-close" onclick="closeModal('evaluation-responses-modal')">&times;</button>
+      </div>
+      <div class="modal-body" id="evaluation-responses-body"></div>
+    </div>
+  </div>`;
+}
+
+function evaluationResponseName(response, index) {
+  return response?.evaluator_name || response?.evaluator_label || `Evaluator ${index + 1}`;
+}
+
+function renderEvaluationResponses() {
+  const body = document.getElementById('evaluation-responses-body');
+  const title = document.getElementById('evaluation-responses-title');
+  if (!body) return;
+  const row = evaluationState.rows.find((r) => r.id === evaluationState.selectedId);
+  const periodLabel = evaluationPeriodLabel(evaluationState.period);
+  if (title) title.textContent = `Evaluations for ${row?.name || 'User'} · ${periodLabel}`;
+
+  if (!evaluationState.summary) {
+    body.innerHTML = '<div class="empty-state"><h3>Loading evaluations</h3><p>Pulling the submitted sheets.</p></div>';
+    return;
+  }
+
+  const responses = evaluationState.summary.responses || [];
+  if (!responses.length) {
+    body.innerHTML = `<div class="empty-state"><h3>No evaluations yet</h3><p>Nobody has submitted a sheet for ${escapeHtml(row?.name || 'this employee')} in ${escapeHtml(periodLabel)}.</p></div>`;
+    return;
+  }
+
+  body.innerHTML = evaluationState.openResponse === null
+    ? renderEvaluationResponsesList(responses, row)
+    : renderEvaluationResponseDetail(responses, evaluationState.openResponse, row);
+}
+
+function renderEvaluationResponsesList(responses, row) {
+  const average = evaluationState.summary?.result;
+  return `
+    ${evaluationState.summary?.anonymous
+      ? '<div class="ev-muted" style="margin-bottom:12px;font-size:12px;">Submissions are anonymous — evaluators are not named.</div>'
+      : ''}
+    <div class="ev-scroll">
+      <table class="ev-table">
+        <thead>
+          <tr><th>Evaluator</th><th>Date Evaluated</th><th>Over All Percentage</th><th>Performance Level</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          ${responses.map((response, index) => {
+            const result = response.result || {};
+            const level = evaluationLevelFor(Number(result.score) || 0);
+            return `<tr>
+              <td><strong>${escapeHtml(evaluationResponseName(response, index))}</strong></td>
+              <td>${escapeHtml(response.date_evaluated || '—')}</td>
+              <td><strong>${evaluationPercentText(result.score)}</strong>${
+                result.covered_weight !== undefined && result.covered_weight < 99.99
+                  ? ` <span class="ev-muted">of ${result.covered_weight}% rated</span>` : ''}</td>
+              <td><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span></td>
+              <td><button class="btn btn-secondary btn-sm" type="button" onclick="viewEvaluationResponse(${index})">View sheet</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2"><strong>Average of ${responses.length} evaluation${responses.length === 1 ? '' : 's'}</strong></td>
+            <td colspan="3"><strong>${evaluationPercentText(average?.score)}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="ev-muted" style="margin-top:12px;font-size:12px;">${escapeHtml(row?.name || 'This employee')} is rated on the average of these sheets — open one to see the ratings behind it.</div>`;
+}
+
+function renderEvaluationResponseDetail(responses, index, row) {
+  const response = responses[index];
+  if (!response) return renderEvaluationResponsesList(responses, row);
+  const result = response.result || {};
+  const level = evaluationLevelFor(Number(result.score) || 0);
+  return `
+    <button class="btn btn-secondary btn-sm" type="button" style="margin-bottom:14px;" onclick="backToEvaluationResponses()">
+      &larr; All evaluations
+    </button>
+    <div class="ev-sheet-head">
+      <div class="ev-sheet-brand">YNT DIGITAL MARKETING COMPANY</div>
+      <div class="ev-sheet-title">Evaluation Matrix</div>
+      <div class="ev-sheet-sub">General Evaluation</div>
+    </div>
+    <div class="eval-meta">
+      <div class="eval-meta-stack">
+        <div><span>Name</span><strong>${escapeHtml(row?.name || 'User')}</strong></div>
+        <div><span>Position</span><strong>${escapeHtml(row?.role || 'Not set')}</strong></div>
+      </div>
+      <div><span>Evaluated by</span><strong>${escapeHtml(evaluationResponseName(response, index))}</strong></div>
+      <div><span>Date Evaluated</span><strong>${escapeHtml(response.date_evaluated || '—')}</strong></div>
+      <div><span>Evaluation Period</span><strong>${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</strong></div>
+      <div><span>Over All Percentage</span><strong class="eval-meta-total">${evaluationPercentText(result.score)}</strong></div>
+    </div>
+    ${renderEvaluationResultMatrix(result)}
+    <div class="ev-sheet-block">
+      <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish:</div>
+      <div class="ev-note-body">${response.development_areas
+        ? escapeHtml(response.development_areas).replace(/\n/g, '<br>')
+        : '<span class="ev-muted">No notes written.</span>'}</div>
+    </div>
+    <div class="ev-sheet-block">
+      <div class="ev-sheet-block-title">I RECOMMEND:</div>
+      <div class="ev-note-foot">
+        <span>Proceed to Final Evaluation: <strong>${escapeHtml(response.proceed_to_final || '—')}</strong></span>
+        <span>Passed or not passed: <strong>${escapeHtml(response.passed || '—')}</strong></span>
+        <span>Performance Level: <strong>${escapeHtml(level.label)}</strong></span>
+      </div>
+    </div>`;
+}
+
+function viewEvaluationResponse(index) {
+  evaluationState.openResponse = Number(index);
+  renderEvaluationResponses();
+}
+
+function backToEvaluationResponses() {
+  evaluationState.openResponse = null;
+  renderEvaluationResponses();
 }
 
 // ─── The matrix form ───────────────────────────────────────

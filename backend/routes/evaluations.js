@@ -424,6 +424,9 @@ module.exports = function evaluationRoutes(db) {
             // are revised — nothing to line up across periods.
             : { evaluator_label: `Evaluator ${index + 1}` }),
           items: parseItems(row),
+          // This one sheet scored on its own, so HR can open a single
+          // evaluation and read the same matrix the average is built from.
+          result: scoreFor([row], weights),
           development_areas: row.development_areas || '',
           proceed_to_final: row.proceed_to_final || '',
           passed: row.passed || '',
