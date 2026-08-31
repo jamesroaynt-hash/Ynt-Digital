@@ -15168,10 +15168,10 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const dayFraction = Math.min(workedMins, 480) / 480;
             const dayBase = hasCustomRate ? dailyRate : dailyRate * dayFraction;
             const basePay = paidDay ? dayBase * (holidayPct / 100) : 0;
-            // Approved overtime is paid at 1.25x the minute rate, the same
+            // Approved overtime is paid at the plain minute rate, the same
             // formula payroll uses, so the column matches the payslip.
             const otPay = otApproved && payableOt > 0 && dailyRate > 0
-              ? (dailyRate / 480) * payableOt * 1.25
+              ? (dailyRate / 480) * payableOt
               : 0;
             // Coming in on the scheduled rest day pays the day itself plus a
             // 30% premium, but never as a regular work day: payroll books the

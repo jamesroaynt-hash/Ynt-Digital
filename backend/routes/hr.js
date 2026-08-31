@@ -223,7 +223,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
     }
     summary.worked_minutes += workedMinutes;
     summary.ot_minutes += otMinutes;
-    summary.ot_pay += perMinuteRate > 0 ? perMinuteRate * otMinutes * 1.25 : 0;
+    summary.ot_pay += perMinuteRate > 0 ? perMinuteRate * otMinutes : 0;
   });
 
   // An advance marked Paid is already settled, so deducting it here would take
