@@ -208,16 +208,20 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
         // She came in on her rest day. The day is still paid — prorated the
         // same as any other — and earns 30% on top, but none of it is a
         // regular work day: the day's own pay and its premium both land in OT,
-        // so days worked and base pay are untouched.
+        // so days worked and base pay are untouched. An overridden day is the
+        // exception: the figure entered by hand IS the day's pay, premium
+        // included, so nothing is added on top of it.
         summary.rest_days_worked += 1;
         summary.ot_minutes += cappedWorkedMinutes;
-        summary.ot_pay += dayBase * (1 + REST_DAY_PREMIUM_RATE);
+        summary.ot_pay += overridden ? dayBase : dayBase * (1 + REST_DAY_PREMIUM_RATE);
       } else {
         summary.days_worked += 1;
         summary.days_paid += overridden ? 1 : cappedWorkedMinutes / STANDARD_DAY_MINUTES;
         summary.base_pay += dayBase;
       }
-      if (holidayPercentage > 100) {
+      // Same reason: a hand-entered rate already accounts for the holiday, so
+      // the premium is not stacked on top of it.
+      if (holidayPercentage > 100 && !overridden) {
         summary.holiday_pay += dayBase * ((holidayPercentage - 100) / 100);
       }
     }

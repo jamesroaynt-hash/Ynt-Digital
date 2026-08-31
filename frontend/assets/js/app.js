@@ -15167,7 +15167,9 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             // payslip agree.
             const dayFraction = Math.min(workedMins, 480) / 480;
             const dayBase = hasCustomRate ? dailyRate : dailyRate * dayFraction;
-            const basePay = paidDay ? dayBase * (holidayPct / 100) : 0;
+            // A hand-entered rate is the day's pay, full stop: no holiday
+            // premium and no rest-day premium are stacked on top of it.
+            const basePay = paidDay ? (hasCustomRate ? dayBase : dayBase * (holidayPct / 100)) : 0;
             // Approved overtime is paid at the plain minute rate, the same
             // formula payroll uses, so the column matches the payslip.
             const otPay = otApproved && payableOt > 0 && dailyRate > 0
@@ -15177,7 +15179,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             // 30% premium, but never as a regular work day: payroll books the
             // whole 130% as OT. An unworked rest day pays nothing at all.
             const restDay = isRestDayFor(record.work_date, record.day_off);
-            const restDayPremium = paidDay && restDay ? dayBase * 0.3 : 0;
+            const restDayPremium = paidDay && restDay && !hasCustomRate ? dayBase * 0.3 : 0;
             const restDayOt = paidDay ? restDayOtMinutes(record.work_date, record.day_off, workedMins) : 0;
             const paidOtMinutes = restDayOt + (otApproved ? payableOt : 0);
             const dailySalary = basePay + restDayPremium + otPay;
