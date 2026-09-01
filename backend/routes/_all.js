@@ -1651,11 +1651,14 @@ function expensesRoutes(db) {
   }
 
   r.post('/', async (req, res) => {
-    const { exp_date, category, classification, item_name, quantity, unit_price, noted_by, receipt_url } = req.body;
+    const { exp_date, category, classification, item_name, quantity, unit_price, noted_by, receipt_url, transfer_fee } = req.body;
     if (!category || !item_name || !unit_price) return res.status(400).json({ error: 'Required fields missing' });
     const cls = ALLOWED_CLASSIFICATIONS.has(classification) ? classification : 'OPEX';
+    // The fee rides on top of quantity x unit_price; a missing or negative one
+    // is simply no fee rather than a rejected expense.
+    const fee = Math.max(0, Number(transfer_fee) || 0);
     const ref = `EXP-${String(Date.now()).slice(-6)}`;
-    await db.prepare(`INSERT INTO expenses (expense_ref,exp_date,category,classification,item_name,quantity,unit_price,noted_by,receipt_url,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(ref, exp_date||new Date().toISOString().split('T')[0], category, cls, item_name, quantity||1, unit_price, noted_by||null, cleanReceiptUrl(receipt_url), req.user?.id||1);
+    await db.prepare(`INSERT INTO expenses (expense_ref,exp_date,category,classification,item_name,quantity,unit_price,transfer_fee,noted_by,receipt_url,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(ref, exp_date||new Date().toISOString().split('T')[0], category, cls, item_name, quantity||1, unit_price, fee, noted_by||null, cleanReceiptUrl(receipt_url), req.user?.id||1);
     res.status(201).json({ expense_ref: ref });
   });
 

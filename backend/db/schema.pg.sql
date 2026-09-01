@@ -136,6 +136,9 @@ CREATE TABLE IF NOT EXISTS expenses (
   quantity INTEGER NOT NULL DEFAULT 1,
   unit_price REAL NOT NULL DEFAULT 0,
   total_amt REAL GENERATED ALWAYS AS (quantity * unit_price) STORED,
+  -- Bank/e-wallet fee paid on top of the line subtotal. Added to the expense
+  -- total in the app rather than into total_amt, which stays the line subtotal.
+  transfer_fee REAL NOT NULL DEFAULT 0,
   noted_by TEXT,
   -- Link to the receipt, normally a Google Drive file shared by whoever logged it.
   receipt_url TEXT,

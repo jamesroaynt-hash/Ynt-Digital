@@ -10100,6 +10100,14 @@ function renderExpenses() {
             </div>
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Transfer Fee</label>
+          <div class="input-group">
+            <span class="input-addon">₱</span>
+            <input type="number" class="form-control" id="exp-fee" placeholder="0.00" min="0" step="0.01" oninput="calcExpTotal()">
+          </div>
+          <div class="field-help">Bank or e-wallet fee paid to send this money. Added on top of the quantity × price subtotal.</div>
+        </div>
         <div class="form-group"><label class="form-label">Noted By</label><input type="text" class="form-control" id="exp-noted" value="${App.user?.full_name || App.user?.name || ''}"></div>
         <div class="form-group">
           <label class="form-label">Google Drive Link</label>
@@ -10254,7 +10262,7 @@ function renderExpenses() {
           <div class="exp-filter-summary" id="exp-filter-summary"></div>
         </div>
         <table id="expenses-table">
-          <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>Noted By</th><th>Receipt</th></tr></thead>
+          <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Fee</th><th>Total</th><th>Noted By</th><th>Receipt</th></tr></thead>
           <tbody id="exp-tbody">
             ${DB.expenses.map(e => `<tr data-classification="${escapeHtml(e.classification || 'OPEX')}"
               data-category="${escapeHtml(e.category || '')}" data-month="${escapeHtml(String(e.date || '').slice(0, 7))}" data-total="${Number(e.total) || 0}"
@@ -10266,6 +10274,7 @@ function renderExpenses() {
               <td>${e.item}</td>
               <td>${e.qty}</td>
               <td>₱${e.price.toLocaleString()}</td>
+              <td>${e.fee ? `₱${e.fee.toLocaleString()}` : '<span class="text-muted">—</span>'}</td>
               <td><strong>₱${e.total.toLocaleString()}</strong></td>
               <td>${e.noted}</td>
               <td>${e.receipt
@@ -18725,7 +18734,7 @@ async function performScan(pageId, scanType) {
 function openExpenseModal() {
   const dateEl = document.getElementById('exp-date');
   if (dateEl) dateEl.value = manilaToday();
-  ['exp-cat','exp-item','exp-price','exp-total','exp-receipt'].forEach((id) => {
+  ['exp-cat','exp-item','exp-price','exp-fee','exp-total','exp-receipt'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.value = id === 'exp-cat' ? '' : '';
   });
@@ -18739,7 +18748,8 @@ function openExpenseModal() {
 function calcExpTotal() {
   const qty = parseFloat(document.getElementById('exp-qty')?.value || 0);
   const price = parseFloat(document.getElementById('exp-price')?.value || 0);
-  const total = qty * price;
+  const fee = parseFloat(document.getElementById('exp-fee')?.value || 0);
+  const total = qty * price + (fee > 0 ? fee : 0);
   const el = document.getElementById('exp-total');
   if (el) el.value = total > 0 ? total.toFixed(2) : '';
 }
@@ -18756,7 +18766,8 @@ async function loadExpensesFromBackend() {
       item: r.item_name || '',
       qty: Number(r.quantity || 1),
       price: Number(r.unit_price || 0),
-      total: Number(r.quantity || 1) * Number(r.unit_price || 0),
+      fee: Number(r.transfer_fee || 0),
+      total: Number(r.quantity || 1) * Number(r.unit_price || 0) + Number(r.transfer_fee || 0),
       noted: r.noted_by || '',
       receipt: r.receipt_url || '',
     }));
@@ -18772,6 +18783,7 @@ async function saveExpense() {
   const item = document.getElementById('exp-item')?.value;
   const qty = parseInt(document.getElementById('exp-qty')?.value || 0);
   const price = parseFloat(document.getElementById('exp-price')?.value || 0);
+  const fee = Math.max(0, parseFloat(document.getElementById('exp-fee')?.value || 0) || 0);
   const noted = document.getElementById('exp-noted')?.value || App.user?.full_name || App.user?.name || '';
   const receipt = (document.getElementById('exp-receipt')?.value || '').trim();
 
@@ -18796,11 +18808,12 @@ async function saveExpense() {
         item_name: item,
         quantity: qty,
         unit_price: price,
+        transfer_fee: fee,
         noted_by: noted,
         receipt_url: receipt,
       }),
     });
-    showToast('success', 'Expense saved', `${item} — ₱${(qty * price).toLocaleString()}`);
+    showToast('success', 'Expense saved', `${item} — ₱${(qty * price + fee).toLocaleString()}`);
     closeModal('expense-log-modal');
     await loadExpensesFromBackend();
     // Follow the entry that was just logged: an expense back-dated to another
