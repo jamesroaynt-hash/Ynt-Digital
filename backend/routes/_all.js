@@ -1664,14 +1664,34 @@ function expensesRoutes(db) {
     res.json({ success: true });
   });
 
+  // The credit list is filterable by month and by free text. The month list and
+  // the all-time total are computed unfiltered, so the month dropdown keeps
+  // every month on offer and the Credit Received stat card stays all-time even
+  // while the table below it is narrowed.
   r.get('/credits/list', async (req, res) => {
-    const { page = 1, per_page = 50 } = req.query;
+    const { page = 1, per_page = 50, month, search } = req.query;
     const perPage = Math.min(200, Math.max(10, parseInt(per_page, 10) || 50));
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const offset = (pageNum - 1) * perPage;
-    const total = (await db.prepare('SELECT COUNT(*) AS c FROM expense_credits').get()).c;
-    const data = await db.prepare('SELECT * FROM expense_credits ORDER BY credit_date DESC, id DESC LIMIT ? OFFSET ?').all(perPage, offset);
-    res.json({ data, total });
+
+    let where = ' WHERE 1=1';
+    const params = [];
+    if (/^\d{4}-\d{2}$/.test(String(month || ''))) { where += ' AND credit_date LIKE ?'; params.push(`${month}%`); }
+    const q = String(search || '').trim();
+    if (q) {
+      where += ' AND (LOWER(source) LIKE ? OR LOWER(notes) LIKE ? OR credit_date LIKE ?)';
+      const like = `%${q.toLowerCase()}%`;
+      params.push(like, like, `%${q}%`);
+    }
+
+    const total = (await db.prepare(`SELECT COUNT(*) AS c FROM expense_credits${where}`).get(...params)).c;
+    const filteredSum = (await db.prepare(`SELECT COALESCE(SUM(amount),0) AS s FROM expense_credits${where}`).get(...params)).s;
+    const allSum = (await db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM expense_credits').get()).s;
+    const months = (await db.prepare("SELECT DISTINCT substr(credit_date,1,7) AS month FROM expense_credits ORDER BY month DESC").all())
+      .map((row) => row.month).filter(Boolean);
+    const data = await db.prepare(`SELECT * FROM expense_credits${where} ORDER BY credit_date DESC, id DESC LIMIT ? OFFSET ?`)
+      .all(...params, perPage, offset);
+    res.json({ data, total, filtered_amount: Number(filteredSum) || 0, all_amount: Number(allSum) || 0, months });
   });
 
   r.post('/credits', async (req, res) => {
@@ -1688,6 +1708,22 @@ function expensesRoutes(db) {
       req.user?.id || null,
     );
     res.status(201).json({ credit_ref: ref });
+  });
+
+  r.put('/credits/:id', async (req, res) => {
+    const { credit_date, amount, source, notes } = req.body || {};
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
+    const existing = await db.prepare('SELECT * FROM expense_credits WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Credit not found' });
+    await db.prepare('UPDATE expense_credits SET credit_date = ?, amount = ?, source = ?, notes = ? WHERE id = ?').run(
+      credit_date || existing.credit_date,
+      amt,
+      source || null,
+      notes || null,
+      req.params.id,
+    );
+    res.json({ success: true });
   });
 
   r.delete('/credits/:id', async (req, res) => {

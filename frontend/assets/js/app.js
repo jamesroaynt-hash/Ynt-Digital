@@ -10027,6 +10027,15 @@ let expenseFilters = {
   month: manilaToday().slice(0, 7),
 };
 
+// The credit list has its own filters. They are sent to the server rather than
+// applied to the rendered rows: only one page of credits is ever loaded, so
+// hiding rows in place would filter the page instead of the ledger.
+let creditFilters = { search: '', month: '' };
+// The last loaded page of credits, kept so the edit modal can fill itself from
+// the row the user clicked without a second round trip.
+let expenseCreditsCache = [];
+let creditSearchTimer = null;
+
 // Every month that has an expense in it, newest first, with the current month
 // always offered even before anything is logged in it.
 function expenseMonthOptions() {
@@ -10130,6 +10139,35 @@ function renderExpenses() {
     </div>
   </div>
 
+  <!-- Credit editor: the same four fields as the add row, on a saved entry -->
+  <div class="modal-overlay" id="credit-edit-modal">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-header">
+        <div class="modal-title">Edit Credit</div>
+        <button class="modal-close" onclick="closeModal('credit-edit-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="credit-edit-id">
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Date <span class="required">*</span></label><input type="date" class="form-control" id="credit-edit-date"></div>
+          <div class="form-group"><label class="form-label">Amount <span class="required">*</span></label>
+            <div class="input-group">
+              <span class="input-addon">&#8369;</span>
+              <input type="number" class="form-control" id="credit-edit-amount" min="0" step="0.01" placeholder="0.00">
+            </div>
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">Source</label><input type="text" class="form-control" id="credit-edit-source" placeholder="e.g. Refund from supplier"></div>
+        <div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-control" id="credit-edit-notes" placeholder="Optional"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" style="margin-right:auto;" onclick="deleteCreditFromModal()">Delete</button>
+        <button class="btn btn-secondary" onclick="closeModal('credit-edit-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveCreditEdit()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
   <div>
     <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr); margin-bottom:16px;">
       <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
@@ -10176,7 +10214,18 @@ function renderExpenses() {
             </div>
             <button class="btn btn-primary" onclick="saveCredit()">Add</button>
           </div>
-          <div id="credit-list" style="margin-top:14px;"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+            <div class="table-search" style="max-width:260px;">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+              <input type="text" placeholder="Search source or notes..." id="credit-search" value="${escapeHtml(creditFilters.search)}" oninput="filterCreditList()">
+            </div>
+            <select class="form-control exp-month-select" id="credit-month" title="Month" onchange="setCreditMonthFilter(this.value)">
+              <option value="">All months</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="clearCreditFilters()">Clear</button>
+            <div class="exp-filter-summary" id="credit-filter-summary" style="margin-left:auto;"></div>
+          </div>
+          <div id="credit-list" style="margin-top:14px;max-height:360px;overflow:auto;"></div>
         </div>
       </div>
 
@@ -10419,9 +10468,16 @@ async function loadExpenseCredits() {
   const wrap = document.getElementById('credit-list');
   if (!wrap) return;
   try {
-    const result = await authorizedJsonRequest('/expenses/credits/list?per_page=200');
+    const query = new URLSearchParams({ per_page: '200' });
+    if (creditFilters.month) query.set('month', creditFilters.month);
+    if (creditFilters.search) query.set('search', creditFilters.search);
+    const result = await authorizedJsonRequest(`/expenses/credits/list?${query.toString()}`);
     const items = Array.isArray(result?.data) ? result.data : [];
-    const totalCredits = items.reduce((s, c) => s + Number(c.amount || 0), 0);
+    expenseCreditsCache = items;
+    // The stat cards stay all-time: filtering the list below must not make the
+    // Credit Received and Net Expenses cards disagree with Total Expenses.
+    const totalCredits = Number(result?.all_amount ?? items.reduce((s, c) => s + Number(c.amount || 0), 0));
+    const shownCredits = Number(result?.filtered_amount ?? totalCredits);
 
     const totalExpEl = document.getElementById('exp-credit-total');
     if (totalExpEl) totalExpEl.textContent = `₱${totalCredits.toLocaleString()}`;
@@ -10431,26 +10487,117 @@ async function loadExpenseCredits() {
       netEl.textContent = `₱${(expSum - totalCredits).toLocaleString()}`;
     }
 
+    renderCreditMonthOptions(Array.isArray(result?.months) ? result.months : []);
+    const filtering = Boolean(creditFilters.month || creditFilters.search);
+    const summary = document.getElementById('credit-filter-summary');
+    if (summary) {
+      summary.textContent = items.length
+        ? `${items.length} ${items.length === 1 ? 'entry' : 'entries'}${filtering ? ' matched' : ''} · ₱${shownCredits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '';
+    }
+
     if (!items.length) {
-      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">No credits recorded yet.</div>';
+      wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">${filtering ? 'No credits match this filter.' : 'No credits recorded yet.'}</div>`;
       return;
     }
     wrap.innerHTML = `
       <table class="data-table" style="margin-top:8px;font-size:13px;">
         <thead><tr><th>Date</th><th>Source</th><th>Notes</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
         <tbody>
-          ${items.slice(0, 10).map((c) => `<tr>
+          ${items.map((c) => `<tr>
             <td>${escapeHtml(c.credit_date || '')}</td>
             <td>${escapeHtml(c.source || '-')}</td>
             <td>${escapeHtml(c.notes || '-')}</td>
             <td style="text-align:right;color:#059669;font-weight:600;">₱${Number(c.amount || 0).toLocaleString()}</td>
-            <td><button class="btn btn-ghost btn-sm" onclick="deleteCredit(${c.id})">×</button></td>
+            <td style="text-align:right;white-space:nowrap;">
+              <button class="btn btn-secondary btn-sm" onclick="openCreditModal('${escapeHtml(String(c.id))}')">Edit</button>
+              <button class="btn btn-ghost btn-sm" onclick="deleteCredit('${escapeHtml(String(c.id))}')">×</button>
+            </td>
           </tr>`).join('')}
         </tbody>
       </table>`;
   } catch (err) {
     wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">Failed to load credits: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+// The months come from the server so the dropdown keeps offering a month even
+// once the current filter has narrowed the rows away from it.
+function renderCreditMonthOptions(months) {
+  const select = document.getElementById('credit-month');
+  if (!select) return;
+  const list = [...new Set(months.filter((m) => /^\d{4}-\d{2}$/.test(String(m || ''))))].sort().reverse();
+  if (creditFilters.month && !list.includes(creditFilters.month)) list.unshift(creditFilters.month);
+  select.innerHTML = `<option value="">All months</option>${list.map((month) =>
+    `<option value="${month}">${escapeHtml(expenseMonthLabel(month))}</option>`).join('')}`;
+  select.value = creditFilters.month || '';
+}
+
+// Typing hits the server, so the keystrokes are collected before it does.
+function filterCreditList() {
+  const value = document.getElementById('credit-search')?.value || '';
+  clearTimeout(creditSearchTimer);
+  creditSearchTimer = setTimeout(() => {
+    creditFilters.search = value.trim();
+    loadExpenseCredits().catch(() => {});
+  }, 300);
+}
+
+function setCreditMonthFilter(month) {
+  creditFilters.month = /^\d{4}-\d{2}$/.test(String(month || '')) ? month : '';
+  loadExpenseCredits().catch(() => {});
+}
+
+function clearCreditFilters() {
+  clearTimeout(creditSearchTimer);
+  creditFilters = { search: '', month: '' };
+  const search = document.getElementById('credit-search');
+  if (search) search.value = '';
+  loadExpenseCredits().catch(() => {});
+}
+
+function openCreditModal(id) {
+  const credit = expenseCreditsCache.find((row) => String(row.id) === String(id));
+  if (!credit) {
+    showToast('error', 'Not found', 'Refresh the credit list and try again.');
+    return;
+  }
+  document.getElementById('credit-edit-id').value = credit.id;
+  document.getElementById('credit-edit-date').value = String(credit.credit_date || '').slice(0, 10);
+  document.getElementById('credit-edit-amount').value = Number(credit.amount || 0);
+  document.getElementById('credit-edit-source').value = credit.source || '';
+  document.getElementById('credit-edit-notes').value = credit.notes || '';
+  openModal('credit-edit-modal');
+}
+
+async function saveCreditEdit() {
+  const id = document.getElementById('credit-edit-id')?.value;
+  const credit_date = document.getElementById('credit-edit-date')?.value;
+  const amount = Number(document.getElementById('credit-edit-amount')?.value || 0);
+  const source = document.getElementById('credit-edit-source')?.value || '';
+  const notes = document.getElementById('credit-edit-notes')?.value || '';
+  if (!id || !credit_date || amount <= 0) {
+    showToast('error', 'Validation failed', 'Date and a positive amount are required.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest(`/expenses/credits/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ credit_date, amount, source, notes }),
+    });
+    showToast('success', 'Credit updated', `₱${amount.toLocaleString()}`);
+    closeModal('credit-edit-modal');
+    loadExpenseCredits();
+  } catch (err) {
+    showToast('error', 'Save failed', err.message);
+  }
+}
+
+function deleteCreditFromModal() {
+  const id = document.getElementById('credit-edit-id')?.value;
+  if (!id) return;
+  closeModal('credit-edit-modal');
+  deleteCredit(id);
 }
 
 async function deleteCredit(id) {
