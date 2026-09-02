@@ -1650,6 +1650,49 @@ function expensesRoutes(db) {
     });
   });
 
+  // Cashflow for the chart on the page header: money in against money out, a
+  // month at a time. Credits and expenses live in different tables, so each
+  // side is grouped on its own and the two are stitched onto one continuous
+  // run of months — a month with nothing on one side has to plot as a zero
+  // rather than drop out and shift every bar after it.
+  //
+  // The window is cut on the raw date column rather than on substr(date,1,7),
+  // so idx_expenses_date still applies; the months are text and sort lexically,
+  // which for YYYY-MM-DD is the same as sorting by date.
+  r.get('/cashflow', async (req, res) => {
+    const months = Math.min(36, Math.max(1, parseInt(req.query.months, 10) || 12));
+    const now = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit',
+    }).format(new Date());
+    const [year, month] = now.split('-').map(Number);
+    const timeline = [];
+    for (let back = months - 1; back >= 0; back -= 1) {
+      const point = new Date(Date.UTC(year, month - 1 - back, 1));
+      timeline.push(`${point.getUTCFullYear()}-${String(point.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+    const from = `${timeline[0]}-01`;
+
+    const spent = await db.prepare(
+      'SELECT substr(exp_date,1,7) AS month, COALESCE(SUM(quantity * unit_price + transfer_fee),0) AS s'
+      + ' FROM expenses WHERE exp_date >= ? GROUP BY substr(exp_date,1,7)'
+    ).all(from);
+    const received = await db.prepare(
+      'SELECT substr(credit_date,1,7) AS month, COALESCE(SUM(amount),0) AS s'
+      + ' FROM expense_credits WHERE credit_date >= ? GROUP BY substr(credit_date,1,7)'
+    ).all(from);
+
+    const index = (rows) => new Map(rows.map((row) => [String(row.month), Number(row.s) || 0]));
+    const spentBy = index(spent);
+    const receivedBy = index(received);
+    res.json({
+      data: timeline.map((slot) => ({
+        month: slot,
+        expenses: spentBy.get(slot) || 0,
+        credits: receivedBy.get(slot) || 0,
+      })),
+    });
+  });
+
   // Receipts are linked, not uploaded: the file lives in Google Drive and the
   // expense keeps the URL. Only http(s) is stored, so a stored link can never
   // be a javascript: or data: URL the receipt viewer would then open.

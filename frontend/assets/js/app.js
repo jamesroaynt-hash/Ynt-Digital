@@ -10050,11 +10050,200 @@ function expenseMonthOptions() {
   return [...months].sort().reverse();
 }
 
+// The chevron every tile that navigates somewhere carries. Tiles that only
+// report a figure (Available Funds) deliberately go without one.
+const EXP_CHEVRON = '<svg class="exp-tile-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>';
+
+// Credits against expenses, in the one green/red pair that clears the lightness
+// band, the colour-blind separation floor and the contrast check on both the
+// light and the dark surface. Kept as constants because the same two colours
+// have to mean money-in and money-out everywhere on the page.
+const EXP_CASHFLOW_IN = '#059669';
+const EXP_CASHFLOW_OUT = '#ef4444';
+let expenseCashflowMonths = 12;
+let expenseCashflowChart = null;
+
 // A shortfall reads as -PHP1,234, not PHP-1,234: the sign belongs in front of
 // the whole amount rather than between the symbol and the digits.
 function expenseMoney(value) {
   const amount = Number(value || 0);
   return `${amount < 0 ? '-' : ''}₱${Math.abs(amount).toLocaleString()}`;
+}
+
+// Axis ticks only need the order of magnitude; the exact figure is one hover away.
+function expenseCompactMoney(value) {
+  const amount = Number(value) || 0;
+  const size = Math.abs(amount);
+  if (size >= 1000000) return `₱${(amount / 1000000).toFixed(size >= 10000000 ? 0 : 1)}M`;
+  if (size >= 1000) return `₱${Math.round(amount / 1000)}K`;
+  return `₱${Math.round(amount)}`;
+}
+
+// The tabs are switched by clicking their button, so a tile that lands on one
+// has to find that button rather than move the active classes itself.
+function expenseSwitchTab(contentId) {
+  const btn = document.querySelector(`.tabs .tab-btn[onclick*="${contentId}"]`);
+  if (btn) switchTab(btn, contentId);
+}
+
+function expenseScrollTo(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// The month tiles narrow the ledger below to the month they are reporting on,
+// which means putting the matching select in step: setExpMonthFilter and
+// setCreditMonthFilter hold the filter, they do not move the control.
+function expenseJumpToMonth(which) {
+  const month = manilaToday().slice(0, 7);
+  expenseSwitchTab('exp-tab-list');
+  if (which === 'credits') {
+    const select = document.getElementById('credit-month');
+    if (select) select.value = month;
+    setCreditMonthFilter(month);
+    expenseScrollTo('credit-list');
+    return;
+  }
+  const select = document.getElementById('exp-month');
+  if (select) select.value = month;
+  setExpMonthFilter(month);
+  expenseScrollTo('expenses-table');
+}
+
+function expenseShowAll(which) {
+  expenseSwitchTab('exp-tab-list');
+  if (which === 'credits') {
+    const select = document.getElementById('credit-month');
+    if (select) select.value = '';
+    clearCreditFilters();
+    expenseScrollTo('credit-list');
+    return;
+  }
+  const select = document.getElementById('exp-month');
+  if (select) select.value = '';
+  setExpMonthFilter('');
+  expenseScrollTo('expenses-table');
+}
+
+function expenseOpenSummary() {
+  expenseSwitchTab('exp-tab-summary');
+  expenseScrollTo('exp-tab-summary');
+}
+
+function expenseFocusCreditForm() {
+  expenseSwitchTab('exp-tab-list');
+  const amount = document.getElementById('credit-amount');
+  if (!amount) return;
+  amount.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  amount.focus();
+}
+
+async function loadExpenseCashflow() {
+  const result = await authorizedJsonRequest(`/expenses/cashflow?months=${expenseCashflowMonths}`);
+  renderExpenseCashflow(Array.isArray(result?.data) ? result.data : []);
+}
+
+function setExpenseCashflowRange(value) {
+  expenseCashflowMonths = [6, 12, 24].includes(Number(value)) ? Number(value) : 12;
+  const subtitle = document.getElementById('exp-cashflow-subtitle');
+  if (subtitle) subtitle.textContent = `Last ${expenseCashflowMonths} months`;
+  loadExpenseCashflow().catch(() => {});
+}
+
+function expenseCashflowLabel(month) {
+  const [, monthNumber] = String(month || '').split('-').map(Number);
+  return monthNumber
+    ? new Date(2000, monthNumber - 1, 1).toLocaleString('en-US', { month: 'short' })
+    : String(month || '');
+}
+
+function renderExpenseCashflow(rows) {
+  if (typeof Chart === 'undefined') return;
+  // initCharts only runs for Home and Data Report, so this page sets the family
+  // itself rather than draw in whatever font Chart.js defaults to.
+  Chart.defaults.font.family = "'DM Sans', sans-serif";
+  const canvas = document.getElementById('exp-cashflow-chart');
+  const empty = document.getElementById('exp-cashflow-empty');
+  const hasData = rows.some((row) => Number(row.credits) || Number(row.expenses));
+  if (empty) empty.style.display = hasData ? 'none' : 'block';
+  if (canvas) canvas.style.visibility = hasData ? '' : 'hidden';
+
+  // The two month tiles read off the same series the chart draws, so the
+  // headline figures can never disagree with the bar underneath them.
+  const current = rows[rows.length - 1];
+  if (current) {
+    const credited = document.getElementById('exp-month-credit');
+    if (credited) credited.textContent = expenseMoney(current.credits);
+    const spent = document.getElementById('exp-month-expense');
+    if (spent) spent.textContent = expenseMoney(current.expenses);
+  }
+
+  const token = (name, fallback) =>
+    getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
+  const grid = token('--border', '#1e293b');
+  const label = token('--text-secondary', '#93a1bd');
+  const tick = token('--text-muted', '#5f6e8c');
+  expenseCashflowChart = upsertChart(expenseCashflowChart, canvas, hasData, {
+    type: 'bar',
+    data: {
+      labels: rows.map((row) => expenseCashflowLabel(row.month)),
+      datasets: [
+        {
+          label: 'Credit in',
+          data: rows.map((row) => Number(row.credits) || 0),
+          backgroundColor: EXP_CASHFLOW_IN,
+          borderRadius: 4,
+          borderSkipped: 'bottom',
+        },
+        {
+          label: 'Expenses',
+          data: rows.map((row) => Number(row.expenses) || 0),
+          backgroundColor: EXP_CASHFLOW_OUT,
+          borderRadius: 4,
+          borderSkipped: 'bottom',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      // Thin bars with daylight between the pair, so a month reads as two
+      // marks rather than one thick block.
+      barPercentage: 0.74,
+      categoryPercentage: 0.66,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          align: 'end',
+          labels: {
+            color: label,
+            boxWidth: 8,
+            boxHeight: 8,
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 14,
+          },
+        },
+        tooltip: {
+          callbacks: {
+            // The x labels are bare month names to keep 24 of them legible, so
+            // the year is carried here instead.
+            title: (items) => expenseMonthLabel(rows[items[0].dataIndex]?.month || ''),
+            label: (item) => `${item.dataset.label}: ${expenseMoney(item.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          border: { display: false },
+          grid: { color: grid },
+          ticks: { color: tick, callback: (value) => expenseCompactMoney(value) },
+        },
+        x: { grid: { display: false }, ticks: { color: tick } },
+      },
+    },
+  });
 }
 
 function expenseMonthLabel(month) {
@@ -10070,6 +10259,7 @@ function renderExpenses() {
   const totalExp = Number.isFinite(DB.expensesTotalAmount) ? DB.expensesTotalAmount : loadedExp;
   const thisMonth = DB.expenses.filter(e => e.date.startsWith(manilaToday().slice(0, 7)));
   const monthTotal = thisMonth.reduce((s, e) => s + e.total, 0);
+  const thisMonthName = expenseMonthLabel(manilaToday().slice(0, 7)).split(' ')[0];
 
   return `
   <div class="page-header">
@@ -10190,11 +10380,83 @@ function renderExpenses() {
   </div>
 
   <div>
-    <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr); margin-bottom:16px;">
-      <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
-      <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Credit Received</div><div class="stat-value" style="font-size:18px;" id="exp-credit-total">₱0</div></div>
-      <div class="stat-card red" id="exp-funds-card"><div class="stat-card-accent"></div><div class="stat-label">Available Funds</div><div class="stat-value" style="font-size:18px;" id="exp-funds-total">${expenseMoney(-totalExp)}</div></div>
-      <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">${escapeHtml(expenseMonthLabel(manilaToday().slice(0, 7)))}</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
+    <div class="exp-overview">
+      <div class="exp-tiles">
+        <button class="exp-tile in" onclick="expenseJumpToMonth('credits')" title="Show only this month's credits">
+          <span class="exp-tile-body">
+            <span class="exp-tile-value" id="exp-month-credit">₱0</span>
+            <span class="exp-tile-label">Credit In (${escapeHtml(thisMonthName)})</span>
+          </span>${EXP_CHEVRON}
+        </button>
+        <button class="exp-tile out" onclick="expenseJumpToMonth('expenses')" title="Show only this month's expenses">
+          <span class="exp-tile-body">
+            <span class="exp-tile-value" id="exp-month-expense">${expenseMoney(monthTotal)}</span>
+            <span class="exp-tile-label">Expense (${escapeHtml(thisMonthName)})</span>
+          </span>${EXP_CHEVRON}
+        </button>
+        <div class="exp-tile hero" id="exp-funds-card">
+          <span class="exp-tile-body">
+            <span class="exp-tile-value neg" id="exp-funds-total">${expenseMoney(-totalExp)}</span>
+            <span class="exp-tile-label">Available Funds · credit received less total expenses</span>
+          </span>
+        </div>
+        <button class="exp-tile" onclick="expenseShowAll('credits')" title="Show every credit">
+          <span class="exp-tile-body">
+            <span class="exp-tile-value" id="exp-credit-total">₱0</span>
+            <span class="exp-tile-label">Credit Received (all time)</span>
+          </span>${EXP_CHEVRON}
+        </button>
+        <button class="exp-tile" onclick="expenseShowAll('expenses')" title="Show every expense">
+          <span class="exp-tile-body">
+            <span class="exp-tile-value">${expenseMoney(totalExp)}</span>
+            <span class="exp-tile-label">Total Expenses (all time)</span>
+          </span>${EXP_CHEVRON}
+        </button>
+        <button class="exp-tile" onclick="expenseOpenSummary()" title="Category and classification breakdown">
+          <span class="exp-tile-body">
+            <span class="exp-tile-value" style="font-size:15px;">Reports</span>
+            <span class="exp-tile-label">By category, class, month</span>
+          </span>${EXP_CHEVRON}
+        </button>
+      </div>
+
+      <div class="exp-shortcuts">
+        <div class="exp-shortcuts-title">Shortcuts</div>
+        <div class="exp-shortcut-row">
+          <button class="exp-shortcut in" onclick="expenseFocusCreditForm()">
+            <span class="exp-shortcut-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 12.5V3.5"/><path d="M4.5 7L8 3.5 11.5 7"/><path d="M2.5 13.5h11"/></svg></span>
+            Payment In
+          </button>
+          <button class="exp-shortcut out" onclick="openExpenseModal()">
+            <span class="exp-shortcut-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3.5v9"/><path d="M4.5 9L8 12.5 11.5 9"/><path d="M2.5 2.5h11"/></svg></span>
+            Payment Out
+          </button>
+          <button class="exp-shortcut" onclick="expenseOpenSummary()">
+            <span class="exp-shortcut-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 13.5h11"/><path d="M4.5 13.5V8"/><path d="M8 13.5V3.5"/><path d="M11.5 13.5V10"/></svg></span>
+            Reports
+          </button>
+          <button class="exp-shortcut" onclick="exportTableCSV('expenses-table','expenses')">
+            <span class="exp-shortcut-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.5v8"/><path d="M4.5 7L8 10.5 11.5 7"/><path d="M2.5 13.5h11"/></svg></span>
+            Export CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+          <div>
+            <div class="card-title">Cashflow</div>
+            <div class="card-subtitle" id="exp-cashflow-subtitle">Last ${expenseCashflowMonths} months</div>
+          </div>
+          <select class="form-control exp-month-select" id="exp-cashflow-range" onchange="setExpenseCashflowRange(this.value)">
+            ${[6, 12, 24].map((n) => `<option value="${n}"${expenseCashflowMonths === n ? ' selected' : ''}>Last ${n} months</option>`).join('')}
+          </select>
+        </div>
+        <div class="card-body">
+          <div class="exp-cashflow-canvas"><canvas id="exp-cashflow-chart"></canvas></div>
+          <div id="exp-cashflow-empty" style="display:none;color:var(--text-muted);font-size:12px;padding:8px 0;">Nothing logged in this window yet.</div>
+        </div>
+      </div>
     </div>
 
     <div class="tabs" style="margin-bottom:16px;">
@@ -10481,6 +10743,7 @@ async function saveCredit() {
       if (el) el.value = '';
     });
     loadExpenseCredits();
+    loadExpenseCashflow().catch(() => {});
   } catch (err) {
     showToast('error', 'Save failed', err.message);
   }
@@ -10512,8 +10775,7 @@ async function loadExpenseCredits() {
         : DB.expenses.reduce((s, e) => s + Number(e.total || 0), 0);
       const funds = totalCredits - expSum;
       fundsEl.textContent = expenseMoney(funds);
-      const card = document.getElementById('exp-funds-card');
-      if (card) card.className = `stat-card ${funds < 0 ? 'red' : 'green'}`;
+      fundsEl.className = `exp-tile-value ${funds < 0 ? 'neg' : 'pos'}`;
     }
 
     renderCreditMonthOptions(Array.isArray(result?.months) ? result.months : []);
@@ -14418,8 +14680,10 @@ function initPage(page) {
       document.getElementById('main-page-content').innerHTML = renderExpenses();
       applyExpenseFilters();
       loadExpenseCredits().catch(() => {});
+      loadExpenseCashflow().catch(() => {});
     }).catch(() => {});
     loadExpenseCredits().catch(() => {});
+    loadExpenseCashflow().catch(() => {});
   }
 
   if (page === 'rmo-management') {
@@ -18844,6 +19108,7 @@ async function saveExpense() {
       document.getElementById('main-page-content').innerHTML = renderExpenses();
       applyExpenseFilters();
       loadExpenseCredits().catch(() => {});
+      loadExpenseCashflow().catch(() => {});
     }
   } catch (err) {
     showToast('error', 'Save failed', err.message || 'Could not save expense.');

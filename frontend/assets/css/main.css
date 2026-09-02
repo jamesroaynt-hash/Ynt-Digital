@@ -1371,6 +1371,106 @@ textarea.form-control { min-height: 90px; resize: vertical; }
 .exp-receipt-view iframe { display: block; width: 100%; height: 60vh; min-height: 420px; border: 0; }
 .exp-receipt-view img { display: block; width: 100%; height: auto; max-height: 60vh; object-fit: contain; }
 
+/* ── Expenses: the overview above the tabs ──────────────────────────────
+   Money in and money out, read at a glance: tiles for the figures, a row of
+   shortcuts for the two things logged most, and the cashflow chart. Every
+   tile is a button because every one of them narrows the page below it. */
+.exp-overview { display: flex; flex-direction: column; gap: 16px; margin-bottom: 18px; }
+
+.exp-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.exp-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition), transform var(--transition);
+}
+button.exp-tile { cursor: pointer; }
+button.exp-tile:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+button.exp-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.exp-tile-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.exp-tile-value {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.exp-tile-label { font-size: 12px; color: var(--text-secondary); }
+.exp-tile-chevron { flex: none; width: 15px; height: 15px; color: var(--text-muted); }
+
+/* Colour on these two tiles means direction, not importance: the month's money
+   in against the same month's money out. The all-time tiles stay neutral. */
+.exp-tile.in { background: var(--success-soft); border-color: var(--success); }
+.exp-tile.in .exp-tile-value, .exp-tile-value.pos { color: var(--success-text); }
+.exp-tile.out { background: var(--danger-soft); border-color: var(--danger); }
+.exp-tile.out .exp-tile-value, .exp-tile-value.neg { color: var(--danger-text); }
+/* The headline figure, sized up rather than spanned: six equal tiles keep the
+   grid square at every breakpoint. */
+.exp-tile.hero .exp-tile-value { font-size: 23px; }
+
+.exp-shortcuts {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.exp-shortcuts-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.exp-shortcut-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.exp-shortcut {
+  flex: 1 1 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.exp-shortcut:hover { background: var(--surface-3); color: var(--text-primary); }
+.exp-shortcut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.exp-shortcut-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.exp-shortcut-icon svg { width: 19px; height: 19px; }
+.exp-shortcut.in .exp-shortcut-icon { background: var(--success-soft); color: var(--success); }
+.exp-shortcut.out .exp-shortcut-icon { background: var(--danger-soft); color: var(--danger); }
+
+/* The chart is given a fixed box: Chart.js sizes to its parent, and a canvas
+   left to grow inside a flex column climbs on every resize. */
+.exp-cashflow-canvas { position: relative; height: 260px; }
+
+@media (max-width: 1100px) {
+  .exp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .exp-tiles { grid-template-columns: minmax(0, 1fr); }
+}
+
 .table-search svg {
   position: absolute;
   left: 11px; top: 50%;
@@ -3957,6 +4057,29 @@ tfoot td {
   box-shadow: 0 24px 60px -36px rgba(0, 0, 0, 0.8);
 }
 [data-theme="dark"] .card-header { border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+
+/* ── Expenses overview ──
+   The tiles and the shortcut strip are cards in all but name, so they take the
+   same glass treatment; without it they read as flat squares sitting next to
+   the rounded, lit Cashflow card directly below them. The two month tiles keep
+   their green/red cast by tinting the top of the same gradient. */
+[data-theme="dark"] .exp-tile,
+[data-theme="dark"] .exp-shortcuts {
+  background: linear-gradient(165deg, rgba(20, 30, 54, 0.6) 0%, rgba(12, 19, 36, 0.6) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px -36px rgba(0, 0, 0, 0.8);
+}
+[data-theme="dark"] .exp-tile.in {
+  background: linear-gradient(165deg, rgba(16, 185, 129, 0.22) 0%, rgba(12, 19, 36, 0.6) 100%);
+  border-color: rgba(16, 185, 129, 0.45);
+}
+[data-theme="dark"] .exp-tile.out {
+  background: linear-gradient(165deg, rgba(239, 68, 68, 0.2) 0%, rgba(12, 19, 36, 0.6) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+[data-theme="dark"] button.exp-tile:hover { border-color: rgba(255, 255, 255, 0.18); }
+[data-theme="dark"] .exp-shortcut:hover { background: rgba(255, 255, 255, 0.05); }
 
 /* ── Home KPI cards ── */
 [data-theme="dark"] .kpi-card {
