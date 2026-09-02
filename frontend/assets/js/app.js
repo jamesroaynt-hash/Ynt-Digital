@@ -10095,14 +10095,15 @@ function expenseScrollTo(id) {
 // setCreditMonthFilter hold the filter, they do not move the control.
 function expenseJumpToMonth(which) {
   const month = manilaToday().slice(0, 7);
-  expenseSwitchTab('exp-tab-list');
   if (which === 'credits') {
+    expenseSwitchTab('exp-tab-credits');
     const select = document.getElementById('credit-month');
     if (select) select.value = month;
     setCreditMonthFilter(month);
     expenseScrollTo('credit-list');
     return;
   }
+  expenseSwitchTab('exp-tab-list');
   const select = document.getElementById('exp-month');
   if (select) select.value = month;
   setExpMonthFilter(month);
@@ -10110,14 +10111,15 @@ function expenseJumpToMonth(which) {
 }
 
 function expenseShowAll(which) {
-  expenseSwitchTab('exp-tab-list');
   if (which === 'credits') {
+    expenseSwitchTab('exp-tab-credits');
     const select = document.getElementById('credit-month');
     if (select) select.value = '';
     clearCreditFilters();
     expenseScrollTo('credit-list');
     return;
   }
+  expenseSwitchTab('exp-tab-list');
   const select = document.getElementById('exp-month');
   if (select) select.value = '';
   setExpMonthFilter('');
@@ -10130,7 +10132,7 @@ function expenseOpenSummary() {
 }
 
 function expenseFocusCreditForm() {
-  expenseSwitchTab('exp-tab-list');
+  expenseSwitchTab('exp-tab-credits');
   const amount = document.getElementById('credit-amount');
   if (!amount) return;
   amount.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -10461,57 +10463,12 @@ function renderExpenses() {
 
     <div class="tabs" style="margin-bottom:16px;">
       <button class="tab-btn active" onclick="switchTab(this,'exp-tab-list')">Expenses</button>
+      <button class="tab-btn" onclick="switchTab(this,'exp-tab-credits')">Credit Received</button>
       <button class="tab-btn" onclick="switchTab(this,'exp-tab-summary')">Summary</button>
     </div>
 
     <!-- Tab: Expenses list -->
     <div class="tab-content active" id="exp-tab-list">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-          <div>
-            <div class="card-title">Log Credit Received</div>
-            <div class="card-subtitle">Refunds, reimbursements, or income that offsets expenses</div>
-          </div>
-          <button class="btn btn-ghost btn-sm" onclick="loadExpenseCredits()">↻ Refresh</button>
-        </div>
-        <div class="card-body">
-          <div style="display:grid;grid-template-columns:140px 160px 1fr 1fr auto;gap:10px;align-items:end;">
-            <div class="form-group" style="margin:0;">
-              <label class="form-label">Date</label>
-              <input type="date" class="form-control" id="credit-date" value="${new Date().toISOString().split('T')[0]}">
-            </div>
-            <div class="form-group" style="margin:0;">
-              <label class="form-label">Amount</label>
-              <div class="input-group">
-                <span class="input-addon">₱</span>
-                <input type="number" class="form-control" id="credit-amount" placeholder="0.00" min="0" step="0.01">
-              </div>
-            </div>
-            <div class="form-group" style="margin:0;">
-              <label class="form-label">Source</label>
-              <input type="text" class="form-control" id="credit-source" placeholder="e.g. Refund from supplier">
-            </div>
-            <div class="form-group" style="margin:0;">
-              <label class="form-label">Notes</label>
-              <input type="text" class="form-control" id="credit-notes" placeholder="Optional">
-            </div>
-            <button class="btn btn-primary" onclick="saveCredit()">Add</button>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-            <div class="table-search" style="max-width:260px;">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-              <input type="text" placeholder="Search source or notes..." id="credit-search" value="${escapeHtml(creditFilters.search)}" oninput="filterCreditList()">
-            </div>
-            <select class="form-control exp-month-select" id="credit-month" title="Month" onchange="setCreditMonthFilter(this.value)">
-              <option value="">All months</option>
-            </select>
-            <button class="btn btn-ghost btn-sm" onclick="clearCreditFilters()">Clear</button>
-            <div class="exp-filter-summary" id="credit-filter-summary" style="margin-left:auto;"></div>
-          </div>
-          <div id="credit-list" style="margin-top:14px;max-height:360px;overflow:auto;"></div>
-        </div>
-      </div>
-
       <div class="table-container">
         <div class="table-toolbar">
           <div class="table-search">
@@ -10558,6 +10515,56 @@ function renderExpenses() {
             </tr>`).join('')}
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Tab: Credit received — its own ledger, kept off the expense table so
+         neither list has to share the page with the other's filters. -->
+    <div class="tab-content" id="exp-tab-credits">
+      <div class="card">
+        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+          <div>
+            <div class="card-title">Log Credit Received</div>
+            <div class="card-subtitle">Refunds, reimbursements, or income that offsets expenses</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadExpenseCredits()">↻ Refresh</button>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:140px 160px 1fr 1fr auto;gap:10px;align-items:end;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Date</label>
+              <input type="date" class="form-control" id="credit-date" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Amount</label>
+              <div class="input-group">
+                <span class="input-addon">₱</span>
+                <input type="number" class="form-control" id="credit-amount" placeholder="0.00" min="0" step="0.01">
+              </div>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Source</label>
+              <input type="text" class="form-control" id="credit-source" placeholder="e.g. Refund from supplier">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Notes</label>
+              <input type="text" class="form-control" id="credit-notes" placeholder="Optional">
+            </div>
+            <button class="btn btn-primary" onclick="saveCredit()">Add</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+            <div class="table-search" style="max-width:260px;">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+              <input type="text" placeholder="Search source or notes..." id="credit-search" value="${escapeHtml(creditFilters.search)}" oninput="filterCreditList()">
+            </div>
+            <select class="form-control exp-month-select" id="credit-month" title="Month" onchange="setCreditMonthFilter(this.value)">
+              <option value="">All months</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="clearCreditFilters()">Clear</button>
+            <div class="exp-filter-summary" id="credit-filter-summary" style="margin-left:auto;"></div>
+          </div>
+          <div id="credit-list" style="margin-top:14px;max-height:60vh;overflow:auto;"></div>
+        </div>
       </div>
     </div>
 
