@@ -1634,10 +1634,20 @@ function expensesRoutes(db) {
       params.push(classification);
     }
     if (search) { sql += ' AND (item_name LIKE ? OR noted_by LIKE ?)'; const q=`%${search}%`; params.push(q,q); }
-    const total = (await db.prepare(`SELECT COUNT(*) as c ${sql.slice(sql.indexOf('FROM'))}`).get(...params)).c;
+    // The stat cards need the whole ledger, not the page being returned, so the
+    // totals are summed in SQL. all_amount stays unfiltered: Total Expenses is
+    // an all-time figure even while the table below it is narrowed.
+    const AMOUNT = 'COALESCE(SUM(quantity * unit_price + transfer_fee),0)';
+    const totals = await db.prepare(`SELECT COUNT(*) as c, ${AMOUNT} as s ${sql.slice(sql.indexOf('FROM'))}`).get(...params);
+    const allSum = (await db.prepare(`SELECT ${AMOUNT} as s FROM expenses`).get()).s;
     sql += ' ORDER BY exp_date DESC LIMIT ? OFFSET ?';
     params.push(parseInt(per_page), (parseInt(page)-1)*parseInt(per_page));
-    res.json({ data: await db.prepare(sql).all(...params), total });
+    res.json({
+      data: await db.prepare(sql).all(...params),
+      total: totals.c,
+      filtered_amount: Number(totals.s) || 0,
+      all_amount: Number(allSum) || 0,
+    });
   });
 
   // Receipts are linked, not uploaded: the file lives in Google Drive and the

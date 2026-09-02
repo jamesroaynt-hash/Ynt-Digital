@@ -1474,6 +1474,9 @@ const DB = {
   inventory: [],
   rtsPcsByProduct: {},
   expenses: [],
+  // All-time expense total from the server. DB.expenses is only the newest
+  // page, so the stat cards read this instead of summing the loaded rows.
+  expensesTotalAmount: NaN,
   dailyPickups: [],
   scanRecords: [],
   damageReports: loadDamageReports(),
@@ -10047,6 +10050,13 @@ function expenseMonthOptions() {
   return [...months].sort().reverse();
 }
 
+// A shortfall reads as -PHP1,234, not PHP-1,234: the sign belongs in front of
+// the whole amount rather than between the symbol and the digits.
+function expenseMoney(value) {
+  const amount = Number(value || 0);
+  return `${amount < 0 ? '-' : ''}₱${Math.abs(amount).toLocaleString()}`;
+}
+
 function expenseMonthLabel(month) {
   const [year, monthNumber] = String(month || '').split('-').map(Number);
   if (!year || !monthNumber) return String(month || '');
@@ -10054,7 +10064,10 @@ function expenseMonthLabel(month) {
 }
 
 function renderExpenses() {
-  const totalExp = DB.expenses.reduce((s, e) => s + e.total, 0);
+  // DB.expenses only holds the newest page of the ledger, so an all-time card
+  // has to use the sum the server computed over every row.
+  const loadedExp = DB.expenses.reduce((s, e) => s + e.total, 0);
+  const totalExp = Number.isFinite(DB.expensesTotalAmount) ? DB.expensesTotalAmount : loadedExp;
   const thisMonth = DB.expenses.filter(e => e.date.startsWith(manilaToday().slice(0, 7)));
   const monthTotal = thisMonth.reduce((s, e) => s + e.total, 0);
 
@@ -10180,7 +10193,7 @@ function renderExpenses() {
     <div class="stats-grid" style="grid-template-columns:repeat(4, 1fr); margin-bottom:16px;">
       <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Total Expenses</div><div class="stat-value" style="font-size:18px;">₱${totalExp.toLocaleString()}</div></div>
       <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Credit Received</div><div class="stat-value" style="font-size:18px;" id="exp-credit-total">₱0</div></div>
-      <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Net Expenses</div><div class="stat-value" style="font-size:18px;" id="exp-net-total">₱${totalExp.toLocaleString()}</div></div>
+      <div class="stat-card red" id="exp-funds-card"><div class="stat-card-accent"></div><div class="stat-label">Available Funds</div><div class="stat-value" style="font-size:18px;" id="exp-funds-total">${expenseMoney(-totalExp)}</div></div>
       <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">${escapeHtml(expenseMonthLabel(manilaToday().slice(0, 7)))}</div><div class="stat-value" style="font-size:18px;">₱${monthTotal.toLocaleString()}</div></div>
     </div>
 
@@ -10484,16 +10497,23 @@ async function loadExpenseCredits() {
     const items = Array.isArray(result?.data) ? result.data : [];
     expenseCreditsCache = items;
     // The stat cards stay all-time: filtering the list below must not make the
-    // Credit Received and Net Expenses cards disagree with Total Expenses.
+    // Credit Received and Available Funds cards disagree with Total Expenses.
     const totalCredits = Number(result?.all_amount ?? items.reduce((s, c) => s + Number(c.amount || 0), 0));
     const shownCredits = Number(result?.filtered_amount ?? totalCredits);
 
     const totalExpEl = document.getElementById('exp-credit-total');
     if (totalExpEl) totalExpEl.textContent = `₱${totalCredits.toLocaleString()}`;
-    const netEl = document.getElementById('exp-net-total');
-    if (netEl) {
-      const expSum = DB.expenses.reduce((s, e) => s + Number(e.total || 0), 0);
-      netEl.textContent = `₱${(expSum - totalCredits).toLocaleString()}`;
+    // Available Funds is what is left of the money received once the ledger is
+    // paid for, so it goes negative the moment spending outruns credits.
+    const fundsEl = document.getElementById('exp-funds-total');
+    if (fundsEl) {
+      const expSum = Number.isFinite(DB.expensesTotalAmount)
+        ? DB.expensesTotalAmount
+        : DB.expenses.reduce((s, e) => s + Number(e.total || 0), 0);
+      const funds = totalCredits - expSum;
+      fundsEl.textContent = expenseMoney(funds);
+      const card = document.getElementById('exp-funds-card');
+      if (card) card.className = `stat-card ${funds < 0 ? 'red' : 'green'}`;
     }
 
     renderCreditMonthOptions(Array.isArray(result?.months) ? result.months : []);
@@ -18758,6 +18778,7 @@ async function loadExpensesFromBackend() {
   try {
     const result = await authorizedJsonRequest('/expenses?per_page=500');
     const rows = Array.isArray(result?.data) ? result.data : [];
+    DB.expensesTotalAmount = Number(result?.all_amount);
     DB.expenses = rows.map((r) => ({
       id: r.expense_ref || `EXP-${r.id}`,
       date: r.exp_date || '',
