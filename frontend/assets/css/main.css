@@ -1464,6 +1464,32 @@ button.exp-tile:focus-visible { outline: 2px solid var(--accent); outline-offset
    left to grow inside a flex column climbs on every resize. */
 .exp-cashflow-canvas { position: relative; height: 260px; }
 
+/* Expenses: the time filter above the table. Presets set the range; Monthly
+   trades the range readout for a month picker, so the bar never shows both. */
+.exp-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.exp-filterbar-group { min-width: 0; }
+.exp-filterbar-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.exp-filterbar-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.exp-filterbar-range { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.exp-filterbar-readout { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
 @media (max-width: 1100px) {
   .exp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -4064,7 +4090,8 @@ tfoot td {
    the rounded, lit Cashflow card directly below them. The two month tiles keep
    their green/red cast by tinting the top of the same gradient. */
 [data-theme="dark"] .exp-tile,
-[data-theme="dark"] .exp-shortcuts {
+[data-theme="dark"] .exp-shortcuts,
+[data-theme="dark"] .exp-filterbar {
   background: linear-gradient(165deg, rgba(20, 30, 54, 0.6) 0%, rgba(12, 19, 36, 0.6) 100%);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 16px;

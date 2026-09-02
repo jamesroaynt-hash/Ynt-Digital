@@ -7059,7 +7059,7 @@ const ADSPEND_STATUS_MAP = [
 const ADSPEND_ALLOWED_STATUSES = new Set(['Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned']);
 
 // Date range (from/to) for a 'YYYY-MM' month string.
-function adspendMonthRange(ym) {
+function monthDateRange(ym) {
   const [y, m] = ym.split('-').map(Number);
   const pad = (n) => String(n).padStart(2, '0');
   const last = new Date(y, m, 0).getDate();
@@ -7070,7 +7070,7 @@ function setAdspendPreset(preset) {
   adspendDatePreset = preset;
   if (preset === 'monthly') {
     if (!adspendMonth) adspendMonth = normalizeDateString(new Date()).slice(0, 7);
-    const r = adspendMonthRange(adspendMonth);
+    const r = monthDateRange(adspendMonth);
     adspendDateFrom = r.from; adspendDateTo = r.to;
   } else if (preset !== 'custom') {
     const range = computePresetRange(preset);
@@ -7083,7 +7083,7 @@ function setAdspendPreset(preset) {
 function setAdspendMonth(ym) {
   adspendMonth = ym;
   adspendDatePreset = 'monthly';
-  const r = adspendMonthRange(ym);
+  const r = monthDateRange(ym);
   adspendDateFrom = r.from; adspendDateTo = r.to;
   adspendRoasPage = 1;
   navigateTo('adspend-roas');
@@ -10019,15 +10019,21 @@ async function saveEditItem() {
 }
 
 // ─── RENDER: EXPENSES ──────────────────────────────────────
-// Expenses list filters, held together so month, category, classification and
-// search narrow the table instead of each one undoing the last. The month
-// starts on the current Manila month — the page opens on what has been spent
+// Expenses list filters, held together so the date range, category,
+// classification and search narrow the table instead of each one undoing the
+// last. The page opens on the current Manila month — on what has been spent
 // this month rather than on everything ever logged.
+//
+// `month` is only meaningful under the monthly preset; `from`/`to` are what the
+// rows are actually matched against, so every preset narrows the same way and a
+// custom range needs no separate branch. Empty bounds mean all time.
 let expenseFilters = {
   search: '',
   category: 'All',
   classification: 'All',
+  preset: 'monthly',
   month: manilaToday().slice(0, 7),
+  ...monthDateRange(manilaToday().slice(0, 7)),
 };
 
 // The credit list has its own filters. They are sent to the server rather than
@@ -10048,6 +10054,83 @@ function expenseMonthOptions() {
   months.add(manilaToday().slice(0, 7));
   if (expenseFilters.month) months.add(expenseFilters.month);
   return [...months].sort().reverse();
+}
+
+// The time filter above the expense table, in the same shape as the one on
+// ROAS Summary: presets set the range, and Monthly swaps the range readout for
+// a month picker. It re-renders into its own host rather than through the page,
+// so changing a filter does not rebuild the tabs or throw away the chart.
+function renderExpenseFilterBar() {
+  const { preset, month, from, to } = expenseFilters;
+  const presets = [['all', 'All Time'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['custom', 'Custom Date Range']];
+  return `
+    <div class="exp-filterbar">
+      <div class="exp-filterbar-group">
+        <div class="exp-filterbar-label">Time Filter</div>
+        <div class="exp-filterbar-pills">
+          ${presets.map(([key, label]) =>
+            `<button type="button" class="filter-pill${preset === key ? ' active' : ''}" onclick="setExpensePreset('${key}')">${label}</button>`
+          ).join('')}
+        </div>
+        ${preset === 'custom' ? `<div class="exp-filterbar-range">
+          <input type="date" class="form-control" id="exp-from" value="${escapeHtml(from)}" style="width:150px;height:34px;">
+          <span style="color:var(--text-muted);">–</span>
+          <input type="date" class="form-control" id="exp-to" value="${escapeHtml(to)}" style="width:150px;height:34px;">
+          <button class="btn btn-primary btn-sm" onclick="applyExpenseCustomRange()">Apply</button>
+        </div>` : preset === 'monthly' ? '' : `<div class="exp-filterbar-readout">${
+          from ? `${escapeHtml(from)} — ${escapeHtml(to)}` : 'Every expense ever logged'
+        }</div>`}
+      </div>
+      ${preset === 'monthly' ? `<div class="exp-filterbar-group">
+        <div class="exp-filterbar-label">Month</div>
+        <select class="form-control" style="height:38px;font-size:13px;min-width:170px;" onchange="setExpenseMonth(this.value)">
+          ${expenseMonthOptions().map((ym) =>
+            `<option value="${ym}"${month === ym ? ' selected' : ''}>${escapeHtml(expenseMonthLabel(ym))}</option>`
+          ).join('')}
+        </select>
+      </div>` : ''}
+    </div>`;
+}
+
+function refreshExpenseFilterBar() {
+  const host = document.getElementById('exp-filter-bar');
+  if (host) host.innerHTML = renderExpenseFilterBar();
+  applyExpenseFilters();
+}
+
+function setExpensePreset(preset) {
+  expenseFilters.preset = preset;
+  if (preset === 'monthly') {
+    if (!expenseFilters.month) expenseFilters.month = manilaToday().slice(0, 7);
+    Object.assign(expenseFilters, monthDateRange(expenseFilters.month));
+  } else if (preset === 'all') {
+    // All time is an absent bound, not a very old one: an expense back-dated
+    // past whatever floor we picked would otherwise be filtered out of "all".
+    expenseFilters.from = '';
+    expenseFilters.to = '';
+  } else if (preset !== 'custom') {
+    const range = computePresetRange(preset);
+    if (range) { expenseFilters.from = range.from; expenseFilters.to = range.to; }
+  }
+  refreshExpenseFilterBar();
+}
+
+function setExpenseMonth(ym) {
+  expenseFilters.preset = 'monthly';
+  expenseFilters.month = ym;
+  Object.assign(expenseFilters, monthDateRange(ym));
+  refreshExpenseFilterBar();
+}
+
+function applyExpenseCustomRange() {
+  const from = document.getElementById('exp-from')?.value || '';
+  const to = document.getElementById('exp-to')?.value || '';
+  if (!from && !to) return;
+  expenseFilters.preset = 'custom';
+  // One end on its own reads as that single day rather than an open range.
+  expenseFilters.from = from || to;
+  expenseFilters.to = to || from;
+  refreshExpenseFilterBar();
 }
 
 // The chevron every tile that navigates somewhere carries. Tiles that only
@@ -10104,9 +10187,7 @@ function expenseJumpToMonth(which) {
     return;
   }
   expenseSwitchTab('exp-tab-list');
-  const select = document.getElementById('exp-month');
-  if (select) select.value = month;
-  setExpMonthFilter(month);
+  setExpenseMonth(month);
   expenseScrollTo('expenses-table');
 }
 
@@ -10120,9 +10201,7 @@ function expenseShowAll(which) {
     return;
   }
   expenseSwitchTab('exp-tab-list');
-  const select = document.getElementById('exp-month');
-  if (select) select.value = '';
-  setExpMonthFilter('');
+  setExpensePreset('all');
   expenseScrollTo('expenses-table');
 }
 
@@ -10469,18 +10548,14 @@ function renderExpenses() {
 
     <!-- Tab: Expenses list -->
     <div class="tab-content active" id="exp-tab-list">
+      <div id="exp-filter-bar">${renderExpenseFilterBar()}</div>
+
       <div class="table-container">
         <div class="table-toolbar">
           <div class="table-search">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
             <input type="text" placeholder="Search expenses..." id="exp-search" value="${escapeHtml(expenseFilters.search)}" oninput="filterExpTable()">
           </div>
-          <select class="form-control exp-month-select" id="exp-month" title="Month" onchange="setExpMonthFilter(this.value)">
-            <option value=""${expenseFilters.month ? '' : ' selected'}>All months</option>
-            ${expenseMonthOptions().map((month) =>
-              `<option value="${month}"${expenseFilters.month === month ? ' selected' : ''}>${escapeHtml(expenseMonthLabel(month))}</option>`
-            ).join('')}
-          </select>
           <div class="table-filters">
             ${['All','Load','Utility','Product Supplies','Product','Shipping Fee','Transfer Fee','Others'].map((c) =>
               `<button class="filter-pill ${expenseFilters.category === c ? 'active' : ''}" onclick="setExpCatFilter('${c}',this)">${c}</button>`
@@ -10497,7 +10572,7 @@ function renderExpenses() {
           <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Class</th><th>Item</th><th>Qty</th><th>Price</th><th>Fee</th><th>Total</th><th>Noted By</th><th>Receipt</th></tr></thead>
           <tbody id="exp-tbody">
             ${DB.expenses.map(e => `<tr data-classification="${escapeHtml(e.classification || 'OPEX')}"
-              data-category="${escapeHtml(e.category || '')}" data-month="${escapeHtml(String(e.date || '').slice(0, 7))}" data-total="${Number(e.total) || 0}"
+              data-category="${escapeHtml(e.category || '')}" data-date="${escapeHtml(String(e.date || ''))}" data-total="${Number(e.total) || 0}"
               data-search="${escapeHtml([e.id, e.date, e.category, e.classification, e.item, e.noted].join(' ').toLowerCase())}">
               <td class="font-mono text-xs text-muted">${e.id}</td>
               <td>${e.date}</td>
@@ -19110,7 +19185,10 @@ async function saveExpense() {
     await loadExpensesFromBackend();
     // Follow the entry that was just logged: an expense back-dated to another
     // month would otherwise be saved into a month the table is not showing.
-    if (expenseFilters.month) expenseFilters.month = String(date).slice(0, 7);
+    if (expenseFilters.preset === 'monthly') {
+      expenseFilters.month = String(date).slice(0, 7);
+      Object.assign(expenseFilters, monthDateRange(expenseFilters.month));
+    }
     if (App.currentPage === 'expenses') {
       document.getElementById('main-page-content').innerHTML = renderExpenses();
       applyExpenseFilters();
@@ -19287,15 +19365,17 @@ function setExpCatFilter(cat, btn) {
   applyExpenseFilters();
 }
 
+// Kept as the one entry point for "narrow to this month" — an empty month
+// means all time, which is now a preset rather than a blank select.
 function setExpMonthFilter(month) {
-  expenseFilters.month = month || '';
-  applyExpenseFilters();
+  if (month) setExpenseMonth(month);
+  else setExpensePreset('all');
 }
 
 // One pass over the rows for all four filters — narrowing by month and then by
 // category has to leave both applied, which a per-filter show/hide could not do.
 function applyExpenseFilters() {
-  const { search, category, classification, month } = expenseFilters;
+  const { search, category, classification, from, to } = expenseFilters;
   const rows = document.querySelectorAll('#exp-tbody tr');
   let shown = 0;
   let total = 0;
@@ -19305,7 +19385,9 @@ function applyExpenseFilters() {
     const visible = (!search || (row.dataset.search || row.textContent.toLowerCase()).includes(search))
       && (category === 'All' || row.dataset.category === category)
       && (classification === 'All' || (row.dataset.classification || 'OPEX') === classification)
-      && (!month || row.dataset.month === month);
+      // YYYY-MM-DD compares lexically the same way it compares as a date.
+      && (!from || (row.dataset.date || '') >= from)
+      && (!to || (row.dataset.date || '') <= to);
     row.style.display = visible ? '' : 'none';
     if (visible) {
       shown += 1;
