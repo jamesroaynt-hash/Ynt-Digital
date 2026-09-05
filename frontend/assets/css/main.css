@@ -3829,9 +3829,81 @@ tfoot td {
 
 .data-report-kpis {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
+}
+
+/* Overview panels: the staff / page / province cuts read side by side above
+   the detail table, each ranked by volume with a share bar. */
+.dr-rank-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.dr-panel-head { cursor: pointer; }
+.dr-panel-head:hover .card-title { color: var(--accent); }
+
+.dr-rank-body { padding: 4px 18px 12px; }
+
+.dr-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.dr-rank-row:last-child { border-bottom: none; }
+
+.dr-rank-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dr-rank-track {
+  margin-top: 7px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.dr-rank-fill {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.dr-rank-total {
+  width: 52px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dr-rank-empty {
+  padding: 22px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.data-report-footnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .data-report-section {
@@ -3871,6 +3943,7 @@ tfoot td {
 .data-report-rate.ok { background: var(--success-soft); color: var(--success-text); }
 .data-report-rate.warn { background: var(--warning-soft); color: var(--warning-text); }
 .data-report-rate.bad { background: var(--danger-soft); color: var(--danger-text); }
+.data-report-rate.thin { background: var(--surface-3); color: var(--text-muted); }
 .text-success { color: var(--success); }
 .text-danger { color: var(--danger); }
 .data-report-empty {
@@ -3881,6 +3954,7 @@ tfoot td {
 @media (max-width: 1180px) {
   .rts-overview-grid,
   .rts-cod-grid,
+  .dr-rank-grid,
   .data-report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -3890,6 +3964,7 @@ tfoot td {
   .rts-formula-card { align-items: stretch; flex-direction: column; }
   .rts-overview-grid,
   .rts-cod-grid,
+  .dr-rank-grid,
   .data-report-kpis { grid-template-columns: 1fr; }
   .data-report-chart-wrap { height: 280px; padding: 12px; }
   .data-report-table { font-size: 12px; }

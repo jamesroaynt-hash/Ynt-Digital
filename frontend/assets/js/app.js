@@ -6233,7 +6233,7 @@ function renderSaleReportBarChart(orders) {
 }
 
 let dataReportTab = 'sales';
-let dataReportAnalyticsSubTab = 'price';
+let dataReportAnalyticsSubTab = 'staff';
 let dataReportStocksLoaded = false;
 let dataReportStocksLoading = false;
 let dataReportPreset = 'monthly';
@@ -6364,6 +6364,36 @@ function setDataReportMonth() {
   navigateTo('data-report');
 }
 
+// A rate needs a base before it means anything. 0 settled orders makes "0.0%"
+// a division by zero painted green — the whole of a fresh month reads as a
+// perfect score — and a handful of settled orders swings on a single parcel.
+// Below the floor the chip goes muted and reports the base instead of grading.
+const RTS_MIN_SETTLED = 50;
+
+function settledCount(row) {
+  return Number(row.delivered || 0) + Number(row.returned || 0) + Number(row.returning || 0);
+}
+
+function rtsChip(row) {
+  const settled = settledCount(row);
+  if (!settled) {
+    return `<span class="data-report-rate thin" title="Nothing settled yet — no order here has been delivered or returned">—</span>`;
+  }
+  if (settled < RTS_MIN_SETTLED) {
+    return `<span class="data-report-rate thin" title="${settled} settled order${settled === 1 ? '' : 's'} — too few to read a rate from">${formatPercent(row.rtsRate)}</span>`;
+  }
+  const cls = row.rtsRate >= 30 ? 'bad' : row.rtsRate >= 15 ? 'warn' : 'ok';
+  return `<span class="data-report-rate ${cls}">${formatPercent(row.rtsRate)}</span>`;
+}
+
+function thinSampleNote(rows) {
+  if (!rows.some((row) => settledCount(row) < RTS_MIN_SETTLED)) return '';
+  return `<div class="data-report-footnote">
+      <span class="data-report-rate thin">—</span>
+      A greyed rate means fewer than ${RTS_MIN_SETTLED} settled orders — too few to read a rate from. A dash means nothing has settled yet.
+    </div>`;
+}
+
 function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false } = {}) {
   if (!rows.length) {
     return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Google Sheets to populate this report.</p></div>`;
@@ -6383,12 +6413,13 @@ function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false }
             <td>${row.total.toLocaleString()}</td>
             <td class="text-success">${row.delivered.toLocaleString()}</td>
             <td class="text-danger">${(row.returned + row.returning).toLocaleString()}</td>
-            <td><span class="data-report-rate ${row.rtsRate >= 30 ? 'bad' : row.rtsRate >= 15 ? 'warn' : 'ok'}">${formatPercent(row.rtsRate)}</span></td>
+            <td>${rtsChip(row)}</td>
             ${showCod ? `<td style="font-weight:600;">₱${codTotal.toLocaleString()}</td><td style="color:var(--text-muted);">₱${avgCod.toLocaleString()}</td>` : ''}
           </tr>`;
         }).join('')}
       </tbody>
-    </table>`;
+    </table>
+    ${thinSampleNote(rows.slice(0, 12))}`;
 }
 
 function renderDataReport() {
@@ -6541,30 +6572,26 @@ function renderDataReportDashboard() {
 
   const { rtsRate, byPrice, byConfirmed, byProvince } = dataReportSummary;
   const byPage = dataReportSummary.byPage || [];
+  const counts = dataReportSummary.counts || {};
 
+  // The pills no longer swap the WHOLE tab — the overview above them always
+  // shows, and they only pick which dimension the full detail table below
+  // spells out. Staff leads because that is the cut people act on.
   const subTabs = [
-    ['price', 'By Price'],
     ['staff', 'By Confirmed By'],
-    ['province', 'By Province/City'],
     ['page', 'Page Report'],
+    ['province', 'By Province/City'],
+    ['price', 'By Price'],
     ['stocks', 'Stocks'],
   ];
-  if (!subTabs.some(([v]) => v === dataReportAnalyticsSubTab)) dataReportAnalyticsSubTab = 'price';
+  if (!subTabs.some(([v]) => v === dataReportAnalyticsSubTab)) dataReportAnalyticsSubTab = 'staff';
   const active = dataReportAnalyticsSubTab;
 
   let cardHtml = '';
-  if (active === 'price') {
+  if (active === 'staff') {
     cardHtml = `
     <section class="data-report-section">
       <div class="card-header">
-        <div><div class="card-title">By Price (Final Amount)</div><div class="card-subtitle">RTS rate by order price range</div></div>
-      </div>
-      <div class="data-report-chart-wrap"><canvas id="data-report-price-chart"></canvas></div>
-    </section>`;
-  } else if (active === 'staff') {
-    cardHtml = `
-    <section class="data-report-section">
-      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
         <div>
           <div class="card-title">By Confirmed By</div>
           <div class="card-subtitle">Orders and RTS rate per staff member who confirmed the order — Awaiting print excluded</div>
@@ -6572,14 +6599,6 @@ function renderDataReportDashboard() {
         <button class="btn btn-secondary btn-sm" onclick="openStaffMergeModal()">Merge staff…</button>
       </div>
       ${renderDataReportTable(byConfirmed, 'Confirmed By', 'No staff data yet', { showCod: true })}
-    </section>`;
-  } else if (active === 'province') {
-    cardHtml = `
-    <section class="data-report-section">
-      <div class="card-header">
-        <div><div class="card-title">By Province/City</div><div class="card-subtitle">RTS rate grouped by province/city</div></div>
-      </div>
-      ${renderDataReportTable(byProvince, 'Province/City', 'No province data yet')}
     </section>`;
   } else if (active === 'page') {
     cardHtml = `
@@ -6589,20 +6608,134 @@ function renderDataReportDashboard() {
       </div>
       ${renderDataReportTable(byPage, 'Page', 'No page data yet')}
     </section>`;
+  } else if (active === 'province') {
+    cardHtml = `
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By Province/City</div><div class="card-subtitle">RTS rate grouped by province/city</div></div>
+      </div>
+      ${renderDataReportTable(byProvince, 'Province/City', 'No province data yet')}
+    </section>`;
+  } else if (active === 'price') {
+    cardHtml = `
+    <section class="data-report-section">
+      <div class="card-header">
+        <div><div class="card-title">By Price (Final Amount)</div><div class="card-subtitle">Orders, deliveries and RTS rate per COD band</div></div>
+      </div>
+      ${renderDataReportTable(byPrice, 'Price Range', 'No price data yet', { showCod: true })}
+    </section>`;
   } else if (active === 'stocks') {
     cardHtml = renderStockAnalyticsCard();
   }
 
   wrapper.innerHTML = `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+    ${renderDataReportKpis(counts, rtsRate, Number(dataReportSummary.cod || 0))}
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div>
+          <div class="card-title">RTS rate by order value</div>
+          <div class="card-subtitle">Share of settled orders that came back, per COD band</div>
+        </div>
+      </div>
+      <div class="data-report-chart-wrap"><canvas id="data-report-price-chart"></canvas></div>
+      ${thinSampleNote(byPrice)}
+    </section>
+
+    <div class="dr-rank-grid">
+      ${renderRankedPanel('By Confirmed By', byConfirmed, 'staff', 'staff')}
+      ${renderRankedPanel('By Page', byPage, 'pages', 'page')}
+      ${renderRankedPanel('By Province/City', byProvince, 'provinces', 'province')}
+    </div>
+
+    <div class="table-filters" style="margin-bottom:14px;">
       ${subTabs.map(([v, l]) => `<button class="filter-pill ${active === v ? 'active' : ''}" onclick="setDataReportAnalyticsSubTab('${v}')">${l}</button>`).join('')}
     </div>
     ${cardHtml}
 `;
 
-  if (active === 'price') renderDataReportPriceChart(byPrice);
+  renderDataReportPriceChart(byPrice);
 }
 
+// The tab's own totals. Every table under them is a share of these, and until
+// now the Analytics tab showed no denominator at all.
+function renderDataReportKpis(counts, rtsRate, cod) {
+  const total = Number(counts.total || 0);
+  const delivered = Number(counts.delivered || 0);
+  const returned = Number(counts.returned || 0) + Number(counts.returning || 0);
+  const settled = delivered + returned;
+  const waitPrint = Number(counts.wait_print || 0);
+  const shipped = Number(counts.shipped || 0);
+  const avgCod = total ? Math.round(cod / total) : 0;
+
+  return `
+    <div class="data-report-kpis">
+      <div class="stat-card blue">
+        <div class="stat-card-accent"></div>
+        <div class="stat-label">Orders</div>
+        <div class="stat-value">${total.toLocaleString()}</div>
+        <div class="stat-meta">${waitPrint.toLocaleString()} still awaiting print</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-card-accent"></div>
+        <div class="stat-label">Delivered</div>
+        <div class="stat-value">${delivered.toLocaleString()}</div>
+        <div class="stat-meta">${shipped.toLocaleString()} shipped, still moving</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-card-accent"></div>
+        <div class="stat-label">RTS Rate</div>
+        <div class="stat-value">${settled ? formatPercent(rtsRate) : '—'}</div>
+        <div class="stat-meta">${settled
+          ? `${returned.toLocaleString()} of ${settled.toLocaleString()} settled orders`
+          : 'nothing settled in this range yet'}</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-card-accent"></div>
+        <div class="stat-label">Sales Total (COD)</div>
+        <div class="stat-value">₱${Math.round(cod).toLocaleString()}</div>
+        <div class="stat-meta">₱${avgCod.toLocaleString()} average per order</div>
+      </div>
+    </div>`;
+}
+
+// One breakdown, ranked by volume with a share bar — three of these side by
+// side replace clicking through three pills to compare them. The header opens
+// that dimension's full table below.
+function renderRankedPanel(title, rows, noun, tab) {
+  const list = Array.isArray(rows) ? rows : [];
+  const top = list.slice(0, 5);
+  const peak = top.reduce((max, row) => Math.max(max, Number(row.total || 0)), 0);
+
+  const body = top.length
+    ? top.map((row) => {
+      const share = peak ? Math.round((Number(row.total || 0) / peak) * 100) : 0;
+      return `<div class="dr-rank-row">
+          <div style="flex:1;min-width:0;">
+            <div class="dr-rank-name" title="${escapeHtml(row.label)}">${escapeHtml(row.label)}</div>
+            <div class="dr-rank-track"><div class="dr-rank-fill" style="width:${share}%;"></div></div>
+          </div>
+          <div class="dr-rank-total">${Number(row.total || 0).toLocaleString()}</div>
+          ${rtsChip(row)}
+        </div>`;
+    }).join('')
+    : `<div class="dr-rank-empty">No ${escapeHtml(noun)} in this range yet</div>`;
+
+  const subtitle = list.length > top.length
+    ? `Top ${top.length} of ${list.length} ${escapeHtml(noun)}`
+    : `${list.length} ${escapeHtml(noun)}`;
+
+  return `
+    <section class="data-report-section" style="margin-bottom:0;">
+      <div class="card-header dr-panel-head" onclick="setDataReportAnalyticsSubTab('${tab}')" title="Show the full ${escapeHtml(title)} table">
+        <div>
+          <div class="card-title">${escapeHtml(title)}</div>
+          <div class="card-subtitle">${subtitle}</div>
+        </div>
+      </div>
+      <div class="dr-rank-body">${body}</div>
+    </section>`;
+}
 function renderRoasSummaryDashboard() {
   const wrapper = document.getElementById('roas-summary-dashboard');
   if (!wrapper) return;
@@ -6879,39 +7012,81 @@ function upsertChart(existing, canvas, hasData, config) {
   return existing;
 }
 
+// Price bands are ORDERED, so the chart reads left to right in band order —
+// the summary endpoint returns them ranked by volume, which is the right order
+// for a table and the wrong one for an axis.
+const PRICE_BAND_ORDER = [
+  'PHP 251 - PHP 500',
+  'PHP 501 - PHP 750',
+  'PHP 751 - PHP 1,000',
+  'PHP 1,001 - PHP 1,500',
+  'PHP 1,501 - PHP 2,000',
+  'PHP 2,001 - PHP 3,000',
+  'PHP 3,001 - PHP 5,000',
+  'PHP 5,000+',
+];
+
 function renderDataReportPriceChart(rows) {
   const canvas = document.getElementById('data-report-price-chart');
-  dataReportPriceChart = upsertChart(dataReportPriceChart, canvas, rows.length > 0, {
-    type: 'line',
+  const ordered = (Array.isArray(rows) ? rows.slice() : []).sort((a, b) => {
+    const ai = PRICE_BAND_ORDER.indexOf(a.label);
+    const bi = PRICE_BAND_ORDER.indexOf(b.label);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+
+  // Scale the axis to the data instead of pinning it to 100%: real RTS rates
+  // sit between 5 and 30, and a fixed 0-100 ceiling flattens every band onto
+  // the floor where they all look identical.
+  const rates = ordered.map((row) => Number(row.rtsRate) || 0);
+  const peak = rates.length ? Math.max(...rates) : 0;
+  const suggestedMax = Math.max(10, Math.ceil((peak * 1.15) / 5) * 5);
+  const thin = ordered.map((row) => settledCount(row) < RTS_MIN_SETTLED);
+
+  dataReportPriceChart = upsertChart(dataReportPriceChart, canvas, ordered.length > 0, {
+    type: 'bar',
     data: {
-      labels: rows.map((row) => row.label),
+      labels: ordered.map((row) => row.label),
       datasets: [{
         label: 'RTS Rate',
-        data: rows.map((row) => Number(row.rtsRate.toFixed(2))),
-        borderColor: '#e66a63',
-        backgroundColor: 'rgba(230, 106, 99, 0.1)',
-        pointBackgroundColor: '#e66a63',
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        tension: 0.3,
-        fill: true,
+        data: rates.map((value) => Number(value.toFixed(2))),
+        // Bands with too few settled orders are greyed rather than dropped:
+        // the volume is real, the rate is not.
+        backgroundColor: thin.map((isThin) => (isThin ? 'rgba(148,163,184,0.4)' : '#3b82f6')),
+        borderRadius: 4,
+        borderSkipped: false,
+        maxBarThickness: 72,
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        y: { beginAtZero: true, max: 100, ticks: { callback: (value) => `${value}%` }, grid: { color: '#eef2f7' } },
-        x: { grid: { display: false }, ticks: { maxRotation: 38, minRotation: 38 } },
+        y: {
+          beginAtZero: true,
+          suggestedMax,
+          ticks: { callback: (value) => `${value}%` },
+          grid: { color: 'rgba(148,163,184,0.18)' },
+        },
+        x: { grid: { display: false }, ticks: { maxRotation: 38, minRotation: 0 } },
       },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (context) => `${context.parsed.y}% RTS` } },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const row = ordered[context.dataIndex] || {};
+              const settled = settledCount(row);
+              const orders = Number(row.total || 0).toLocaleString();
+              return settled
+                ? `${context.parsed.y}% RTS — ${settled.toLocaleString()} settled of ${orders} orders`
+                : `Nothing settled yet — ${orders} orders still moving`;
+            },
+          },
+        },
       },
     },
   });
 }
-
 function renderConfirmedByTable(rows) {
   if (!rows.length) {
     return `<div class="empty-state data-report-empty"><h3>No confirming data yet</h3><p>Sync Pancake POS orders to populate this report.</p></div>`;

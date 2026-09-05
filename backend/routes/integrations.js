@@ -328,6 +328,7 @@ module.exports = function integrationRoutes(db) {
           SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
           SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
           SUM(CASE WHEN status_name = 'shipped'   THEN 1 ELSE 0 END) as shipped,
+          SUM(CASE WHEN status_name = 'wait_print' THEN 1 ELSE 0 END) as wait_print,
           SUM(CASE WHEN LOWER(COALESCE(tags_json,'')) LIKE '%undeliverable%' THEN 1 ELSE 0 END) as undeliverable,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${where}
@@ -338,6 +339,7 @@ module.exports = function integrationRoutes(db) {
       const returned = Number(totalsRow?.returned || 0);
       const returningCnt = Number(totalsRow?.returning || 0);
       const shipped = Number(totalsRow?.shipped || 0);
+      const waitPrint = Number(totalsRow?.wait_print || 0);
       const undeliverable = Number(totalsRow?.undeliverable || 0);
       const cod = Number(totalsRow?.cod || 0);
       const base = delivered + returned + returningCnt;
@@ -520,7 +522,7 @@ module.exports = function integrationRoutes(db) {
       const pages = pageRows.map((r) => r.page_name);
 
       res.json({
-        counts: { total, delivered, returned, returning: returningCnt, shipped, undeliverable },
+        counts: { total, delivered, returned, returning: returningCnt, shipped, wait_print: waitPrint, undeliverable },
         cod,
         rtsRate: base ? ((returned + returningCnt) / base) * 100 : 0,
         byPrice,
