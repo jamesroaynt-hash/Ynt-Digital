@@ -513,6 +513,41 @@ async function createApp() {
     }, PANCAKE_POS_SYNC_INTERVAL_MS);
   }
 
+  // The paged sync only ever sees the newest orders by creation date, so an
+  // order that changes after it drops out of that window is never re-read.
+  // This walks the non-final orders and re-reads each one by id, oldest-checked
+  // first. Sized so the whole backlog comes round about once a day without
+  // competing with the paged sync for Pancake's rate limit.
+  const POS_RECONCILE_ENABLED = String(process.env.POS_RECONCILE_ENABLED ?? 'true') !== 'false';
+  const POS_RECONCILE_INTERVAL_MS = Math.max(
+    60 * 1000,
+    Number(process.env.POS_RECONCILE_INTERVAL_MS || 20 * 60 * 1000)
+  );
+  const POS_RECONCILE_BATCH = Math.max(1, Number(process.env.POS_RECONCILE_BATCH || 250));
+  let posReconcileRunning = false;
+
+  async function runPosReconcile() {
+    if (posReconcileRunning || pancakePosSyncRunning) return;
+    posReconcileRunning = true;
+    try {
+      const result = await pancakePosSync.reconcilePosOrders(db, { limit: POS_RECONCILE_BATCH });
+      const moves = Object.entries(result.moves || {}).map(([k, v]) => `${k} x${v}`).join(', ');
+      console.log(`[pancake_pos] reconcile: checked=${result.checked}, corrected=${result.changed}`
+        + `${moves ? ` (${moves})` : ''}${result.skipped ? `, skipped=${result.skipped}` : ''}`);
+    } catch (error) {
+      console.error(`[pancake_pos] reconcile failed: ${error.message}`);
+    } finally {
+      posReconcileRunning = false;
+    }
+  }
+
+  function schedulePosReconcile() {
+    setTimeout(async () => {
+      await runPosReconcile();
+      schedulePosReconcile();
+    }, POS_RECONCILE_INTERVAL_MS);
+  }
+
   // Storage retention: keep ~POS_RETENTION_DAYS (default 30) of POS orders locally
   // so the database can't fill up again; older rows stay in Pancake. Runs shortly
   // after boot and then daily.
@@ -559,6 +594,8 @@ async function createApp() {
   app.locals.scheduleGoogleSheetsSync = scheduleGoogleSheetsSync;
   app.locals.runPancakePosSync = runPancakePosSync;
   app.locals.schedulePancakePosSync = schedulePancakePosSync;
+  app.locals.schedulePosReconcile = POS_RECONCILE_ENABLED ? schedulePosReconcile : () => {};
+  app.locals.runPosReconcile = runPosReconcile;
   app.locals.runRetentionCleanup = runRetentionCleanup;
   app.locals.scheduleRetentionCleanup = scheduleRetentionCleanup;
   app.locals.runSmsLogCleanup = runSmsLogCleanup;
@@ -617,7 +654,16 @@ if (require.main === module) {
             app.locals.runPancakePosSync('startup');
           }, 10 * 1000);
 
-          app.locals.schedulePancakePosSync();
+          // Runs left at 'running' by a process that stopped mid-cycle: close
+          // them so the per-shop watermark cannot read one as progress.
+          app.locals.pancakePosSync.closeStuckRuns(db)
+            .then((closed) => {
+              if (closed) console.log(`[pancake_pos] closed ${closed} sync run(s) left running by a stopped process.`);
+            })
+            .catch((error) => console.warn(`[pancake_pos] could not close stuck runs: ${error.message}`));
+
+          schedulePancakePosSync();
+          app.locals.schedulePosReconcile();
         }
 
         // Always purge pos_orders from before 2026 on startup — pre-2026 data is

@@ -303,6 +303,21 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Re-read non-final orders straight from Pancake by id. The paged sync only
+  // ever sees the newest orders by creation date, so this is what keeps an
+  // older order honest. Runs on a timer too; this is the manual nudge.
+  router.post('/pancake-pos/reconcile', async (req, res) => {
+    try {
+      const result = await posSync.reconcilePosOrders(db, {
+        limit: req.body?.limit,
+        shop_id: req.body?.shop_id,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Data Report aggregation — pure SQL, no in-memory cache needed.
   router.get('/google-sheets/report-summary', async (req, res) => {
     try {

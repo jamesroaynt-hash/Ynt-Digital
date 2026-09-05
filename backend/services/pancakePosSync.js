@@ -278,13 +278,31 @@ async function getSavedConnections(db) {
   return promise;
 }
 
-async function startRun(db, triggerType, payloadSummary) {
+async function startRun(db, triggerType, payloadSummary, shopId = null) {
   const result = await db.prepare(`
-    INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary)
-    VALUES (?, 'inbound', ?, ?)
-  `).run(PROVIDER, triggerType, safeJson(payloadSummary));
+    INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary, shop_id)
+    VALUES (?, 'inbound', ?, ?, ?)
+  `).run(PROVIDER, triggerType, safeJson(payloadSummary), stringOrNull(shopId));
 
   return Number(result.lastInsertRowid);
+}
+
+// A run that never finished leaves its window uncovered and its row sitting at
+// 'running' forever — four of them had been there for up to a week. Close them
+// before each cycle so the watermark cannot read a corpse as progress and the
+// Integrations page can show what actually failed.
+const RUN_STUCK_AFTER_MS = 30 * 60 * 1000;
+
+async function closeStuckRuns(db) {
+  const cutoff = new Date(Date.now() - RUN_STUCK_AFTER_MS).toISOString().replace('T', ' ').slice(0, 19);
+  const result = await db.prepare(`
+    UPDATE integration_sync_runs
+    SET status = 'failed',
+        error_message = COALESCE(error_message, 'Sync process stopped before this run finished'),
+        finished_at = started_at
+    WHERE provider = ? AND status = 'running' AND started_at < ?
+  `).run(PROVIDER, cutoff);
+  return Number(result?.changes || 0);
 }
 
 async function finishRun(db, runId, status, resultSummary, errorMessage) {
@@ -295,12 +313,21 @@ async function finishRun(db, runId, status, resultSummary, errorMessage) {
   `).run(status, safeJson(resultSummary), errorMessage || null, runId);
 }
 
-async function getLastSuccessfulSyncTime(db) {
-  const row = await db.prepare(`
-    SELECT finished_at FROM integration_sync_runs
-    WHERE provider = ? AND status IN ('success', 'partial')
-    ORDER BY finished_at DESC LIMIT 1
-  `).get(PROVIDER);
+// When this SHOP last synced successfully. Reading it per provider meant every
+// shop after the first in a cycle inherited the previous shop's finish time —
+// seconds earlier — and so asked Pancake for a window a few seconds wide.
+async function getLastSuccessfulSyncTime(db, shopId = null) {
+  const row = shopId
+    ? await db.prepare(`
+        SELECT finished_at FROM integration_sync_runs
+        WHERE provider = ? AND shop_id = ? AND status IN ('success', 'partial')
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(PROVIDER, String(shopId))
+    : await db.prepare(`
+        SELECT finished_at FROM integration_sync_runs
+        WHERE provider = ? AND status IN ('success', 'partial')
+        ORDER BY finished_at DESC LIMIT 1
+      `).get(PROVIDER);
   if (!row?.finished_at) return null;
   return Math.floor(new Date(row.finished_at).getTime() / 1000);
 }
@@ -2941,7 +2968,7 @@ async function collectPosData(db, payload = {}) {
   if (!shopId) throw new Error('Missing Pancake POS shop_id. Select a shop first.');
 
   const resources = Array.isArray(payload.resources) && payload.resources.length ? payload.resources : DEFAULT_RESOURCES;
-  const lastSyncAt = await getLastSuccessfulSyncTime(db);
+  const lastSyncAt = await getLastSuccessfulSyncTime(db, shopId);
   const defaultStart = lastSyncAt ?? unixSecondsFromDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
   const options = {
     shop_id: shopId,
@@ -2958,7 +2985,7 @@ async function collectPosData(db, payload = {}) {
     await ensureShopCurrency(db, baseUrl, apiKey, shopId);
   }
 
-  const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options));
+  const runId = await startRun(db, 'pos_collect', collectSummaryPayload(resources, options), shopId);
   const result = {
     run_id: runId,
     provider: PROVIDER,
@@ -2995,40 +3022,22 @@ async function collectPosData(db, payload = {}) {
         return Array.isArray(response?.data) ? response.data : [];
       }, { startPage: options.page_number, pageSize: options.page_size, maxPages: options.maxPages });
 
-      // Also fetch by updated_at range to catch status changes on older orders
-      const updatedSince = options.updatedSince || lastSyncAt || options.startDateTime;
-      let updatedItems = [];
-      try {
-        updatedItems = await collectPagedItems(async (pageNumber) => {
-          const response = await posRequest(baseUrl, `/shops/${shopId}/orders`, apiKey, {
-            page_number: pageNumber,
-            page_size: options.page_size,
-            start_time_updated_at: updatedSince,
-            end_time_updated_at: options.endDateTime,
-            include_removed: 1,
-            option_sort: 'updated_at_desc',
-            'extra_fields[]': orderExtraFields,
-          });
-          return Array.isArray(response?.data) ? response.data : [];
-        }, { startPage: 1, pageSize: options.page_size, maxPages: options.maxPages });
-      } catch (err) {
-        // This pass is what catches status changes (e.g. New -> Confirmed) on
-        // already-created orders. If it fails, confirmations never sync — so
-        // surface it instead of hiding it.
-        console.warn(`[pancake_pos] updated_at order fetch failed; status changes on existing orders may be missed: ${err.message}`);
-      }
-
-      // Merge: deduplicate by external_id, prefer fresher record
+      // There used to be a second pass here, by updated_at range, to catch
+      // status changes on older orders. It never did that: probed against the
+      // live API on 2026-09-05, Pancake IGNORES both start_time_updated_at and
+      // option_sort=updated_at_desc and returns exactly the same newest-by-
+      // creation rows as the pass above — so it cost a full page fetch per shop
+      // per cycle and merged in duplicates of what we already had. Keeping an
+      // order accurate for its whole life is reconcilePosOrders' job now: it
+      // re-reads each non-final order by id, which is the only call Pancake
+      // honours for an arbitrary order.
       const seen = new Map();
-      for (const item of [...createdItems, ...updatedItems]) {
+      for (const item of createdItems) {
         const id = stringOrNull(item?.id);
         if (!id) continue;
-        const existing = seen.get(id);
-        if (!existing || String(item?.updated_at || '') >= String(existing?.updated_at || '')) {
-          seen.set(id, item);
-        }
+        seen.set(id, item);
       }
-      console.log(`[pancake_pos] orders fetched: created=${createdItems.length}, updated=${updatedItems.length}, merged=${seen.size} (updatedSince=${updatedSince})`);
+      console.log(`[pancake_pos] orders fetched: created=${createdItems.length}, merged=${seen.size}`);
       return [...seen.values()];
     },
     products: async () => {
@@ -3634,8 +3643,125 @@ async function fetchCustomerStats(db, phone, { shopId = null, orderId = null, re
   return promise;
 }
 
+// ── Reconcile ───────────────────────────────────────────────────────────────
+// The paged fetch cannot keep an order accurate for its whole life. Pancake
+// honours startDateTime but IGNORES start_time_updated_at and
+// option_sort=updated_at_desc (probed against the live API, 2026-09-05), so
+// both passes of a cycle return the same newest-by-creation orders. Once an
+// order falls out of that window nothing ever reads it again, and a sample of
+// 60 orders older than a week showed 12% of them had moved on in Pancake —
+// delivered, returned, canceled — while our copy still said shipped.
+//
+// So reconcile by id instead of by window: walk the orders we hold in a
+// non-final state and re-read each one. The set is self-limiting — an order
+// that reaches delivered/returned/canceled leaves it and is never fetched
+// again — and the unchanged-order guard means most reads cost no write.
+const RECONCILE_FINAL_STATUSES = ['delivered', 'returned', 'canceled', 'removed'];
+const RECONCILE_DEFAULT_LIMIT = 400;
+const RECONCILE_CONCURRENCY = 4;
+
+// Oldest-checked first, so every non-final order comes round in turn rather
+// than the same few being re-read forever.
+async function selectReconcileCandidates(db, { limit, shopId }) {
+  const finals = RECONCILE_FINAL_STATUSES.map(() => '?').join(', ');
+  const params = [...RECONCILE_FINAL_STATUSES];
+  let where = `WHERE COALESCE(status_name, '') NOT IN (${finals})`;
+  if (shopId) { where += ' AND shop_id = ?'; params.push(String(shopId)); }
+  return db.prepare(`
+    SELECT shop_id, external_id, status_name, reconciled_at
+    FROM pos_orders ${where}
+    -- never-checked first, then longest-since-checked. Written the portable way:
+    -- Postgres defaults ASC to NULLS LAST and SQLite has no NULLS clause.
+    ORDER BY (reconciled_at IS NULL) DESC, reconciled_at ASC, updated_at_remote ASC
+    LIMIT ?
+  `).all(...params, Math.max(1, Number(limit) || RECONCILE_DEFAULT_LIMIT));
+}
+
+async function markReconciled(db, rows) {
+  if (!rows.length) return;
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  for (const row of rows) {
+    await db.prepare(
+      'UPDATE pos_orders SET reconciled_at = ? WHERE shop_id = ? AND external_id = ?'
+    ).run(now, row.shop_id, row.external_id);
+  }
+}
+
+// Re-read one order straight from Pancake and put it through the normal upsert,
+// so every derived field is recomputed by the same code the sync uses.
+async function reconcileOne(db, connection, row) {
+  const response = await posRequest(
+    connection.base_url,
+    `/shops/${row.shop_id}/orders/${encodeURIComponent(row.external_id)}`,
+    connection.api_key,
+    { __timeout_ms: 30000, __no_retry: true }
+  );
+  const item = response?.data || response?.order || (response?.id ? response : null);
+  if (!item) return { missing: true };
+  const before = String(row.status_name || '');
+  await upsertOrder(db, row.shop_id, item, connection.name || null, { backfillCustomerStats: false });
+  const after = String(item.status_name || PANCAKE_STATUS_NAME[Number(item.status)] || '').toLowerCase();
+  return { changed: Boolean(after) && after !== before, from: before, to: after };
+}
+
+async function reconcilePosOrders(db, payload = {}) {
+  const limit = Math.max(1, Math.min(5000, Number(payload.limit) || RECONCILE_DEFAULT_LIMIT));
+  const shopId = stringOrNull(payload.shop_id || payload.shopId);
+  const runId = await startRun(db, 'pos_reconcile', { limit, shop_id: shopId }, shopId);
+
+  try {
+    const connections = await getLookupConnections(db);
+    const byShop = new Map();
+    for (const connection of connections) {
+      if (connection.api_key && connection.shop_id) byShop.set(String(connection.shop_id), connection);
+    }
+
+    const candidates = await selectReconcileCandidates(db, { limit, shopId });
+    const result = {
+      checked: 0, changed: 0, unchanged: 0, missing: 0, skipped: 0,
+      moves: {}, considered: candidates.length,
+    };
+
+    // A few at a time: this runs beside the paged sync and must not become the
+    // reason Pancake starts rate-limiting it.
+    for (let i = 0; i < candidates.length; i += RECONCILE_CONCURRENCY) {
+      const batch = candidates.slice(i, i + RECONCILE_CONCURRENCY);
+      await Promise.all(batch.map(async (row) => {
+        const connection = byShop.get(String(row.shop_id));
+        if (!connection) { result.skipped += 1; return; }
+        try {
+          const outcome = await reconcileOne(db, connection, row);
+          if (outcome.missing) { result.missing += 1; return; }
+          result.checked += 1;
+          if (outcome.changed) {
+            result.changed += 1;
+            const move = `${outcome.from || '(none)'} -> ${outcome.to}`;
+            result.moves[move] = (result.moves[move] || 0) + 1;
+          } else {
+            result.unchanged += 1;
+          }
+        } catch (error) {
+          result.skipped += 1;
+          result.last_error = error.message;
+        }
+      }));
+      // Stamp the whole batch either way: a row we could not read this time
+      // should go to the back of the queue, not block it.
+      await markReconciled(db, batch);
+    }
+
+    await finishRun(db, runId, result.skipped && !result.checked ? 'failed' : 'success', result);
+    return { run_id: runId, ...result };
+  } catch (error) {
+    await finishRun(db, runId, 'failed', null, error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   PROVIDER,
+  reconcilePosOrders,
+  closeStuckRuns,
   ABANDONED_UNDELIVERABLE_DAYS,
   abandonedUndeliverableCutoff,
   effectivePosStatusSql,

@@ -525,6 +525,10 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'partner_reason', 'TEXT');
   // When the courier first said undeliverable — lets the RMO tab age them.
   ensureColumn(db, 'pos_orders', 'undeliverable_since', 'TEXT');
+  // Which shop a sync run was for, so each shop keeps its own watermark.
+  ensureColumn(db, 'integration_sync_runs', 'shop_id', 'TEXT');
+  // When this order was last re-read from Pancake by the reconcile pass.
+  ensureColumn(db, 'pos_orders', 'reconciled_at', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ad_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'ads_source', 'TEXT');
   // The customer's history as Pancake reports it on the order payload
@@ -1040,6 +1044,8 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'courier_note', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'partner_reason', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'undeliverable_since', 'TEXT');
+  await ensureColumnAsync(db, 'integration_sync_runs', 'shop_id', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'reconciled_at', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ad_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'ads_source', 'TEXT');
   // The customer's history as Pancake reports it on the order payload
