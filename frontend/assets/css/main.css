@@ -4062,6 +4062,15 @@ tfoot td {
 
 .att-actions .att-primary { flex: 1.3 1 190px; }
 
+/* Clocking out is the consequential punch — give it its own weight rather
+   than looking identical to the button that started the day. */
+.att-punch-out {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.att-punch-out:hover { filter: brightness(1.06); }
+
 .att-side {
   display: flex;
   flex-direction: column;

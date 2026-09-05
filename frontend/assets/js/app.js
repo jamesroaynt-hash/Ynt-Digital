@@ -5686,8 +5686,7 @@ function renderAttendance() {
         </div>
 
         <div class="att-actions">
-          <button class="btn btn-primary btn-time-in att-primary" onclick="submitTimeClock('time_in')">Time In</button>
-          <button class="btn btn-primary att-primary" onclick="submitTimeClock('time_out')">Time Out</button>
+          <button class="btn btn-primary att-primary" id="att-punch-btn" onclick="attPunch()">Time In</button>
           <button class="btn btn-secondary btn-break" data-break="break" onclick="startBreakWithCountdown(60, 'break')">Break (1hr)</button>
           <button class="btn btn-secondary btn-break" data-break="break2" onclick="startBreakWithCountdown(15, 'break2')">15-min Break</button>
         </div>
@@ -5712,6 +5711,10 @@ function renderAttendance() {
           </button>
           <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-leave')">
             <span>File a leave request</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+          <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-ot')">
+            <span>File overtime</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
           </button>
           <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-hours')">
@@ -14495,21 +14498,32 @@ function renderAttendanceClockStatus(record, date) {
   }
 }
 
-// Only offer the punch that makes sense next: Time In before you are in, Time
-// Out after. Both showing at once is how people clock out by mistake.
+// One button for both punches: it says Time In until you are in, then Time Out.
+// Two buttons live side by side all day is how people clock out by mistake.
+function attPunchAction(record) {
+  if (!record?.time_in) return { action: 'time_in', label: 'Time In', done: false };
+  if (!record?.time_out) return { action: 'time_out', label: 'Time Out', done: false };
+  return { action: null, label: 'Timed Out ✓', done: true };
+}
+
+function attPunch() {
+  const next = attPunchAction(attendanceState?.today);
+  if (!next.action) return;
+  submitTimeClock(next.action);
+}
+
 function attSyncActionButtons(record) {
   const timedIn = Boolean(record?.time_in);
   const timedOut = Boolean(record?.time_out);
-  document.querySelectorAll('.att-actions .btn-time-in').forEach((btn) => {
-    btn.hidden = timedIn;
-  });
-  document.querySelectorAll('.att-actions .att-primary:not(.btn-time-in)').forEach((btn) => {
-    btn.hidden = !timedIn;
-    btn.disabled = timedOut;
-    btn.textContent = timedOut ? 'Timed Out ✓' : 'Time Out';
-  });
-  document.querySelectorAll('.att-actions .btn-break').forEach((btn) => {
-    btn.hidden = !timedIn || timedOut;
+  const btn = document.getElementById('att-punch-btn');
+  if (btn) {
+    const next = attPunchAction(record);
+    btn.textContent = next.label;
+    btn.disabled = next.done;
+    btn.classList.toggle('att-punch-out', next.action === 'time_out');
+  }
+  document.querySelectorAll('.att-actions .btn-break').forEach((breakBtn) => {
+    breakBtn.hidden = !timedIn || timedOut;
   });
 }
 
