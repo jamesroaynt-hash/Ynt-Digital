@@ -2669,6 +2669,7 @@ function renderApiConnections() {
     <button class="tab-btn" onclick="switchTab(this,'api-tab-infotxt'); loadInfotxtLogs()">Infotxt SMS</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-apikeys'); loadApiKeys()">API Keys</button>
     <button class="tab-btn" onclick="switchTab(this,'api-tab-webhooks'); loadWebhooks()">Webhooks</button>
+    <button class="tab-btn" onclick="switchTab(this,'api-tab-flow')">Data Flow</button>
   </div>
 
   <div id="api-tab-pos" class="tab-content active">
@@ -3156,6 +3157,103 @@ const sig = 'sha256=' + crypto
   .digest('hex');
 if (sig !== req.headers['x-ynt-signature']) throw new Error('Invalid');</code>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="api-tab-flow" class="tab-content">
+    <section class="card integration-card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Data Flow</div>
+          <div class="card-subtitle">How an order reaches the dashboard, and what the dashboard sends back</div>
+        </div>
+      </div>
+      <div class="int-flow">
+
+        <div class="int-flow-stage">
+          <div class="int-flow-stage-label">Sources</div>
+          <div class="int-flow-nodes">
+            <div class="int-flow-node accent">
+              <div class="int-flow-node-title">Pancake POS API</div>
+              <div class="int-flow-node-meta">Pulled on a timer — two passes per cycle: orders created in the window, then orders whose status changed since the last sync</div>
+            </div>
+            <div class="int-flow-node accent">
+              <div class="int-flow-node-title">Pancake Webhook</div>
+              <div class="int-flow-node-meta">Pushed by Pancake the moment an order changes. Secret-gated, same write path as the pull</div>
+            </div>
+            <div class="int-flow-node accent">
+              <div class="int-flow-node-title">Google Sheets</div>
+              <div class="int-flow-node-meta">Service-account import of sheet rows into google_orders</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="int-flow-arrow"></div>
+
+        <div class="int-flow-stage">
+          <div class="int-flow-stage-label">Sync service</div>
+          <div class="int-flow-nodes">
+            <div class="int-flow-node wide">
+              <div class="int-flow-node-title">upsertOrder</div>
+              <div class="int-flow-node-meta">One row per <code>(shop_id, external_id)</code> — Pancake order ids repeat across shops. Prices are scaled per shop, timestamps normalised, the courier's status and failure reason read off the payload. An order that arrives unchanged is skipped rather than rewritten.</div>
+              <div class="int-flow-split">
+                <span class="int-flow-branch">New order → insert</span>
+                <span class="int-flow-branch">Changed order → update</span>
+                <span class="int-flow-branch muted">Unchanged → no write</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="int-flow-arrow"></div>
+
+        <div class="int-flow-stage">
+          <div class="int-flow-stage-label">Store</div>
+          <div class="int-flow-nodes">
+            <div class="int-flow-node wide">
+              <div class="int-flow-node-title">PostgreSQL <span class="int-flow-tag">Supabase</span></div>
+              <div class="int-flow-node-meta"><code>pos_orders</code> · <code>google_orders</code> · <code>marketing_entries</code> · <code>pos_users</code> · <code>pos_products</code></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="int-flow-arrow"></div>
+
+        <div class="int-flow-stage">
+          <div class="int-flow-stage-label">Read by</div>
+          <div class="int-flow-nodes">
+            <div class="int-flow-node"><div class="int-flow-node-title">RMO Management</div><div class="int-flow-node-meta">Delivery queue, undeliverable, returns</div></div>
+            <div class="int-flow-node"><div class="int-flow-node-title">Data Report</div><div class="int-flow-node-meta">Totals, RTS rate, staff and page breakdowns</div></div>
+            <div class="int-flow-node"><div class="int-flow-node-title">ROAS Summary</div><div class="int-flow-node-meta">Ad spend against order revenue</div></div>
+            <div class="int-flow-node"><div class="int-flow-node-title">CSR &amp; Scanning</div><div class="int-flow-node-meta">Customer lookups, pickup and RTS scans</div></div>
+          </div>
+        </div>
+
+        <div class="int-flow-arrow back"></div>
+
+        <div class="int-flow-stage out">
+          <div class="int-flow-stage-label">Sent back out</div>
+          <div class="int-flow-nodes">
+            <div class="int-flow-node out">
+              <div class="int-flow-node-title">Pancake POS</div>
+              <div class="int-flow-node-meta">Tag changes written back to the order. Order status is never written — Pancake owns it</div>
+            </div>
+            <div class="int-flow-node out">
+              <div class="int-flow-node-title">Infotxt SMS</div>
+              <div class="int-flow-node-meta">Rider and customer texts on a status change</div>
+            </div>
+            <div class="int-flow-node out">
+              <div class="int-flow-node-title">Botcake</div>
+              <div class="int-flow-node-meta">Messenger sends to the order's conversation</div>
+            </div>
+            <div class="int-flow-node out">
+              <div class="int-flow-node-title">Webhooks &amp; API keys</div>
+              <div class="int-flow-node-meta">Outbound events to your own apps, and keyed read access in</div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </section>
   </div>
