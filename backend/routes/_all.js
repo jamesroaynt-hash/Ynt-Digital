@@ -59,6 +59,17 @@ function ordersRoutes(db, { dispatch } = {}) {
     }).format(d);
   }
 
+  // Whole days between a stored POS timestamp and now. Used to age courier
+  // failures: an order the courier gave up on two months ago should say so.
+  function daysSince(ts) {
+    if (!ts) return null;
+    const raw = String(ts);
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return null;
+    return Math.max(0, Math.floor((Date.now() - then) / 86400000));
+  }
+
   function readNamedValue(source, keys = []) {
     if (!source || typeof source !== 'object') return null;
     const wanted = new Set(keys.map((key) => key.toLowerCase()));
@@ -1087,14 +1098,23 @@ function ordersRoutes(db, { dispatch } = {}) {
       problematic: Number(problematicRow?.c || 0),
     };
 
+    // The Undeliverable tab is a work queue, not a feed: the order the courier
+    // gave up on longest ago is the one to chase, so it leads. Rows with no
+    // recorded failure time (older syncs) sort last rather than first.
+    const orderBy = String(partner || '').toLowerCase() === 'undeliverable'
+      ? (db.type === 'postgres'
+        ? 'undeliverable_since ASC NULLS LAST, id DESC'
+        : 'undeliverable_since IS NULL, undeliverable_since ASC, id DESC')
+      : `${effectiveInsertedAt} DESC, id DESC`;
+
     const rows = await db.prepare(`
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
              note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
-             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason, items_json,
+             partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason, undeliverable_since, items_json,
              customer_order_count, customer_succeed_count, customer_returned_count
       FROM pos_orders ${where}
-      ORDER BY ${effectiveInsertedAt} DESC, id DESC
+      ORDER BY ${orderBy}
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset);
 
@@ -1143,6 +1163,8 @@ function ordersRoutes(db, { dispatch } = {}) {
         partner_status: row.partner_status || null,
         courier_note: row.courier_note || null,
         partner_reason: row.partner_reason || null,
+        undeliverable_since: row.undeliverable_since || null,
+        days_undeliverable: daysSince(row.undeliverable_since),
         customer_history: posHistoryFor(history, row.customer_phone),
       })),
       status_counts: statusCountRows,

@@ -412,6 +412,9 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   partner_status TEXT,
   courier_note TEXT,
   partner_reason TEXT,
+  -- When the courier first marked this order undeliverable. Cleared when the
+  -- courier moves it on, so it doubles as "still stuck since".
+  undeliverable_since TEXT,
   ad_id TEXT,
   ads_source TEXT,
   customer_order_count INTEGER,

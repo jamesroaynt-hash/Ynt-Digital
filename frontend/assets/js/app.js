@@ -12079,10 +12079,50 @@ function deepFindCourierReason(node) {
 function getRmoUndeliverableReason(order) {
   const partner = order?.partner;
   if (partner && typeof partner === 'object') {
+    // The reason usually arrives as a plain `note` on a failure entry ("The
+    // call is Turned Off."); the newest entry often carries only a status, so
+    // walk back until one has a note. `reason [..]` is the older embedded form.
+    const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+    for (let i = updates.length - 1; i >= 0; i--) {
+      const note = String(updates[i]?.note || '').trim();
+      // A note can itself be the wrapped "…,reason【…】" form; unwrap when so.
+      if (note) return deepFindCourierReason(note) || note;
+    }
     const reason = deepFindCourierReason(partner.extend_update) || deepFindCourierReason(partner);
     if (reason) return reason;
   }
   return order?.partner_reason || '';
+}
+
+// How long the courier has had this order sitting undeliverable. The server
+// sends the count; fall back to the partner payload so rows stored before the
+// column existed still age correctly.
+function getRmoUndeliverableDays(order) {
+  const fromServer = Number(order?.days_undeliverable);
+  if (Number.isFinite(fromServer)) return fromServer;
+  const partner = order?.partner;
+  if (!partner || typeof partner !== 'object') return null;
+  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+  let since = partner.first_undeliverable_at;
+  if (!since) {
+    for (let i = updates.length - 1; i >= 0; i--) {
+      if (String(updates[i]?.note || '').trim() && updates[i]?.update_at) { since = updates[i].update_at; break; }
+    }
+  }
+  if (!since) since = partner.updated_at;
+  const then = Date.parse(String(since || '').replace(' ', 'T') + 'Z');
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, Math.floor((Date.now() - then) / 86400000));
+}
+
+// An age chip for the Undeliverable queue. Anything past a week is a problem;
+// past a month it is money nobody is chasing.
+function rmoStuckChip(order) {
+  const days = getRmoUndeliverableDays(order);
+  if (days == null) return '';
+  const tone = days >= 30 ? 'bad' : days >= 7 ? 'warn' : 'ok';
+  const label = days === 0 ? 'today' : days === 1 ? '1 day' : `${days} days`;
+  return `<span class="rmo-stuck ${tone}" title="Undeliverable for ${label} — the courier has not moved it since">${label}</span>`;
 }
 
 // How many of this customer's orders arrived and how many came back, plus the
@@ -18782,7 +18822,7 @@ function renderPosOrdersTable() {
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
         <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
         <td>${showsReason
-          ? (reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash)
+          ? `${reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash}${rmoTab === 'undeliverable' ? rmoStuckChip(order) : ''}`
           : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
         <td>
           <div class="rmo-msg-actions">

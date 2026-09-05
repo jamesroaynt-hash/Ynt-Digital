@@ -329,7 +329,10 @@ module.exports = function integrationRoutes(db) {
           SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
           SUM(CASE WHEN status_name = 'shipped'   THEN 1 ELSE 0 END) as shipped,
           SUM(CASE WHEN status_name = 'wait_print' THEN 1 ELSE 0 END) as wait_print,
-          SUM(CASE WHEN LOWER(COALESCE(tags_json,'')) LIKE '%undeliverable%' THEN 1 ELSE 0 END) as undeliverable,
+          -- The courier's own verdict, not a tag someone typed. The tag is
+          -- sticky (it survives the order being delivered later) and drifted
+          -- from the RMO page, which has always counted partner_status.
+          SUM(CASE WHEN LOWER(COALESCE(partner_status,'')) = 'undeliverable' THEN 1 ELSE 0 END) as undeliverable,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${where}
       `).get(...params);

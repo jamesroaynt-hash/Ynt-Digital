@@ -3944,6 +3944,21 @@ tfoot td {
 .data-report-rate.warn { background: var(--warning-soft); color: var(--warning-text); }
 .data-report-rate.bad { background: var(--danger-soft); color: var(--danger-text); }
 .data-report-rate.thin { background: var(--surface-3); color: var(--text-muted); }
+
+/* How long the courier has had an order sitting undeliverable. */
+.rmo-stuck {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.rmo-stuck.ok   { background: var(--surface-3);   color: var(--text-muted); }
+.rmo-stuck.warn { background: var(--warning-soft); color: var(--warning-text); }
+.rmo-stuck.bad  { background: var(--danger-soft);  color: var(--danger-text); }
 .text-success { color: var(--success); }
 .text-danger { color: var(--danger); }
 .data-report-empty {

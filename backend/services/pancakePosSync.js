@@ -631,7 +631,15 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
   const courierNote = stringOrNull(Array.isArray(partner?.extend_update) ? partner.extend_update[0]?.status : null);
   // Undeliverable reason — e.g. "No Reason to Reject without Opening the Box".
   // Lives in partner.extend_update; scan newest-first for a reason/sub-status.
-  const partnerReason = getPosUndeliverableReason(partner);
+  const partnerState = String(partnerStatus || '').toLowerCase();
+  const partnerReason = COURIER_FAILURE_STATES.has(partnerState)
+    ? getPosUndeliverableReason(partner)
+    : null;
+  // Only meaningful while the courier says undeliverable; kept on the row so the
+  // RMO tab can age them without re-parsing partner_json for every query.
+  const undeliverableSince = partnerState === 'undeliverable'
+    ? getPosUndeliverableSince(partner)
+    : null;
 
   // Ad attribution: the Pancake order object carries the Facebook ad id and the
   // advertising source. ad_id matches the `id` of an ad in the Ads tab, linking
@@ -729,10 +737,11 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, confirmed_by_name, confirmed_at, sprinter_name, sprinter_tel,
+      undeliverable_since,
       items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, ad_id, ads_source,
       customer_order_count, customer_succeed_count, customer_returned_count, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -767,6 +776,7 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
       partner_status = excluded.partner_status,
       courier_note = excluded.courier_note,
       partner_reason = excluded.partner_reason,
+      undeliverable_since = excluded.undeliverable_since,
       ad_id = COALESCE(excluded.ad_id, pos_orders.ad_id),
       ads_source = COALESCE(excluded.ads_source, pos_orders.ads_source),
       customer_order_count = COALESCE(excluded.customer_order_count, pos_orders.customer_order_count),
@@ -803,6 +813,7 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
     confirmation.at,
     sprinterName,
     sprinterTel,
+    undeliverableSince,
     safeJson(itemsForStorage),
     safeJson(item?.tags || item?.customer_tags || []),
     safeJson(partner || null),
@@ -1265,12 +1276,51 @@ function deepFindCourierReason(node) {
   return out.length ? out[out.length - 1] : null;
 }
 
-// The courier rejection / undeliverable reason lives in partner_json, embedded
-// as `reason [<text>]` within a delivery-status string under
-// partner.extend_update. Returns just the reason text.
+// The courier's reason for a failed delivery. Two shapes reach us and only the
+// second was ever read:
+//   1. a dedicated `note` on an extend_update entry — "The call is Turned Off."
+//      This is what J&T sends, and it is every undeliverable order we hold.
+//   2. `reason [<text>]` embedded in a longer status string.
+// Prefer the note, newest entry first — the newest update usually carries only a
+// status ("Package is Delivery Failed") and the note sits on the failure entry
+// that precedes it, so reading only the last entry finds nothing.
 function getPosUndeliverableReason(partner) {
   if (!partner || typeof partner !== 'object') return null;
+  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+  for (let i = updates.length - 1; i >= 0; i--) {
+    const note = stringOrNull(updates[i]?.note);
+    if (!note) continue;
+    // Some notes are themselves the wrapped form — "Problematic register by
+    // 【CP_QC2_PAYATAS 1】,reason【Customer Goods are not Available】" — so unwrap
+    // when there is something to unwrap and keep the plain note otherwise.
+    return deepFindCourierReason(note) || note;
+  }
   return deepFindCourierReason(partner.extend_update) || deepFindCourierReason(partner) || null;
+}
+
+// A courier note only describes the CURRENT state while the courier is still
+// reporting failure. A delivered order keeps the note from the attempt that
+// failed before the successful retry, and storing that as the order's reason
+// reads as "this one failed" about an order that arrived.
+const COURIER_FAILURE_STATES = new Set(['undeliverable', 'returning', 'returned']);
+
+// When the courier first failed this order. Pancake sets first_undeliverable_at
+// on some partners only (13 of 47 orders held today), so fall back to the newest
+// history entry carrying a failure note, then to the partner's own updated_at.
+// This is what lets an order that has been stuck for two months sort to the top
+// instead of hiding on page three.
+function getPosUndeliverableSince(partner) {
+  if (!partner || typeof partner !== 'object') return null;
+  const direct = normalizePosTimestamp(partner.first_undeliverable_at);
+  if (direct) return direct;
+  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+  for (let i = updates.length - 1; i >= 0; i--) {
+    if (stringOrNull(updates[i]?.note)) {
+      const at = normalizePosTimestamp(updates[i]?.update_at);
+      if (at) return at;
+    }
+  }
+  return normalizePosTimestamp(partner.updated_at);
 }
 
 function extractAttemptNumber(item, tags) {
