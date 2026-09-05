@@ -1,0 +1,30 @@
+{
+  "artboards": [
+    { "file": "Current.dc.html", "x": 0, "y": 0, "w": 1184, "h": 760, "title": "Today", "print": "fixed" },
+    { "file": "Main.dc.html", "x": 1284, "y": 0, "w": 1184, "h": 1620, "title": "Redesigned Analytics", "print": "fixed" }
+  ],
+  "annotations": [
+    {
+      "id": "note-today",
+      "x": 0,
+      "y": -190,
+      "w": 520,
+      "text": "TODAY\nYou land on a line chart whose axis runs 0-100%, so every real rate (8-27%) hugs the floor and the bands look identical.\nThe other four breakdowns are one pill-click away, one at a time - you can never see two cuts together, and nothing on the tab tells you the totals they are a share of."
+    },
+    {
+      "id": "note-redesign",
+      "x": 1284,
+      "y": -190,
+      "w": 560,
+      "text": "REDESIGNED\n1. Totals first - the denominator every table below is a share of.\n2. Price is the one ORDERED dimension, so it stays the chart - as columns, on a 0-20% axis, with thin-sample bands greyed.\n3. The three unordered cuts (staff, page, province) become ranked cards you read at once.\n4. The old pills survive as a switcher for the detail table, so Stocks and every full table are still one click away.\nSame tokens throughout: DM Sans, 12px radii, the existing stat-card, filter-pill and RTS-chip anatomy."
+    },
+    {
+      "id": "note-data",
+      "x": 1284,
+      "y": 1680,
+      "w": 560,
+      "text": "One data nit, not a design choice: provinces arrive slugified - \"Metro-manila\", \"Davao-del-sur\", \"South-cotabato\". I title-cased them here. Worth fixing where they are extracted, not in the view."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
