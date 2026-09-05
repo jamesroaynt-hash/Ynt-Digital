@@ -18754,17 +18754,24 @@ function renderPosOrdersTable() {
   tbody.innerHTML = DB.posRawOrders.map((order) => {
     const tags = Array.isArray(order.tags) ? order.tags : [];
     const tagLabels = tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean);
-    const [statusText, statusClass] = posStatusMap[order.status_name] || [
-      order.status_name ? order.status_name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : null,
-      'badge-gray',
-    ];
+    // Pancake has no undeliverable ORDER status, so a parcel the courier gave up
+    // on months ago still says 'shipped'. Past the abandonment cutoff the server
+    // counts it as returned; show the same thing rather than a status nobody
+    // believes. status_name itself is left as Pancake sent it.
+    const [statusText, statusClass] = order.abandoned_undeliverable
+      ? ['Returned', 'badge-danger']
+      : posStatusMap[order.status_name] || [
+        order.status_name ? order.status_name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : null,
+        'badge-gray',
+      ];
     const statusLabel = statusText
       ? `<span class="badge ${statusClass}">${escapeHtml(statusText)}</span>`
       : dash;
     if (isRmoPage) {
       const product = order.note_product || 'POS order';
       const tagHtml = tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('');
-      const statusTone = ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
+      const statusTone = order.abandoned_undeliverable ? 'danger'
+        : ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
         : order.status_name === 'delivered' ? 'success'
         : ['shipped', 'submitted', 'wait_print'].includes(order.status_name) ? 'primary'
         : 'info';

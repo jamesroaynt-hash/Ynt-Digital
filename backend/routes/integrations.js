@@ -308,6 +308,11 @@ module.exports = function integrationRoutes(db) {
     try {
       const { month, date_from, date_to, page } = req.query;
 
+      // An undeliverable order older than the cutoff counts as returned — see
+      // ABANDONED_UNDELIVERABLE_DAYS in the POS sync. The cutoff date is inlined
+      // in the expression, so no query using it needs an extra bound parameter.
+      const effStatus = posSync.effectivePosStatusSql();
+
       const conditions = [];
       const params = [];
       if (month) {
@@ -324,10 +329,10 @@ module.exports = function integrationRoutes(db) {
       const totalsRow = await db.prepare(`
         SELECT
           COUNT(*) as total,
-          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
-          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
-          SUM(CASE WHEN status_name = 'shipped'   THEN 1 ELSE 0 END) as shipped,
+          SUM(CASE WHEN ${effStatus} = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN ${effStatus} = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN ${effStatus} = 'returning' THEN 1 ELSE 0 END) as returning,
+          SUM(CASE WHEN ${effStatus} = 'shipped'   THEN 1 ELSE 0 END) as shipped,
           SUM(CASE WHEN status_name = 'wait_print' THEN 1 ELSE 0 END) as wait_print,
           -- The courier's own verdict, not a tag someone typed. The tag is
           -- sticky (it survives the order being delivered later) and drifted
@@ -362,9 +367,9 @@ module.exports = function integrationRoutes(db) {
         SELECT
           confirmed_by_name as label,
           COUNT(*) as total,
-          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
-          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          SUM(CASE WHEN ${effStatus} = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN ${effStatus} = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN ${effStatus} = 'returning' THEN 1 ELSE 0 END) as returning,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${confirmedWhere}
         GROUP BY confirmed_by_name
@@ -412,9 +417,9 @@ module.exports = function integrationRoutes(db) {
         SELECT
           ad_id as label,
           COUNT(*) as total,
-          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
-          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          SUM(CASE WHEN ${effStatus} = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN ${effStatus} = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN ${effStatus} = 'returning' THEN 1 ELSE 0 END) as returning,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${adWhere}
         GROUP BY ad_id
@@ -445,9 +450,9 @@ module.exports = function integrationRoutes(db) {
             ELSE 'PHP 5,000+'
           END as label,
           COUNT(*) as total,
-          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
-          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          SUM(CASE WHEN ${effStatus} = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN ${effStatus} = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN ${effStatus} = 'returning' THEN 1 ELSE 0 END) as returning,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${where}
         GROUP BY label
@@ -465,7 +470,7 @@ module.exports = function integrationRoutes(db) {
 
       // byProvince — load 3 columns, JS JSON extraction (avoids SQL dialect diff)
       const provinceRows = await db.prepare(
-        `SELECT shipping_address_json, status_name, cod FROM pos_orders ${where}`
+        `SELECT shipping_address_json, ${effStatus} AS status_name, cod FROM pos_orders ${where}`
       ).all(...params);
       const provinceMap = {};
       for (const row of provinceRows) {
@@ -491,9 +496,9 @@ module.exports = function integrationRoutes(db) {
         SELECT
           page_name as label,
           COUNT(*) as total,
-          SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
-          SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
+          SUM(CASE WHEN ${effStatus} = 'delivered' THEN 1 ELSE 0 END) as delivered,
+          SUM(CASE WHEN ${effStatus} = 'returned'  THEN 1 ELSE 0 END) as returned,
+          SUM(CASE WHEN ${effStatus} = 'returning' THEN 1 ELSE 0 END) as returning,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${pageWhere}
         GROUP BY page_name

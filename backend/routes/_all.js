@@ -315,13 +315,22 @@ function ordersRoutes(db, { dispatch } = {}) {
     shipped: 'Shipped', delivered: 'Delivered',
     returning: 'Returning', returned: 'Returned',
   };
-  function posDisplayStatus(statusName) {
+  // Pass the whole row where you have one: an undeliverable order the courier
+  // abandoned reads as Returned, matching POS_STATUS_CASE below. Callers with
+  // only a status name still work — they just cannot see the courier.
+  function posDisplayStatus(statusNameOrRow) {
+    const row = (statusNameOrRow && typeof statusNameOrRow === 'object') ? statusNameOrRow : null;
+    const statusName = row ? row.status_name : statusNameOrRow;
+    if (row && pancakePosSync.isAbandonedUndeliverable(row)) return 'Returned';
     if (!statusName) return 'New';
     return POS_STATUS_DISPLAY[statusName]
       || (statusName.charAt(0).toUpperCase() + statusName.slice(1));
   }
   // SQL CASE producing the same display status, for GROUP BY aggregation.
+  // Reads the effective status, so an undeliverable order past the abandonment
+  // cutoff lands in Returned here exactly as it does on the row badge.
   const POS_STATUS_CASE = `CASE
+    WHEN ${pancakePosSync.effectivePosStatusSql()} = 'returned' THEN 'Returned'
     WHEN status_name = 'new' THEN 'New'
     WHEN status_name = 'submitted' THEN 'Confirmed'
     WHEN status_name IN ('pending','wait_print','waitting') THEN 'Waiting for pickup'
@@ -355,7 +364,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       product: row.note_product || '',
       qty,
       cod_amount: Number(row.cod || 0),
-      status: posDisplayStatus(row.status_name),
+      status: posDisplayStatus(row),
       courier,
       source_sheet: row.page_name || 'POS',
       confirmed_by: row.assigning_seller_name || '',
@@ -457,6 +466,7 @@ function ordersRoutes(db, { dispatch } = {}) {
              inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              customer_name, customer_phone, note_product, items_json, tags_json,
              attempts, cod, assigning_seller_name, status_name,
+             partner_status, undeliverable_since,
              sprinter_name, partner_json, shipping_address_json, updated_at
       FROM pos_orders ${deltaWhere}
       ORDER BY ${effectiveInsertedAt} DESC, id DESC
@@ -1067,6 +1077,9 @@ function ordersRoutes(db, { dispatch } = {}) {
     const statusCountRows = await db.prepare(`
       SELECT
         CASE
+          -- An undeliverable the courier abandoned counts as Returned here too,
+          -- so the pills agree with the badges beneath them.
+          WHEN ${pancakePosSync.effectivePosStatusSql()} = 'returned' THEN 'Returned'
           WHEN status_name = 'new' THEN 'New'
           WHEN status_name = 'submitted' THEN 'Confirmed'
           WHEN status_name IN ('pending','wait_print','waitting') THEN 'Waiting for pickup'
@@ -1165,6 +1178,9 @@ function ordersRoutes(db, { dispatch } = {}) {
         partner_reason: row.partner_reason || null,
         undeliverable_since: row.undeliverable_since || null,
         days_undeliverable: daysSince(row.undeliverable_since),
+        // Pancake still says 'shipped' — it has no undeliverable order status —
+        // but the courier gave up two months ago and nobody is retrying it.
+        abandoned_undeliverable: pancakePosSync.isAbandonedUndeliverable(row),
         customer_history: posHistoryFor(history, row.customer_phone),
       })),
       status_counts: statusCountRows,

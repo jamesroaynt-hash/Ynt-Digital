@@ -1304,23 +1304,65 @@ function getPosUndeliverableReason(partner) {
 // reads as "this one failed" about an order that arrived.
 const COURIER_FAILURE_STATES = new Set(['undeliverable', 'returning', 'returned']);
 
+// Pancake has no "undeliverable" ORDER status, so a failed delivery leaves the
+// order sitting at 'shipped' forever. Most of those are still in a retry cycle
+// and really are shipped — 2,916 orders carrying a failed-attempt note went on
+// to be delivered. Past this many days they are not retrying, they are gone, so
+// every count treats them as returned. The parcel is written off; only the
+// display changes, status_name still holds what Pancake says.
+const ABANDONED_UNDELIVERABLE_DAYS = 60;
+
+// The date on or before which an undeliverable order counts as returned.
+// Compared against SUBSTR(undeliverable_since, 1, 10) so the time part and its
+// separator never matter.
+function abandonedUndeliverableCutoff(now = new Date()) {
+  const cutoff = new Date(now.getTime() - ABANDONED_UNDELIVERABLE_DAYS * 86400000);
+  return cutoff.toISOString().slice(0, 10);
+}
+
+// SQL that yields the status every count should use: Pancake's, except for the
+// abandoned undeliverables. The cutoff is inlined rather than bound because the
+// expression lands in SELECT lists several times per query and threading a
+// parameter into each one, ahead of the WHERE clause's own, is how you get a
+// silently mis-shifted params array. It is a server-generated date, stripped to
+// digits and dashes, never anything a caller supplies.
+function effectivePosStatusSql(cutoff = abandonedUndeliverableCutoff(), column = 'status_name') {
+  const safe = String(cutoff).slice(0, 10).replace(/[^0-9-]/g, '');
+  return `CASE WHEN LOWER(COALESCE(partner_status,'')) = 'undeliverable'
+                 AND undeliverable_since IS NOT NULL
+                 AND SUBSTR(undeliverable_since, 1, 10) <= '${safe}'
+            THEN 'returned' ELSE ${column} END`;
+}
+
+// The same test for a single row already loaded.
+function isAbandonedUndeliverable(row, now = new Date()) {
+  if (String(row?.partner_status || '').toLowerCase() !== 'undeliverable') return false;
+  const since = String(row?.undeliverable_since || '').slice(0, 10);
+  return Boolean(since) && since <= abandonedUndeliverableCutoff(now);
+}
+
 // When the courier first failed this order. Pancake sets first_undeliverable_at
 // on some partners only (13 of 47 orders held today), so fall back to the newest
 // history entry carrying a failure note, then to the partner's own updated_at.
 // This is what lets an order that has been stuck for two months sort to the top
 // instead of hiding on page three.
+function normalizeStoredTimestamp(value) {
+  const text = normalizePosTimestamp(value);
+  return text ? String(text).replace('T', ' ').slice(0, 19) : null;
+}
+
 function getPosUndeliverableSince(partner) {
   if (!partner || typeof partner !== 'object') return null;
-  const direct = normalizePosTimestamp(partner.first_undeliverable_at);
+  const direct = normalizeStoredTimestamp(partner.first_undeliverable_at);
   if (direct) return direct;
   const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
   for (let i = updates.length - 1; i >= 0; i--) {
     if (stringOrNull(updates[i]?.note)) {
-      const at = normalizePosTimestamp(updates[i]?.update_at);
+      const at = normalizeStoredTimestamp(updates[i]?.update_at);
       if (at) return at;
     }
   }
-  return normalizePosTimestamp(partner.updated_at);
+  return normalizeStoredTimestamp(partner.updated_at);
 }
 
 function extractAttemptNumber(item, tags) {
@@ -3594,6 +3636,10 @@ async function fetchCustomerStats(db, phone, { shopId = null, orderId = null, re
 
 module.exports = {
   PROVIDER,
+  ABANDONED_UNDELIVERABLE_DAYS,
+  abandonedUndeliverableCutoff,
+  effectivePosStatusSql,
+  isAbandonedUndeliverable,
   POS_API_BASE,
   unixSecondsFromDate,
   pruneOldData,
