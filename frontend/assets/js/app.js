@@ -5655,6 +5655,14 @@ function renderAttendance() {
     </div>
   </div>
 
+  <div class="tabs att-tabs-hidden" id="attendance-tabs" style="margin-bottom:16px;">
+    <button class="tab-btn active" onclick="switchTab(this,'attendance-tab-clock')">Time Clock</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-cash')">Cash Advance</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-leave')">Request Leave</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-ot'); loadMyOTRequests();">Overtime</button>
+    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-hours'); loadMyWorkHours();">Work Hours</button>
+  </div>
+
   <div id="attendance-back" class="att-back hidden">
     <button class="btn btn-secondary btn-sm" onclick="showAttendancePanel('attendance-tab-clock')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
@@ -14554,17 +14562,20 @@ const ATT_PANEL_TITLES = {
 };
 
 function showAttendancePanel(contentId) {
-  Object.keys(ATT_PANEL_TITLES).forEach((id) => {
-    document.getElementById(id)?.classList.toggle('active', id === contentId);
-  });
+  const tabBtn = [...document.querySelectorAll('#attendance-tabs .tab-btn')]
+    .find((b) => (b.getAttribute('onclick') || '').includes(`'${contentId}'`));
+  if (tabBtn) {
+    tabBtn.click(); // switchTab + whatever loader that tab carries
+  } else {
+    Object.keys(ATT_PANEL_TITLES).forEach((id) => {
+      document.getElementById(id)?.classList.toggle('active', id === contentId);
+    });
+  }
 
   const back = document.getElementById('attendance-back');
   if (back) back.classList.toggle('hidden', contentId === 'attendance-tab-clock');
   const title = document.getElementById('attendance-back-title');
   if (title) title.textContent = ATT_PANEL_TITLES[contentId] || '';
-
-  if (contentId === 'attendance-tab-ot' && typeof loadMyOTRequests === 'function') loadMyOTRequests();
-  if (contentId === 'attendance-tab-hours' && typeof loadMyWorkHours === 'function') loadMyWorkHours();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 

@@ -4079,6 +4079,11 @@ tfoot td {
   min-width: 0;
 }
 
+/* The attendance tab bar is hidden rather than gone: the quick actions drive
+   the same buttons, so switchTab still owns which panel is active. Remove this
+   class from the markup to bring the bar back. */
+.att-tabs-hidden { display: none; }
+
 /* Shown only when a quick action has taken over the page. */
 .att-back {
   display: flex;
