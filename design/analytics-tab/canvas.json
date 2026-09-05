@@ -1,7 +1,7 @@
 {
   "artboards": [
     { "file": "Current.dc.html", "x": 0, "y": 0, "w": 1184, "h": 760, "title": "Today", "print": "fixed" },
-    { "file": "Main.dc.html", "x": 1284, "y": 0, "w": 1184, "h": 1620, "title": "Redesigned Analytics", "print": "fixed" }
+    { "file": "Main.dc.html", "x": 1284, "y": 0, "w": 1184, "h": 1790, "title": "Redesigned Analytics", "print": "fixed" }
   ],
   "annotations": [
     {
@@ -21,7 +21,7 @@
     {
       "id": "note-data",
       "x": 1284,
-      "y": 1680,
+      "y": 1850,
       "w": 560,
       "text": "One data nit, not a design choice: provinces arrive slugified - \"Metro-manila\", \"Davao-del-sur\", \"South-cotabato\". I title-cased them here. Worth fixing where they are extracted, not in the view."
     }
