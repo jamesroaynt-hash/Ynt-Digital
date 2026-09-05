@@ -68,6 +68,7 @@ function rowToConnection(row) {
     botcake_token: stringOrNull(row.botcake_token),
     notes: stringOrNull(row.notes) || '',
     webhook_secret: stringOrNull(row.webhook_secret),
+    last_webhook_at: stringOrNull(row.last_webhook_at),
   };
 }
 
@@ -3321,6 +3322,8 @@ async function receiveWebhook(db, payload = {}) {
     if (localId) localIds.push(localId);
   }
 
+  if (shopId) await markWebhookReceived(db, shopId);
+
   return {
     provider: PROVIDER,
     mode: 'webhook',
@@ -3328,6 +3331,19 @@ async function receiveWebhook(db, payload = {}) {
     received: orders.length,
     stored: localIds.length,
   };
+}
+
+// One tiny update per receipt, on the connection row rather than a new sync-run
+// row per event — Pancake fires per order change, and a run row each would bury
+// the actual sync history.
+async function markWebhookReceived(db, shopId) {
+  try {
+    await db.prepare(
+      `UPDATE integration_settings SET last_webhook_at = ?
+       WHERE provider = ? AND page_id = ?`
+    ).run(new Date().toISOString().replace('T', ' ').slice(0, 19), PROVIDER, String(shopId));
+    invalidateSavedConnectionsCache();
+  } catch { /* visibility only — never fail a webhook over it */ }
 }
 
 async function getStatus(db) {

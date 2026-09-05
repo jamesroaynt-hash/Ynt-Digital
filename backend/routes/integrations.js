@@ -103,6 +103,10 @@ module.exports = function integrationRoutes(db) {
     return bearer === expected
       || req.headers['x-pancake-signature'] === expected
       || req.headers['x-webhook-secret'] === expected
+      // Pancake's own webhook form offers 'Request Headers' and everyone
+      // reaches for x-api-key, so accept that spelling too rather than have the
+      // pushes silently 401 while the form looks correctly filled in.
+      || req.headers['x-api-key'] === expected
       || req.query.secret === expected;
   }
 
