@@ -656,13 +656,13 @@ if (require.main === module) {
 
           // Runs left at 'running' by a process that stopped mid-cycle: close
           // them so the per-shop watermark cannot read one as progress.
-          app.locals.pancakePosSync.closeStuckRuns(db)
+          pancakePosSync.closeStuckRuns(app.locals.db)
             .then((closed) => {
               if (closed) console.log(`[pancake_pos] closed ${closed} sync run(s) left running by a stopped process.`);
             })
             .catch((error) => console.warn(`[pancake_pos] could not close stuck runs: ${error.message}`));
 
-          schedulePancakePosSync();
+          app.locals.schedulePancakePosSync();
           app.locals.schedulePosReconcile();
         }
 
