@@ -820,6 +820,17 @@ function runMigrations(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  // Order-tag aliases. The same tag is typed many ways in the POS — five
+  // spellings of the second attempt, five of AUTO REJECT — so anything that
+  // counts or filters by tag name splits across them. Case and stray whitespace
+  // fold automatically; this map is for the rest ("2ND ATTEMP" -> "2ND ATTEMPT").
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tag_merge_map (
+      alias TEXT PRIMARY KEY,
+      canonical TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
   // Permanent per-order pickup log: one row the first time an order is tagged
   // "Picked up" (any tag containing "picked up"), stamped with the Manila day.
   // Independent of pos_orders so the Daily Pickup → Pickup Status counts survive
@@ -1320,6 +1331,15 @@ async function runPostgresMigrations(db) {
   // `canonical` (combined) in the Data Report "By Confirmed By" card.
   await db.exec(`
     CREATE TABLE IF NOT EXISTS staff_merge_map (
+      alias TEXT PRIMARY KEY,
+      canonical TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  // See the sync path above: order-tag aliases, for the spellings that folding
+  // case and whitespace cannot reconcile.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS tag_merge_map (
       alias TEXT PRIMARY KEY,
       canonical TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

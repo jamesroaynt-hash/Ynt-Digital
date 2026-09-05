@@ -59,6 +59,89 @@ function ordersRoutes(db, { dispatch } = {}) {
     }).format(d);
   }
 
+  // The same order tag is typed many ways in the POS — "2ND ATTEMPT",
+  // "2nd Attempt", "2ND ATTEMPT " and "2ND ATTEMP" are one tag to a human and
+  // four to a LIKE filter. Case, repeated spaces and trailing dots fold
+  // automatically; genuine misspellings need tag_merge_map.
+  function foldTag(name) {
+    return String(name || '').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '').toUpperCase();
+  }
+
+  function posTagLabel(tag) {
+    if (typeof tag === 'string') return tag;
+    return tag?.name || tag?.tag_name || tag?.label || '';
+  }
+
+  // canonical key -> { label, variants: [raw spellings], count }. Built from the
+  // stored tags once and cached: 60 distinct strings across the whole table, so
+  // the scan is cheap, but not cheap enough to repeat per request.
+  let tagVocabCache = { at: 0, value: null };
+  const TAG_VOCAB_TTL_MS = 5 * 60 * 1000;
+
+  async function posTagVocabulary() {
+    if (tagVocabCache.value && Date.now() - tagVocabCache.at < TAG_VOCAB_TTL_MS) {
+      return tagVocabCache.value;
+    }
+    const merges = {};
+    try {
+      for (const row of await db.prepare('SELECT alias, canonical FROM tag_merge_map').all()) {
+        const alias = foldTag(row.alias);
+        const canonical = foldTag(row.canonical);
+        if (alias && canonical) merges[alias] = canonical;
+      }
+    } catch { /* table not created yet — fold only */ }
+    const resolve = (key) => {
+      let cur = key;
+      const seen = new Set();
+      while (merges[cur] && !seen.has(cur)) { seen.add(cur); cur = merges[cur]; }
+      return cur;
+    };
+
+    const rows = await db.prepare(
+      `SELECT tags_json FROM pos_orders
+       WHERE tags_json IS NOT NULL AND TRIM(tags_json) NOT IN ('', '[]', 'null')`
+    ).all();
+    const vocab = new Map();
+    for (const row of rows) {
+      for (const tag of parseJsonObject(row.tags_json, [])) {
+        const raw = posTagLabel(tag);
+        if (!raw) continue;
+        const key = resolve(foldTag(raw));
+        if (!key) continue;
+        if (!vocab.has(key)) vocab.set(key, { key, variants: new Map(), count: 0 });
+        const entry = vocab.get(key);
+        entry.count += 1;
+        entry.variants.set(raw, (entry.variants.get(raw) || 0) + 1);
+      }
+    }
+    // Label each group with its most-used spelling — the one people recognise.
+    const value = [...vocab.values()].map((entry) => ({
+      key: entry.key,
+      count: entry.count,
+      label: [...entry.variants.entries()].sort((a, b) => b[1] - a[1])[0][0].trim(),
+      variants: [...entry.variants.keys()],
+    })).sort((a, b) => a.key.localeCompare(b.key));
+    tagVocabCache = { at: Date.now(), value };
+    return value;
+  }
+
+  function invalidateTagVocabulary() { tagVocabCache = { at: 0, value: null }; }
+
+  // A tag filter has to match every spelling of the tag it names, so the clause
+  // is an OR over the group's raw variants rather than one LIKE.
+  async function posTagFilterClause(selected) {
+    const key = foldTag(selected);
+    if (!key) return null;
+    const vocab = await posTagVocabulary();
+    const entry = vocab.find((e) => e.key === key)
+      || vocab.find((e) => foldTag(e.label) === key);
+    const variants = entry ? entry.variants : [String(selected)];
+    return {
+      clause: `(${variants.map(() => `LOWER(COALESCE(tags_json,'')) LIKE ?`).join(' OR ')})`,
+      params: variants.map((v) => `%${String(v).toLowerCase()}%`),
+    };
+  }
+
   // Calendar days between a stored POS timestamp and today. Counted on the date
   // part, not on elapsed hours, because the abandonment cutoff compares dates:
   // measuring one in hours and the other in dates flips an order to Returned
@@ -394,6 +477,14 @@ function ordersRoutes(db, { dispatch } = {}) {
   }
 
   // Single filter builder for all pos_orders-backed dashboard reads.
+  // posDashboardWhere stays synchronous; the tag lookup that needs the database
+  // is resolved here first and handed in on the query object.
+  async function withTagClause(query = {}) {
+    const selected = query.pos_tag || query.tags;
+    if (!selected || selected === 'all') return query;
+    return { ...query, __tagClause: await posTagFilterClause(selected) };
+  }
+
   function posDashboardWhere(q = {}) {
     const { manilaDay } = posManilaExprs();
     const params = [];
@@ -411,7 +502,14 @@ function ordersRoutes(db, { dispatch } = {}) {
     if (sourceVal && sourceVal !== 'all') { where += ` AND page_name = ?`; params.push(String(sourceVal)); }
     if (q.product && q.product !== 'all') { where += ` AND LOWER(COALESCE(note_product,'')) LIKE ?`; params.push(`%${String(q.product).toLowerCase()}%`); }
     const tagVal = q.pos_tag || q.tags;
-    if (tagVal && tagVal !== 'all') { where += ` AND LOWER(COALESCE(tags_json,'')) LIKE ?`; params.push(`%${String(tagVal).toLowerCase()}%`); }
+    // Resolved by the caller (async) and passed in, so this stays synchronous.
+    if (tagVal && tagVal !== 'all' && q.__tagClause) {
+      where += ` AND ${q.__tagClause.clause}`;
+      params.push(...q.__tagClause.params);
+    } else if (tagVal && tagVal !== 'all') {
+      where += ` AND LOWER(COALESCE(tags_json,'')) LIKE ?`;
+      params.push(`%${String(tagVal).toLowerCase()}%`);
+    }
 
     if (q.month && q.month !== 'all') {
       const y = q.year && q.year !== 'all' ? Number(q.year) : new Date().getUTCFullYear();
@@ -450,7 +548,7 @@ function ordersRoutes(db, { dispatch } = {}) {
     const pageNum = Math.max(1, parseInt(req.query.page) || 1);
     const offset = (pageNum - 1) * perPage;
     const { effectiveInsertedAt } = posManilaExprs();
-    const { where, params } = posDashboardWhere(req.query);
+    const { where, params } = posDashboardWhere(await withTagClause(req.query));
 
     // Incremental delta: ?since=<updated_at> returns only rows changed at/after
     // that watermark so the client can upsert instead of re-pulling the whole
@@ -497,7 +595,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   });
 
   r.get('/summary', async (req, res) => {
-    const { where, params } = posDashboardWhere(req.query);
+    const { where, params } = posDashboardWhere(await withTagClause(req.query));
     const rows = await db.prepare(`
       SELECT status, COUNT(*) AS count, COALESCE(SUM(cod), 0) AS total_cod
       FROM (SELECT ${POS_STATUS_CASE} AS status, cod FROM pos_orders ${where}) t
@@ -964,8 +1062,12 @@ function ordersRoutes(db, { dispatch } = {}) {
     }
 
     if (tags && tags !== 'all') {
-      where += ` AND LOWER(COALESCE(tags_json,'')) LIKE ?`;
-      params.push(`%${String(tags).toLowerCase()}%`);
+      // Every spelling of the selected tag, not just the one the dropdown shows.
+      const tagClause = await posTagFilterClause(tags);
+      if (tagClause) {
+        where += ` AND ${tagClause.clause}`;
+        params.push(...tagClause.params);
+      }
     }
 
     if (attempts && attempts !== 'all') {
@@ -1138,12 +1240,17 @@ function ordersRoutes(db, { dispatch } = {}) {
       SELECT note_product, page_name, tags_json
       FROM pos_orders ${where}
     `).all(...params);
+    // Collapse tag spellings to one option each: the dropdown listed "2ND
+    // ATTEMPT", "2nd Attempt", "2ND ATTEMPT " and "2ND ATTEMP" as four choices.
+    const tagVocab = await posTagVocabulary();
+    const tagKeyToLabel = new Map(tagVocab.map((e) => [e.key, e.label]));
     const filterOptions = filterOptionRows.reduce((acc, row) => {
       if (row.note_product) acc.products.add(row.note_product);
       if (row.page_name) acc.pages.add(row.page_name);
       parseJsonObject(row.tags_json, []).forEach((tag) => {
-        const label = typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '');
-        if (label) acc.tags.add(label);
+        const raw = posTagLabel(tag);
+        if (!raw) return;
+        acc.tags.add(tagKeyToLabel.get(foldTag(raw)) || raw.trim());
       });
       return acc;
     }, { products: new Set(), pages: new Set(), tags: new Set() });
@@ -1307,6 +1414,49 @@ function ordersRoutes(db, { dispatch } = {}) {
       res.json(result);
     } catch (error) {
       res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Tag alias map: which spellings are the same tag. Case and stray whitespace
+  // already fold on their own, so this is only for real differences like
+  // "2ND ATTEMP" -> "2ND ATTEMPT". Same shape as the staff merge map.
+  r.get('/pos-orders/tag-merge-map', async (req, res) => {
+    try {
+      const map = await db.prepare('SELECT alias, canonical FROM tag_merge_map ORDER BY canonical, alias').all();
+      const vocab = await posTagVocabulary();
+      res.json({
+        map,
+        tags: vocab.map((entry) => ({
+          key: entry.key,
+          label: entry.label,
+          count: entry.count,
+          variants: entry.variants,
+        })),
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  r.put('/pos-orders/tag-merge-map', async (req, res) => {
+    try {
+      const alias = foldTag(req.body?.alias);
+      const canonical = foldTag(req.body?.canonical);
+      if (!alias) return res.status(400).json({ error: 'alias required' });
+      if (!canonical || canonical === alias) {
+        await db.prepare('DELETE FROM tag_merge_map WHERE alias = ?').run(alias);
+        invalidateTagVocabulary();
+        return res.json({ success: true, alias, canonical: '' });
+      }
+      await db.prepare(`
+        INSERT INTO tag_merge_map (alias, canonical, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(alias) DO UPDATE SET canonical = excluded.canonical, updated_at = datetime('now')
+      `).run(alias, canonical);
+      invalidateTagVocabulary();
+      res.json({ success: true, alias, canonical });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
   });
 

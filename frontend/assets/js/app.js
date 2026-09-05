@@ -6827,6 +6827,86 @@ function renderStockAnalyticsCard() {
     </section>`;
 }
 
+// Order-tag aliases. The same tag is typed several ways in the POS, so the tag
+// dropdown used to list "2ND ATTEMPT", "2nd Attempt" and "2ND ATTEMP" as three
+// separate choices that each matched a different slice of the orders. Case and
+// stray whitespace fold on the server automatically; this is for the rest.
+async function openTagMergeModal() {
+  let overlay = document.getElementById('tag-merge-modal');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'tag-merge-modal';
+    overlay.className = 'modal-overlay';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.remove('open'); };
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:620px;">
+      <div class="modal-header">
+        <div class="modal-title">Merge Order Tags</div>
+        <button class="modal-close" onclick="document.getElementById('tag-merge-modal').classList.remove('open')">&times;</button>
+      </div>
+      <div class="modal-body" id="tag-merge-body">
+        <div class="loading-spinner" style="margin:32px auto;"></div>
+      </div>
+    </div>`;
+  overlay.classList.add('open');
+  await renderTagMergeBody();
+}
+
+async function renderTagMergeBody() {
+  const body = document.getElementById('tag-merge-body');
+  if (!body) return;
+  try {
+    const data = await authorizedJsonRequest(`/orders/pos-orders/tag-merge-map?_=${Date.now()}`);
+    const tags = Array.isArray(data.tags) ? data.tags : [];
+    const map = {};
+    (Array.isArray(data.map) ? data.map : []).forEach((m) => { if (m.alias) map[m.alias] = m.canonical || ''; });
+    if (!tags.length) {
+      body.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>No order tags found yet.</p></div>`;
+      return;
+    }
+    const datalist = `<datalist id="tag-merge-options">${tags.map((t) => `<option value="${escapeHtml(t.key)}"></option>`).join('')}</datalist>`;
+    const rows = tags.map((t) => {
+      const spellings = t.variants.length > 1
+        ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${t.variants.length} spellings: ${escapeHtml(t.variants.join(' · '))}</div>`
+        : '';
+      return `<tr>
+        <td>
+          <div style="font-weight:500;">${escapeHtml(t.label)}</div>
+          ${spellings}
+        </td>
+        <td class="num" style="text-align:right;color:var(--text-secondary);">${Number(t.count || 0).toLocaleString()}</td>
+        <td><input type="text" class="form-control" style="width:190px;padding:4px 8px;height:auto;font-size:12px;" list="tag-merge-options" value="${escapeHtml(map[t.key] || '')}" placeholder="Keep separate" onchange="saveTagMerge('${encodeURIComponent(t.key)}', this.value)"></td>
+      </tr>`;
+    }).join('');
+    body.innerHTML = `
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Different spellings of one tag already count together — case and extra spaces are ignored. Use this for the rest, e.g. merge <strong>2ND ATTEMP</strong> into <strong>2ND ATTEMPT</strong>. Merging affects the tag filter, not the tags stored in Pancake.</p>
+      ${datalist}
+      <table class="data-report-table">
+        <thead><tr><th>Tag</th><th style="text-align:right;width:80px;">Orders</th><th style="width:200px;">Merge into</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch (err) {
+    body.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>Failed to load: ${escapeHtml(err.message || 'error')}</p></div>`;
+  }
+}
+
+async function saveTagMerge(aliasEnc, canonical) {
+  const alias = decodeURIComponent(aliasEnc);
+  try {
+    await authorizedJsonRequest('/orders/pos-orders/tag-merge-map', {
+      method: 'PUT',
+      body: JSON.stringify({ alias, canonical }),
+    });
+    showToast('success', 'Tags merged', canonical ? `${alias} now counts as ${canonical}.` : `${alias} kept separate.`);
+    await renderTagMergeBody();
+    if (typeof loadPosOrders === 'function') loadPosOrders();
+  } catch (err) {
+    showToast('warning', 'Could not save', err.message || 'Failed to update the tag merge.');
+  }
+}
+
 // Persistent staff alias merge (Data Report "By Confirmed By" only). Maps a
 // confirmed_by_name to another name so their rows combine in the report.
 async function openStaffMergeModal() {
@@ -12334,6 +12414,7 @@ function renderRmoManagement() {
             <option value="all">All Tags</option>
             ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
           </select>
+          <button class="btn btn-secondary btn-sm" onclick="openTagMergeModal()" title="Merge different spellings of the same tag">Merge tags…</button>
           <select class="rmo-select" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
             <option value="all">All Products</option>
             ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
