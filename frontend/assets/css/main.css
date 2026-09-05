@@ -3945,6 +3945,222 @@ tfoot td {
 .data-report-rate.bad { background: var(--danger-soft); color: var(--danger-text); }
 .data-report-rate.thin { background: var(--surface-3); color: var(--text-muted); }
 
+/* ─── TIME CLOCK ──────────────────────────────────────────────
+   The day's punches as one timeline, with hours-to-target and the
+   things people came here to do beside it. */
+.att-clock-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.att-now { padding: 20px 22px 22px; }
+
+.att-now-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.att-now-date {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.att-now-state {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+  margin-top: 4px;
+}
+
+.att-now-state.idle   { color: var(--text-muted); }
+.att-now-state.break  { color: var(--warning); }
+.att-now-state.done   { color: var(--success); }
+
+.att-loading {
+  padding: 26px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.att-timeline-wrap { margin: 22px 0 4px; }
+
+.att-timeline {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  position: relative;
+}
+
+/* the rule the dots sit on */
+.att-timeline::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: var(--border);
+}
+
+.att-step { position: relative; text-align: center; }
+
+.att-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  position: relative;
+  z-index: 1;
+}
+
+.att-step.done .att-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.att-step-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.att-step-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-step.done .att-step-time { color: var(--text-primary); }
+
+.att-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.att-actions .btn {
+  flex: 1 1 150px;
+  padding: 13px 18px;
+  font-size: 14px;
+}
+
+.att-actions .att-primary { flex: 1.3 1 190px; }
+
+.att-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.att-hours, .att-quick { padding: 18px 20px 20px; }
+
+.att-side-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.att-hours-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.att-hours-value {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 1.05;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.att-hours-target { font-size: 13px; color: var(--text-muted); }
+
+.att-hours-bar {
+  margin-top: 14px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.att-hours-bar span {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--transition);
+}
+
+.att-hours-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.att-quick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 13px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.att-quick-row:last-child { margin-bottom: 0; }
+
+.att-quick-row:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.att-quick-row svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.att-now .break-countdown { margin-top: 18px; }
+
+@media (max-width: 980px) {
+  .att-clock-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .att-timeline { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 18px; }
+  .att-timeline::before { display: none; }
+  .att-now-state { font-size: 18px; }
+  .att-hours-value { font-size: 28px; }
+}
+
 /* ─── INTEGRATIONS DATA FLOW ──────────────────────────────────
    A vertical read of where order data comes from, where it lands and
    who reads it — plus the last stage, which runs the other way. */

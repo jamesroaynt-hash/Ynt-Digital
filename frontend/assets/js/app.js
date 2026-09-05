@@ -5664,32 +5664,65 @@ function renderAttendance() {
   </div>
 
   <div id="attendance-tab-clock" class="tab-content active">
-    <div style="display:grid; grid-template-columns:${canManageHR() ? 'minmax(0, .9fr) minmax(320px, 1.1fr)' : 'minmax(0, 1fr)'}; gap:16px;">
-      <div class="card">
-        <div class="card-header">
-          <div><div class="card-title">Today Status</div><div class="card-subtitle">Use the buttons to clock in/out and record breaks.</div></div>
+    <div class="att-clock-grid">
+      <section class="card att-now">
+        <div class="att-now-head">
+          <div>
+            <div class="att-now-date">TODAY · <span id="att-today-date">${today}</span></div>
+            <div class="att-now-state" id="att-state">Checking…</div>
+          </div>
           <div class="philippine-clock" id="philippine-clock">--:--:--</div>
         </div>
-        <div class="card-body">
-          <div id="attendance-clock-status" class="empty-state"><h3>Loading attendance</h3><p>Checking today time record.</p></div>
 
-          <div id="attendance-break-countdown" class="break-countdown hidden" style="margin-top:14px;">
-            <div class="break-countdown-label" id="attendance-break-countdown-label">On break</div>
-            <div class="break-countdown-time" id="attendance-break-countdown-time">00:00</div>
-            <div class="break-countdown-bar"><span id="attendance-break-countdown-fill"></span></div>
-            <button class="btn btn-primary btn-sm" onclick="endBreakCountdown()" style="margin-top:8px;">End Break Now</button>
-          </div>
-
-          <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:16px;">
-            <button class="btn btn-primary btn-time-in" onclick="submitTimeClock('time_in')">Time In</button>
-            <button class="btn btn-primary" onclick="submitTimeClock('time_out')">Time Out</button>
-            <button class="btn btn-secondary btn-break" data-break="break" onclick="startBreakWithCountdown(60, 'break')">Break Out (1hr)</button>
-            <button class="btn btn-secondary btn-break" data-break="break2" onclick="startBreakWithCountdown(15, 'break2')">15-min Break</button>
-          </div>
+        <div id="attendance-clock-status" class="att-timeline-wrap">
+          <div class="att-loading">Checking today's time record…</div>
         </div>
-      </div>
 
-      ${canManageHR() ? `<div class="card">
+        <div id="attendance-break-countdown" class="break-countdown hidden">
+          <div class="break-countdown-label" id="attendance-break-countdown-label">On break</div>
+          <div class="break-countdown-time" id="attendance-break-countdown-time">00:00</div>
+          <div class="break-countdown-bar"><span id="attendance-break-countdown-fill"></span></div>
+          <button class="btn btn-primary btn-sm" onclick="endBreakCountdown()" style="margin-top:8px;">End Break Now</button>
+        </div>
+
+        <div class="att-actions">
+          <button class="btn btn-primary btn-time-in att-primary" onclick="submitTimeClock('time_in')">Time In</button>
+          <button class="btn btn-primary att-primary" onclick="submitTimeClock('time_out')">Time Out</button>
+          <button class="btn btn-secondary btn-break" data-break="break" onclick="startBreakWithCountdown(60, 'break')">Break (1hr)</button>
+          <button class="btn btn-secondary btn-break" data-break="break2" onclick="startBreakWithCountdown(15, 'break2')">15-min Break</button>
+        </div>
+      </section>
+
+      <div class="att-side">
+        <section class="card att-hours">
+          <div class="att-side-label">Hours today</div>
+          <div class="att-hours-row">
+            <div class="att-hours-value" id="att-hours-value">--</div>
+            <div class="att-hours-target">of 8h target</div>
+          </div>
+          <div class="att-hours-bar"><span id="att-hours-fill" style="width:0%;"></span></div>
+          <div class="att-hours-note" id="att-hours-note">Clock in to start counting.</div>
+        </section>
+
+        <section class="card att-quick">
+          <div class="att-side-label">Quick actions</div>
+          <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-cash')">
+            <span>Request cash advance</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+          <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-leave')">
+            <span>File a leave request</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+          <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-hours')">
+            <span>View work hours log</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+        </section>
+      </div>
+    </div>
+
+    ${canManageHR() ? `<div class="card">
         <div class="card-header"><div><div class="card-title">Time Inputs</div><div class="card-subtitle">Adjust the current day record when needed.</div></div></div>
         <div class="card-body">
           <div class="form-grid-2">
@@ -5725,7 +5758,6 @@ function renderAttendance() {
           <button class="btn btn-primary" onclick="saveAttendanceTimes()">Save Time Record</button>
         </div>
       </div>` : ''}
-    </div>
   </div>
 
   <div id="attendance-tab-cash" class="tab-content">
@@ -13933,6 +13965,9 @@ function startPhilippineClockTicker() {
     document.querySelectorAll('#philippine-clock, .philippine-clock').forEach((el) => {
       el.textContent = formatted;
     });
+    // Hours today counts up with the clock rather than freezing between
+    // punches — a figure that only moves when you press a button reads as broken.
+    attTickHoursToday();
   };
   tick();
   _philippineClockTimer = setInterval(tick, 1000);
@@ -14363,24 +14398,141 @@ function lockTimeInIfDone(record) {
   });
 }
 
-function renderAttendanceClockStatus(record, date) {
-  const wrapper = document.getElementById('attendance-clock-status');
-  lockTimeInIfDone(record);
-  if (!wrapper) return;
-  wrapper.className = '';
-  wrapper.innerHTML = `
-    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; text-align:left;">
-      <div><div class="text-xs text-muted">Date</div><strong>${escapeHtml(date || normalizeDateString(new Date()))}</strong> ${phHolidayBadge(date || normalizeDateString(new Date()))}</div>
-      <div><div class="text-xs text-muted">Break</div><strong>${Number(record?.break_minutes || 15)} mins</strong></div>
-      <div><div class="text-xs text-muted">Time In</div><strong>${formatClockValue(record?.time_in)}</strong></div>
-      <div><div class="text-xs text-muted">Time Out</div><strong>${formatClockValue(record?.time_out)}</strong></div>
-      <div><div class="text-xs text-muted">Break Out</div><strong>${formatClockValue(record?.break_out)}</strong></div>
-      <div><div class="text-xs text-muted">Break In</div><strong>${formatClockValue(record?.break_in)}</strong></div>
-      <div><div class="text-xs text-muted">15-min Out</div><strong>${formatClockValue(record?.break2_out)}</strong></div>
-      <div><div class="text-xs text-muted">15-min In</div><strong>${formatClockValue(record?.break2_in)}</strong></div>
-    </div>`;
+// Minutes since midnight for a stored HH:MM punch, or null.
+function attMinutes(value) {
+  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
 }
 
+function attNowMinutes() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+  return hh * 60 + mm;
+}
+
+// Worked minutes so far today. Only the 1-hour lunch comes off — the 15-minute
+// break is paid and is never deducted (see the attendance break policy).
+function attWorkedMinutes(record) {
+  const inAt = attMinutes(record?.time_in);
+  if (inAt == null) return 0;
+  const outAt = attMinutes(record?.time_out);
+  const end = outAt != null ? outAt : attNowMinutes();
+  let worked = Math.max(0, end - inAt);
+
+  const lunchOut = attMinutes(record?.break_out);
+  const lunchIn = attMinutes(record?.break_in);
+  if (lunchOut != null) {
+    const lunchEnd = lunchIn != null ? lunchIn : end;
+    worked -= Math.max(0, Math.min(lunchEnd, end) - lunchOut);
+  }
+  return Math.max(0, worked);
+}
+
+const ATT_TARGET_MINUTES = 8 * 60;
+
+// Which of the day's punches have happened, in the order they happen.
+function attSteps(record) {
+  return [
+    { label: 'Time in', value: record?.time_in },
+    { label: 'Break out', value: record?.break_out },
+    { label: 'Break in', value: record?.break_in },
+    { label: '15-min out', value: record?.break2_out },
+    { label: '15-min in', value: record?.break2_in },
+    { label: 'Time out', value: record?.time_out },
+  ];
+}
+
+function attStateLabel(record) {
+  if (!record?.time_in) return { text: 'Not clocked in', tone: 'idle' };
+  if (record?.time_out) return { text: 'Clocked out', tone: 'done' };
+  if (record?.break_out && !record?.break_in) return { text: 'On break', tone: 'break' };
+  if (record?.break2_out && !record?.break2_in) return { text: 'On 15-min break', tone: 'break' };
+  return { text: 'Clocked in', tone: 'active' };
+}
+
+function renderAttendanceClockStatus(record, date) {
+  lockTimeInIfDone(record);
+  attSyncActionButtons(record);
+
+  const day = date || normalizeDateString(new Date());
+  const dateEl = document.getElementById('att-today-date');
+  if (dateEl) dateEl.innerHTML = `${escapeHtml(day)} ${phHolidayBadge(day)}`;
+
+  const state = attStateLabel(record);
+  const stateEl = document.getElementById('att-state');
+  if (stateEl) {
+    stateEl.textContent = state.text;
+    stateEl.className = `att-now-state ${state.tone}`;
+  }
+
+  const wrapper = document.getElementById('attendance-clock-status');
+  if (wrapper) {
+    wrapper.className = 'att-timeline-wrap';
+    wrapper.innerHTML = `<div class="att-timeline">
+      ${attSteps(record).map((step) => `
+        <div class="att-step ${step.value ? 'done' : ''}">
+          <span class="att-dot"></span>
+          <div class="att-step-label">${escapeHtml(step.label)}</div>
+          <div class="att-step-time">${step.value ? escapeHtml(formatClock12(step.value)) : '--:--'}</div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  const worked = attWorkedMinutes(record);
+  const valueEl = document.getElementById('att-hours-value');
+  const fillEl = document.getElementById('att-hours-fill');
+  const noteEl = document.getElementById('att-hours-note');
+  if (valueEl) valueEl.textContent = record?.time_in ? formatMinutes(worked) : '--';
+  if (fillEl) fillEl.style.width = `${Math.min(100, Math.round((worked / ATT_TARGET_MINUTES) * 100))}%`;
+  if (noteEl) {
+    if (!record?.time_in) noteEl.textContent = 'Clock in to start counting.';
+    else if (worked >= ATT_TARGET_MINUTES) noteEl.textContent = `Target met — ${formatMinutes(worked - ATT_TARGET_MINUTES)} over.`;
+    else noteEl.textContent = `${formatMinutes(ATT_TARGET_MINUTES - worked)} to go. The 1-hour break is deducted; the 15-minute one is not.`;
+  }
+}
+
+// Only offer the punch that makes sense next: Time In before you are in, Time
+// Out after. Both showing at once is how people clock out by mistake.
+function attSyncActionButtons(record) {
+  const timedIn = Boolean(record?.time_in);
+  const timedOut = Boolean(record?.time_out);
+  document.querySelectorAll('.att-actions .btn-time-in').forEach((btn) => {
+    btn.hidden = timedIn;
+  });
+  document.querySelectorAll('.att-actions .att-primary:not(.btn-time-in)').forEach((btn) => {
+    btn.hidden = !timedIn;
+    btn.disabled = timedOut;
+    btn.textContent = timedOut ? 'Timed Out ✓' : 'Time Out';
+  });
+  document.querySelectorAll('.att-actions .btn-break').forEach((btn) => {
+    btn.hidden = !timedIn || timedOut;
+  });
+}
+
+// Recompute the hours-today figure on the clock tick, while someone is clocked
+// in and the card is on screen. Cheap: a bit of arithmetic and two writes.
+function attTickHoursToday() {
+  const valueEl = document.getElementById('att-hours-value');
+  if (!valueEl) return;
+  const record = attendanceState?.today;
+  if (!record?.time_in || record?.time_out) return;
+  const worked = attWorkedMinutes(record);
+  valueEl.textContent = formatMinutes(worked);
+  const fillEl = document.getElementById('att-hours-fill');
+  if (fillEl) fillEl.style.width = `${Math.min(100, Math.round((worked / ATT_TARGET_MINUTES) * 100))}%`;
+}
+
+// Quick-action rows jump to a sibling tab by clicking its button, so the tab
+// bar's own active state stays correct.
+function goAttendanceTab(contentId) {
+  const btn = [...document.querySelectorAll('.tabs .tab-btn')]
+    .find((b) => (b.getAttribute('onclick') || '').includes(contentId));
+  if (btn) btn.click();
+}
 function fillAttendanceInputs(record) {
   const setValue = (id, value) => {
     const input = document.getElementById(id);
