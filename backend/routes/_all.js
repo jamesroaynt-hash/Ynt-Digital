@@ -59,15 +59,18 @@ function ordersRoutes(db, { dispatch } = {}) {
     }).format(d);
   }
 
-  // Whole days between a stored POS timestamp and now. Used to age courier
-  // failures: an order the courier gave up on two months ago should say so.
+  // Calendar days between a stored POS timestamp and today. Counted on the date
+  // part, not on elapsed hours, because the abandonment cutoff compares dates:
+  // measuring one in hours and the other in dates flips an order to Returned
+  // while its own chip still reads 59 days.
   function daysSince(ts) {
     if (!ts) return null;
-    const raw = String(ts);
-    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
-    const then = Date.parse(iso);
+    const day = String(ts).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+    const then = Date.parse(`${day}T00:00:00Z`);
     if (Number.isNaN(then)) return null;
-    return Math.max(0, Math.floor((Date.now() - then) / 86400000));
+    const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+    return Math.max(0, Math.round((today - then) / 86400000));
   }
 
   function readNamedValue(source, keys = []) {

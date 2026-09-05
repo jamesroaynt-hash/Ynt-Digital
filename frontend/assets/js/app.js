@@ -12110,9 +12110,13 @@ function getRmoUndeliverableDays(order) {
     }
   }
   if (!since) since = partner.updated_at;
-  const then = Date.parse(String(since || '').replace(' ', 'T') + 'Z');
+  // Calendar days, matching the server — see daysSince in routes/_all.js.
+  const day = String(since || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const then = Date.parse(`${day}T00:00:00Z`);
   if (Number.isNaN(then)) return null;
-  return Math.max(0, Math.floor((Date.now() - then) / 86400000));
+  const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+  return Math.max(0, Math.round((today - then) / 86400000));
 }
 
 // An age chip for the Undeliverable queue. Anything past a week is a problem;
