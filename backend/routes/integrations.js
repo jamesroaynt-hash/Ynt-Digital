@@ -342,24 +342,31 @@ module.exports = function integrationRoutes(db) {
       const cod = Number(totalsRow?.cod || 0);
       const base = delivered + returned + returningCnt;
 
-      // byConfirmed — direct column GROUP BY
+      // byConfirmed — who confirmed the order, not who it is assigned to.
+      // confirmed_by_name is the editor of the order's move to Confirmed in
+      // Pancake's status_history, so an order that was never confirmed by anyone
+      // (New straight to Awaiting print, or canceled out of New) has none and
+      // drops out of the card. 'wait_print' is excluded outright as well: an
+      // order sitting in Awaiting print is not a confirmed sale, same basis the
+      // ROAS order counts use.
+      const confirmedBase = "confirmed_by_name IS NOT NULL AND TRIM(confirmed_by_name) != '' AND COALESCE(status_name,'') != 'wait_print'";
       const confirmedWhere = conditions.length
-        ? `WHERE (${conditions.join(' AND ')}) AND assigning_seller_name IS NOT NULL AND TRIM(assigning_seller_name) != ''`
-        : `WHERE assigning_seller_name IS NOT NULL AND TRIM(assigning_seller_name) != ''`;
+        ? `WHERE (${conditions.join(' AND ')}) AND ${confirmedBase}`
+        : `WHERE ${confirmedBase}`;
       const confirmedRows = await db.prepare(`
         SELECT
-          assigning_seller_name as label,
+          confirmed_by_name as label,
           COUNT(*) as total,
           SUM(CASE WHEN status_name = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status_name = 'returned'  THEN 1 ELSE 0 END) as returned,
           SUM(CASE WHEN status_name = 'returning' THEN 1 ELSE 0 END) as returning,
           COALESCE(SUM(cod), 0) as cod
         FROM pos_orders ${confirmedWhere}
-        GROUP BY assigning_seller_name
+        GROUP BY confirmed_by_name
         ORDER BY total DESC
       `).all(...params);
       // Saved staff alias merges (Data Report only): combine rows whose
-      // assigning_seller_name is a known alias into one canonical staff entry.
+      // confirmed_by_name is a known alias into one canonical staff entry.
       let staffMergeMap = {};
       try {
         const mergeRows = await db.prepare('SELECT alias, canonical FROM staff_merge_map').all();
@@ -529,16 +536,16 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
-  // Staff alias merge map for the Data Report "By Assigned Staff" card.
+  // Staff alias merge map for the Data Report "By Confirmed By" card.
   // Returns the saved alias→canonical pairs plus the distinct staff names
   // present in pos_orders (so the UI can offer them as merge sources).
   router.get('/google-sheets/staff-merge-map', async (req, res) => {
     try {
       const map = await db.prepare('SELECT alias, canonical FROM staff_merge_map ORDER BY canonical, alias').all();
       const nameRows = await db.prepare(
-        `SELECT DISTINCT assigning_seller_name AS name FROM pos_orders
-         WHERE assigning_seller_name IS NOT NULL AND TRIM(assigning_seller_name) != ''
-         ORDER BY assigning_seller_name`
+        `SELECT DISTINCT confirmed_by_name AS name FROM pos_orders
+         WHERE confirmed_by_name IS NOT NULL AND TRIM(confirmed_by_name) != ''
+         ORDER BY confirmed_by_name`
       ).all();
       res.json({ map, names: nameRows.map((r) => r.name) });
     } catch (error) {

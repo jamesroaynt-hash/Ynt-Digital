@@ -515,6 +515,11 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   ensureColumn(db, 'pos_orders', 'page_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigning_seller_name', 'TEXT');
+  // Who moved the order to Confirmed (Pancake status 1) and when, taken from the
+  // payload's status_history. The Data Report staff card counts confirmations,
+  // and the assigned seller is a different thing (orders get reassigned).
+  ensureColumn(db, 'pos_orders', 'confirmed_by_name', 'TEXT');
+  ensureColumn(db, 'pos_orders', 'confirmed_at', 'TEXT');
   ensureColumn(db, 'pos_orders', 'assigned_to_user_id', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'assigned_to_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'partner_reason', 'TEXT');
@@ -804,8 +809,8 @@ function runMigrations(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
-  // Assigned-staff alias merge: rows whose assigning_seller_name = alias are
-  // reported under `canonical` (combined) in the Data Report By Assigned Staff card.
+  // Staff alias merge: rows whose confirmed_by_name = alias are reported under
+  // `canonical` (combined) in the Data Report "By Confirmed By" card.
   db.exec(`
     CREATE TABLE IF NOT EXISTS staff_merge_map (
       alias TEXT PRIMARY KEY,
@@ -1009,6 +1014,9 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'assigned_user_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'page_name', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigning_seller_name', 'TEXT');
+  // See the sync path above: confirmation editor + timestamp from status_history.
+  await ensureColumnAsync(db, 'pos_orders', 'confirmed_by_name', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'confirmed_at', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_to_user_id', 'INTEGER');
   await ensureColumnAsync(db, 'pos_orders', 'assigned_to_name', 'TEXT');
   // Botcake messaging: recipient PSID + page id derived from the order payload.
@@ -1305,8 +1313,8 @@ async function runPostgresMigrations(db) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  // Assigned-staff alias merge: rows whose assigning_seller_name = alias are
-  // reported under `canonical` (combined) in the Data Report By Assigned Staff card.
+  // Staff alias merge: rows whose confirmed_by_name = alias are reported under
+  // `canonical` (combined) in the Data Report "By Confirmed By" card.
   await db.exec(`
     CREATE TABLE IF NOT EXISTS staff_merge_map (
       alias TEXT PRIMARY KEY,

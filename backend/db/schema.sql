@@ -396,6 +396,11 @@ CREATE TABLE IF NOT EXISTS pos_orders (
   page_name TEXT,
   assigned_user_id TEXT,
   assigning_seller_name TEXT,
+  -- Who actually moved the order to Confirmed (Pancake status 1), read off the
+  -- order's status_history. assigning_seller_name is only who the order is
+  -- assigned to, which is not the same person once orders get reassigned.
+  confirmed_by_name TEXT,
+  confirmed_at TEXT,
   assigned_to_user_id INTEGER,
   assigned_to_name TEXT,
   items_json TEXT,

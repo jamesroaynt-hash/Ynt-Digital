@@ -505,6 +505,32 @@ const PANCAKE_STATUS_NAME = {
   9: 'pending', 12: 'wait_print',
 };
 
+// The status an order lands on when a staff member confirms it in the POS
+// ('submitted' here, "Confirmed"/"Da duyet" in Pancake's own UI).
+const PANCAKE_STATUS_CONFIRMED = 1;
+
+// Who confirmed the order, and when. Pancake ships a status_history on every
+// order -- {old_status, status, name, editor_id, updated_at} per transition --
+// and the confirmation is the move to status 1, with `name` set to the staff
+// member who made it. This is NOT assigning_seller: an order carries a seller
+// even when nobody ever confirmed it (the ones pushed straight from New to
+// Awaiting print all do), and a reassignment moves the seller without moving
+// who did the confirming. The first *named* confirmation wins, so a later
+// re-confirmation can't take the credit off whoever actually did it.
+function getPosConfirmation(item = {}) {
+  const history = Array.isArray(item?.status_history) ? item.status_history : [];
+  const confirmations = history
+    .filter((entry) => Number(entry?.status) === PANCAKE_STATUS_CONFIRMED)
+    .sort((a, b) => String(a?.updated_at || '').localeCompare(String(b?.updated_at || '')));
+  const chosen = confirmations.find((entry) => stringOrNull(entry?.name || entry?.editor?.name))
+    || confirmations[0];
+  if (!chosen) return { name: null, at: null };
+  return {
+    name: stringOrNull(chosen?.name || chosen?.editor?.name),
+    at: normalizePosTimestamp(chosen?.updated_at),
+  };
+}
+
 // Price-unit normalization. These POS shops are configured in Pancake with every
 // monetary value ×100 (e.g. ₱39,800 arrives instead of ₱398 for a 1-bottle order).
 // Pancake tells us which: the /shops record carries a `currency` of "PHP100"
@@ -638,8 +664,9 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
   // every order, including the ones missing that timestamp.
   const incomingUpdatedAtRemote = normalizePosTimestamp(item?.updated_at);
   const stored = await db.prepare(
-    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id, sprinter_name, sprinter_tel, customer_order_count FROM pos_orders WHERE shop_id = ? AND external_id = ?'
+    'SELECT updated_at_remote, status_name, psid, note_product, partner_status, ad_id, sprinter_name, sprinter_tel, customer_order_count, confirmed_by_name FROM pos_orders WHERE shop_id = ? AND external_id = ?'
   ).get(resolvedShopId, externalId);
+  const confirmation = getPosConfirmation(item);
   // A row stored before the customer counters existed can be filled in, but only
   // when the caller asked for it: a manual re-sync from the Connections page
   // opts in, the interval sync never does. One write per order, once — after
@@ -655,7 +682,10 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
     const productUnchanged = stored && (stored.note_product === noteProduct);
     const partnerUnchanged = stored && ((stored.partner_status || null) === (partnerStatus || null));
     const adAlreadyStored = stored && (stored.ad_id || !adId);
-    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged && adAlreadyStored && !customerStatsFillable) {
+    // A row stored before confirmed_by_name existed takes one write to fill in,
+    // then this closes again like the rest of the guard.
+    const confirmerAlreadyStored = stored && (stored.confirmed_by_name || !confirmation.name);
+    if (stored && stored.updated_at_remote === incomingUpdatedAtRemote && stored.status_name === statusName && psidAlreadyStored && productUnchanged && partnerUnchanged && adAlreadyStored && confirmerAlreadyStored && !customerStatsFillable) {
       return externalId; // unchanged — no write needed
     }
   }
@@ -698,11 +728,11 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
     INSERT INTO pos_orders (
       external_id, shop_id, inserted_at_remote, updated_at_remote, status, status_name, customer_name, customer_phone,
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
-      note_product, page_name, assigned_user_id, assigning_seller_name, sprinter_name, sprinter_tel,
+      note_product, page_name, assigned_user_id, assigning_seller_name, confirmed_by_name, confirmed_at, sprinter_name, sprinter_tel,
       items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, ad_id, ads_source,
       customer_order_count, customer_succeed_count, customer_returned_count, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -724,6 +754,8 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
       page_name = COALESCE(excluded.page_name, pos_orders.page_name),
       assigned_user_id = COALESCE(excluded.assigned_user_id, pos_orders.assigned_user_id),
       assigning_seller_name = COALESCE(excluded.assigning_seller_name, pos_orders.assigning_seller_name),
+      confirmed_by_name = COALESCE(excluded.confirmed_by_name, pos_orders.confirmed_by_name),
+      confirmed_at = COALESCE(excluded.confirmed_at, pos_orders.confirmed_at),
       sprinter_name = COALESCE(excluded.sprinter_name, pos_orders.sprinter_name),
       sprinter_tel = COALESCE(excluded.sprinter_tel, pos_orders.sprinter_tel),
       items_json = excluded.items_json,
@@ -767,6 +799,8 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
     pageName || null,
     assignedUserId,
     stringOrNull(assigningSeller?.name),
+    confirmation.name,
+    confirmation.at,
     sprinterName,
     sprinterTel,
     safeJson(itemsForStorage),

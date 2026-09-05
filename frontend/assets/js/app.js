@@ -6544,7 +6544,7 @@ function renderDataReportDashboard() {
 
   const subTabs = [
     ['price', 'By Price'],
-    ['staff', 'By Assigned Staff'],
+    ['staff', 'By Confirmed By'],
     ['province', 'By Province/City'],
     ['page', 'Page Report'],
     ['stocks', 'Stocks'],
@@ -6566,12 +6566,12 @@ function renderDataReportDashboard() {
     <section class="data-report-section">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <div class="card-title">By Assigned Staff</div>
-          <div class="card-subtitle">Orders and RTS rate per assigned staff member</div>
+          <div class="card-title">By Confirmed By</div>
+          <div class="card-subtitle">Orders and RTS rate per staff member who confirmed the order — Awaiting print excluded</div>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="openStaffMergeModal()">Merge staff…</button>
       </div>
-      ${renderDataReportTable(byConfirmed, 'Assigned Staff', 'No staff data yet', { showCod: true })}
+      ${renderDataReportTable(byConfirmed, 'Confirmed By', 'No staff data yet', { showCod: true })}
     </section>`;
   } else if (active === 'province') {
     cardHtml = `
@@ -6694,8 +6694,8 @@ function renderStockAnalyticsCard() {
     </section>`;
 }
 
-// Persistent staff alias merge (Data Report "By Assigned Staff" only). Maps an
-// assigning_seller_name to another name so their rows combine in the report.
+// Persistent staff alias merge (Data Report "By Confirmed By" only). Maps a
+// confirmed_by_name to another name so their rows combine in the report.
 async function openStaffMergeModal() {
   let overlay = document.getElementById('staff-merge-modal');
   if (!overlay) {
@@ -6708,7 +6708,7 @@ async function openStaffMergeModal() {
   overlay.innerHTML = `
     <div class="modal" style="max-width:560px;">
       <div class="modal-header">
-        <div class="modal-title">Merge Assigned Staff</div>
+        <div class="modal-title">Merge Confirming Staff</div>
         <button class="modal-close" onclick="document.getElementById('staff-merge-modal').classList.remove('open')">×</button>
       </div>
       <div class="modal-body" id="staff-merge-body">
@@ -6728,7 +6728,7 @@ async function renderStaffMergeBody() {
     const map = {};
     (Array.isArray(data.map) ? data.map : []).forEach((m) => { if (m.alias) map[m.alias] = m.canonical || ''; });
     if (!names.length) {
-      body.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>No assigned staff names found yet.</p></div>`;
+      body.innerHTML = `<div class="empty-state" style="padding:24px 0;"><p>No confirming staff names found yet.</p></div>`;
       return;
     }
     const datalist = `<datalist id="staff-merge-options">${names.map((n) => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>`;
@@ -6741,7 +6741,7 @@ async function renderStaffMergeBody() {
       </tr>`;
     }).join('');
     body.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Tick multiple staff and merge them into one target at once, or set a single row's "Merge into" target. Merged staff have their orders summed. Applies to the By Assigned Staff card only.</p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Tick multiple staff and merge them into one target at once, or set a single row's "Merge into" target. Merged staff have their orders summed. Applies to the By Confirmed By card only.</p>
       ${datalist}
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
         <input type="text" id="staff-merge-target" class="form-control" list="staff-merge-options" placeholder="Merge selected into…" style="width:220px;padding:6px 10px;height:auto;font-size:13px;">
