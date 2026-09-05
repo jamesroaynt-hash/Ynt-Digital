@@ -4071,10 +4071,28 @@ tfoot td {
 }
 .att-punch-out:hover { filter: brightness(1.06); }
 
+.att-main,
 .att-side {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+}
+
+/* Shown only when a quick action has taken over the page. */
+.att-back {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.att-back .btn svg { width: 15px; height: 15px; }
+
+.att-back-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .att-hours, .att-quick { padding: 18px 20px 20px; }

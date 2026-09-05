@@ -5655,16 +5655,17 @@ function renderAttendance() {
     </div>
   </div>
 
-  <div class="tabs" style="margin-bottom:16px;">
-    <button class="tab-btn active" onclick="switchTab(this,'attendance-tab-clock')">Time Clock</button>
-    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-cash')">Cash Advance</button>
-    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-leave')">Request Leave</button>
-    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-ot'); loadMyOTRequests();">Overtime</button>
-    <button class="tab-btn" onclick="switchTab(this,'attendance-tab-hours'); loadMyWorkHours();">Work Hours</button>
+  <div id="attendance-back" class="att-back hidden">
+    <button class="btn btn-secondary btn-sm" onclick="showAttendancePanel('attendance-tab-clock')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
+      Back to Time Clock
+    </button>
+    <span class="att-back-title" id="attendance-back-title"></span>
   </div>
 
   <div id="attendance-tab-clock" class="tab-content active">
     <div class="att-clock-grid">
+      <div class="att-main">
       <section class="card att-now">
         <div class="att-now-head">
           <div>
@@ -5692,17 +5693,18 @@ function renderAttendance() {
         </div>
       </section>
 
-      <div class="att-side">
-        <section class="card att-hours">
-          <div class="att-side-label">Hours today</div>
-          <div class="att-hours-row">
-            <div class="att-hours-value" id="att-hours-value">--</div>
-            <div class="att-hours-target">of 8h target</div>
-          </div>
-          <div class="att-hours-bar"><span id="att-hours-fill" style="width:0%;"></span></div>
-          <div class="att-hours-note" id="att-hours-note">Clock in to start counting.</div>
-        </section>
+      <section class="card att-hours">
+        <div class="att-side-label">Hours today</div>
+        <div class="att-hours-row">
+          <div class="att-hours-value" id="att-hours-value">--</div>
+          <div class="att-hours-target">of 8h target</div>
+        </div>
+        <div class="att-hours-bar"><span id="att-hours-fill" style="width:0%;"></span></div>
+        <div class="att-hours-note" id="att-hours-note">Clock in to start counting.</div>
+      </section>
+      </div>
 
+      <div class="att-side">
         <section class="card att-quick">
           <div class="att-side-label">Quick actions</div>
           <button class="att-quick-row" onclick="goAttendanceTab('attendance-tab-cash')">
@@ -14540,12 +14542,35 @@ function attTickHoursToday() {
   if (fillEl) fillEl.style.width = `${Math.min(100, Math.round((worked / ATT_TARGET_MINUTES) * 100))}%`;
 }
 
-// Quick-action rows jump to a sibling tab by clicking its button, so the tab
-// bar's own active state stays correct.
+// With the tab bar gone the quick actions drive the panels themselves, and a
+// back bar returns to the clock. The loaders the old tab buttons fired have to
+// be fired here instead — Overtime and Work Hours arrive empty otherwise.
+const ATT_PANEL_TITLES = {
+  'attendance-tab-clock': '',
+  'attendance-tab-cash': 'Cash Advance',
+  'attendance-tab-leave': 'Request Leave',
+  'attendance-tab-ot': 'Overtime',
+  'attendance-tab-hours': 'Work Hours',
+};
+
+function showAttendancePanel(contentId) {
+  Object.keys(ATT_PANEL_TITLES).forEach((id) => {
+    document.getElementById(id)?.classList.toggle('active', id === contentId);
+  });
+
+  const back = document.getElementById('attendance-back');
+  if (back) back.classList.toggle('hidden', contentId === 'attendance-tab-clock');
+  const title = document.getElementById('attendance-back-title');
+  if (title) title.textContent = ATT_PANEL_TITLES[contentId] || '';
+
+  if (contentId === 'attendance-tab-ot' && typeof loadMyOTRequests === 'function') loadMyOTRequests();
+  if (contentId === 'attendance-tab-hours' && typeof loadMyWorkHours === 'function') loadMyWorkHours();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Kept as the name the quick-action rows call.
 function goAttendanceTab(contentId) {
-  const btn = [...document.querySelectorAll('.tabs .tab-btn')]
-    .find((b) => (b.getAttribute('onclick') || '').includes(contentId));
-  if (btn) btn.click();
+  showAttendancePanel(contentId);
 }
 function fillAttendanceInputs(record) {
   const setValue = (id, value) => {
