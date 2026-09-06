@@ -9698,6 +9698,15 @@ function renderMarketingCenter() {
     .sort((a, b) => b.roas - a.roas)
     .slice(0, 8)
     .map((r) => ({ page: r.page, value: r.roas }));
+  const mktLastActive = {};
+  sheetOrdersInRange.forEach((o) => {
+    const pg = o.sourceSheet || 'Sheets';
+    if (!mktLastActive[pg] || o.date > mktLastActive[pg]) mktLastActive[pg] = o.date;
+  });
+  entries.forEach((e) => {
+    if (!e.page || !e.date) return;
+    if (!mktLastActive[e.page] || e.date > mktLastActive[e.page]) mktLastActive[e.page] = e.date;
+  });
   const mktRtsBars = Object.entries(mktOutcomeByPage)
     .map(([page, o]) => {
       const base = o.delivered + o.returned + o.returning;
@@ -9842,7 +9851,7 @@ function renderMarketingCenter() {
     <div class="mkt-chart-grid">
       <div class="card mkt-chart-wide">
         <div class="card-header">
-          <div><div class="card-title">Gross sales and ad spend</div><div class="card-subtitle">Both in pesos, ${mpFrom} — ${mpTo}.</div></div>
+          <div><div class="card-title">Gross sales and ad spend</div><div class="card-subtitle">Both in pesos, ${mpFrom} — ${mpTo}.${mktSpendTotal ? '' : ' No ad spend is logged in this range, so that series sits at zero.'}</div></div>
         </div>
         <div class="mkt-chart-body">
           <canvas id="mkt-trend-chart"></canvas>
@@ -9869,44 +9878,88 @@ function renderMarketingCenter() {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <div><div class="card-title">Page Performance</div><div class="card-subtitle">Total orders and ad spend per page for ${mpFrom} — ${mpTo}.${marketingManager ? ' Use “Add Ad Spend” to log a daily entry.' : ''}</div></div>
-      </div>
-      <div class="table-container">
-        <table class="data-table">
-          <thead><tr>
-            <th>Page</th>
-            <th style="text-align:center;">Total Orders</th>
-            <th style="text-align:center;">Total Ad Spend</th>
-            <th style="text-align:center;">ROAS</th>
-            ${marketingManager ? '<th style="text-align:center;"></th>' : ''}
-          </tr></thead>
-          <tbody>
-            ${mktPagesRows.length ? mktPagesRows.map((r) => `<tr>
-              <td><strong>${escapeHtml(r.page)}</strong></td>
-              <td style="text-align:center;">${r.orders.toLocaleString()}</td>
-              <td style="text-align:center;">${marketingMoney(r.spend)}</td>
-              <td style="text-align:center;">${r.spend ? `<span class="badge ${marketingRoasClass(r.roas)}">${marketingRoas(r.roas)}</span>` : '<span style="color:var(--text-muted);">—</span>'}</td>
-              ${marketingManager ? `<td style="text-align:center;"><button class="btn btn-primary btn-sm" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(r.page)}">+ Add Ad Spend</button></td>` : ''}
-            </tr>`).join('') : `<tr><td colspan="${marketingManager ? 5 : 4}" style="text-align:center;color:var(--text-muted);padding:20px;">No active pages in this range.</td></tr>`}
-          </tbody>
-          ${mktPagesRows.length ? (() => {
-            const tOrders = mktPagesRows.reduce((s, r) => s + r.orders, 0);
-            const tSpend = mktPagesRows.reduce((s, r) => s + r.spend, 0);
-            const tSales = mktPagesRows.reduce((s, r) => s + r.sales, 0);
-            const tRoas = tSpend ? tSales / tSpend : 0;
-            return `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border);">
-            <td>Total</td>
-            <td style="text-align:center;">${tOrders.toLocaleString()}</td>
-            <td style="text-align:center;">${marketingMoney(tSpend)}</td>
-            <td style="text-align:center;">${tSpend ? `<span class="badge ${marketingRoasClass(tRoas)}">${marketingRoas(tRoas)}</span>` : '—'}</td>
-            ${marketingManager ? '<td></td>' : ''}
-          </tr></tfoot>`;
-          })() : ''}
-        </table>
-      </div>
-    </div>
+    ${(() => {
+      // WHERE THE BUDGET WENT + WHAT IT BOUGHT. Both read the same per-page rows;
+      // with nothing logged they say so rather than drawing empty furniture.
+      const spendRows = mktPagesRows.filter((r) => r.spend > 0).sort((a, b) => b.spend - a.spend);
+      const totalSpend = spendRows.reduce((sum, r) => sum + r.spend, 0);
+      const topSpend = spendRows.slice(0, 8);
+      const maxSpend = topSpend.length ? topSpend[0].spend : 0;
+      const roasTarget = Number(state.targets.roas || 0);
+      const underTarget = spendRows
+        .filter((r) => r.sales > 0 && r.roas < roasTarget)
+        .sort((a, b) => a.roas - b.roas)
+        .slice(0, 6);
+      const dayLabel = (date) => {
+        if (!date) return '—';
+        const [y, m, d] = String(date).split('-').map(Number);
+        if (!y || !m || !d) return escapeHtml(String(date));
+        return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      };
+      const sinceLabel = (date) => {
+        if (!date) return '';
+        const today = normalizeDateString(new Date());
+        if (date === today) return 'today';
+        const days = Math.round((new Date(today) - new Date(date)) / 86400000);
+        if (days === 1) return 'yesterday';
+        return days > 1 ? `${days} days ago` : '';
+      };
+
+      return `
+      <div class="mkt-panel-grid">
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">Most Ad Spend</div><div class="card-subtitle">${totalSpend ? `Where the budget went — ${marketingMoney(totalSpend)} in total.` : 'No ad spend logged for this range yet.'}</div></div>
+          </div>
+          <div class="mkt-spend-list">
+            ${topSpend.length ? topSpend.map((r, i) => `
+              <div class="mkt-spend-row">
+                <div class="mkt-spend-rank">${i + 1}</div>
+                <div class="mkt-spend-main">
+                  <div class="mkt-spend-head">
+                    <span class="mkt-spend-page" title="${escapeHtml(r.page)}">${escapeHtml(r.page)}</span>
+                    <strong class="mkt-spend-amount">${marketingMoney(r.spend)}</strong>
+                  </div>
+                  <div class="mkt-spend-meter"><span style="width:${maxSpend ? Math.max(2, (r.spend / maxSpend) * 100) : 0}%;"></span></div>
+                  <div class="mkt-spend-meta">
+                    ${totalSpend ? Math.round((r.spend / totalSpend) * 100) : 0}% of spend
+                    ${r.sales > 0 ? ` · <span class="badge ${marketingRoasClass(r.roas)}">${marketingRoas(r.roas)}</span>` : ' · no sales yet'}
+                  </div>
+                </div>
+                ${marketingManager ? `<button class="btn btn-secondary btn-sm mkt-spend-add" title="Log ad spend for this page" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(r.page)}">+</button>` : ''}
+              </div>`).join('') : `<div class="mkt-panel-empty">Nothing logged between ${mpFrom} and ${mpTo}.${marketingManager ? ' Add a day on the Ad Spend page, or from Daily Entry.' : ''}</div>`}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div><div class="card-title">Lowest ROAS</div><div class="card-subtitle">Pages returning less than the ${marketingRoas(roasTarget)} target — worst first, with the last day each one moved.</div></div>
+          </div>
+          ${underTarget.length ? `<div class="table-container">
+            <table class="data-table">
+              <thead><tr>
+                <th>Page</th>
+                <th style="text-align:center;">Ad Spend</th>
+                <th style="text-align:center;">Sales</th>
+                <th style="text-align:center;">ROAS</th>
+                <th style="text-align:center;">vs Target</th>
+                <th style="text-align:center;">Last Active</th>
+              </tr></thead>
+              <tbody>
+                ${underTarget.map((r) => `<tr>
+                  <td><strong>${escapeHtml(r.page)}</strong></td>
+                  <td style="text-align:center;white-space:nowrap;">${marketingMoney(r.spend)}</td>
+                  <td style="text-align:center;white-space:nowrap;">${marketingMoney(r.sales)}</td>
+                  <td style="text-align:center;"><span class="badge ${marketingRoasClass(r.roas)}">${marketingRoas(r.roas)}</span></td>
+                  <td style="text-align:center;color:var(--danger);font-weight:700;">−${(roasTarget - r.roas).toFixed(2)}x</td>
+                  <td style="text-align:center;">${dayLabel(mktLastActive[r.page])}<div style="font-size:11px;color:var(--text-muted);">${sinceLabel(mktLastActive[r.page])}</div></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : `<div class="mkt-panel-empty">${totalSpend ? `Every page with spend is at or above the ${marketingRoas(roasTarget)} target.` : 'Log ad spend to see which pages are under target.'}</div>`}
+        </div>
+      </div>`;
+    })()}
   </div>
 
   <div id="mkt-entries" class="tab-content${lastMarketingTab === 'mkt-entries' ? ' active' : ''}">
