@@ -9730,10 +9730,22 @@ function marketingDelta(current, previous, kind, goodDirection) {
   return { text, tone };
 }
 
+// Tile icons: 16px line drawings that inherit the label's colour, so the row
+// reads as one thing instead of seven pieces of clip art.
+const MKT_TILE_ICONS = {
+  grossSales: '<svg viewBox="0 0 16 16"><rect x="1.6" y="4" width="12.8" height="8" rx="1.6"/><circle cx="8" cy="8" r="2"/></svg>',
+  orders: '<svg viewBox="0 0 16 16"><path d="M2.6 5.2 8 2.6l5.4 2.6v5.6L8 13.4l-5.4-2.6z"/><path d="M2.6 5.2 8 7.8l5.4-2.6M8 7.8v5.6"/></svg>',
+  roas: '<svg viewBox="0 0 16 16"><path d="M2 11.4 6 7.4l2.6 2.6L14 4.6"/><path d="M10.4 4.6H14V8.2"/></svg>',
+  spend: '<svg viewBox="0 0 16 16"><rect x="1.6" y="3.6" width="12.8" height="8.8" rx="1.6"/><path d="M1.6 6.8h12.8"/></svg>',
+  delivered: '<svg viewBox="0 0 16 16"><path d="M1.6 4.4h7v6.2h-7z"/><path d="M8.6 6.6h2.8L14.4 9v1.6H8.6"/><circle cx="4.4" cy="11.8" r="1.2"/><circle cx="11.4" cy="11.8" r="1.2"/></svg>',
+  rts: '<svg viewBox="0 0 16 16"><path d="M13.4 10.2A4.6 4.6 0 0 0 8.8 5.6H3"/><path d="M5.4 3.2 2.8 5.6l2.6 2.4"/></svg>',
+  netProfit: '<svg viewBox="0 0 16 16"><path d="M2 5.4c0-1 .8-1.8 1.8-1.8h8.4c.8 0 1.4.5 1.4 1.2v.6"/><rect x="2" y="5.4" width="12" height="7.2" rx="1.6"/><circle cx="10.9" cy="9" r="1"/></svg>',
+};
+
 function marketingTileHtml({ icon, label, value, sub, delta, spark, legend }) {
   return `
   <div class="mkt-tile">
-    <div class="mkt-tile-label"><span>${icon}</span>${escapeHtml(label)}</div>
+    <div class="mkt-tile-label">${icon}${escapeHtml(label)}</div>
     <div class="mkt-tile-value-row">
       <span class="mkt-tile-value">${value}</span>
       <span class="mkt-tile-delta ${delta.tone}">${escapeHtml(delta.text)}</span>
@@ -9983,19 +9995,19 @@ function renderMarketingCenter() {
       legend: mktTileLegend,
     });
     return `<div class="mkt-tile-grid">
-      ${tile('💰', 'Gross Sales', marketingMoney(t.grossSales), `Delivered ${marketingMoney(t.deliveredSales)} · ${Math.round(targetPct * 100)}% of target`,
+      ${tile(MKT_TILE_ICONS.grossSales, 'Gross Sales', marketingMoney(t.grossSales), `Delivered ${marketingMoney(t.deliveredSales)} · ${Math.round(targetPct * 100)}% of target`,
         [t.grossSales, prev?.grossSales, 'percent', 'up'], 'grossSales')}
-      ${tile('📦', 'Total Orders', t.orders.toLocaleString(), `${mpFrom} — ${mpTo}`,
+      ${tile(MKT_TILE_ICONS.orders, 'Total Orders', t.orders.toLocaleString(), `${mpFrom} — ${mpTo}`,
         [t.orders, prev?.orders, 'percent', 'up'], 'orders')}
-      ${tile('📈', 'ROAS', t.spend ? marketingRoas(t.roas) : '—', `Target ${marketingRoas(state.targets.roas)}`,
+      ${tile(MKT_TILE_ICONS.roas, 'ROAS', t.spend ? marketingRoas(t.roas) : '—', `Target ${marketingRoas(state.targets.roas)}`,
         [t.roas, prev?.roas, 'roas', 'up'], 'roas')}
-      ${tile('💸', 'Marketing Spend', marketingMoney(t.spend), `${marketingMoney(monthSpendTarget)} monthly cap`,
+      ${tile(MKT_TILE_ICONS.spend, 'Marketing Spend', marketingMoney(t.spend), `${marketingMoney(monthSpendTarget)} monthly cap`,
         [t.spend, prev?.spend, 'percent', null], 'spend')}
-      ${tile('🚚', 'Delivered Rate', t.closed ? marketingPct(t.deliveredRate) : '—', `${t.delivered.toLocaleString()} of ${t.closed.toLocaleString()} closed orders`,
+      ${tile(MKT_TILE_ICONS.delivered, 'Delivered Rate', t.closed ? marketingPct(t.deliveredRate) : '—', `${t.delivered.toLocaleString()} of ${t.closed.toLocaleString()} closed orders`,
         [t.deliveredRate * 100, prev ? prev.deliveredRate * 100 : null, 'points', 'up'], 'deliveredRate')}
-      ${tile('🔄', 'RTS %', t.closed ? marketingPct(t.rtsRate) : '—', `Max ${state.targets.rts}%`,
+      ${tile(MKT_TILE_ICONS.rts, 'RTS %', t.closed ? marketingPct(t.rtsRate) : '—', `Max ${state.targets.rts}%`,
         [t.rtsRate * 100, prev ? prev.rtsRate * 100 : null, 'points', 'down'], 'rtsRate')}
-      ${tile('💵', 'Net Profit', marketingMoney(t.netProfit), 'Delivered sales − ad spend',
+      ${tile(MKT_TILE_ICONS.netProfit, 'Net Profit', marketingMoney(t.netProfit), 'Delivered sales − ad spend',
         [t.netProfit, prev?.netProfit, 'percent', 'up'], 'netProfit')}
     </div>`;
   })()}
