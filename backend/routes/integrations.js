@@ -1209,6 +1209,31 @@ module.exports = function integrationRoutes(db) {
     }
   });
 
+  // Orders stored before the API-Connections gate existed, from shops that are
+  // not in API Connections. GET previews what would go; DELETE removes it.
+  router.get('/pancake-pos/unknown-shops', async (req, res) => {
+    try {
+      res.json({ shops: await posSync.findUnknownShopOrders(db) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.delete('/pancake-pos/unknown-shops', async (req, res) => {
+    try {
+      const result = await posSync.purgeUnknownShopOrders(db, { apply: true });
+      if (result.refused === 'no_connections_saved') {
+        return res.status(409).json({
+          error: 'No POS connections are saved, so every shop would count as unknown. Save a connection first.',
+          ...result,
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   publicRouter.post('/pancake-pos/webhook', async (req, res) => {
     if (!(await pancakeWebhookAllowed(req))) {
       return res.status(401).json({ error: 'Invalid Pancake POS webhook secret' });

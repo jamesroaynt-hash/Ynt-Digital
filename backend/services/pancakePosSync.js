@@ -309,6 +309,64 @@ function warnUnknownShop(shopId, count) {
   console.warn(`[pancake_pos] ignoring ${count} order(s) from shop ${key}: no connection saved in API Connections`);
 }
 
+// Shop ids that API Connections knows about. Deliberately wider than the
+// ingest gate's getSavedConnections(), which also demands an api_key: a
+// connection saved without its key still counts as "known" here, because
+// blocking an import is reversible and deleting its orders is not.
+async function connectedShopIds(db) {
+  const rows = await db.prepare(
+    "SELECT page_id FROM integration_settings WHERE provider = ? AND page_id IS NOT NULL AND page_id != ''"
+  ).all(PROVIDER);
+  return new Set(rows.map((row) => stringOrNull(row.page_id)).filter(Boolean));
+}
+
+// Orders stored before the gate existed, from shops that are not in API
+// Connections: what they are, and (with apply) their removal. Grouped by shop so
+// the caller can show what is about to go before it goes.
+async function findUnknownShopOrders(db) {
+  const known = await connectedShopIds(db);
+  const rows = await db.prepare(`
+    SELECT shop_id,
+           COUNT(*) AS orders,
+           SUM(COALESCE(cod, 0)) AS cod_total,
+           MIN(inserted_at_remote) AS first_order,
+           MAX(inserted_at_remote) AS last_order,
+           MAX(COALESCE(page_name, '')) AS page_name
+    FROM pos_orders
+    GROUP BY shop_id
+  `).all();
+  return rows
+    .filter((row) => !known.has(stringOrNull(row.shop_id)))
+    .map((row) => ({
+      shop_id: stringOrNull(row.shop_id) || '',
+      page_name: stringOrNull(row.page_name) || '',
+      orders: Number(row.orders || 0),
+      cod_total: Number(row.cod_total || 0),
+      first_order: row.first_order || null,
+      last_order: row.last_order || null,
+    }))
+    .sort((a, b) => b.orders - a.orders);
+}
+
+async function purgeUnknownShopOrders(db, { apply = false } = {}) {
+  const shops = await findUnknownShopOrders(db);
+  const known = await connectedShopIds(db);
+  // Never let a settings table that failed to read look like "nothing is
+  // connected" and take the whole orders table with it.
+  if (!known.size) {
+    return { applied: false, shops, deleted: 0, refused: 'no_connections_saved' };
+  }
+  if (!apply || !shops.length) {
+    return { applied: false, shops, deleted: 0 };
+  }
+  let deleted = 0;
+  for (const shop of shops) {
+    const result = await db.prepare('DELETE FROM pos_orders WHERE shop_id = ?').run(shop.shop_id);
+    deleted += Number(result?.changes ?? shop.orders);
+  }
+  return { applied: true, shops, deleted };
+}
+
 async function startRun(db, triggerType, payloadSummary, shopId = null) {
   const result = await db.prepare(`
     INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary, shop_id)
@@ -3823,6 +3881,8 @@ async function reconcilePosOrders(db, payload = {}) {
 
 module.exports = {
   isConnectedShop,
+  findUnknownShopOrders,
+  purgeUnknownShopOrders,
   PROVIDER,
   reconcilePosOrders,
   closeStuckRuns,

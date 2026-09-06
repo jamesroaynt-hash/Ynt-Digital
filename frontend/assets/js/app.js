@@ -2699,6 +2699,7 @@ function renderApiConnections() {
         <div class="pages-ops">
           <button class="btn btn-secondary btn-sm" type="button" onclick="collectPancakePosData()">Sync POS Orders</button>
           <button class="btn btn-secondary btn-sm" type="button" onclick="syncPancakePageUsers()">Sync Staff Users</button>
+          ${isAdminUser() ? '<button class="btn btn-secondary btn-sm" type="button" onclick="reviewUnknownShopOrders()" title="Orders stored from shops that are not listed here">Unknown shops</button>' : ''}
         </div>
       </div>
 
@@ -22133,6 +22134,51 @@ async function syncPosOrdersNow(btn) {
     showToast('error', 'Sync failed', error.message || 'Could not reach Pancake POS.');
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5a5 5 0 1 0 1 3.8"/><path d="M13 2v3h-3"/></svg> Sync Now'; }
+  }
+}
+
+// Orders stored before the API-Connections gate existed can still be sitting in
+// the database under a shop nobody recognises — priced ×100, since the same
+// missing connection withheld the shop's currency. Show what is there, name it,
+// and only then offer to delete it.
+async function reviewUnknownShopOrders() {
+  let shops = [];
+  try {
+    const data = await authorizedJsonRequest('/integrations/pancake-pos/unknown-shops');
+    shops = Array.isArray(data?.shops) ? data.shops : [];
+  } catch (error) {
+    showToast('error', 'Could not check', error.message || 'Unknown shops lookup failed.');
+    return;
+  }
+
+  if (!shops.length) {
+    showToast('success', 'Nothing to remove', 'Every stored order belongs to a shop in API Connections.');
+    return;
+  }
+
+  const totalOrders = shops.reduce((sum, shop) => sum + Number(shop.orders || 0), 0);
+  const lines = shops.map((shop) => {
+    const label = shop.page_name ? `${shop.shop_id} (${shop.page_name})` : shop.shop_id || 'unknown';
+    const span = shop.first_order && shop.last_order
+      ? `, ${String(shop.first_order).slice(0, 10)} to ${String(shop.last_order).slice(0, 10)}`
+      : '';
+    return `• Shop ${label}: ${Number(shop.orders || 0).toLocaleString()} orders, PHP ${Math.round(Number(shop.cod_total || 0)).toLocaleString()}${span}`;
+  }).join('\n');
+
+  const message = `${totalOrders.toLocaleString()} order${totalOrders === 1 ? '' : 's'} `
+    + `from ${shops.length} shop${shops.length === 1 ? '' : 's'} not in API Connections:\n\n${lines}\n\n`
+    + 'Delete them? This cannot be undone — if a shop is yours, cancel and add its connection instead, '
+    + 'which re-admits it and fixes the page name and prices at the source.';
+
+  if (!confirm(message)) return;
+
+  try {
+    const result = await authorizedJsonRequest('/integrations/pancake-pos/unknown-shops', { method: 'DELETE' });
+    showToast('success', 'Removed', `${Number(result?.deleted || 0).toLocaleString()} order${Number(result?.deleted) === 1 ? '' : 's'} deleted.`);
+    await loadSheetRecordsForDataReport({ force: true }).catch(() => {});
+    navigateTo('api-connections');
+  } catch (error) {
+    showToast('error', 'Delete failed', error.message || 'Could not remove those orders.');
   }
 }
 
