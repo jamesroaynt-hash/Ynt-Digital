@@ -5449,44 +5449,43 @@ tfoot td {
 }
 .home-status-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 28px;
 }
-/* Status cards: dark surface, colored top-accent + colored label/value per status,
-   tinted icon top-right, muted sub-line. Each tone sets --tone / --tone-soft. */
+
+@media (max-width: 1400px) { .home-status-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1000px) { .home-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .home-status-grid { grid-template-columns: 1fr; } }
+
+/* Status cards: a coloured dot beside the name, the money in the same colour,
+   the count and share underneath. Each tone sets --tone / --tone-soft. */
 .home-status-card {
   --tone: #3b82f6;
   --tone-soft: rgba(59, 130, 246, 0.15);
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   cursor: pointer;
   text-align: left;
-  padding: 16px 18px;
+  padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--tone);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  transition: transform var(--transition), box-shadow var(--transition);
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
 }
-.home-status-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+.home-status-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--tone); }
 .home-status-card:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
-.hsc-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.hsc-icon {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--tone-soft);
-  color: var(--tone);
+.hsc-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hsc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--tone);
 }
-.hsc-icon svg { width: 18px; height: 18px; }
 .hsc-label {
   font-size: 11px;
   font-weight: 700;
@@ -5495,14 +5494,14 @@ tfoot td {
   color: var(--tone);
 }
 .hsc-value {
-  font-size: clamp(20px, 2.4vw, 28px);
+  font-size: clamp(17px, 1.5vw, 22px);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.15;
   color: var(--tone);
   white-space: nowrap;
 }
-.hsc-sub { font-size: 12px; color: var(--text-muted); }
+.hsc-sub { font-size: 11.5px; color: var(--text-muted); }
 .hsc-blue   { --tone: #3b82f6; --tone-soft: rgba(59, 130, 246, 0.15); }
 .hsc-cyan   { --tone: #06b6d4; --tone-soft: rgba(6, 182, 212, 0.15); }
 .hsc-violet { --tone: #8b5cf6; --tone-soft: rgba(139, 92, 246, 0.15); }
@@ -5526,38 +5525,94 @@ tfoot td {
 
 /* ── Home filter bar + summary tiles ───────────────────────────────────── */
 .home-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: 12px 16px;
   margin-bottom: 16px;
   box-shadow: var(--shadow-sm);
 }
-.home-period-row {
+
+/* Everything but Clear wraps together, so Clear keeps the right-hand end of
+   the first line instead of being pushed onto one of its own. */
+.hf-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hf-range {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 14px;
+  color: var(--text-muted);
+  margin-left: 6px;
 }
-.home-period-hint { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
-.home-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  align-items: end;
+
+.hf-range .form-control {
+  width: auto;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
 }
-.hf-field { display: flex; flex-direction: column-reverse; gap: 5px; min-width: 0; }
-.hf-field > label {
-  font-size: 12px;
-  font-weight: 500;
+
+/* A select that reads as a chip: "Page: All". The name is the label beside it,
+   so the control itself only ever shows the value. */
+.hf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-3);
+  font-size: 13px;
   color: var(--text-secondary);
-  text-transform: none;
-  letter-spacing: 0;
-  padding-left: 13px;
+  cursor: pointer;
+  max-width: 260px;
 }
-.hf-field .form-control { width: 100%; }
-.hf-reset .btn { width: 100%; padding: 9px 13px; }
+
+.hf-chip > span { flex: none; }
+
+.hf-chip select {
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 120px;
+  text-overflow: ellipsis;
+}
+
+.hf-chip select option { background: var(--surface); color: var(--text-primary); }
+
+.hf-clear {
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+
+.hf-clear:hover { background: var(--surface-3); color: var(--text-primary); }
+
 .home-summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

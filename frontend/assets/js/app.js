@@ -3386,37 +3386,34 @@ function renderHome() {
 
   const ordersDashboard = !canSeeOrdersHome ? renderHomeAnalytics() : `
   <div class="home-filter-bar">
-    <div class="home-period-row">
-      ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['last30', 'Last 30 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
-        `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
-      <span class="home-period-hint">Custom range below</span>
+    <div class="hf-controls">
+    ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['last30', 'Last 30 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
+      `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
+    <div class="hf-range">
+      <input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()" aria-label="From">
+      <span>–</span>
+      <input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()" aria-label="To">
     </div>
-    <div class="home-filter-grid">
-      <div class="hf-field"><label>From</label><input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()"></div>
-      <div class="hf-field"><label>To</label><input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()"></div>
-      <div class="hf-field"><label>Page</label>
-        <select class="form-control" id="home-source-filter" onchange="applyHomeFilters()">
-          <option value="all">All</option>
-          ${sourceOptions.map((s) => `<option value="${escapeHtml(s)}" ${homeSourceFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="hf-field"><label>Product</label>
-        <select class="form-control" id="home-product-filter" onchange="applyHomeFilters()">
-          <option value="all">All</option>
-          ${getHomeProductOptions().map((p) => `<option value="${escapeHtml(p)}" ${homeProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="hf-field"><label>CSR</label>
-        <select class="form-control" id="home-csr-filter" onchange="applyHomeFilters()">
-          <option value="all">All</option>
-          ${getHomeCsrOptions().map((c) => `<option value="${escapeHtml(c)}" ${homeCsrFilter === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="hf-field hf-reset">
-        <label>&nbsp;</label>
-        <button class="btn btn-secondary btn-sm" onclick="resetHomeFilters()">Clear</button>
-      </div>
+    <label class="hf-chip"><span>Page:</span>
+      <select id="home-source-filter" onchange="applyHomeFilters()">
+        <option value="all">All</option>
+        ${sourceOptions.map((s) => `<option value="${escapeHtml(s)}" ${homeSourceFilter === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+      </select>
+    </label>
+    <label class="hf-chip"><span>Product:</span>
+      <select id="home-product-filter" onchange="applyHomeFilters()">
+        <option value="all">All</option>
+        ${getHomeProductOptions().map((p) => `<option value="${escapeHtml(p)}" ${homeProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+      </select>
+    </label>
+    <label class="hf-chip"><span>CSR:</span>
+      <select id="home-csr-filter" onchange="applyHomeFilters()">
+        <option value="all">All</option>
+        ${getHomeCsrOptions().map((c) => `<option value="${escapeHtml(c)}" ${homeCsrFilter === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+      </select>
+    </label>
     </div>
+    <button class="hf-clear" onclick="resetHomeFilters()">Clear</button>
   </div>
 
   <div class="home-summary-grid" id="home-summary-tiles">
@@ -3425,7 +3422,7 @@ function renderHome() {
 
   <div class="home-status-head">
     <div>
-      <h2 class="home-status-title">Orders by Status</h2>
+      <h2 class="home-status-title">Orders by status</h2>
       <p class="home-status-hint">Tap a card to open it in RMO Management, filtered to that status.</p>
     </div>
   </div>
@@ -18478,7 +18475,6 @@ function renderHomeStatusCards() {
     agg[st].cod += cod;
   }
   const peso = (n) => `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const boxIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>';
   const tileValue = (tile) => {
     if (tile.match === 'all') return { count: total, cod: totalCod };
     if (tile.tag) {
@@ -18508,8 +18504,7 @@ function renderHomeStatusCards() {
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openRmoFromCard('${tab}','${status}');}"
         title="Open ${escapeHtml(tile.label)} in RMO Management">
         <div class="hsc-top">
-          <span class="hsc-label">${escapeHtml(tile.label)}</span>
-          <span class="hsc-icon">${boxIcon}</span>
+          <i class="hsc-dot"></i><span class="hsc-label">${escapeHtml(tile.label)}</span>
         </div>
         <span class="hsc-value">${peso(cod)}</span>
         <span class="hsc-sub">${count.toLocaleString()} orders · ${pct.toFixed(1)}%</span>
