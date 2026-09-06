@@ -7529,11 +7529,13 @@ async function saveAdspendGridSpend(col, row, rawValue, moveNext) {
   const matches = (DB.marketingEntries || []).filter((e) => e.date === date && e.page === page);
   const current = matches.reduce((sum, e) => sum + Number(e.spend || 0), 0);
   const nextFocus = `apg-spend-${col}-${moveNext ? row + 1 : row}`;
-  // Tabbing through cells without typing must not save, nor scold a viewer who
-  // has no business editing spend in the first place.
+  // Tabbing through cells without typing must not save, re-render, or scold a
+  // viewer who has no business editing spend in the first place.
   if (Math.abs(current - spend) < 0.005) {
-    adspendGridFocusId = nextFocus;
-    navigateTo('adspend-roas');
+    if (moveNext) {
+      const nextEl = document.getElementById(nextFocus);
+      if (nextEl) { nextEl.focus(); nextEl.select(); }
+    }
     return;
   }
   if (!canManageMarketing()) {
@@ -8365,7 +8367,7 @@ function renderAdspendRoas() {
         <td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders.toLocaleString()}</td>
         <td style="padding:7px 8px;text-align:center;font-size:12px;">${fmt1(row.amount)}</td>
         <td style="padding:5px 8px;text-align:center;">
-          <input type="text" inputmode="decimal" id="${inputId}" value="${row.spend ? row.spend.toFixed(2) : '0.00'}"
+          <input type="text" inputmode="decimal" id="${inputId}" value="${row.spend ? row.spend.toFixed(2) : ''}" placeholder="0.00" onfocus="this.select()"
             ${locked ? `readonly title="${lockNote}"` : ''}
             onkeydown="adspendGridSpendKey(event, ${col}, ${idx})"
             onblur="adspendGridSpendBlur(event, ${col}, ${idx})"
@@ -8455,11 +8457,11 @@ function renderAdspendRoas() {
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;">
       ${[['all', 'All Time'], ['weekly', 'Last 7 Days'], ['monthly', 'This Month'], ['custom', 'Custom']]
         .map(([key, label]) => `<button type="button" class="filter-pill${adspendDatePreset === key ? ' active' : ''}" onclick="setAdspendPreset('${key}')">${label}</button>`).join('')}
-      <select class="form-control" onchange="if (this.value) setAdspendMonth(this.value)" style="height:32px;font-size:12px;min-width:150px;">
+      <select class="form-control" onchange="if (this.value) setAdspendMonth(this.value)" style="height:32px;font-size:12px;width:150px;flex:0 0 auto;padding:0 30px 0 10px;">
         <option value="">Month…</option>
         ${monthOptions.map((ym) => `<option value="${ym}"${adspendDatePreset === 'monthly' && adspendMonth === ym ? ' selected' : ''}>${monthLabel(ym)}</option>`).join('')}
       </select>
-      <span style="font-size:12px;color:var(--text-muted);margin-left:6px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'} · ${gridCount} page${gridCount === 1 ? '' : 's'}</span>
+      <span style="font-size:12px;color:var(--text-muted);margin-left:6px;white-space:nowrap;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'} · ${gridCount} page${gridCount === 1 ? '' : 's'}</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:16px;">
       <div>
@@ -8469,7 +8471,7 @@ function renderAdspendRoas() {
             .map(([key, label]) => `<option value="${key}"${adspendGridCancelled === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding-top:22px;">
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding-top:28px;">
         ${ADSPEND_STATUS_MAP.map(([status, id, label]) => `
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
             <input type="checkbox" id="${id}-ap" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter('-ap')" style="width:14px;height:14px;accent-color:var(--primary);">
@@ -8492,12 +8494,12 @@ function renderAdspendRoas() {
     <div style="padding:12px 20px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">${gridCount} page${gridCount === 1 ? '' : 's'} · ${adspendDateFrom} — ${adspendDateTo}</div>
     ${!gridCount ? '<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages match these filters.</div>' : `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-      <button class="page-btn" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''}>‹ Prev</button>
+      <button class="page-btn" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''} style="width:auto;padding:0 14px;white-space:nowrap;">‹ Prev</button>
       <div style="text-align:center;">
         <div style="font-size:15px;font-weight:700;color:var(--text-primary);">Pages ${gridFirst}${gridLast > gridFirst ? `–${gridLast}` : ''} of ${gridCount}</div>
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'}</div>
       </div>
-      <button class="page-btn" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''}>Next ›</button>
+      <button class="page-btn" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''} style="width:auto;padding:0 14px;white-space:nowrap;">Next ›</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:20px;">
       ${gridWindow.map((pageData, col) => gridCardHtml(pageData, col)).join('')}
