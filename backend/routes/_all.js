@@ -885,7 +885,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   r.get('/pos-orders/dashboard', async (req, res) => {
     const vis = await posVisibilityFilter();
     const rows = await db.prepare(`
-      SELECT external_id, tracking_no, page_name, inserted_at_remote,
+      SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
              cod, assigning_seller_name, status_name, attempts,
              shipping_address_json
@@ -912,7 +912,7 @@ function ordersRoutes(db, { dispatch } = {}) {
         return {
           id: row.external_id,
           tracking: row.tracking_no,
-          sourceSheet: row.page_name || 'POS',
+          sourceSheet: posPageLabel(row),
           date: toManilaDate(row.inserted_at_remote),
           customer: row.customer_name,
           phone: row.customer_phone,
@@ -951,7 +951,7 @@ function ordersRoutes(db, { dispatch } = {}) {
     const total = Number(totalRow?.c || 0);
 
     const rows = await db.prepare(`
-      SELECT external_id, tracking_no, page_name, inserted_at_remote,
+      SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
              cod, assigning_seller_name, status_name, attempts, shipping_address_json
       FROM pos_orders
