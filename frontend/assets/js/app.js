@@ -9395,6 +9395,167 @@ function initSalesMarketingTracker() {
   });
 }
 
+// ─── MARKETING ANALYSIS CHARTS ─────────────────────────────
+// renderMarketingCenter() builds the series and leaves them here; the canvases
+// are only in the DOM after that markup is injected, so the drawing happens in
+// initCharts (and again after the entries fetch re-renders the page).
+let mktAnalysisSeries = { trend: { labels: [], sales: [], spend: [] }, roas: [], rts: [] };
+let mktTrendChart = null;
+let mktRoasChart = null;
+let mktRtsChart = null;
+
+// Two series of the same unit on one axis, so no second scale is ever needed.
+// Blue/orange clear the CVD and normal-vision separation gates in both themes.
+const MKT_CHART_COLORS = {
+  light: { sales: '#2a78d6', spend: '#eb6834', grid: 'rgba(15,23,42,0.08)', tick: '#64748b', label: '#334155' },
+  dark: { sales: '#3987e5', spend: '#d95926', grid: 'rgba(148,163,184,0.14)', tick: '#94a3b8', label: '#cbd5e1' },
+};
+
+function mktChartColors() {
+  return document.documentElement.getAttribute('data-theme') === 'dark'
+    ? MKT_CHART_COLORS.dark
+    : MKT_CHART_COLORS.light;
+}
+
+// Long page names would crowd a bar axis off the card.
+function mktShortLabel(name, max = 17) {
+  const text = String(name || '');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+// Direct labels at the end of each horizontal bar — the value is the point of
+// these two charts, and hunting for it in a tooltip is not reading a chart.
+// The formatter is captured in a closure rather than read back off
+// chart.options: Chart.js resolves option functions as scriptable ones and
+// would call this with its own context object instead of the value.
+function mktBarValuePlugin(format) {
+  return {
+    id: 'mktBarValue',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      const dataset = chart.data.datasets[0];
+      ctx.save();
+      ctx.font = '600 11px "DM Sans", system-ui, sans-serif';
+      ctx.fillStyle = mktChartColors().label;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      chart.getDatasetMeta(0).data.forEach((bar, i) => {
+        ctx.fillText(format(Number(dataset.data[i] || 0)), bar.x + 6, bar.y);
+      });
+      ctx.restore();
+    },
+  };
+}
+
+// One horizontal bar chart, twice: ROAS and RTS % differ only in color, scale
+// and how the value reads.
+function mktBarChartConfig(rows, color, format, axisMax) {
+  const colors = mktChartColors();
+  return {
+    type: 'bar',
+    plugins: [mktBarValuePlugin(format)],
+    data: {
+      labels: rows.map((r) => mktShortLabel(r.page)),
+      datasets: [{
+        label: 'value',
+        data: rows.map((r) => r.value),
+        backgroundColor: color,
+        borderRadius: 4,
+        borderSkipped: false,
+        barThickness: 14,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { right: 46 } },
+      plugins: {
+        legend: { display: false }, // a single series is named by the card title
+        tooltip: {
+          callbacks: {
+            title: (items) => rows[items[0].dataIndex]?.page || '',
+            label: (item) => format(Number(item.raw || 0)),
+          },
+        },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          suggestedMax: axisMax,
+          grid: { color: colors.grid, drawBorder: false },
+          ticks: { color: colors.tick, font: { size: 11 } },
+        },
+        y: {
+          grid: { display: false, drawBorder: false },
+          ticks: { color: colors.tick, font: { size: 11 } },
+        },
+      },
+    },
+  };
+}
+
+function renderMarketingAnalysisCharts() {
+  if (typeof Chart === 'undefined') return;
+  const colors = mktChartColors();
+  const series = mktAnalysisSeries || { trend: { labels: [], sales: [], spend: [] }, roas: [], rts: [] };
+  const peso = (v) => `₱${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+
+  const toggleEmpty = (id, hasData) => {
+    const empty = document.getElementById(id);
+    if (empty) empty.classList.toggle('hidden', hasData);
+  };
+
+  const trendCanvas = document.getElementById('mkt-trend-chart');
+  if (trendCanvas) {
+    const trend = series.trend || { labels: [], sales: [], spend: [] };
+    const hasTrend = trend.labels.length > 0;
+    toggleEmpty('mkt-trend-empty', hasTrend);
+    trendCanvas.style.display = hasTrend ? '' : 'none';
+    mktTrendChart = upsertChart(mktTrendChart, trendCanvas, hasTrend, {
+      type: 'bar',
+      data: {
+        labels: trend.labels,
+        datasets: [
+          { label: 'Gross sales', data: trend.sales, backgroundColor: colors.sales, borderRadius: 4, borderSkipped: false },
+          { label: 'Ad spend', data: trend.spend, backgroundColor: colors.spend, borderRadius: 4, borderSkipped: false },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', color: colors.label } },
+          tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${peso(item.raw)}` } },
+        },
+        scales: {
+          x: { grid: { display: false, drawBorder: false }, ticks: { color: colors.tick, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 12 } },
+          y: { beginAtZero: true, grid: { color: colors.grid, drawBorder: false }, ticks: { color: colors.tick, font: { size: 11 }, callback: (v) => peso(v) } },
+        },
+      },
+    });
+  }
+
+  const roasCanvas = document.getElementById('mkt-roas-chart');
+  if (roasCanvas) {
+    const rows = series.roas || [];
+    toggleEmpty('mkt-roas-empty', rows.length > 0);
+    roasCanvas.style.display = rows.length ? '' : 'none';
+    mktRoasChart = upsertChart(mktRoasChart, roasCanvas, rows.length > 0,
+      mktBarChartConfig(rows, colors.sales, (v) => v.toFixed(2), 1));
+  }
+
+  const rtsCanvas = document.getElementById('mkt-rts-chart');
+  if (rtsCanvas) {
+    const rows = series.rts || [];
+    toggleEmpty('mkt-rts-empty', rows.length > 0);
+    rtsCanvas.style.display = rows.length ? '' : 'none';
+    mktRtsChart = upsertChart(mktRtsChart, rtsCanvas, rows.length > 0,
+      mktBarChartConfig(rows, colors.spend, (v) => `${v.toFixed(1)}%`, 10));
+  }
+}
+
 function renderMarketingCenter() {
   const now = new Date();
   const state = getMarketingState();
@@ -9444,13 +9605,17 @@ function renderMarketingCenter() {
   });
   let deliveredSales = 0;
   const posCounts = { delivered: 0, returned: 0, returning: 0 };
+  const mktOutcomeByPage = {}; // page -> closed-order outcome, for the RTS chart
   sheetOrdersInRange.forEach((o) => {
     const key = getOrderStatusKey(o.status);
+    const pg = o.sourceSheet || 'Sheets';
+    const outcome = mktOutcomeByPage[pg] || (mktOutcomeByPage[pg] = { delivered: 0, returned: 0, returning: 0 });
     if (key === 'delivered') {
       posCounts.delivered += 1;
+      outcome.delivered += 1;
       deliveredSales += Number(o.cod || 0);
-    } else if (key === 'returned') posCounts.returned += 1;
-    else if (key === 'returning') posCounts.returning += 1;
+    } else if (key === 'returned') { posCounts.returned += 1; outcome.returned += 1; }
+    else if (key === 'returning') { posCounts.returning += 1; outcome.returning += 1; }
   });
   const posRtsBase = posCounts.delivered + posCounts.returned + posCounts.returning;
   const posRtsRate = posRtsBase ? (posCounts.returned + posCounts.returning) / posRtsBase : 0;
@@ -9490,6 +9655,63 @@ function renderMarketingCenter() {
       return { page, orders, spend, sales, roas: spend ? sales / spend : 0 };
     })
     .sort((a, b) => b.orders - a.orders || b.spend - a.spend);
+  // ANALYSIS CHARTS. Gross sales here is the same basis the ROAS Summary uses —
+  // COD across live statuses, minus Awaiting print — so the two pages agree.
+  const mktGrossSales = Object.values(mpSalesByPage).reduce((sum, v) => sum + v, 0);
+  const mktOrderCount = Object.values(mpOrderCounts).reduce((sum, v) => sum + v, 0);
+  const mktSalesByDate = {};
+  const mktSpendByDate = {};
+  sheetOrdersInRange.forEach((o) => {
+    if (o.status_name === 'wait_print' || !ADSPEND_ALLOWED_STATUSES.has(o.status)) return;
+    mktSalesByDate[o.date] = (mktSalesByDate[o.date] || 0) + Number(o.cod || 0);
+  });
+  entries.forEach((e) => {
+    if (!e.date) return;
+    mktSpendByDate[e.date] = (mktSpendByDate[e.date] || 0) + Number(e.spend || 0);
+  });
+  const mktTrendDays = [...new Set([...Object.keys(mktSalesByDate), ...Object.keys(mktSpendByDate)])].filter(Boolean).sort();
+  let mktTrend;
+  if (mktTrendDays.length > 45) {
+    // A long custom range would print a tick per day; roll it up by month.
+    const byMonth = {};
+    mktTrendDays.forEach((d) => {
+      const m = d.slice(0, 7);
+      const bucket = byMonth[m] || (byMonth[m] = { sales: 0, spend: 0 });
+      bucket.sales += mktSalesByDate[d] || 0;
+      bucket.spend += mktSpendByDate[d] || 0;
+    });
+    const months = Object.keys(byMonth).sort();
+    mktTrend = {
+      labels: months.map((m) => monthLabel(m)),
+      sales: months.map((m) => byMonth[m].sales),
+      spend: months.map((m) => byMonth[m].spend),
+    };
+  } else {
+    mktTrend = {
+      labels: mktTrendDays.map((d) => d.slice(5)), // MM-DD; the range is in the subtitle
+      sales: mktTrendDays.map((d) => mktSalesByDate[d] || 0),
+      spend: mktTrendDays.map((d) => mktSpendByDate[d] || 0),
+    };
+  }
+  const mktRoasBars = mktPagesRows
+    .filter((r) => r.spend > 0 && r.sales > 0)
+    .sort((a, b) => b.roas - a.roas)
+    .slice(0, 8)
+    .map((r) => ({ page: r.page, value: r.roas }));
+  const mktRtsBars = Object.entries(mktOutcomeByPage)
+    .map(([page, o]) => {
+      const base = o.delivered + o.returned + o.returning;
+      return { page, base, value: base ? ((o.returned + o.returning) / base) * 100 : 0 };
+    })
+    .filter((r) => r.base >= 5) // a page with three closed orders says nothing
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+  mktAnalysisSeries = { trend: mktTrend, roas: mktRoasBars, rts: mktRtsBars };
+
+  const mktSpendTotal = totals.spend;
+  const mktRoasValue = mktSpendTotal ? mktGrossSales / mktSpendTotal : 0;
+  const mktDeliveredRate = posRtsBase ? posCounts.delivered / posRtsBase : 0;
+  const mktNetProfit = deliveredSales - mktSpendTotal;
   const targetPct = state.targets.sales ? deliveredSales / state.targets.sales : 0;
   const monthSpendTarget = Number(state.targets.spend || 0) * 31;
   const creativeMonth = state.creatives.filter((item) => String(item.date || '').startsWith(marketingMonth()));
@@ -9537,29 +9759,32 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div class="erp-kpi-grid">
-    <div class="erp-kpi"><div class="erp-kpi-label">Gross Sales (Delivered)</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingMoney(deliveredSales)}</div><div class="erp-kpi-target">${Math.round(targetPct * 100)}% of monthly target</div></div>
-    <div class="erp-kpi warn"><div class="erp-kpi-label">Ad Spend (Manual)</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingMoney(totals.spend)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
-    <div class="erp-kpi ok"><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingRoas(totals.spend ? deliveredSales / totals.spend : 0)}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
-    <div class="erp-kpi bad"><div class="erp-kpi-label">RTS Rate</div><div class="erp-kpi-value" style="font-size:clamp(16px,2.5vw,26px);overflow-wrap:break-word;">${marketingPct(posRtsRate)}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
+  <div class="erp-kpi-grid erp-kpi-flow">
+    <div class="erp-kpi"><span class="erp-kpi-icon">💰</span><div class="erp-kpi-label">Gross Sales</div><div class="erp-kpi-value">${marketingMoney(mktGrossSales)}</div><div class="erp-kpi-target">Delivered ${marketingMoney(deliveredSales)} · ${Math.round(targetPct * 100)}% of target</div></div>
+    <div class="erp-kpi"><span class="erp-kpi-icon">📦</span><div class="erp-kpi-label">Total Orders</div><div class="erp-kpi-value">${mktOrderCount.toLocaleString()}</div><div class="erp-kpi-target">${mpFrom} — ${mpTo}</div></div>
+    <div class="erp-kpi ${mktRoasValue >= Number(state.targets.roas || 0) ? 'ok' : 'warn'}"><span class="erp-kpi-icon">📈</span><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value">${mktSpendTotal ? marketingRoas(mktRoasValue) : '—'}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
+    <div class="erp-kpi warn"><span class="erp-kpi-icon">💸</span><div class="erp-kpi-label">Marketing Spend</div><div class="erp-kpi-value">${marketingMoney(mktSpendTotal)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
+    <div class="erp-kpi ok"><span class="erp-kpi-icon">🚚</span><div class="erp-kpi-label">Delivered Rate</div><div class="erp-kpi-value">${posRtsBase ? marketingPct(mktDeliveredRate) : '—'}</div><div class="erp-kpi-target">${posCounts.delivered.toLocaleString()} of ${posRtsBase.toLocaleString()} closed orders</div></div>
+    <div class="erp-kpi ${posRtsRate * 100 > Number(state.targets.rts || 0) ? 'bad' : 'ok'}"><span class="erp-kpi-icon">🔄</span><div class="erp-kpi-label">RTS %</div><div class="erp-kpi-value">${posRtsBase ? marketingPct(posRtsRate) : '—'}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
+    <div class="erp-kpi ${mktNetProfit >= 0 ? 'ok' : 'bad'}"><span class="erp-kpi-icon">💵</span><div class="erp-kpi-label">Net Profit</div><div class="erp-kpi-value">${marketingMoney(mktNetProfit)}</div><div class="erp-kpi-target">Delivered sales − ad spend</div></div>
   </div>
 
   ${(() => {
     const mktTabs = [
-      ['mkt-pages', 'Pages', true],
+      ['mkt-analysis', 'Analysis', true],
       ['mkt-entries', 'Daily Entry', true],
       ['mkt-creatives', 'Creatives', true],
       ['mkt-team', 'Team', true],
       ['mkt-adaccounts', 'Ad Accounts', true],
     ];
     const validIds = mktTabs.filter(([, , show]) => show).map(([id]) => id);
-    if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-pages';
+    if (!validIds.includes(lastMarketingTab)) lastMarketingTab = 'mkt-analysis';
     return `<div class="tabs erp-tabs">${mktTabs.map(([id, label, show]) =>
       show ? `<button class="tab-btn${lastMarketingTab === id ? ' active' : ''}" onclick="switchTab(this,'${id}')">${label}</button>` : ''
     ).join('')}</div>`;
   })()}
 
-  <div id="mkt-pages" class="tab-content${lastMarketingTab === 'mkt-pages' ? ' active' : ''}">
+  <div id="mkt-analysis" class="tab-content${lastMarketingTab === 'mkt-analysis' ? ' active' : ''}">
     ${marketingManager ? `<div class="modal-overlay" id="page-adspend-modal">
       <div class="modal">
         <div class="modal-header">
@@ -9614,9 +9839,39 @@ function renderMarketingCenter() {
         </div>
       </div>
     </div>
+    <div class="mkt-chart-grid">
+      <div class="card mkt-chart-wide">
+        <div class="card-header">
+          <div><div class="card-title">Gross sales and ad spend</div><div class="card-subtitle">Both in pesos, ${mpFrom} — ${mpTo}.</div></div>
+        </div>
+        <div class="mkt-chart-body">
+          <canvas id="mkt-trend-chart"></canvas>
+          <div class="mkt-chart-empty hidden" id="mkt-trend-empty">No orders or ad spend in this range.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">ROAS by page</div><div class="card-subtitle">Best eight pages with ad spend logged.</div></div>
+        </div>
+        <div class="mkt-chart-body">
+          <canvas id="mkt-roas-chart"></canvas>
+          <div class="mkt-chart-empty hidden" id="mkt-roas-empty">No page has both sales and ad spend in this range.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div><div class="card-title">RTS % by page</div><div class="card-subtitle">Returned and returning against closed orders, worst first.</div></div>
+        </div>
+        <div class="mkt-chart-body">
+          <canvas id="mkt-rts-chart"></canvas>
+          <div class="mkt-chart-empty hidden" id="mkt-rts-empty">No page has five closed orders in this range.</div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Active Pages</div><div class="card-subtitle">Total orders and ad spend per page for ${mpFrom} — ${mpTo}.${marketingManager ? ' Use “Add Ad Spend” to log a daily entry.' : ''}</div></div>
+        <div><div class="card-title">Page Performance</div><div class="card-subtitle">Total orders and ad spend per page for ${mpFrom} — ${mpTo}.${marketingManager ? ' Use “Add Ad Spend” to log a daily entry.' : ''}</div></div>
       </div>
       <div class="table-container">
         <table class="data-table">
@@ -15147,6 +15402,10 @@ function initCharts(page) {
     renderHomeOrderCharts();
   }
 
+  if (page === 'marketing-center') {
+    renderMarketingAnalysisCharts();
+  }
+
   if (page === 'data-report') {
     // Monthly bar chart
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -15705,6 +15964,7 @@ function initPage(page) {
         if (App.currentPage !== 'marketing-center') return;
         document.getElementById('main-page-content').innerHTML = renderMarketingCenter();
         syncMarketingPageMeta();
+        renderMarketingAnalysisCharts(); // fresh canvases, so redraw
       });
     const entriesPromise = !DB.marketingEntriesLoaded
       ? migrateLocalMarketingEntriesIfNeeded().then(refreshMarketingCenterEntries)
@@ -18676,25 +18936,25 @@ function closeMarketingEntryModal() {
 // Pages-tab filter handlers (Today / Yesterday / Monthly / Custom + Month + Page).
 function setMktPagesPreset(preset) {
   mktPagesPreset = preset;
-  lastMarketingTab = 'mkt-pages';
+  lastMarketingTab = 'mkt-analysis';
   navigateTo('marketing-center');
 }
 function setMktPagesMonth() {
   mktPagesMonth = document.getElementById('mkt-pages-month')?.value || '';
   mktPagesPreset = 'monthly';
-  lastMarketingTab = 'mkt-pages';
+  lastMarketingTab = 'mkt-analysis';
   navigateTo('marketing-center');
 }
 function setMktPagesPageFilter() {
   mktPagesPage = document.getElementById('mkt-pages-page')?.value || 'all';
-  lastMarketingTab = 'mkt-pages';
+  lastMarketingTab = 'mkt-analysis';
   navigateTo('marketing-center');
 }
 function applyMktPagesCustomRange() {
   mktPagesFrom = document.getElementById('mkt-pages-from')?.value || '';
   mktPagesTo = document.getElementById('mkt-pages-to')?.value || '';
   mktPagesPreset = 'custom';
-  lastMarketingTab = 'mkt-pages';
+  lastMarketingTab = 'mkt-analysis';
   navigateTo('marketing-center');
 }
 
@@ -18737,7 +18997,7 @@ async function submitPageAdspend() {
   await loadMarketingEntries();
   showToast('success', 'Ad spend logged', `${page}: ${marketingMoney(spend)} on ${date}`);
   closeModal('page-adspend-modal');
-  lastMarketingTab = 'mkt-pages';
+  lastMarketingTab = 'mkt-analysis';
   navigateTo('marketing-center');
 }
 
@@ -22961,7 +23221,7 @@ function switchTab(btn, contentId) {
   }
 }
 
-let lastMarketingTab = 'mkt-pages';
+let lastMarketingTab = 'mkt-analysis';
 let marketingPosPage = 1;
 let marketingPosPerPage = 20;
 
