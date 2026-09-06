@@ -8071,12 +8071,15 @@ function renderAdspendRoas() {
   // Baseline: only count orders with one of the 5 allowed statuses
   const statusActive = adspendStatusFilters.size > 0;
 
-  function roasCellStyle(roas) {
-    if (roas >= 5) return 'background:rgba(16,185,129,0.16);color:#34d399;font-weight:700;';
-    if (roas >= 4) return 'background:rgba(245,158,11,0.14);color:#fbbf24;font-weight:700;';
-    if (roas >= 3) return 'background:rgba(245,158,11,0.10);color:#f59e0b;font-weight:700;';
-    if (roas > 0) return 'background:rgba(239,68,68,0.12);color:#f87171;font-weight:700;';
-    return 'color:var(--text-muted);';
+  // The figure carries the band, not the cell: a tinted block behind every ROAS
+  // reads as a heat map nobody asked for. Colours live in CSS so each theme
+  // gets a step that stays legible on its own surface.
+  function roasCellClass(roas) {
+    if (!(roas > 0)) return 'roas-none';
+    if (roas >= 5) return 'roas-high';
+    if (roas >= 4) return 'roas-good';
+    if (roas >= 3) return 'roas-fair';
+    return 'roas-low';
   }
 
   // Build daily ROAS rows + totals for one page ('all' = every page combined).
@@ -8188,7 +8191,7 @@ function renderAdspendRoas() {
             <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(row.spend)}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+            <td class="${roasCellClass(row.roas)}" style="padding:10px 14px;text-align:center;font-size:13px;">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
@@ -8372,7 +8375,7 @@ function renderAdspendRoas() {
             style="width:100%;max-width:130px;height:26px;text-align:center;font-size:12px;border-radius:6px;border:1px solid var(--border,rgba(148,163,184,0.35));background:var(--surface-3,#f1f5f9);color:${row.spend ? 'var(--text-primary)' : 'var(--text-muted)'};${locked ? 'opacity:.7;cursor:not-allowed;' : ''}">
         </td>
         ${adspendGridShowCpp ? `<td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders > 0 && row.spend > 0 ? fmt1(row.cpp) : '—'}</td>` : ''}
-        <td style="padding:7px 8px;text-align:center;font-size:12px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+        <td class="${roasCellClass(row.roas)}" style="padding:7px 8px;text-align:center;font-size:12px;">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
       </tr>`;
     }).join('');
 
