@@ -8494,12 +8494,12 @@ function renderAdspendRoas() {
     <div style="padding:12px 20px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">${gridCount} page${gridCount === 1 ? '' : 's'} · ${adspendDateFrom} — ${adspendDateTo}</div>
     ${!gridCount ? '<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages match these filters.</div>' : `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-      <button class="page-btn" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''} style="width:auto;padding:0 14px;white-space:nowrap;">‹ Prev</button>
+      <button class="apg-nav" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''}><span aria-hidden="true">‹</span>Prev</button>
       <div style="text-align:center;">
         <div style="font-size:15px;font-weight:700;color:var(--text-primary);">Pages ${gridFirst}${gridLast > gridFirst ? `–${gridLast}` : ''} of ${gridCount}</div>
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'}</div>
       </div>
-      <button class="page-btn" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''} style="width:auto;padding:0 14px;white-space:nowrap;">Next ›</button>
+      <button class="apg-nav" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''}>Next<span aria-hidden="true">›</span></button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:20px;">
       ${gridWindow.map((pageData, col) => gridCardHtml(pageData, col)).join('')}

@@ -2073,6 +2073,37 @@ tfoot td {
 
 .filter-pill:hover { background: var(--surface-3); }
 
+/* Ad Spend "All Pages" pager. .page-btn is a 30px square, which squashed the
+   arrow above the word; this is a labelled button that sits level with the
+   filter pills around it. */
+.apg-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.apg-nav:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.apg-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.apg-nav span { font-size: 15px; line-height: 1; }
+
 .filter-pill.active {
   background: var(--accent);
   border-color: var(--accent);
