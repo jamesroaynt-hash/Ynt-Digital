@@ -279,6 +279,36 @@ async function getSavedConnections(db) {
   return promise;
 }
 
+// Orders are only stored for shops configured in API Connections. A shop that
+// is not listed there — added on Pancake's side, a connection since deleted, or
+// anything else pushing at the public webhook — used to import silently, and it
+// arrives crippled: no saved connection means no page name and no stored
+// currency, so those orders land with a blank page and prices at the raw ×100
+// scale. Set POS_ALLOW_UNKNOWN_SHOPS=1 to accept every shop again.
+const _unknownShopsWarned = new Set();
+
+async function isConnectedShop(db, shopId) {
+  if (String(process.env.POS_ALLOW_UNKNOWN_SHOPS || '') === '1') return true;
+  const key = stringOrNull(shopId);
+  if (!key) return false;
+  let connections;
+  try {
+    connections = await getSavedConnections(db);
+  } catch {
+    return true; // a settings-read outage must never stop the sync
+  }
+  if (!connections.length) return true; // nothing configured yet, nothing to check against
+  return connections.some((connection) => stringOrNull(connection.shop_id) === key);
+}
+
+// One line per shop per process — a rejected shop pushes on every cycle.
+function warnUnknownShop(shopId, count) {
+  const key = String(shopId || 'unknown');
+  if (_unknownShopsWarned.has(key)) return;
+  _unknownShopsWarned.add(key);
+  console.warn(`[pancake_pos] ignoring ${count} order(s) from shop ${key}: no connection saved in API Connections`);
+}
+
 async function startRun(db, triggerType, payloadSummary, shopId = null) {
   const result = await db.prepare(`
     INSERT INTO integration_sync_runs (provider, direction, trigger_type, payload_summary, shop_id)
@@ -614,6 +644,11 @@ async function posPriceDivisor(db, shopId) {
 async function upsertOrder(db, shopId, item, connectionName = null, options = {}) {
   const externalId = stringOrNull(item?.id);
   if (!externalId) return null;
+  const gateShopId = stringOrNull(shopId || item?.shop_id || item?.shop?.id || item?.page_id);
+  if (!(await isConnectedShop(db, gateShopId))) {
+    warnUnknownShop(gateShopId, 1);
+    return null;
+  }
   // Dashboard scope is 2026+. The Pancake "updated_at" fetch pass otherwise
   // back-hauls years of history (orders with old inserted_at but recent
   // updates), bloating the DB. Never store orders created before POS_MIN_DATE.
@@ -3309,6 +3344,18 @@ async function receiveWebhook(db, payload = {}) {
   const orders = extractWebhookOrders(payload);
   const localIds = [];
 
+  if (orders.length && !(await isConnectedShop(db, shopId))) {
+    warnUnknownShop(shopId, orders.length);
+    return {
+      provider: PROVIDER,
+      mode: 'webhook',
+      shop_id: shopId,
+      received: orders.length,
+      stored: 0,
+      ignored: 'shop_not_in_api_connections',
+    };
+  }
+
   // Same reason as in collectPosData: without a stored currency this shop's
   // orders import at the raw ×100 scale, and the skip-unchanged guard means
   // they are never rewritten on their own.
@@ -3775,6 +3822,7 @@ async function reconcilePosOrders(db, payload = {}) {
 }
 
 module.exports = {
+  isConnectedShop,
   PROVIDER,
   reconcilePosOrders,
   closeStuckRuns,
