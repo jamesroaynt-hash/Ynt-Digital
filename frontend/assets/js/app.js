@@ -7418,8 +7418,22 @@ let adspendIndividualAdsData = null;
 let adspendIndividualAdsLoading = false;
 let adspendRoasPage = 1;
 let adspendRoasPerPage = 20;
-let adspendActiveTab = 'summary';
-let adspendAllPagesIndex = 0;
+let adspendActiveTab = 'allpages';
+// ALL PAGES grid: three chat pages side by side, with their own page-level
+// filters. The date range and order-status filters stay shared with the other
+// tabs so switching tabs never changes the numbers underneath you.
+const ADSPEND_GRID_SIZE = 3;
+let adspendGridStart = 0;          // index of the leftmost page card on screen
+let adspendGridStatus = 'active';  // active | all | orders | spend
+let adspendGridSearch = '';
+let adspendGridSort = 'name';      // name | sales | spend | roas | orders
+let adspendGridCancelled = 'exclude'; // exclude | include | only
+let adspendGridShowCpp = false;
+let adspendGridFocusId = '';       // element to put the caret back on after a re-render
+// What the cards on screen are showing, so an Ad Spent cell can name its page
+// and date by column/row — page names carry quotes and cannot ride in an
+// inline handler.
+let adspendGridView = { pages: [], dates: [] };
 
 function setAdspendTab(tab) {
   adspendActiveTab = tab;
@@ -7434,15 +7448,155 @@ function setAdspendTab(tab) {
   });
 }
 
-// Slide the All Pages tab one chat page at a time.
-function slideAdspendPage(dir) {
-  adspendAllPagesIndex += dir;
+// Slide the All Pages grid a screenful of pages at a time.
+function slideAdspendGrid(dir) {
+  adspendGridStart += dir * ADSPEND_GRID_SIZE;
+  if (adspendGridStart < 0) adspendGridStart = 0;
   navigateTo('adspend-roas');
 }
 
-function setAdspendAllPagesIndex(idx) {
-  adspendAllPagesIndex = Number(idx) || 0;
+function setAdspendGridStatus(value) {
+  adspendGridStatus = value || 'active';
+  adspendGridStart = 0;
   navigateTo('adspend-roas');
+}
+
+function setAdspendGridSort(value) {
+  adspendGridSort = value || 'name';
+  adspendGridStart = 0;
+  navigateTo('adspend-roas');
+}
+
+function setAdspendGridCancelled(value) {
+  adspendGridCancelled = value || 'exclude';
+  adspendGridStart = 0;
+  navigateTo('adspend-roas');
+}
+
+function toggleAdspendGridCpp(checked) {
+  adspendGridShowCpp = Boolean(checked);
+  navigateTo('adspend-roas');
+}
+
+// The name box filters as you type, so the caret has to survive the re-render.
+let adspendGridSearchTimer = null;
+function setAdspendGridSearch(value) {
+  clearTimeout(adspendGridSearchTimer);
+  adspendGridSearchTimer = setTimeout(() => {
+    adspendGridSearch = String(value || '').trim();
+    adspendGridStart = 0;
+    adspendGridFocusId = 'apg-search';
+    navigateTo('adspend-roas');
+  }, 350);
+}
+
+// Submit / Reset on the grid's own date range.
+function applyAdspendGridDates() {
+  const from = document.getElementById('apg-from')?.value || '';
+  const to = document.getElementById('apg-to')?.value || '';
+  if (!from && !to) return;
+  adspendDateFrom = from || to;
+  adspendDateTo = to || from;
+  if (adspendDateTo < adspendDateFrom) {
+    const swap = adspendDateFrom; adspendDateFrom = adspendDateTo; adspendDateTo = swap;
+  }
+  adspendDatePreset = 'custom';
+  adspendRoasPage = 1;
+  adspendGridStart = 0;
+  navigateTo('adspend-roas');
+}
+
+function resetAdspendGridFilters() {
+  adspendGridStatus = 'active';
+  adspendGridSearch = '';
+  adspendGridSort = 'name';
+  adspendGridCancelled = 'exclude';
+  adspendGridShowCpp = false;
+  adspendGridStart = 0;
+  adspendStatusFilters.clear();
+  adspendRoasPage = 1;
+  setAdspendPreset('weekly'); // navigates
+}
+
+// Ad Spent cells are editable: leaving the box saves, Enter saves and drops to
+// the next day in the same column. One marketing entry per page+date is the
+// shape this can edit — a day with several entries is summed and left alone.
+async function saveAdspendGridSpend(col, row, rawValue, moveNext) {
+  const page = adspendGridView.pages[col];
+  const date = adspendGridView.dates[row];
+  if (!page || !date) return;
+  const spend = Math.max(0, Number(String(rawValue).replace(/,/g, '')) || 0);
+  const matches = (DB.marketingEntries || []).filter((e) => e.date === date && e.page === page);
+  const current = matches.reduce((sum, e) => sum + Number(e.spend || 0), 0);
+  const nextFocus = `apg-spend-${col}-${moveNext ? row + 1 : row}`;
+  // Tabbing through cells without typing must not save, nor scold a viewer who
+  // has no business editing spend in the first place.
+  if (Math.abs(current - spend) < 0.005) {
+    adspendGridFocusId = nextFocus;
+    navigateTo('adspend-roas');
+    return;
+  }
+  if (!canManageMarketing()) {
+    showToast('warning', 'Marketing only', 'Only Sales and Marketing can record ad spend.');
+    navigateTo('adspend-roas');
+    return;
+  }
+  try {
+    if (matches.length === 1) {
+      await authorizedJsonRequest(`/marketing/entries/${matches[0].id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...matches[0], spend }),
+      });
+    } else {
+      const state = getMarketingState();
+      const configured = (state.pages || []).find((pg) => pg.name === page);
+      const teamMember = (state.team || []).find((tm) => getMemberPages(tm).includes(page));
+      await authorizedJsonRequest('/marketing/entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          date,
+          page,
+          product: configured?.product || '',
+          owner: App.user?.name || App.user?.username || configured?.owner || teamMember?.name || '',
+          spend,
+          sales: 0,
+          orders: 0,
+          rts: 0,
+        }),
+      });
+    }
+    await loadMarketingEntries();
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save ad spend.');
+  }
+  adspendGridFocusId = nextFocus;
+  navigateTo('adspend-roas');
+}
+
+function adspendGridSpendKey(event, col, row) {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  event.target.dataset.saved = '1'; // stop the blur handler saving it twice
+  saveAdspendGridSpend(col, row, event.target.value, true);
+}
+
+function adspendGridSpendBlur(event, col, row) {
+  if (event.target.dataset.saved === '1') return;
+  saveAdspendGridSpend(col, row, event.target.value, false);
+}
+
+// Put the caret back where it was after the page re-renders itself.
+function restoreAdspendGridFocus() {
+  if (!adspendGridFocusId) return;
+  const id = adspendGridFocusId;
+  adspendGridFocusId = '';
+  setTimeout(() => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.focus();
+    if (el.select && el.tagName === 'INPUT' && el.type !== 'text') el.select();
+    else if (el.setSelectionRange) { const n = el.value.length; el.setSelectionRange(n, n); }
+  }, 0);
 }
 
 const ADSPEND_STATUS_MAP = [
@@ -8055,9 +8209,10 @@ function renderAdspendRoas() {
     </div>`;
   }
 
-  // Time + page + status filter bar. `suffix` keeps element ids unique across
-  // the Summary and All Pages tabs (both live in the DOM at once); `includePage`
-  // toggles the page dropdown (omitted on the All Pages tab).
+  // Time + page + status filter bar for the Summary tab. `suffix` keeps element
+  // ids unique against the All Pages grid, which carries its own bar but reuses
+  // the same status checkbox ids with a '-ap' suffix; `includePage` toggles the
+  // page dropdown.
   function filterBarHtml(suffix, includePage) {
     suffix = suffix || '';
     const applyArg = `'${suffix}'`;
@@ -8102,34 +8257,253 @@ function renderAdspendRoas() {
     </div>`;
   }
 
-  // ALL PAGES tab: one ROAS table per chat page, slideable one page at a time.
-  // Respects the active time + status filters but ignores the page dropdown.
-  const apCount = allPages.length;
-  if (adspendAllPagesIndex >= apCount) adspendAllPagesIndex = apCount - 1;
-  if (adspendAllPagesIndex < 0) adspendAllPagesIndex = 0;
-  let allPagesHtml;
-  if (!apCount) {
-    allPagesHtml = `<div class="card" style="padding:0;overflow:hidden;">${filterBarHtml('-ap', false)}<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages found for the selected filters.</div></div>`;
-  } else {
-    const apPage = allPages[adspendAllPagesIndex];
-    const apData = buildRoasData(apPage);
-    allPagesHtml = `
-    <div class="card" style="padding:0;overflow:hidden;">
-      ${filterBarHtml('-ap', false)}
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-        <button class="page-btn" onclick="slideAdspendPage(-1)" ${adspendAllPagesIndex <= 0 ? 'disabled' : ''}>‹ Prev</button>
-        <div style="text-align:center;">
-          <div style="font-size:15px;font-weight:700;color:var(--text-primary);">${escapeHtml(apPage)}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Page ${adspendAllPagesIndex + 1} of ${apCount} · ${adspendDateFrom} — ${adspendDateTo}</div>
-        </div>
-        <button class="page-btn" onclick="slideAdspendPage(1)" ${adspendAllPagesIndex >= apCount - 1 ? 'disabled' : ''}>Next ›</button>
+  // ALL PAGES tab: every chat page side by side, ADSPEND_GRID_SIZE at a time,
+  // with the day's Ad Spent editable right in the cell. One pass over the
+  // records bucketed by page, so 27 pages cost what one page costs.
+  const gridPages = (() => {
+    const buckets = new Map();
+    const bucketFor = (name) => {
+      if (!buckets.has(name)) buckets.set(name, { page: name, days: {} });
+      return buckets.get(name);
+    };
+    const dayFor = (bucket, date) => {
+      if (!bucket.days[date]) bucket.days[date] = { orders: 0, amount: 0, spend: 0, entries: 0 };
+      return bucket.days[date];
+    };
+    allPages.forEach(bucketFor);
+
+    DB.sheetRecordsForReport.forEach((o) => {
+      if (o.status_name === 'wait_print') return; // same exclusion as the summary
+      if (!o.date || o.date < adspendDateFrom || o.date > adspendDateTo) return;
+      const cancelled = getOrderStatusKey(o.status) === 'canceled';
+      if (cancelled) {
+        if (adspendGridCancelled === 'exclude') return;
+      } else {
+        if (adspendGridCancelled === 'only') return;
+        if (!ADSPEND_ALLOWED_STATUSES.has(o.status)) return;
+        if (statusActive && !adspendStatusFilters.has(o.status)) return;
+      }
+      const day = dayFor(bucketFor(o.sourceSheet || 'Manual'), o.date);
+      day.orders++;
+      day.amount += Number(o.cod || 0);
+    });
+
+    (mktState.entries || []).forEach((entry) => {
+      if (!entry.date || entry.date < adspendDateFrom || entry.date > adspendDateTo) return;
+      if (!entry.page) return;
+      const day = dayFor(bucketFor(entry.page), entry.date);
+      day.spend += Number(entry.spend || 0);
+      day.entries++;
+    });
+
+    return [...buckets.values()].map((bucket) => {
+      const gRows = dates.map((date) => {
+        const d = bucket.days[date] || { orders: 0, amount: 0, spend: 0, entries: 0 };
+        return {
+          date,
+          orders: d.orders,
+          amount: d.amount,
+          spend: d.spend,
+          entries: d.entries,
+          roas: d.spend > 0 ? d.amount / d.spend : 0,
+          cpp: d.orders > 0 ? d.spend / d.orders : 0,
+        };
+      });
+      const gTot = {
+        orders: gRows.reduce((sum, r) => sum + r.orders, 0),
+        amount: gRows.reduce((sum, r) => sum + r.amount, 0),
+        spend: gRows.reduce((sum, r) => sum + r.spend, 0),
+      };
+      gTot.roas = gTot.spend > 0 ? gTot.amount / gTot.spend : 0;
+      gTot.cpp = gTot.orders > 0 ? gTot.spend / gTot.orders : 0;
+      return { page: bucket.page, rows: gRows, totals: gTot };
+    });
+  })();
+
+  const gridSearch = adspendGridSearch.toLowerCase();
+  const gridFiltered = gridPages
+    .filter((p) => {
+      if (gridSearch && !p.page.toLowerCase().includes(gridSearch)) return false;
+      if (adspendGridStatus === 'orders') return p.totals.orders > 0;
+      if (adspendGridStatus === 'spend') return p.totals.spend > 0;
+      if (adspendGridStatus === 'active') return p.totals.orders > 0 || p.totals.spend > 0;
+      return true;
+    })
+    .sort((a, b) => {
+      if (adspendGridSort === 'sales') return b.totals.amount - a.totals.amount;
+      if (adspendGridSort === 'spend') return b.totals.spend - a.totals.spend;
+      if (adspendGridSort === 'roas') return b.totals.roas - a.totals.roas;
+      if (adspendGridSort === 'orders') return b.totals.orders - a.totals.orders;
+      return a.page.localeCompare(b.page);
+    });
+
+  const gridCount = gridFiltered.length;
+  const gridScreens = Math.max(1, Math.ceil(gridCount / ADSPEND_GRID_SIZE));
+  if (adspendGridStart >= gridCount) adspendGridStart = (gridScreens - 1) * ADSPEND_GRID_SIZE;
+  if (adspendGridStart < 0) adspendGridStart = 0;
+  const gridWindow = gridFiltered.slice(adspendGridStart, adspendGridStart + ADSPEND_GRID_SIZE);
+  const gridDayCount = dates.length;
+  adspendGridView = { pages: gridWindow.map((p) => p.page), dates: [...dates] };
+
+  // Sales and spend read like the sheet they came from: thousands separated,
+  // one decimal. The editable box keeps two, because that is what gets typed.
+  const fmt1 = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+  const gridCanEdit = canManageMarketing();
+
+  function gridCardHtml(pageData, col) {
+    const rowsHtml = pageData.rows.map((row, idx) => {
+      const inputId = `apg-spend-${col}-${idx}`;
+      // A day with several marketing entries shows their sum and stays read-only:
+      // there is no telling which of them the new figure belongs to.
+      const locked = !gridCanEdit || row.entries > 1;
+      const lockNote = !gridCanEdit
+        ? 'Only Sales and Marketing can record ad spend.'
+        : 'Several marketing entries on this day — edit them in Marketing.';
+      return `<tr style="background:${idx % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
+        <td style="padding:7px 8px;text-align:center;font-size:12px;white-space:nowrap;">${row.date}</td>
+        <td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders.toLocaleString()}</td>
+        <td style="padding:7px 8px;text-align:center;font-size:12px;">${fmt1(row.amount)}</td>
+        <td style="padding:5px 8px;text-align:center;">
+          <input type="text" inputmode="decimal" id="${inputId}" value="${row.spend ? row.spend.toFixed(2) : '0.00'}"
+            ${locked ? `readonly title="${lockNote}"` : ''}
+            onkeydown="adspendGridSpendKey(event, ${col}, ${idx})"
+            onblur="adspendGridSpendBlur(event, ${col}, ${idx})"
+            style="width:100%;max-width:130px;height:26px;text-align:center;font-size:12px;border-radius:6px;border:1px solid var(--border,rgba(148,163,184,0.35));background:var(--surface-3,#f1f5f9);color:${row.spend ? 'var(--text-primary)' : 'var(--text-muted)'};${locked ? 'opacity:.7;cursor:not-allowed;' : ''}">
+        </td>
+        ${adspendGridShowCpp ? `<td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders > 0 && row.spend > 0 ? fmt1(row.cpp) : '—'}</td>` : ''}
+        <td style="padding:7px 8px;text-align:center;font-size:12px;${roasCellStyle(row.roas)}">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    const t = pageData.totals;
+    const days = pageData.rows.length || 1;
+    return `
+    <div style="border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;overflow:hidden;background:var(--surface-1);">
+      <div style="padding:11px 12px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;background:var(--surface-3,#f1f5f9);color:var(--text-primary);border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="${escapeHtml(pageData.page)}">${escapeHtml(pageData.page)}</div>
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:var(--surface-2,#f9fafb);color:var(--text-primary);border-bottom:1px solid var(--border-strong,#cbd5e1);">
+            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">DATE</th>
+            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">SALES</th>
+            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">AD SPENT</th>
+            ${adspendGridShowCpp ? '<th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">CPP</th>' : ''}
+            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">ROAS</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot>
+          <tr style="background:rgba(245,158,11,0.12);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
+            <td style="padding:8px;text-align:center;font-size:12px;">Total Amount</td>
+            <td style="padding:8px;text-align:center;font-size:12px;">${t.orders.toLocaleString()}</td>
+            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.amount)}</td>
+            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.spend)}</td>
+            ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:12px;">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
+            <td style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
+          </tr>
+          <tr style="background:rgba(16,185,129,0.10);font-weight:700;">
+            <td style="padding:8px;text-align:center;font-size:12px;">Average</td>
+            <td style="padding:8px;text-align:center;font-size:12px;">${(t.orders / days).toFixed(1)}</td>
+            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.amount / days)}</td>
+            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.spend / days)}</td>
+            ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:12px;">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
+            <td style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
+          </tr>
+        </tfoot>
+      </table>
       </div>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-        ${allPages.map((name, idx) => `<button type="button" class="filter-pill${idx === adspendAllPagesIndex ? ' active' : ''}" onclick="setAdspendAllPagesIndex(${idx})" title="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join('')}
-      </div>
-      ${roasTableHtml(apData.rows, apData.totals, apData.rows.length || 1)}
     </div>`;
   }
+
+  const gridLabelStyle = 'font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;';
+  const gridFilterHtml = `
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Every chat page side by side — orders, sales, ad spend and ROAS for each day in range.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start;">
+      <div>
+        <div style="${gridLabelStyle}">PAGE STATUS</div>
+        <select class="form-control" onchange="setAdspendGridStatus(this.value)" style="height:38px;font-size:13px;min-width:220px;">
+          ${[['active', 'Active — orders or spend'], ['orders', 'With orders only'], ['spend', 'With ad spend only'], ['all', 'All pages']]
+            .map(([key, label]) => `<option value="${key}"${adspendGridStatus === key ? ' selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div style="${gridLabelStyle}">FILTER PAGE</div>
+        <input type="text" class="form-control" id="apg-search" value="${escapeHtml(adspendGridSearch)}" placeholder="Type part of a page name"
+          oninput="setAdspendGridSearch(this.value)" style="height:38px;font-size:13px;min-width:260px;">
+      </div>
+      <div>
+        <div style="${gridLabelStyle}">FILTER BY</div>
+        <select class="form-control" onchange="setAdspendGridSort(this.value)" style="height:38px;font-size:13px;min-width:200px;">
+          ${[['name', 'Page name (A–Z)'], ['sales', 'Sales (high to low)'], ['spend', 'Ad spend (high to low)'], ['roas', 'ROAS (high to low)'], ['orders', 'Orders (high to low)']]
+            .map(([key, label]) => `<option value="${key}"${adspendGridSort === key ? ' selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div style="${gridLabelStyle}">DATE RANGE</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="date" class="form-control" id="apg-from" value="${adspendDateFrom}" style="width:148px;height:38px;">
+          <span style="color:var(--text-muted);">–</span>
+          <input type="date" class="form-control" id="apg-to" value="${adspendDateTo}" style="width:148px;height:38px;">
+          <button class="btn btn-primary btn-sm" onclick="applyAdspendGridDates()">Submit</button>
+          <button class="btn btn-sm" onclick="resetAdspendGridFilters()">Reset</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;">
+      ${[['all', 'All Time'], ['weekly', 'Last 7 Days'], ['monthly', 'This Month'], ['custom', 'Custom']]
+        .map(([key, label]) => `<button type="button" class="filter-pill${adspendDatePreset === key ? ' active' : ''}" onclick="setAdspendPreset('${key}')">${label}</button>`).join('')}
+      <select class="form-control" onchange="if (this.value) setAdspendMonth(this.value)" style="height:32px;font-size:12px;min-width:150px;">
+        <option value="">Month…</option>
+        ${monthOptions.map((ym) => `<option value="${ym}"${adspendDatePreset === 'monthly' && adspendMonth === ym ? ' selected' : ''}>${monthLabel(ym)}</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--text-muted);margin-left:6px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'} · ${gridCount} page${gridCount === 1 ? '' : 's'}</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:16px;">
+      <div>
+        <div style="${gridLabelStyle}">CANCELLED ORDERS</div>
+        <select class="form-control" onchange="setAdspendGridCancelled(this.value)" style="height:38px;font-size:13px;min-width:190px;">
+          ${[['exclude', 'Exclude cancelled'], ['include', 'Include cancelled'], ['only', 'Cancelled only']]
+            .map(([key, label]) => `<option value="${key}"${adspendGridCancelled === key ? ' selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding-top:22px;">
+        ${ADSPEND_STATUS_MAP.map(([status, id, label]) => `
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+            <input type="checkbox" id="${id}-ap" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter('-ap')" style="width:14px;height:14px;accent-color:var(--primary);">
+            ${label}
+          </label>`).join('')}
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+          <input type="checkbox" ${adspendGridShowCpp ? 'checked' : ''} onchange="toggleAdspendGridCpp(this.checked)" style="width:14px;height:14px;accent-color:var(--primary);">
+          CPP
+        </label>
+        <span style="font-size:12px;color:var(--text-muted);">Leave every status unticked to count all of them.</span>
+      </div>
+    </div>
+  </div>`;
+
+  const gridFirst = gridCount ? adspendGridStart + 1 : 0;
+  const gridLast = Math.min(adspendGridStart + ADSPEND_GRID_SIZE, gridCount);
+  const allPagesHtml = `
+  <div class="card" style="padding:0;overflow:hidden;">
+    ${gridFilterHtml}
+    <div style="padding:12px 20px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">${gridCount} page${gridCount === 1 ? '' : 's'} · ${adspendDateFrom} — ${adspendDateTo}</div>
+    ${!gridCount ? '<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages match these filters.</div>' : `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
+      <button class="page-btn" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''}>‹ Prev</button>
+      <div style="text-align:center;">
+        <div style="font-size:15px;font-weight:700;color:var(--text-primary);">Pages ${gridFirst}${gridLast > gridFirst ? `–${gridLast}` : ''} of ${gridCount}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'}</div>
+      </div>
+      <button class="page-btn" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''}>Next ›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:20px;">
+      ${gridWindow.map((pageData, col) => gridCardHtml(pageData, col)).join('')}
+    </div>
+    <div style="padding:0 20px 18px;font-size:12px;color:var(--text-muted);">Type an amount in Ad Spent to record that day's spend for that page — it saves when you leave the box, and Enter jumps to the next day. The figure feeds ROAS Summary and Marketing too.</div>`}
+  </div>`;
 
   const monthlyTarget = Number(mktState.targets?.sales || 0);
   const dailyTarget = monthlyTarget / 31;
@@ -8182,9 +8556,13 @@ function renderAdspendRoas() {
   </div>
 
   <div class="adspend-tabs" style="display:flex;gap:8px;margin-bottom:16px;">
-    <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='summary'?' active':''}" data-tab="summary" onclick="setAdspendTab('summary')">ROAS Summary</button>
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='allpages'?' active':''}" data-tab="allpages" onclick="setAdspendTab('allpages')">All Pages</button>
+    <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='summary'?' active':''}" data-tab="summary" onclick="setAdspendTab('summary')">ROAS Summary</button>
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='adsets'?' active':''}" data-tab="adsets" onclick="setAdspendTab('adsets')">Live Ad Sets</button>
+  </div>
+
+  <div id="adspend-tab-allpages" style="display:${adspendActiveTab==='allpages'?'block':'none'};">
+    ${allPagesHtml}
   </div>
 
   <div id="adspend-tab-summary" style="display:${adspendActiveTab==='summary'?'block':'none'};">
@@ -8206,10 +8584,6 @@ function renderAdspendRoas() {
       </div>
     </div>
   </div>
-  </div>
-
-  <div id="adspend-tab-allpages" style="display:${adspendActiveTab==='allpages'?'block':'none'};">
-    ${allPagesHtml}
   </div>
 
   <div id="adspend-tab-adsets" style="display:${adspendActiveTab==='adsets'?'block':'none'};">
@@ -14446,6 +14820,9 @@ function attWorkedMinutes(record) {
 }
 
 const ATT_TARGET_MINUTES = 8 * 60;
+// Half a day is the floor for punching out — the backend enforces the same one,
+// this only keeps the button from promising a punch that would be refused.
+const ATT_MIN_OUT_MINUTES = 4 * 60;
 
 // Which of the day's punches have happened, in the order they happen.
 function attSteps(record) {
@@ -14510,10 +14887,20 @@ function renderAttendanceClockStatus(record, date) {
 
 // One button for both punches: it says Time In until you are in, then Time Out.
 // Two buttons live side by side all day is how people clock out by mistake.
+// Timing out stays available after the first one — people leave, come back and
+// need the later time on the record — but never before half a day is worked.
 function attPunchAction(record) {
   if (!record?.time_in) return { action: 'time_in', label: 'Time In', done: false };
-  if (!record?.time_out) return { action: 'time_out', label: 'Time Out', done: false };
-  return { action: null, label: 'Timed Out ✓', done: true };
+  const worked = attWorkedMinutes(record);
+  if (worked < ATT_MIN_OUT_MINUTES) {
+    return {
+      action: null,
+      label: `Time Out in ${formatMinutes(ATT_MIN_OUT_MINUTES - worked)}`,
+      done: true,
+      hint: 'You can time out once you have worked half a day (4 hours).',
+    };
+  }
+  return { action: 'time_out', label: 'Time Out', done: false };
 }
 
 function attPunch() {
@@ -14530,7 +14917,8 @@ function attSyncActionButtons(record) {
     const next = attPunchAction(record);
     btn.textContent = next.label;
     btn.disabled = next.done;
-    btn.classList.toggle('att-punch-out', next.action === 'time_out');
+    btn.title = next.hint || '';
+    btn.classList.toggle('att-punch-out', next.action === 'time_out' || timedOut);
   }
   document.querySelectorAll('.att-actions .btn-break').forEach((breakBtn) => {
     breakBtn.hidden = !timedIn || timedOut;
@@ -14548,6 +14936,9 @@ function attTickHoursToday() {
   valueEl.textContent = formatMinutes(worked);
   const fillEl = document.getElementById('att-hours-fill');
   if (fillEl) fillEl.style.width = `${Math.min(100, Math.round((worked / ATT_TARGET_MINUTES) * 100))}%`;
+  // The punch button counts down to the half-day mark, so it has to move with
+  // the clock — otherwise it stays locked until the page is reloaded.
+  attSyncActionButtons(record);
 }
 
 // With the tab bar gone the quick actions drive the panels themselves, and a
@@ -15324,9 +15715,12 @@ function initPage(page) {
       .then(() => {
         if (App.currentPage !== 'adspend-roas') return;
         document.getElementById('main-page-content').innerHTML = renderAdspendRoas();
+        // This second paint lands after the spend fetch, so the caret has to be
+        // put back here — not on the first one.
+        restoreAdspendGridFocus();
         loadAdspendAdsSummary().catch(() => {});
       })
-      .catch(() => {});
+      .catch(() => { restoreAdspendGridFocus(); });
     loadAdspendAdsSummary().catch(() => {});
   }
 

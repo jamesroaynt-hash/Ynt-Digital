@@ -8,6 +8,9 @@ const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operation
 const MANILA_TIMEZONE = 'Asia/Manila';
 const DEFAULT_BREAK_MINUTES = 15;
 const STANDARD_DAY_MINUTES = 8 * 60;
+// You cannot punch out before half a day is on the clock. Anything from 4h up
+// is allowed, so a normal 8-hour day clears this without noticing it.
+const MIN_TIME_OUT_MINUTES = 4 * 60;
 
 function manilaParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -355,6 +358,22 @@ module.exports = function hrRoutes(db) {
     // original). Other punches (break/time-out) may still update.
     if (column === 'time_in' && existing && existing.time_in) {
       return res.status(409).json({ error: 'You already timed in today.' });
+    }
+
+    // Half-day floor on the way out: an early punch is almost always a misclick
+    // on the one button that also does Time In. Re-punching a later time out is
+    // fine (the column just updates), it only has to clear the floor as well.
+    if (column === 'time_out') {
+      if (!existing || !existing.time_in) {
+        return res.status(409).json({ error: 'Time in first before timing out.' });
+      }
+      const worked = calculateWorkedMinutes({ ...existing, time_out: now.time });
+      if (worked < MIN_TIME_OUT_MINUTES) {
+        const short = MIN_TIME_OUT_MINUTES - worked;
+        return res.status(409).json({
+          error: `You need at least 4 hours (half day) before timing out — ${Math.floor(short / 60)}h ${String(short % 60).padStart(2, '0')}m to go.`,
+        });
+      }
     }
 
     // 1-hour break out: start once, end once.
