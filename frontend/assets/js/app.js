@@ -9557,6 +9557,193 @@ function renderMarketingAnalysisCharts() {
   }
 }
 
+// ─── MARKETING KPI TILES ───────────────────────────────────
+// Each KPI reads as a tile: the figure, how it moved against the previous
+// window of the same length, and a sparkline of the two windows — the current
+// one solid, the one before it dashed behind it.
+
+// Every metric the tiles show, for one date window, in a single pass over the
+// records and the spend entries.
+function marketingWindowStats(from, to, pageSel) {
+  const days = {};
+  const dayFor = (date) => {
+    if (!days[date]) {
+      days[date] = { orders: 0, grossSales: 0, deliveredSales: 0, spend: 0, delivered: 0, returned: 0, returning: 0 };
+    }
+    return days[date];
+  };
+
+  (DB.sheetRecordsForReport || []).forEach((o) => {
+    const date = String(o.date || '');
+    if (!date || date < from || date > to) return;
+    if (pageSel !== 'all' && (o.sourceSheet || 'Sheets') !== pageSel) return;
+    const day = dayFor(date);
+    day.orders += 1;
+    if (o.status_name !== 'wait_print' && ADSPEND_ALLOWED_STATUSES.has(o.status)) {
+      day.grossSales += Number(o.cod || 0);
+    }
+    const key = getOrderStatusKey(o.status);
+    if (key === 'delivered') {
+      day.delivered += 1;
+      day.deliveredSales += Number(o.cod || 0);
+    } else if (key === 'returned') day.returned += 1;
+    else if (key === 'returning') day.returning += 1;
+  });
+
+  (DB.marketingEntries || []).forEach((e) => {
+    const date = String(e.date || '');
+    if (!date || date < from || date > to) return;
+    if (pageSel !== 'all' && e.page !== pageSel) return;
+    dayFor(date).spend += Number(e.spend || 0);
+  });
+
+  const dates = Object.keys(days).sort();
+  const totals = dates.reduce((acc, date) => {
+    const d = days[date];
+    acc.orders += d.orders;
+    acc.grossSales += d.grossSales;
+    acc.deliveredSales += d.deliveredSales;
+    acc.spend += d.spend;
+    acc.delivered += d.delivered;
+    acc.returned += d.returned;
+    acc.returning += d.returning;
+    return acc;
+  }, { orders: 0, grossSales: 0, deliveredSales: 0, spend: 0, delivered: 0, returned: 0, returning: 0 });
+  totals.closed = totals.delivered + totals.returned + totals.returning;
+  totals.roas = totals.spend ? totals.grossSales / totals.spend : 0;
+  totals.deliveredRate = totals.closed ? totals.delivered / totals.closed : 0;
+  totals.rtsRate = totals.closed ? (totals.returned + totals.returning) / totals.closed : 0;
+  totals.netProfit = totals.deliveredSales - totals.spend;
+
+  // Per-day values for the sparklines, in date order.
+  const seriesOf = (pick) => dates.map((date) => pick(days[date]));
+  return {
+    dates,
+    totals,
+    series: {
+      grossSales: seriesOf((d) => d.grossSales),
+      orders: seriesOf((d) => d.orders),
+      spend: seriesOf((d) => d.spend),
+      roas: seriesOf((d) => (d.spend ? d.grossSales / d.spend : 0)),
+      deliveredRate: seriesOf((d) => {
+        const closed = d.delivered + d.returned + d.returning;
+        return closed ? (d.delivered / closed) * 100 : 0;
+      }),
+      rtsRate: seriesOf((d) => {
+        const closed = d.delivered + d.returned + d.returning;
+        return closed ? ((d.returned + d.returning) / closed) * 100 : 0;
+      }),
+      netProfit: seriesOf((d) => d.deliveredSales - d.spend),
+    },
+  };
+}
+
+// A local YYYY-MM-DD. normalizeDateString() formats through UTC, so a Date
+// built from local parts (new Date(y, m, 0), say) comes back a day early in
+// Manila — which is how the monthly filter used to stop on the 30th.
+function localDateString(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// The window of the same length ending the day before `from`. Null for an
+// open-ended range, where "the period before" means nothing.
+function marketingPreviousWindow(from, to) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  // '0000-01-01' is the open-range sentinel, not a date anyone worked.
+  if (start.getFullYear() < 2000) return null;
+  const days = Math.round((end - start) / 86400000) + 1;
+  const prevTo = new Date(start);
+  prevTo.setDate(prevTo.getDate() - 1);
+  const prevFrom = new Date(prevTo);
+  prevFrom.setDate(prevFrom.getDate() - (days - 1));
+  return { from: localDateString(prevFrom), to: localDateString(prevTo), days };
+}
+
+// Two lines in a 100×32 box: this window solid, the one before it dashed. The
+// box stretches to the tile, so strokes are pinned to their pixel width.
+function marketingSparkline(current, previous) {
+  const cur = (current || []).filter((v) => Number.isFinite(v));
+  const prev = (previous || []).filter((v) => Number.isFinite(v));
+  if (cur.length < 2) return '<div class="mkt-tile-spark mkt-tile-spark-empty">Not enough days to chart</div>';
+  // Scale to the data's own range, not to zero: a delivered rate that moves
+  // between 72% and 78% has to look like it moved.
+  const all = [...cur, ...prev];
+  const rawMax = Math.max(...all);
+  const rawMin = Math.min(...all);
+  const pad = (rawMax - rawMin) * 0.12 || Math.abs(rawMax) * 0.05 || 1;
+  const max = rawMax + pad;
+  const min = rawMin - pad;
+  const span = max - min || 1;
+  const path = (values) => values
+    .map((v, i) => `${i ? 'L' : 'M'}${((i / (values.length - 1)) * 100).toFixed(2)},${(32 - ((v - min) / span) * 32).toFixed(2)}`)
+    .join(' ');
+  return `
+    <svg class="mkt-tile-spark" viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
+      ${prev.length > 1 ? `<path d="${path(prev)}" class="mkt-spark-prev" vector-effect="non-scaling-stroke"/>` : ''}
+      <path d="${path(cur)}" class="mkt-spark-cur" vector-effect="non-scaling-stroke"/>
+    </svg>`;
+}
+
+// A short date range for the tile legend: "Sep 1 – 29".
+function marketingRangeLabel(from, to) {
+  const parse = (value) => {
+    const [y, m, d] = String(value || '').split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  };
+  const a = parse(from);
+  const b = parse(to);
+  if (!a || !b) return `${from} — ${to}`;
+  const month = (date) => date.toLocaleDateString('en-US', { month: 'short' });
+  return a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()
+    ? `${month(a)} ${a.getDate()} – ${b.getDate()}`
+    : `${month(a)} ${a.getDate()} – ${month(b)} ${b.getDate()}`;
+}
+
+// How the figure moved, and whether that direction is the good one. Rates move
+// in points, ROAS in x, everything else in percent; spend is scored neutral,
+// because spending more is a decision, not a result.
+function marketingDelta(current, previous, kind, goodDirection) {
+  // A previous window with nothing in it is not a zero to compare against —
+  // "+74.8 pts" against no data at all is a lie the tile should not tell.
+  if (previous === null || previous === undefined) return { text: 'no prior data', tone: 'flat' };
+  const cur = Number(current || 0);
+  const prev = Number(previous || 0);
+  if (!Number.isFinite(prev) || (prev === 0 && cur === 0)) return { text: 'no change', tone: 'flat' };
+  const diff = cur - prev;
+  const pct = prev ? (diff / Math.abs(prev)) * 100 : null;
+  // A dead zone, so a rounding-level wobble is not dressed up as a red arrow.
+  const negligible = kind === 'points' ? Math.abs(diff) < 0.05
+    : kind === 'roas' ? Math.abs(diff) < 0.005
+      : pct !== null && Math.abs(pct) < 0.5;
+  if (negligible) return { text: 'no change', tone: 'flat' };
+  let text;
+  if (kind === 'points') text = `${diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(1)} pts`;
+  else if (kind === 'roas') text = `${diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)}x`;
+  else if (!prev) text = 'new';
+  else text = `${diff >= 0 ? '↑' : '↓'} ${Math.abs(pct).toFixed(0)}%`;
+  let tone = 'flat';
+  if (goodDirection) tone = (goodDirection === 'up' ? diff > 0 : diff < 0) ? 'up' : 'down';
+  return { text, tone };
+}
+
+function marketingTileHtml({ icon, label, value, sub, delta, spark, legend }) {
+  return `
+  <div class="mkt-tile">
+    <div class="mkt-tile-label"><span>${icon}</span>${escapeHtml(label)}</div>
+    <div class="mkt-tile-value-row">
+      <span class="mkt-tile-value">${value}</span>
+      <span class="mkt-tile-delta ${delta.tone}">${escapeHtml(delta.text)}</span>
+    </div>
+    <div class="mkt-tile-sub">${sub}</div>
+    ${spark}
+    ${legend}
+  </div>`;
+}
+
 function renderMarketingCenter() {
   const now = new Date();
   const state = getMarketingState();
@@ -9586,7 +9773,7 @@ function renderMarketingCenter() {
     const m = mktPagesMonth || mpToday.slice(0, 7);
     const [yy, mm] = m.split('-').map(Number);
     mpFrom = `${m}-01`;
-    mpTo = normalizeDateString(new Date(yy, mm, 0)); // last day of the month
+    mpTo = localDateString(new Date(yy, mm, 0)); // last day of the month
   }
   const mpPageSel = mktPagesPage || 'all';
 
@@ -9718,6 +9905,18 @@ function renderMarketingCenter() {
     .slice(0, 8);
   mktAnalysisSeries = { trend: mktTrend, roas: mktRoasBars, rts: mktRtsBars };
 
+  // Tiles compare against the window of the same length that ends the day
+  // before this one — the same comparison the sparklines draw.
+  const mktWindow = marketingWindowStats(mpFrom, mpTo, mpPageSel);
+  const mktPrevRange = marketingPreviousWindow(mpFrom, mpTo);
+  const mktPrevWindow = mktPrevRange ? marketingWindowStats(mktPrevRange.from, mktPrevRange.to, mpPageSel) : null;
+  const mktPrevTotals = mktPrevWindow ? mktPrevWindow.totals : null;
+  const mktPrevSeries = mktPrevWindow ? mktPrevWindow.series : {};
+  const mktTileLegend = mktPrevRange
+    ? `<div class="mkt-tile-legend"><span><i></i>${escapeHtml(marketingRangeLabel(mpFrom, mpTo))}</span>`
+      + `<span class="prev"><i></i>${escapeHtml(marketingRangeLabel(mktPrevRange.from, mktPrevRange.to))}</span></div>`
+    : `<div class="mkt-tile-legend"><span><i></i>${escapeHtml(marketingRangeLabel(mpFrom, mpTo))}</span></div>`;
+
   const mktSpendTotal = totals.spend;
   const mktRoasValue = mktSpendTotal ? mktGrossSales / mktSpendTotal : 0;
   const mktDeliveredRate = posRtsBase ? posCounts.delivered / posRtsBase : 0;
@@ -9769,15 +9968,37 @@ function renderMarketingCenter() {
     </div>
   </div>
 
-  <div class="erp-kpi-grid erp-kpi-flow">
-    <div class="erp-kpi"><span class="erp-kpi-icon">💰</span><div class="erp-kpi-label">Gross Sales</div><div class="erp-kpi-value">${marketingMoney(mktGrossSales)}</div><div class="erp-kpi-target">Delivered ${marketingMoney(deliveredSales)} · ${Math.round(targetPct * 100)}% of target</div></div>
-    <div class="erp-kpi"><span class="erp-kpi-icon">📦</span><div class="erp-kpi-label">Total Orders</div><div class="erp-kpi-value">${mktOrderCount.toLocaleString()}</div><div class="erp-kpi-target">${mpFrom} — ${mpTo}</div></div>
-    <div class="erp-kpi ${mktRoasValue >= Number(state.targets.roas || 0) ? 'ok' : 'warn'}"><span class="erp-kpi-icon">📈</span><div class="erp-kpi-label">ROAS</div><div class="erp-kpi-value">${mktSpendTotal ? marketingRoas(mktRoasValue) : '—'}</div><div class="erp-kpi-target">Target ${marketingRoas(state.targets.roas)}</div></div>
-    <div class="erp-kpi warn"><span class="erp-kpi-icon">💸</span><div class="erp-kpi-label">Marketing Spend</div><div class="erp-kpi-value">${marketingMoney(mktSpendTotal)}</div><div class="erp-kpi-target">${marketingMoney(monthSpendTarget)} monthly cap</div></div>
-    <div class="erp-kpi ok"><span class="erp-kpi-icon">🚚</span><div class="erp-kpi-label">Delivered Rate</div><div class="erp-kpi-value">${posRtsBase ? marketingPct(mktDeliveredRate) : '—'}</div><div class="erp-kpi-target">${posCounts.delivered.toLocaleString()} of ${posRtsBase.toLocaleString()} closed orders</div></div>
-    <div class="erp-kpi ${posRtsRate * 100 > Number(state.targets.rts || 0) ? 'bad' : 'ok'}"><span class="erp-kpi-icon">🔄</span><div class="erp-kpi-label">RTS %</div><div class="erp-kpi-value">${posRtsBase ? marketingPct(posRtsRate) : '—'}</div><div class="erp-kpi-target">Max ${state.targets.rts}%</div></div>
-    <div class="erp-kpi ${mktNetProfit >= 0 ? 'ok' : 'bad'}"><span class="erp-kpi-icon">💵</span><div class="erp-kpi-label">Net Profit</div><div class="erp-kpi-value">${marketingMoney(mktNetProfit)}</div><div class="erp-kpi-target">Delivered sales − ad spend</div></div>
-  </div>
+  ${(() => {
+    const t = mktWindow.totals;
+    // Only compare against a window that actually holds something.
+    const prev = mktPrevTotals && (mktPrevTotals.orders > 0 || mktPrevTotals.spend > 0) ? mktPrevTotals : null;
+    const series = mktWindow.series;
+    const tile = (icon, label, value, sub, deltaArgs, key) => marketingTileHtml({
+      icon,
+      label,
+      value,
+      sub,
+      delta: marketingDelta(...deltaArgs),
+      spark: marketingSparkline(series[key], mktPrevSeries[key]),
+      legend: mktTileLegend,
+    });
+    return `<div class="mkt-tile-grid">
+      ${tile('💰', 'Gross Sales', marketingMoney(t.grossSales), `Delivered ${marketingMoney(t.deliveredSales)} · ${Math.round(targetPct * 100)}% of target`,
+        [t.grossSales, prev?.grossSales, 'percent', 'up'], 'grossSales')}
+      ${tile('📦', 'Total Orders', t.orders.toLocaleString(), `${mpFrom} — ${mpTo}`,
+        [t.orders, prev?.orders, 'percent', 'up'], 'orders')}
+      ${tile('📈', 'ROAS', t.spend ? marketingRoas(t.roas) : '—', `Target ${marketingRoas(state.targets.roas)}`,
+        [t.roas, prev?.roas, 'roas', 'up'], 'roas')}
+      ${tile('💸', 'Marketing Spend', marketingMoney(t.spend), `${marketingMoney(monthSpendTarget)} monthly cap`,
+        [t.spend, prev?.spend, 'percent', null], 'spend')}
+      ${tile('🚚', 'Delivered Rate', t.closed ? marketingPct(t.deliveredRate) : '—', `${t.delivered.toLocaleString()} of ${t.closed.toLocaleString()} closed orders`,
+        [t.deliveredRate * 100, prev ? prev.deliveredRate * 100 : null, 'points', 'up'], 'deliveredRate')}
+      ${tile('🔄', 'RTS %', t.closed ? marketingPct(t.rtsRate) : '—', `Max ${state.targets.rts}%`,
+        [t.rtsRate * 100, prev ? prev.rtsRate * 100 : null, 'points', 'down'], 'rtsRate')}
+      ${tile('💵', 'Net Profit', marketingMoney(t.netProfit), 'Delivered sales − ad spend',
+        [t.netProfit, prev?.netProfit, 'percent', 'up'], 'netProfit')}
+    </div>`;
+  })()}
 
   ${(() => {
     const mktTabs = [

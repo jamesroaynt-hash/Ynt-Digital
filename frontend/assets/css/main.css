@@ -224,12 +224,114 @@ body::before {
 .erp-kpi.warn::before { background: var(--erp-orange); }
 .erp-kpi.bad::before { background: var(--erp-red); }
 
-/* The Analysis row carries seven cards, so it flows instead of forcing four —
-   and the figures step down a size so a peso total stays on one line. */
-.erp-kpi-grid.erp-kpi-flow { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
-.erp-kpi-flow .erp-kpi { padding: 15px 16px; }
-.erp-kpi-flow .erp-kpi-value { font-size: clamp(15px, 1.35vw, 21px); margin: 5px 0 3px; }
-.erp-kpi-flow .erp-kpi-target { font-size: 11.5px; line-height: 1.35; }
+/* Marketing KPI tiles: figure, movement against the previous window, and a
+   sparkline of both — this window solid, the one before it dashed. */
+.mkt-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1280px) { .mkt-tile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 940px) { .mkt-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .mkt-tile-grid { grid-template-columns: 1fr; } }
+
+.mkt-tile {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+}
+
+.mkt-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.mkt-tile-label span { font-size: 14px; }
+
+.mkt-tile-value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 9px 0 2px;
+}
+
+.mkt-tile-value {
+  font-size: clamp(17px, 1.5vw, 23px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.mkt-tile-delta { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.mkt-tile-delta.up { color: #059669; }
+.mkt-tile-delta.down { color: #ef4444; }
+.mkt-tile-delta.flat { color: var(--text-muted); }
+
+.mkt-tile-sub {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  min-height: 30px;
+}
+
+.mkt-tile-spark {
+  display: block;
+  width: 100%;
+  height: 46px;
+  margin-top: 6px;
+  overflow: visible;
+}
+
+.mkt-tile-spark-empty {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.mkt-spark-cur { fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.mkt-spark-prev { fill: none; stroke: var(--text-secondary); stroke-width: 1.6; stroke-dasharray: 5 4; opacity: .8; }
+
+[data-theme="dark"] .mkt-spark-cur { stroke: #3987e5; }
+
+.mkt-tile-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.mkt-tile-legend i {
+  display: inline-block;
+  width: 14px;
+  border-top: 2px solid #2a78d6;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+[data-theme="dark"] .mkt-tile-legend i { border-top-color: #3987e5; }
+
+.mkt-tile-legend .prev i {
+  border-top: 0;
+  border-bottom: 2px dashed currentColor;
+  opacity: .8;
+}
 
 .erp-kpi-icon {
   display: block;
