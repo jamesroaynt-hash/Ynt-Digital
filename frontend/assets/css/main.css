@@ -8,6 +8,7 @@
   --accent-hover: #2563eb;
   --accent-soft: #eff6ff;
   --surface: #ffffff;
+  --surface-1: #ffffff; /* alias: several inline styles paint with this name */
   --surface-2: #f8fafc;
   --surface-3: #f1f5f9;
   --border: #e2e8f0;
@@ -51,6 +52,7 @@
   --accent-hover: #3b82f6;
   --accent-soft: rgba(59, 130, 246, 0.12);
   --surface: #0f172a;
+  --surface-1: #0f172a;
   --surface-2: #0b1220;
   --surface-3: #1e293b;
   --border: #1e293b;

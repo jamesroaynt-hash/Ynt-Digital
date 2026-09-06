@@ -9669,14 +9669,18 @@ function renderMarketingCenter() {
   if (mktPagesPreset === 'monthly' && !mktPagesMonth) {
     mktPagesMonth = mpMonthOptions[0] || normalizeDateString(new Date()).slice(0, 7);
   }
-  const mpToday = normalizeDateString(new Date());
+  const mpToday = localDateString(new Date());
   let mpFrom;
   let mpTo;
   if (mktPagesPreset === 'today') {
     mpFrom = mpTo = mpToday;
   } else if (mktPagesPreset === 'yesterday') {
     const y = new Date(); y.setDate(y.getDate() - 1);
-    mpFrom = mpTo = normalizeDateString(y);
+    mpFrom = mpTo = localDateString(y);
+  } else if (mktPagesPreset === 'week') {
+    const start = new Date(); start.setDate(start.getDate() - 6); // today included
+    mpFrom = localDateString(start);
+    mpTo = mpToday;
   } else if (mktPagesPreset === 'custom') {
     mpFrom = mktPagesFrom || '0000-01-01';
     mpTo = mktPagesTo || '9999-12-31';
@@ -9946,12 +9950,11 @@ function renderMarketingCenter() {
         </div>
       </div>
     </div>` : ''}
-    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
-      <div class="rts-filter-bar">
+    <div class="rts-filter-bar mkt-filter-bar">
         <div class="rts-filter-group">
           <div class="rts-filter-label">Time Filter</div>
           <div class="table-filters">
-            ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['monthly', 'Monthly'], ['custom', 'Custom']]
+            ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 Days'], ['monthly', 'Monthly'], ['custom', 'Custom']]
               .map(([v, l]) => `<button class="filter-pill ${mktPagesPreset === v ? 'active' : ''}" onclick="setMktPagesPreset('${v}')">${l}</button>`).join('')}
           </div>
         </div>
@@ -9975,7 +9978,6 @@ function renderMarketingCenter() {
           <input type="date" class="form-control" id="mkt-pages-to" value="${mktPagesTo}">
           <button class="btn btn-secondary btn-sm" onclick="applyMktPagesCustomRange()">Apply</button>
         </div>
-      </div>
     </div>
     <div class="mkt-chart-grid">
       <div class="card mkt-chart-wide">
