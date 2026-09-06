@@ -452,7 +452,7 @@ function ordersRoutes(db, { dispatch } = {}) {
       cod_amount: Number(row.cod || 0),
       status: posDisplayStatus(row),
       courier,
-      source_sheet: row.page_name || 'POS',
+      source_sheet: posPageLabel(row),
       confirmed_by: row.assigning_seller_name || '',
       attempts: Number(row.attempts || 1),
       order_date: toManilaDate(row.inserted_at_effective || row.inserted_at_remote),
@@ -463,6 +463,14 @@ function ordersRoutes(db, { dispatch } = {}) {
       shop_id: row.shop_id,
       updated_at: row.updated_at || '',
     };
+  }
+
+  // A POS order whose shop was never registered locally has no page_name, and
+  // "POS" as a label tells nobody which shop it came from — name the shop, so an
+  // unregistered one is identifiable (its prices are usually ×100 too, since the
+  // same missing shop record is what withholds the currency).
+  function posPageLabel(row) {
+    return row.page_name || (row.shop_id ? `Shop ${row.shop_id}` : 'POS');
   }
 
   // Manila-day expression (UTC+8) reused by every dashboard read, mirroring /pos-orders.
@@ -991,8 +999,8 @@ function ordersRoutes(db, { dispatch } = {}) {
           confirmed_by: row.assigning_seller_name || '',
           tags: tags.join(', '),
           date: toManilaDate(row.inserted_at_remote) || '',
-          source_sheet: row.page_name || 'POS',
-          sourceSheet: row.page_name || 'POS',
+          source_sheet: posPageLabel(row),
+          sourceSheet: posPageLabel(row),
         };
       }),
     });
