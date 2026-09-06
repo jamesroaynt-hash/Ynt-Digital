@@ -9402,8 +9402,6 @@ function initSalesMarketingTracker() {
 // initCharts (and again after the entries fetch re-renders the page).
 let mktAnalysisSeries = { trend: { labels: [], sales: [], spend: [] }, roas: [], rts: [] };
 let mktTrendChart = null;
-let mktRoasChart = null;
-let mktRtsChart = null;
 
 // Two series of the same unit on one axis, so no second scale is ever needed.
 // Blue/orange clear the CVD and normal-vision separation gates in both themes.
@@ -9416,84 +9414,6 @@ function mktChartColors() {
   return document.documentElement.getAttribute('data-theme') === 'dark'
     ? MKT_CHART_COLORS.dark
     : MKT_CHART_COLORS.light;
-}
-
-// Long page names would crowd a bar axis off the card.
-function mktShortLabel(name, max = 17) {
-  const text = String(name || '');
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-// Direct labels at the end of each horizontal bar — the value is the point of
-// these two charts, and hunting for it in a tooltip is not reading a chart.
-// The formatter is captured in a closure rather than read back off
-// chart.options: Chart.js resolves option functions as scriptable ones and
-// would call this with its own context object instead of the value.
-function mktBarValuePlugin(format) {
-  return {
-    id: 'mktBarValue',
-    afterDatasetsDraw(chart) {
-      const { ctx } = chart;
-      const dataset = chart.data.datasets[0];
-      ctx.save();
-      ctx.font = '600 11px "DM Sans", system-ui, sans-serif';
-      ctx.fillStyle = mktChartColors().label;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      chart.getDatasetMeta(0).data.forEach((bar, i) => {
-        ctx.fillText(format(Number(dataset.data[i] || 0)), bar.x + 6, bar.y);
-      });
-      ctx.restore();
-    },
-  };
-}
-
-// One horizontal bar chart, twice: ROAS and RTS % differ only in color, scale
-// and how the value reads.
-function mktBarChartConfig(rows, color, format, axisMax) {
-  const colors = mktChartColors();
-  return {
-    type: 'bar',
-    plugins: [mktBarValuePlugin(format)],
-    data: {
-      labels: rows.map((r) => mktShortLabel(r.page)),
-      datasets: [{
-        label: 'value',
-        data: rows.map((r) => r.value),
-        backgroundColor: color,
-        borderRadius: 4,
-        borderSkipped: false,
-        barThickness: 14,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: { padding: { right: 46 } },
-      plugins: {
-        legend: { display: false }, // a single series is named by the card title
-        tooltip: {
-          callbacks: {
-            title: (items) => rows[items[0].dataIndex]?.page || '',
-            label: (item) => format(Number(item.raw || 0)),
-          },
-        },
-      },
-      scales: {
-        x: {
-          beginAtZero: true,
-          suggestedMax: axisMax,
-          grid: { color: colors.grid, drawBorder: false },
-          ticks: { color: colors.tick, font: { size: 11 } },
-        },
-        y: {
-          grid: { display: false, drawBorder: false },
-          ticks: { color: colors.tick, font: { size: 11 } },
-        },
-      },
-    },
-  };
 }
 
 function renderMarketingAnalysisCharts() {
@@ -9527,33 +9447,15 @@ function renderMarketingAnalysisCharts() {
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', color: colors.label } },
+          legend: { display: false }, // the card header carries the key
           tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${peso(item.raw)}` } },
         },
         scales: {
           x: { grid: { display: false, drawBorder: false }, ticks: { color: colors.tick, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 12 } },
-          y: { beginAtZero: true, grid: { color: colors.grid, drawBorder: false }, ticks: { color: colors.tick, font: { size: 11 }, callback: (v) => peso(v) } },
+          y: { display: false, beginAtZero: true, grid: { display: false, drawBorder: false } },
         },
       },
     });
-  }
-
-  const roasCanvas = document.getElementById('mkt-roas-chart');
-  if (roasCanvas) {
-    const rows = series.roas || [];
-    toggleEmpty('mkt-roas-empty', rows.length > 0);
-    roasCanvas.style.display = rows.length ? '' : 'none';
-    mktRoasChart = upsertChart(mktRoasChart, roasCanvas, rows.length > 0,
-      mktBarChartConfig(rows, colors.sales, (v) => v.toFixed(2), 1));
-  }
-
-  const rtsCanvas = document.getElementById('mkt-rts-chart');
-  if (rtsCanvas) {
-    const rows = series.rts || [];
-    toggleEmpty('mkt-rts-empty', rows.length > 0);
-    rtsCanvas.style.display = rows.length ? '' : 'none';
-    mktRtsChart = upsertChart(mktRtsChart, rtsCanvas, rows.length > 0,
-      mktBarChartConfig(rows, colors.spend, (v) => `${v.toFixed(1)}%`, 10));
   }
 }
 
@@ -9663,28 +9565,26 @@ function marketingPreviousWindow(from, to) {
   return { from: localDateString(prevFrom), to: localDateString(prevTo), days };
 }
 
-// Two lines in a 100×32 box: this window solid, the one before it dashed. The
-// box stretches to the tile, so strokes are pinned to their pixel width.
-function marketingSparkline(current, previous) {
+// One line in a 100×32 box, in the tile's accent. The box stretches to the
+// tile, so the stroke is pinned to its pixel width. (The previous window still
+// drives the delta beside the figure; a second line crowded a tile this size.)
+function marketingSparkline(current) {
   const cur = (current || []).filter((v) => Number.isFinite(v));
-  const prev = (previous || []).filter((v) => Number.isFinite(v));
   if (cur.length < 2) return '<div class="mkt-tile-spark mkt-tile-spark-empty">Not enough days to chart</div>';
   // Scale to the data's own range, not to zero: a delivered rate that moves
   // between 72% and 78% has to look like it moved.
-  const all = [...cur, ...prev];
-  const rawMax = Math.max(...all);
-  const rawMin = Math.min(...all);
+  const rawMax = Math.max(...cur);
+  const rawMin = Math.min(...cur);
   const pad = (rawMax - rawMin) * 0.12 || Math.abs(rawMax) * 0.05 || 1;
   const max = rawMax + pad;
   const min = rawMin - pad;
   const span = max - min || 1;
-  const path = (values) => values
-    .map((v, i) => `${i ? 'L' : 'M'}${((i / (values.length - 1)) * 100).toFixed(2)},${(32 - ((v - min) / span) * 32).toFixed(2)}`)
+  const path = cur
+    .map((v, i) => `${i ? 'L' : 'M'}${((i / (cur.length - 1)) * 100).toFixed(2)},${(32 - ((v - min) / span) * 32).toFixed(2)}`)
     .join(' ');
   return `
     <svg class="mkt-tile-spark" viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
-      ${prev.length > 1 ? `<path d="${path(prev)}" class="mkt-spark-prev" vector-effect="non-scaling-stroke"/>` : ''}
-      <path d="${path(cur)}" class="mkt-spark-cur" vector-effect="non-scaling-stroke"/>
+      <path d="${path}" class="mkt-spark-cur" vector-effect="non-scaling-stroke"/>
     </svg>`;
 }
 
@@ -9730,29 +9630,28 @@ function marketingDelta(current, previous, kind, goodDirection) {
   return { text, tone };
 }
 
-// Tile icons: 16px line drawings that inherit the label's colour, so the row
-// reads as one thing instead of seven pieces of clip art.
-const MKT_TILE_ICONS = {
-  grossSales: '<svg viewBox="0 0 16 16"><rect x="1.6" y="4" width="12.8" height="8" rx="1.6"/><circle cx="8" cy="8" r="2"/></svg>',
-  orders: '<svg viewBox="0 0 16 16"><path d="M2.6 5.2 8 2.6l5.4 2.6v5.6L8 13.4l-5.4-2.6z"/><path d="M2.6 5.2 8 7.8l5.4-2.6M8 7.8v5.6"/></svg>',
-  roas: '<svg viewBox="0 0 16 16"><path d="M2 11.4 6 7.4l2.6 2.6L14 4.6"/><path d="M10.4 4.6H14V8.2"/></svg>',
-  spend: '<svg viewBox="0 0 16 16"><rect x="1.6" y="3.6" width="12.8" height="8.8" rx="1.6"/><path d="M1.6 6.8h12.8"/></svg>',
-  delivered: '<svg viewBox="0 0 16 16"><path d="M1.6 4.4h7v6.2h-7z"/><path d="M8.6 6.6h2.8L14.4 9v1.6H8.6"/><circle cx="4.4" cy="11.8" r="1.2"/><circle cx="11.4" cy="11.8" r="1.2"/></svg>',
-  rts: '<svg viewBox="0 0 16 16"><path d="M13.4 10.2A4.6 4.6 0 0 0 8.8 5.6H3"/><path d="M5.4 3.2 2.8 5.6l2.6 2.4"/></svg>',
-  netProfit: '<svg viewBox="0 0 16 16"><path d="M2 5.4c0-1 .8-1.8 1.8-1.8h8.4c.8 0 1.4.5 1.4 1.2v.6"/><rect x="2" y="5.4" width="12" height="7.2" rx="1.6"/><circle cx="10.9" cy="9" r="1"/></svg>',
+// Each tile has one accent, worn by its dot and its line: blue for money and
+// volume, green where up is the good direction, orange where it is not.
+const MKT_TILE_TONES = {
+  grossSales: 'blue',
+  orders: 'blue',
+  roas: 'green',
+  spend: 'orange',
+  deliveredRate: 'green',
+  rtsRate: 'orange',
+  netProfit: 'blue',
 };
 
-function marketingTileHtml({ icon, label, value, sub, delta, spark, legend }) {
+function marketingTileHtml({ tone, label, value, sub, delta, spark }) {
   return `
-  <div class="mkt-tile">
-    <div class="mkt-tile-label">${icon}${escapeHtml(label)}</div>
+  <div class="mkt-tile mkt-tone-${tone || 'blue'}">
+    <div class="mkt-tile-label"><i class="mkt-tile-dot"></i>${escapeHtml(label)}</div>
     <div class="mkt-tile-value-row">
       <span class="mkt-tile-value">${value}</span>
       <span class="mkt-tile-delta ${delta.tone}">${escapeHtml(delta.text)}</span>
     </div>
     <div class="mkt-tile-sub">${sub}</div>
     ${spark}
-    ${legend}
   </div>`;
 }
 
@@ -9924,10 +9823,7 @@ function renderMarketingCenter() {
   const mktPrevWindow = mktPrevRange ? marketingWindowStats(mktPrevRange.from, mktPrevRange.to, mpPageSel) : null;
   const mktPrevTotals = mktPrevWindow ? mktPrevWindow.totals : null;
   const mktPrevSeries = mktPrevWindow ? mktPrevWindow.series : {};
-  const mktTileLegend = mktPrevRange
-    ? `<div class="mkt-tile-legend"><span><i></i>${escapeHtml(marketingRangeLabel(mpFrom, mpTo))}</span>`
-      + `<span class="prev"><i></i>${escapeHtml(marketingRangeLabel(mktPrevRange.from, mktPrevRange.to))}</span></div>`
-    : `<div class="mkt-tile-legend"><span><i></i>${escapeHtml(marketingRangeLabel(mpFrom, mpTo))}</span></div>`;
+  const mktRangeLabel = `${escapeHtml(marketingRangeLabel(mpFrom, mpTo))}, ${String(mpTo).slice(0, 4)}`;
 
   const mktSpendTotal = totals.spend;
   const mktRoasValue = mktSpendTotal ? mktGrossSales / mktSpendTotal : 0;
@@ -9985,36 +9881,35 @@ function renderMarketingCenter() {
     // Only compare against a window that actually holds something.
     const prev = mktPrevTotals && (mktPrevTotals.orders > 0 || mktPrevTotals.spend > 0) ? mktPrevTotals : null;
     const series = mktWindow.series;
-    const tile = (icon, label, value, sub, deltaArgs, key) => marketingTileHtml({
-      icon,
+    const tile = (label, value, sub, deltaArgs, key) => marketingTileHtml({
+      tone: MKT_TILE_TONES[key],
       label,
       value,
       sub,
       delta: marketingDelta(...deltaArgs),
-      spark: marketingSparkline(series[key], mktPrevSeries[key]),
-      legend: mktTileLegend,
+      spark: marketingSparkline(series[key]),
     });
     return `<div class="mkt-tile-grid">
-      ${tile(MKT_TILE_ICONS.grossSales, 'Gross Sales', marketingMoney(t.grossSales), `Delivered ${marketingMoney(t.deliveredSales)} · ${Math.round(targetPct * 100)}% of target`,
+      ${tile('Gross Sales', marketingMoney(t.grossSales), `Delivered ${marketingMoney(t.deliveredSales)} · ${Math.round(targetPct * 100)}% of target`,
         [t.grossSales, prev?.grossSales, 'percent', 'up'], 'grossSales')}
-      ${tile(MKT_TILE_ICONS.orders, 'Total Orders', t.orders.toLocaleString(), `${mpFrom} — ${mpTo}`,
+      ${tile('Total Orders', t.orders.toLocaleString(), mktRangeLabel,
         [t.orders, prev?.orders, 'percent', 'up'], 'orders')}
-      ${tile(MKT_TILE_ICONS.roas, 'ROAS', t.spend ? marketingRoas(t.roas) : '—', `Target ${marketingRoas(state.targets.roas)}`,
+      ${tile('ROAS', t.spend ? marketingRoas(t.roas) : '—', `Target ${marketingRoas(state.targets.roas)}`,
         [t.roas, prev?.roas, 'roas', 'up'], 'roas')}
-      ${tile(MKT_TILE_ICONS.spend, 'Marketing Spend', marketingMoney(t.spend), `${marketingMoney(monthSpendTarget)} monthly cap`,
+      ${tile('Marketing Spend', marketingMoney(t.spend), `${marketingMoney(monthSpendTarget)} monthly cap`,
         [t.spend, prev?.spend, 'percent', null], 'spend')}
-      ${tile(MKT_TILE_ICONS.delivered, 'Delivered Rate', t.closed ? marketingPct(t.deliveredRate) : '—', `${t.delivered.toLocaleString()} of ${t.closed.toLocaleString()} closed orders`,
+      ${tile('Delivered Rate', t.closed ? marketingPct(t.deliveredRate) : '—', `${t.delivered.toLocaleString()} of ${t.closed.toLocaleString()} closed orders`,
         [t.deliveredRate * 100, prev ? prev.deliveredRate * 100 : null, 'points', 'up'], 'deliveredRate')}
-      ${tile(MKT_TILE_ICONS.rts, 'RTS %', t.closed ? marketingPct(t.rtsRate) : '—', `Max ${state.targets.rts}%`,
+      ${tile('RTS %', t.closed ? marketingPct(t.rtsRate) : '—', `Max ${state.targets.rts}% target`,
         [t.rtsRate * 100, prev ? prev.rtsRate * 100 : null, 'points', 'down'], 'rtsRate')}
-      ${tile(MKT_TILE_ICONS.netProfit, 'Net Profit', marketingMoney(t.netProfit), 'Delivered sales − ad spend',
+      ${tile('Net Profit', marketingMoney(t.netProfit), 'Delivered sales − ad spend',
         [t.netProfit, prev?.netProfit, 'percent', 'up'], 'netProfit')}
     </div>`;
   })()}
 
   ${(() => {
     const mktTabs = [
-      ['mkt-analysis', 'Analysis', true],
+      ['mkt-analysis', 'Analytics', true],
       ['mkt-entries', 'Daily Entry', true],
       ['mkt-creatives', 'Creatives', true],
       ['mkt-team', 'Team', true],
@@ -10085,7 +9980,11 @@ function renderMarketingCenter() {
     <div class="mkt-chart-grid">
       <div class="card mkt-chart-wide">
         <div class="card-header">
-          <div><div class="card-title">Gross sales and ad spend</div><div class="card-subtitle">Both in pesos, ${mpFrom} — ${mpTo}.${mktSpendTotal ? '' : ' No ad spend is logged in this range, so that series sits at zero.'}</div></div>
+          <div><div class="card-title">Gross sales and ad spend</div><div class="card-subtitle">Both in pesos · ${mktRangeLabel}.${mktSpendTotal ? '' : ' No ad spend is logged in this range, so that series sits at zero.'}</div></div>
+          <div class="mkt-chart-key">
+            <span class="mkt-tone-blue"><i></i>Gross sales</span>
+            <span class="mkt-tone-orange"><i></i>Ad spend</span>
+          </div>
         </div>
         <div class="mkt-chart-body">
           <canvas id="mkt-trend-chart"></canvas>
@@ -10094,21 +9993,37 @@ function renderMarketingCenter() {
       </div>
       <div class="card">
         <div class="card-header">
-          <div><div class="card-title">ROAS by page</div><div class="card-subtitle">Best eight pages with ad spend logged.</div></div>
+          <div><div class="card-title">ROAS by page</div><div class="card-subtitle">Pages with ad spend logged this period.</div></div>
         </div>
-        <div class="mkt-chart-body">
-          <canvas id="mkt-roas-chart"></canvas>
-          <div class="mkt-chart-empty hidden" id="mkt-roas-empty">No page has both sales and ad spend in this range.</div>
+        ${mktRoasBars.length ? `<div class="mkt-bar-list">
+          ${(() => {
+            const top = mktRoasBars[0].value || 1;
+            return mktRoasBars.map((r) => `
+              <div class="mkt-bar-row mkt-tone-blue">
+                <div class="mkt-bar-head"><span class="mkt-bar-name" title="${escapeHtml(r.page)}">${escapeHtml(r.page)}</span><span>${marketingRoas(r.value)}</span></div>
+                <div class="mkt-bar-track"><span style="width:${Math.max(2, (r.value / top) * 100).toFixed(1)}%;"></span></div>
+              </div>`).join('');
+          })()}
         </div>
+        <div class="mkt-bar-foot">Only pages with logged spend are ranked here.</div>`
+        : '<div class="mkt-panel-empty">No page has both sales and ad spend in this range.</div>'}
       </div>
       <div class="card">
         <div class="card-header">
           <div><div class="card-title">RTS % by page</div><div class="card-subtitle">Returned and returning against closed orders, worst first.</div></div>
         </div>
-        <div class="mkt-chart-body">
-          <canvas id="mkt-rts-chart"></canvas>
-          <div class="mkt-chart-empty hidden" id="mkt-rts-empty">No page has five closed orders in this range.</div>
+        ${mktRtsBars.length ? `<div class="mkt-bar-list">
+          ${(() => {
+            const top = mktRtsBars[0].value || 1;
+            return mktRtsBars.map((r) => `
+              <div class="mkt-bar-row mkt-tone-orange">
+                <div class="mkt-bar-head"><span class="mkt-bar-name" title="${escapeHtml(r.page)}">${escapeHtml(r.page)}</span><span>${r.value.toFixed(1)}%</span></div>
+                <div class="mkt-bar-track"><span style="width:${Math.max(2, (r.value / top) * 100).toFixed(1)}%;"></span></div>
+              </div>`).join('');
+          })()}
         </div>
+        <div class="mkt-bar-foot">Pages with at least five closed orders.</div>`
+        : '<div class="mkt-panel-empty">No page has five closed orders in this range.</div>'}
       </div>
     </div>
 
@@ -10143,26 +10058,17 @@ function renderMarketingCenter() {
       <div class="mkt-panel-grid">
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title">Most Ad Spend</div><div class="card-subtitle">${totalSpend ? `Where the budget went — ${marketingMoney(totalSpend)} in total.` : 'No ad spend logged for this range yet.'}</div></div>
+            <div><div class="card-title">Most ad spend</div><div class="card-subtitle">${totalSpend ? `Where the budget went — ${marketingMoney(totalSpend)} total.` : 'No ad spend logged for this range yet.'}</div></div>
+            ${marketingManager && topSpend.length ? `<button class="btn btn-secondary btn-sm" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(topSpend[0].page)}">Log spend</button>` : ''}
           </div>
-          <div class="mkt-spend-list">
-            ${topSpend.length ? topSpend.map((r, i) => `
-              <div class="mkt-spend-row">
-                <div class="mkt-spend-rank">${i + 1}</div>
-                <div class="mkt-spend-main">
-                  <div class="mkt-spend-head">
-                    <span class="mkt-spend-page" title="${escapeHtml(r.page)}">${escapeHtml(r.page)}</span>
-                    <strong class="mkt-spend-amount">${marketingMoney(r.spend)}</strong>
-                  </div>
-                  <div class="mkt-spend-meter"><span style="width:${maxSpend ? Math.max(2, (r.spend / maxSpend) * 100) : 0}%;"></span></div>
-                  <div class="mkt-spend-meta">
-                    ${totalSpend ? Math.round((r.spend / totalSpend) * 100) : 0}% of spend
-                    ${r.sales > 0 ? ` · <span class="badge ${marketingRoasClass(r.roas)}">${marketingRoas(r.roas)}</span>` : ' · no sales yet'}
-                  </div>
-                </div>
-                ${marketingManager ? `<button class="btn btn-secondary btn-sm mkt-spend-add" title="Log ad spend for this page" onclick="openPageAdspendModal(this.dataset.page)" data-page="${escapeHtml(r.page)}">+</button>` : ''}
-              </div>`).join('') : `<div class="mkt-panel-empty">Nothing logged between ${mpFrom} and ${mpTo}.${marketingManager ? ' Add a day on the Ad Spend page, or from Daily Entry.' : ''}</div>`}
-          </div>
+          ${topSpend.length ? `<div class="mkt-bar-list">
+            ${topSpend.map((r) => `
+              <div class="mkt-bar-row mkt-tone-orange">
+                <div class="mkt-bar-head"><span class="mkt-bar-name" title="${escapeHtml(r.page)}">${escapeHtml(r.page)}</span><span>${marketingMoney(r.spend)}</span></div>
+                <div class="mkt-bar-track"><span style="width:${maxSpend ? Math.max(2, (r.spend / maxSpend) * 100).toFixed(1) : 0}%;"></span></div>
+                <div class="mkt-bar-note">${totalSpend ? Math.round((r.spend / totalSpend) * 100) : 0}% of spend${r.sales > 0 ? ` · ${marketingRoas(r.roas)}` : ' · no sales yet'}</div>
+              </div>`).join('')}
+          </div>` : `<div class="mkt-panel-empty">Nothing logged between ${mpFrom} and ${mpTo}.${marketingManager ? ' Add a day on the Ad Spend page, or from Daily Entry.' : ''}</div>`}
         </div>
 
         <div class="card">

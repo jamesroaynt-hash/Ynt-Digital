@@ -257,15 +257,12 @@ body::before {
   color: var(--text-muted);
 }
 
-.mkt-tile-label svg {
-  width: 15px;
-  height: 15px;
+.mkt-tile-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  background: var(--mkt-tone, #2a78d6);
 }
 
 .mkt-tile-value-row {
@@ -312,34 +309,87 @@ body::before {
   color: var(--text-muted);
 }
 
-.mkt-spark-cur { fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.mkt-spark-prev { fill: none; stroke: var(--text-secondary); stroke-width: 1.6; stroke-dasharray: 5 4; opacity: .8; }
+.mkt-tone-blue { --mkt-tone: #2a78d6; }
+.mkt-tone-green { --mkt-tone: #059669; }
+.mkt-tone-orange { --mkt-tone: #d97706; }
 
-[data-theme="dark"] .mkt-spark-cur { stroke: #3987e5; }
+[data-theme="dark"] .mkt-tone-blue { --mkt-tone: #3987e5; }
+[data-theme="dark"] .mkt-tone-green { --mkt-tone: #10b981; }
+[data-theme="dark"] .mkt-tone-orange { --mkt-tone: #f59e0b; }
 
-.mkt-tile-legend {
+.mkt-spark-cur {
+  fill: none;
+  stroke: var(--mkt-tone, #2a78d6);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* Ranked page breakdowns: a name, its figure, and a bar the width of its
+   share. Plain markup — at two or three rows a chart library is furniture. */
+/* The trend's key lives in the card header, so the plot keeps no furniture. */
+.mkt-chart-key {
   display: flex;
-  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.mkt-chart-key i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--mkt-tone, #2a78d6);
+}
+
+.mkt-bar-list { padding: 4px 20px 18px; }
+
+.mkt-bar-row + .mkt-bar-row { margin-top: 16px; }
+
+.mkt-bar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
-  margin-top: 8px;
-  font-size: 10.5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mkt-bar-head .mkt-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mkt-bar-track {
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.mkt-bar-track span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--mkt-tone, #2a78d6);
+}
+
+.mkt-bar-note {
+  margin-top: 6px;
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 
-.mkt-tile-legend i {
-  display: inline-block;
-  width: 14px;
-  border-top: 2px solid #2a78d6;
-  margin-right: 5px;
-  vertical-align: middle;
-}
-
-[data-theme="dark"] .mkt-tile-legend i { border-top-color: #3987e5; }
-
-.mkt-tile-legend .prev i {
-  border-top: 0;
-  border-bottom: 2px dashed currentColor;
-  opacity: .8;
+.mkt-bar-foot {
+  padding: 2px 20px 18px;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 .erp-kpi-icon {
@@ -396,72 +446,6 @@ body::before {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
-}
-
-.mkt-spend-list { padding: 6px 8px 10px; }
-
-.mkt-spend-row {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.mkt-spend-row:last-child { border-bottom: 0; }
-
-.mkt-spend-rank {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.mkt-spend-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.mkt-spend-page {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mkt-spend-amount { font-size: 13px; white-space: nowrap; }
-
-.mkt-spend-meter {
-  height: 5px;
-  margin: 7px 0 5px;
-  border-radius: 3px;
-  background: var(--surface-3);
-  overflow: hidden;
-}
-
-.mkt-spend-meter span {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: var(--erp-orange, #eb6834);
-}
-
-.mkt-spend-meta {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  text-align: right;
-}
-
-.mkt-spend-add {
-  width: 30px;
-  padding: 0;
-  font-size: 16px;
-  line-height: 1;
 }
 
 .erp-kpi-label {
