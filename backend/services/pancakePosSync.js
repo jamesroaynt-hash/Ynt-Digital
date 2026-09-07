@@ -197,6 +197,15 @@ async function saveSetting(db, payload) {
         conn.api_key, conn.shop_id, conn.page_access_token, conn.messaging_page_id,
         conn.owner, conn.botcake_token, conn.sync_mode, conn.notes
       );
+
+      // Orders that arrived before this connection existed carry no page name —
+      // upsertOrder reads it from the saved connection, and there was none. They
+      // show up as "Shop <id>" and nothing else ever fixes them, because the
+      // skip-unchanged guard means an order nobody touches is never rewritten.
+      // Only blanks are filled, so a rename never rewrites settled history.
+      await db.prepare(
+        "UPDATE pos_orders SET page_name = ? WHERE shop_id = ? AND COALESCE(page_name, '') = ''"
+      ).run(conn.name, conn.shop_id);
     }
   }
 
