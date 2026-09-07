@@ -5625,6 +5625,25 @@ tfoot td {
 
 .hf-clear:hover { background: var(--surface-3); color: var(--text-primary); }
 
+/* Commits the From/To range (and switches the bar to Custom). Reads as the
+   primary action of the range group, so it carries the accent, not the pills. */
+.hf-apply {
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter var(--transition);
+}
+
+.hf-apply:hover { filter: brightness(1.08); }
+
 .home-summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

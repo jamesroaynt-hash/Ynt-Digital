@@ -819,8 +819,12 @@ async function loadSheetRecordsForDataReport({ force = false } = {}) {
   const version = await fetchPosOrdersVersion();
   const hasData = Array.isArray(DB.sheetRecordsForReport) && DB.sheetRecordsForReport.length > 0;
   if (!force && hasData) {
-    if (version !== null && version === sheetRecordsLastVersion) return true;
+    // Age first, then version. Callers now re-check on every visit, and
+    // pos_orders' version moves on any sync write, so version-first would pull
+    // the whole set again on every page hop — the walk is the single biggest
+    // dashboard read. The floor caps that at one refetch per 10 minutes.
     if (Date.now() - sheetRecordsLastFetch < SHEET_RECORDS_MIN_REFRESH_MS) return true;
+    if (version !== null && version === sheetRecordsLastVersion) return true;
   }
 
   const all = [];
@@ -3390,9 +3394,10 @@ function renderHome() {
     ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['last30', 'Last 30 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
       `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
     <div class="hf-range">
-      <input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()" aria-label="From">
+      <input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" aria-label="From">
       <span>–</span>
-      <input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()" aria-label="To">
+      <input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" aria-label="To">
+      <button class="hf-apply" onclick="applyHomeCustomRange()">Apply</button>
     </div>
     <label class="hf-chip"><span>Page:</span>
       <select id="home-source-filter" onchange="applyHomeFilters()">
@@ -16088,9 +16093,19 @@ function initPage(page) {
     if (homeDateToInput && !homeDateToInput.value) homeDateToInput.value = today;
     loadTimeClockStatus();
     loadHomeAnnouncements().catch(() => {});
-    if (!DB.sheetRecordsForReport.length) {
-      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'home') loadPage('home'); }).catch(() => {});
-    }
+    // Home used to load this set only when nothing was cached, so it kept
+    // counting the snapshot the session started with while RMO Management read
+    // pos_orders live — the two totals for the same page drifted apart by every
+    // order synced since login. Re-check on every visit instead; the loader
+    // itself no-ops when pos_orders is unchanged or was pulled minutes ago.
+    const hadRecords = DB.sheetRecordsForReport.length > 0;
+    loadSheetRecordsForDataReport().then(() => {
+      if (App.currentPage !== 'home') return;
+      // A re-render, not a loadPage, once the page is already up: loadPage would
+      // land back here and loop.
+      if (hadRecords) renderHomeOrderCharts();
+      else if (DB.sheetRecordsForReport.length) loadPage('home');
+    }).catch(() => {});
   }
 
   if (page === 'attendance') {
@@ -18352,9 +18367,10 @@ function renderHomeAnalytics() {
       ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
         `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
       <div class="hf-range">
-        <input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()" aria-label="From">
+        <input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" aria-label="From">
         <span>–</span>
-        <input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()" aria-label="To">
+        <input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" aria-label="To">
+        <button class="hf-apply" onclick="applyHomeCustomRange()">Apply</button>
       </div>
     </div>
     <button class="hf-clear" onclick="resetHomeFilters()">Clear</button>
@@ -18628,9 +18644,18 @@ function setHomeSourceFilter() {
   renderHomeOrderCharts();
 }
 
+// Apply next to the From/To inputs. Picking dates alone never changed anything:
+// getFilteredHomeOrders only honours them while the period is 'custom', so Apply
+// switches the bar into Custom mode (and moves the pill) as it commits the range.
 function applyHomeCustomRange() {
   homeDateFrom = document.getElementById('home-date-from')?.value || '';
   homeDateTo = document.getElementById('home-date-to')?.value || '';
+  if (homeDateFrom || homeDateTo) {
+    homeOrderFilter = 'custom';
+    document.querySelectorAll('.home-filter-bar .filter-pill').forEach((pill) => {
+      pill.classList.toggle('active', pill.textContent.trim() === 'Custom');
+    });
+  }
   renderHomeOrderCharts();
 }
 
