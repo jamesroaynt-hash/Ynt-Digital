@@ -3295,6 +3295,9 @@ function getHomeKpiSeries() {
     orders: days.map((d) => recs.filter((r) => r.date === d).length),
     delivered: days.map((d) => recs.filter((r) => r.date === d && r.status === 'Delivered').length),
     cod: days.map((d) => recs.filter((r) => r.date === d).reduce((s, r) => s + Number(r.cod || 0), 0)),
+    // RTS orders per day (returning + returned), so the RTS tile trends its own
+    // figure instead of borrowing the delivered series.
+    rts: days.map((d) => getRtsStats(recs.filter((r) => r.date === d)).rts),
   };
 }
 
@@ -3302,8 +3305,11 @@ function getHomeKpiSeries() {
 function seriesDelta(values) {
   const v = (values || []).map((n) => Number(n) || 0);
   if (v.length < 2) return null;
+  // Equal halves. Splitting 7 days as 4-vs-3 compared four days of orders
+  // against three and reported a drop on a perfectly flat week; the odd middle
+  // day belongs to neither half.
   const half = Math.floor(v.length / 2);
-  const prev = v.slice(0, v.length - half).reduce((s, n) => s + n, 0);
+  const prev = v.slice(0, half).reduce((s, n) => s + n, 0);
   const recent = v.slice(v.length - half).reduce((s, n) => s + n, 0);
   if (prev <= 0) return recent > 0 ? 100 : 0;
   return ((recent - prev) / prev) * 100;
@@ -6205,6 +6211,26 @@ function getOrderStatusKey(status) {
   if (['shipped', 'in transit', 'out for delivery'].includes(value)) return 'shipped';
   if (['canceled', 'cancelled', 'void'].includes(value)) return 'canceled';
   return value;
+}
+
+// RTS on the Data Report's basis (/google-sheets/report-summary): an order is
+// RTS when it is returning or returned, and the rate is measured against orders
+// that actually reached an outcome — delivered + returned + returning — not
+// against every order in the period. Orders still New/Confirmed/Shipped have no
+// verdict yet, so counting them in the denominator only dilutes the rate.
+function getRtsStats(orders) {
+  let delivered = 0;
+  let returned = 0;
+  let returning = 0;
+  orders.forEach((order) => {
+    const key = getOrderStatusKey(order.status);
+    if (key === 'delivered') delivered += 1;
+    else if (key === 'returned') returned += 1;
+    else if (key === 'returning') returning += 1;
+  });
+  const rts = returned + returning;
+  const base = delivered + returned + returning;
+  return { delivered, returned, returning, rts, base, rate: base ? (rts / base) * 100 : 0 };
 }
 
 function getFilteredRTSRateOrders() {
@@ -18398,10 +18424,10 @@ function renderHomeAnalyticsKpis() {
   if (!wrap) return;
   const orders = getFilteredHomeOrders();
   const total = orders.length;
-  const delivered = orders.filter((o) => getOrderStatusKey(o.status) === 'delivered').length;
   const revenue = orders.reduce((s, o) => s + Number(o.cod || 0), 0);
-  const rts = orders.filter((o) => getOrderStatusKey(o.status) === 'returned').length;
-  const rtsPct = total ? (rts / total) * 100 : 0;
+  const rtsStats = getRtsStats(orders);
+  const delivered = rtsStats.delivered;
+  const rtsPct = rtsStats.rate;
   const s = getHomeKpiSeries();
   const iOrders = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M9 3v4M15 3v4M4 11h16"/></svg>';
   const iTruck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4M21 7l-9 4M12 11v10"/></svg>';
@@ -18422,7 +18448,7 @@ function renderHomeAnalyticsKpis() {
     ${tile(iOrders, 'violet', total.toLocaleString(), 'Total Orders', s.orders)}
     ${tile(iTruck, 'blue', delivered.toLocaleString(), 'Delivered Orders', s.delivered)}
     ${tile(iCash, 'amber', formatPesoCompact(revenue), 'COD Revenue', s.cod)}
-    ${tile(iReturn, 'rose', `${rtsPct.toFixed(1)}%`, 'RTS Rate', s.delivered)}`;
+    ${tile(iReturn, 'rose', rtsStats.base ? `${rtsPct.toFixed(1)}%` : '—', 'RTS Rate', s.rts)}`;
 }
 
 function renderHomeAnalyticsCharts() {
@@ -18693,21 +18719,27 @@ function renderHomeSummaryTiles() {
   const orders = getFilteredHomeOrders();
   const total = orders.length;
   const grossSales = orders.reduce((s, o) => s + Number(o.cod || 0), 0);
-  const delivered = orders.filter((o) => getOrderStatusKey(o.status) === 'delivered').length;
-  const rts = orders.filter((o) => getOrderStatusKey(o.status) === 'returned').length;
-  const rtsPct = total ? (rts / total) * 100 : 0;
+  const rtsStats = getRtsStats(orders);
+  const delivered = rtsStats.delivered;
+  const rts = rtsStats.rts;
+  const rtsPct = rtsStats.rate;
   const aov = total ? grossSales / total : 0;
   const peso = (n) => `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Same wording the Data Report's RTS card uses, so the shared basis is visible
+  // on hover rather than something you have to infer from two disagreeing tiles.
+  const rtsHint = rtsStats.base
+    ? `${rts.toLocaleString()} of ${rtsStats.base.toLocaleString()} settled orders (delivered + returning + returned)`
+    : 'nothing settled in this range yet';
   const tiles = [
     { label: 'Gross Sales', value: peso(grossSales) },
     { label: 'Total Orders', value: total.toLocaleString() },
     { label: 'Delivered Orders', value: delivered.toLocaleString() },
-    { label: 'RTS Orders', value: rts.toLocaleString() },
-    { label: 'RTS %', value: `${rtsPct.toFixed(1)}%` },
+    { label: 'RTS Orders', value: rts.toLocaleString(), hint: rtsHint },
+    { label: 'RTS %', value: rtsStats.base ? `${rtsPct.toFixed(1)}%` : '—', hint: rtsHint },
     { label: 'Avg Order Value', value: peso(aov) },
   ];
   wrap.innerHTML = tiles.map((t) => `
-    <div class="home-summary-tile">
+    <div class="home-summary-tile"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}>
       <div class="hst-label">${t.label}</div>
       <div class="hst-value">${t.value}</div>
     </div>`).join('');

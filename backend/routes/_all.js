@@ -950,10 +950,16 @@ function ordersRoutes(db, { dispatch } = {}) {
     ).get(...vis.params);
     const total = Number(totalRow?.c || 0);
 
+    // effective_status, not status_name: an undeliverable the courier gave up on
+    // past the abandonment cutoff counts as returned. The RMO list and the Data
+    // Report both read it that way, so the dashboards built on these records
+    // (Home, RTS Rate, ROAS, Marketing, CSR) have to agree or their RTS figures
+    // come out lower than the Data Report's for the same period.
     const rows = await db.prepare(`
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
-             cod, assigning_seller_name, status_name, attempts, shipping_address_json
+             cod, assigning_seller_name, status_name, attempts, shipping_address_json,
+             ${pancakePosSync.effectivePosStatusSql()} AS effective_status
       FROM pos_orders
       WHERE customer_phone IS NOT NULL AND customer_phone != '' AND ${vis.clause}
       ORDER BY inserted_at_remote DESC, id DESC
@@ -981,8 +987,9 @@ function ordersRoutes(db, { dispatch } = {}) {
         const tags = parseJsonObject(row.tags_json, []).map((t) =>
           typeof t === 'string' ? t : (t?.name || t?.tag_name || t?.label || '')
         ).filter(Boolean);
-        const status = statusMap[row.status_name] || (row.status_name
-          ? row.status_name.charAt(0).toUpperCase() + row.status_name.slice(1)
+        const effective = row.effective_status || row.status_name;
+        const status = statusMap[effective] || (effective
+          ? effective.charAt(0).toUpperCase() + effective.slice(1)
           : 'New');
         return {
           id: row.external_id,
