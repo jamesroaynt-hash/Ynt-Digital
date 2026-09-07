@@ -18348,15 +18348,16 @@ const HOME_STATUS_TILES = [
 function renderHomeAnalytics() {
   return `
   <div class="home-filter-bar">
-    <div class="home-period-row">
+    <div class="hf-controls">
       ${[['today', 'Today'], ['yesterday', 'Yesterday'], ['last7', 'Last 7 Days'], ['month', 'This Month'], ['custom', 'Custom']].map(([v, l]) =>
         `<button class="filter-pill ${homeOrderFilter === v ? 'active' : ''}" onclick="setHomePeriod('${v}',this)">${l}</button>`).join('')}
-      <span class="home-period-hint">Custom range below</span>
+      <div class="hf-range">
+        <input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()" aria-label="From">
+        <span>–</span>
+        <input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()" aria-label="To">
+      </div>
     </div>
-    <div class="home-filter-grid">
-      <div class="hf-field"><label>From</label><input type="date" class="form-control" id="home-date-from" value="${homeDateFrom}" onchange="applyHomeCustomRange()"></div>
-      <div class="hf-field"><label>To</label><input type="date" class="form-control" id="home-date-to" value="${homeDateTo}" onchange="applyHomeCustomRange()"></div>
-    </div>
+    <button class="hf-clear" onclick="resetHomeFilters()">Clear</button>
   </div>
 
   <div class="kpi-grid" id="home-an-kpis">
@@ -18636,7 +18637,7 @@ function applyHomeCustomRange() {
 // Home top filter bar (period presets + Page/Product/CSR dropdowns + Reset).
 function setHomePeriod(period, btn) {
   homeOrderFilter = period;
-  document.querySelectorAll('.home-period-row .filter-pill').forEach((p) => p.classList.remove('active'));
+  document.querySelectorAll('.home-filter-bar .filter-pill').forEach((p) => p.classList.remove('active'));
   btn?.classList.add('active');
   renderHomeOrderCharts();
 }
