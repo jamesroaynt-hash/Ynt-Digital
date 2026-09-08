@@ -8659,13 +8659,28 @@ function normalizeCreative(item, index) {
   };
 }
 
+// This block is rendered in two places: as its own `creatives` page and as the
+// Marketing Center's Creatives tab. Every filter used to re-render through
+// navigateTo('creatives'), which swapped the whole Marketing Center — tiles,
+// tab strip and all — for the bare page, so picking a preset looked like the
+// tab had vanished (and the sidebar carries no Creatives entry to get back
+// through). Repaint the block where it stands instead.
+function refreshCreatives() {
+  const host = document.getElementById('creatives-host');
+  if (host) {
+    host.innerHTML = renderCreativesBody();
+    return;
+  }
+  navigateTo('creatives');
+}
+
 function setCreativesPreset(preset) {
   creativesDatePreset = preset;
   if (preset !== 'custom') {
     const range = computePresetRange(preset);
     if (range) { creativesDateFrom = range.from; creativesDateTo = range.to; }
   }
-  navigateTo('creatives');
+  refreshCreatives();
 }
 
 function applyCreativesFilter() {
@@ -8678,7 +8693,7 @@ function applyCreativesFilter() {
     creativesDatePreset = 'custom';
   }
   creativesPlatformFilter = platform;
-  navigateTo('creatives');
+  refreshCreatives();
 }
 
 function openCreativeModal() {
@@ -8731,7 +8746,7 @@ function saveCreative() {
   saveMarketingState(state);
   showToast('success', editIndex >= 0 ? 'Creative updated' : 'Creative added', name);
   closeModal('creative-modal');
-  navigateTo('creatives');
+  refreshCreatives();
 }
 
 function editCreative(index) {
@@ -8766,7 +8781,7 @@ function deleteCreativeAt(index) {
   state.creatives.splice(index, 1);
   saveMarketingState(state);
   showToast('success', 'Creative removed', name);
-  navigateTo('creatives');
+  refreshCreatives();
 }
 
 function updateCreativeStatus(index, newStatus) {
@@ -8780,7 +8795,13 @@ function updateCreativeStatus(index, newStatus) {
   showToast('success', 'Status updated', `${normalizeCreative(state.creatives[index], index).name} → ${newStatus}`);
 }
 
+// The host wrapper is what refreshCreatives() repaints, so the block can sit
+// either in #main-page-content or inside the Marketing Center's tab.
 function renderCreatives() {
+  return `<div id="creatives-host">${renderCreativesBody()}</div>`;
+}
+
+function renderCreativesBody() {
   if (!creativesDateFrom) {
     const r = computePresetRange('monthly');
     creativesDateFrom = r.from;
