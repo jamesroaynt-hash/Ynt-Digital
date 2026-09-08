@@ -8070,6 +8070,17 @@ async function loadAdspendAdsSummary({ force = false } = {}) {
   }
 }
 
+// The All Pages date column: a stack of 2026-09-01s is hard to read a row at a
+// time, so the month is named and the year left to the range readout above the
+// cards. Built from a local Date rather than parsing the ISO string, which
+// would land the row a day early east of UTC.
+function gridDateLabel(iso) {
+  const parts = /^(d{4})-(d{2})-(d{2})$/.exec(String(iso || ''));
+  if (!parts) return String(iso || '');
+  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // Per-page header colour on the All Pages cards. Each page keeps its own,
 // so a wall of identical cards can be told apart at a glance. The choice is
 // this browser's — it never leaves localStorage.
@@ -8459,7 +8470,7 @@ function renderAdspendRoas() {
         ? 'Only Sales and Marketing can record ad spend.'
         : 'Several marketing entries on this day — edit them in Marketing.';
       return `<tr style="background:${idx % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
-        <td style="padding:7px 8px;text-align:center;font-size:12px;white-space:nowrap;">${row.date}</td>
+        <td style="padding:7px 8px;text-align:center;font-size:12px;white-space:nowrap;" title="${row.date}">${gridDateLabel(row.date)}</td>
         <td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders.toLocaleString()}</td>
         <td style="padding:7px 8px;text-align:center;font-size:12px;">${fmt1(row.amount)}</td>
         <td style="padding:5px 8px;text-align:center;">

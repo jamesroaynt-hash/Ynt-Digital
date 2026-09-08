@@ -237,6 +237,14 @@ body::before {
 [data-theme="dark"] .roas-high { color: #34d399; }
 [data-theme="dark"] .roas-low { color: #f87171; }
 
+/* Dark mode paints every card-table cell ("undo hardcoded white row
+   backgrounds" below), and that selector outweighs a bare class — so each
+   band is restated at the same weight, or every ROAS in a card renders plain. */
+[data-theme="dark"] .card table tbody tr td.roas-high { color: #34d399; }
+[data-theme="dark"] .card table tbody tr td.roas-low { color: #f87171; }
+[data-theme="dark"] .card table tbody tr td.roas-mid { color: var(--text-primary); }
+[data-theme="dark"] .card table tbody tr td.roas-none { color: var(--text-muted); }
+
 .mkt-tile-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
