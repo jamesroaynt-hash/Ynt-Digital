@@ -7476,6 +7476,11 @@ function setAdspendTab(tab) {
   if (summary) summary.style.display = tab === 'summary' ? 'block' : 'none';
   if (allpages) allpages.style.display = tab === 'allpages' ? 'block' : 'none';
   if (adsets) adsets.style.display = tab === 'adsets' ? 'block' : 'none';
+  // The sales/spend target strip belongs with the summary readouts, not the
+  // All Pages entry grid. The tabs only toggle display, so it is toggled here
+  // rather than re-rendered.
+  const targets = document.getElementById('adspend-target-strip');
+  if (targets) targets.style.display = tab === 'allpages' ? 'none' : 'block';
   document.querySelectorAll('.adspend-tab-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
@@ -8459,10 +8464,10 @@ function renderAdspendRoas() {
   const gridFilterHtml = `
   <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Every chat page side by side — orders, sales, ad spend and ROAS for each day in range.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start;">
+    <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;">
       <div>
         <div style="${gridLabelStyle}">PAGE STATUS</div>
-        <select class="form-control" onchange="setAdspendGridStatus(this.value)" style="height:38px;font-size:13px;min-width:220px;">
+        <select class="form-control" onchange="setAdspendGridStatus(this.value)" style="height:38px;font-size:13px;min-width:280px;">
           ${[['active', 'Active — orders or spend'], ['orders', 'With orders only'], ['spend', 'With ad spend only'], ['all', 'All pages']]
             .map(([key, label]) => `<option value="${key}"${adspendGridStatus === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
@@ -8470,11 +8475,11 @@ function renderAdspendRoas() {
       <div>
         <div style="${gridLabelStyle}">FILTER PAGE</div>
         <input type="text" class="form-control" id="apg-search" value="${escapeHtml(adspendGridSearch)}" placeholder="Type part of a page name"
-          oninput="setAdspendGridSearch(this.value)" style="height:38px;font-size:13px;min-width:260px;">
+          oninput="setAdspendGridSearch(this.value)" style="height:38px;font-size:13px;min-width:280px;">
       </div>
       <div>
         <div style="${gridLabelStyle}">FILTER BY</div>
-        <select class="form-control" onchange="setAdspendGridSort(this.value)" style="height:38px;font-size:13px;min-width:200px;">
+        <select class="form-control" onchange="setAdspendGridSort(this.value)" style="height:38px;font-size:13px;min-width:280px;">
           ${[['name', 'Page name (A–Z)'], ['sales', 'Sales (high to low)'], ['spend', 'Ad spend (high to low)'], ['roas', 'ROAS (high to low)'], ['orders', 'Orders (high to low)']]
             .map(([key, label]) => `<option value="${key}"${adspendGridSort === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
@@ -8499,7 +8504,7 @@ function renderAdspendRoas() {
       </select>
       <span style="font-size:12px;color:var(--text-muted);margin-left:6px;white-space:nowrap;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'} · ${gridCount} page${gridCount === 1 ? '' : 's'}</span>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:16px;">
+    <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:18px;padding-top:18px;border-top:1px solid var(--border,rgba(255,255,255,0.08));">
       <div>
         <div style="${gridLabelStyle}">CANCELLED ORDERS</div>
         <select class="form-control" onchange="setAdspendGridCancelled(this.value)" style="height:38px;font-size:13px;min-width:190px;">
@@ -8555,7 +8560,7 @@ function renderAdspendRoas() {
     <div class="page-title"><h1>Ad Spend ROAS Summary</h1><p>Daily orders and ad spend performance across pages.</p></div>
   </div>
 
-  <div class="card" style="margin-bottom:16px;padding:16px 20px;">
+  <div class="card" id="adspend-target-strip" style="margin-bottom:16px;padding:16px 20px;display:${adspendActiveTab === 'allpages' ? 'none' : 'block'};">
     <div class="adspend-target-grid">
       <div class="adspend-target-card adspend-target-monthly">
         <div class="adspend-target-icon">🎯</div>
