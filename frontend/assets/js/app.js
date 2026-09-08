@@ -8070,6 +8070,57 @@ async function loadAdspendAdsSummary({ force = false } = {}) {
   }
 }
 
+// Per-page header colour on the All Pages cards. Each page keeps its own,
+// so a wall of identical cards can be told apart at a glance. The choice is
+// this browser's — it never leaves localStorage.
+const PAGE_HEADER_COLOR_KEY = 'ynt_page_header_colors';
+
+function getPageHeaderColors() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PAGE_HEADER_COLOR_KEY) || '{}');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+// White text on a dark pick, near-black on a light one — the label has to stay
+// readable whatever colour lands behind it.
+function readableTextOn(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!match) return 'var(--text-primary)';
+  const int = parseInt(match[1], 16);
+  const channel = (c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * channel((int >> 16) & 255)
+    + 0.7152 * channel((int >> 8) & 255)
+    + 0.0722 * channel(int & 255);
+  return luminance > 0.45 ? '#0f172a' : '#ffffff';
+}
+
+function paintPageHeader(head, color) {
+  head.style.background = color || 'var(--surface-3,#f1f5f9)';
+  head.style.color = color ? readableTextOn(color) : 'var(--text-primary)';
+  const clear = head.querySelector('.apg-head-clear');
+  if (clear) clear.style.display = color ? 'inline-flex' : 'none';
+}
+
+// Repainted in place rather than through a re-render: the cards are full of
+// spend boxes, and one of them may be mid-edit.
+function setAdspendPageColor(col, color) {
+  const head = document.getElementById(`apg-head-${col}`);
+  if (!head) return;
+  const page = head.dataset.page || '';
+  if (!page) return;
+  const colors = getPageHeaderColors();
+  if (color) colors[page] = color;
+  else delete colors[page];
+  try { localStorage.setItem(PAGE_HEADER_COLOR_KEY, JSON.stringify(colors)); } catch {}
+  paintPageHeader(head, color);
+}
+
 function renderAdspendRoas() {
   const today = normalizeDateString(new Date());
   if (!adspendDateFrom) adspendDateFrom = normalizeDateString(getDateDaysAgo(6));
@@ -8425,9 +8476,17 @@ function renderAdspendRoas() {
 
     const t = pageData.totals;
     const days = pageData.rows.length || 1;
+    const headColor = getPageHeaderColors()[pageData.page] || '';
     return `
     <div style="border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;overflow:hidden;background:var(--surface-1);">
-      <div style="padding:11px 12px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;background:var(--surface-3,#f1f5f9);color:var(--text-primary);border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="${escapeHtml(pageData.page)}">${escapeHtml(pageData.page)}</div>
+      <div id="apg-head-${col}" data-page="${escapeHtml(pageData.page)}" style="position:relative;padding:11px 42px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;background:${headColor || 'var(--surface-3,#f1f5f9)'};color:${headColor ? readableTextOn(headColor) : 'var(--text-primary)'};border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="${escapeHtml(pageData.page)}">${escapeHtml(pageData.page)}
+        <span style="position:absolute;top:50%;right:8px;transform:translateY(-50%);display:flex;align-items:center;gap:2px;">
+          <input type="color" value="${headColor || '#1e293b'}" title="Header colour for this page" onchange="setAdspendPageColor(${col}, this.value)"
+            style="width:20px;height:20px;padding:0;border:1px solid rgba(148,163,184,0.5);border-radius:4px;background:none;cursor:pointer;">
+          <button type="button" class="apg-head-clear" title="Clear colour" onclick="setAdspendPageColor(${col}, '')"
+            style="display:${headColor ? 'inline-flex' : 'none'};align-items:center;justify-content:center;width:16px;height:20px;padding:0;border:none;background:none;color:inherit;opacity:.7;cursor:pointer;font-size:13px;line-height:1;">×</button>
+        </span>
+      </div>
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;">
         <thead>
