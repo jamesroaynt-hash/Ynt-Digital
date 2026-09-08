@@ -131,6 +131,15 @@ body::before {
   color: var(--text-primary);
 }
 
+/* A native select popup takes its colours from the options themselves, not
+   from the select — without this the dark theme draws pale text onto the
+   platform's white popup, which is unreadable. */
+[data-theme="dark"] select option,
+[data-theme="dark"] select optgroup {
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
 [data-theme="dark"] .kpi-card { border-color: var(--border); }
 [data-theme="dark"] .kpi-value { color: var(--text-primary); }
 [data-theme="dark"] .kpi-label { color: var(--text-secondary); }

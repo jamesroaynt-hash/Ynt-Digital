@@ -2762,21 +2762,27 @@ function renderApiConnections() {
           Watch the setup tutorial
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h7v7M13 3L6.5 9.5M11 9.5V13H3V5h3.5"/></svg>
         </a>
+        <div class="tabs erp-tabs" style="margin-bottom:14px;">
+          <button class="tab-btn active" type="button" data-postab="basic" onclick="switchPosPageTab('basic')">Basic Info</button>
+          <button class="tab-btn" type="button" data-postab="tokens" onclick="switchPosPageTab('tokens')">Integration Tokens</button>
+          <button class="tab-btn" type="button" data-postab="advanced" onclick="switchPosPageTab('advanced')">Advanced Settings</button>
+        </div>
+
+        <div id="pos-page-tab-basic" class="tab-content active">
         <div class="int-panel">
-          <div class="int-section-label">Basic Info</div>
           <div class="form-grid two-col">
             <div class="form-group">
               <label class="form-label req">Page ID</label>
-              <input type="text" class="form-control mono-input" id="pancake-pos-page-id" placeholder="e.g. 123456" value="${escapeHtml(posSettings.pageId || '')}">
+              <input type="text" class="form-control mono-input" id="pancake-pos-page-id" oninput="updatePosPageModalButtons()" placeholder="e.g. 123456" value="${escapeHtml(posSettings.pageId || '')}">
             </div>
             <div class="form-group">
               <label class="form-label req">Shop ID</label>
-              <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" placeholder="e.g. 789" value="${escapeHtml(posSettings.shopId || '')}">
+              <input type="text" class="form-control mono-input" id="pancake-pos-shop-id" oninput="updatePosPageModalButtons()" placeholder="e.g. 789" value="${escapeHtml(posSettings.shopId || '')}">
             </div>
           </div>
           <div class="form-group">
             <label class="form-label req">Page Name</label>
-            <input type="text" class="form-control" id="pancake-pos-shop-name" placeholder="e.g. My Store Page" autocomplete="off" value="${escapeHtml(posSettings.shopName || '')}">
+            <input type="text" class="form-control" id="pancake-pos-shop-name" oninput="updatePosPageModalButtons()" placeholder="e.g. My Store Page" autocomplete="off" value="${escapeHtml(posSettings.shopName || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Owner</label>
@@ -2796,12 +2802,13 @@ function renderApiConnections() {
             </label>
           </div>
         </div>
+        </div>
 
+        <div id="pos-page-tab-tokens" class="tab-content">
         <div class="int-panel">
-          <div class="int-section-label">Integration Tokens</div>
           <div class="form-group">
             <label class="form-label req">POS Token</label>
-            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" placeholder="${posSettings.hasApiKey ? 'Saved POS token - leave blank to keep it' : 'Enter POS token'}" value="${escapeHtml(posSettings.apiKey || '')}">
+            <input type="text" class="form-control mono-input" id="pancake-pos-api-key" data-saved="${posSettings.hasApiKey ? '1' : '0'}" oninput="updatePosPageModalButtons()" placeholder="${posSettings.hasApiKey ? 'Saved POS token - leave blank to keep it' : 'Enter POS token'}" value="${escapeHtml(posSettings.apiKey || '')}">
             <button class="btn int-validate" type="button" onclick="validatePosToken()">Validate</button>
           </div>
           <div class="form-group">
@@ -2815,10 +2822,10 @@ function renderApiConnections() {
             <button class="btn int-validate" type="button" onclick="validateIntegrationToken('botcake')">Validate</button>
           </div>
         </div>
+        </div>
 
-        <details class="int-advanced">
-          <summary>Advanced settings</summary>
-          <div class="int-panel" style="margin-top:14px;">
+        <div id="pos-page-tab-advanced" class="tab-content">
+          <div class="int-panel">
             <div class="form-grid two-col">
               <div class="form-group">
                 <label class="form-label">POS Base URL</label>
@@ -2840,11 +2847,13 @@ function renderApiConnections() {
               <textarea class="form-control" id="pancake-pos-notes" rows="3" placeholder="Example: Main Pancake POS shop.">${escapeHtml(posSettings.notes)}</textarea>
             </div>
           </div>
-        </details>
+        </div>
         </div>
         <div class="modal-footer">
+          <span id="pos-page-step-hint" style="margin-right:auto;font-size:12px;color:var(--text-muted);"></span>
           <button class="btn btn-secondary" type="button" onclick="fetchShopsForModal()">Get POS Shops</button>
-          <button class="btn btn-primary" type="button" onclick="savePosPageFromModal()">Save Page</button>
+          <button class="btn btn-primary" id="pos-page-next-btn" type="button" style="display:none;" onclick="switchPosPageTab('tokens')">Next</button>
+          <button class="btn btn-primary" id="pos-page-save-btn" type="button" style="display:none;" onclick="savePosPageFromModal()">Save Page</button>
         </div>
       </div>
     </div>
@@ -5927,8 +5936,6 @@ function renderManageUsers() {
     setTimeout(() => navigateTo('profile'), 0);
     return '';
   }
-  const ownAccountSection = renderOwnAccountSection();
-
   return `
   <div class="page-header">
     <div class="page-title">
@@ -5958,8 +5965,6 @@ function renderManageUsers() {
       </div>
     </div>
   </div>
-
-  ${ownAccountSection}
 
   <div class="table-container">
     <div class="table-toolbar">
@@ -22300,6 +22305,9 @@ function openPosPageModal(id) {
   loadPosOwnerOptions();
   const title = document.getElementById('pos-page-modal-title');
   if (title) title.textContent = id ? 'Edit Page' : 'Add New Page';
+  const apiKeyEl = document.getElementById('pancake-pos-api-key');
+  if (apiKeyEl) apiKeyEl.dataset.saved = conn && (conn.hasApiKey || conn.apiKey || conn.api_key) ? '1' : '0';
+  switchPosPageTab('basic');
   openModal('pos-page-modal');
 }
 
@@ -22392,6 +22400,7 @@ async function fetchShopsForModal() {
     const nameInput = document.getElementById('pancake-pos-shop-name');
     if (shopInput) shopInput.value = first.id || '';
     if (nameInput && !nameInput.value && first.name) nameInput.value = first.name;
+    updatePosPageModalButtons();
     showToast('success', 'POS shops loaded', `Found ${shops.length} shop(s). Filled Shop ID.`);
   } catch (e) {
     showToast('error', 'Get POS Shops failed', e.message || 'Could not load shops from Pancake POS.');
@@ -23691,6 +23700,46 @@ document.addEventListener('keydown', (event) => {
 });
 
 // ─── TABS ──────────────────────────────────────────────────
+// The page modal carries its own tabs. switchTab() falls back to the whole
+// document when it cannot find a .page-content, which would strip .active off
+// the API Connections tabs underneath — so the modal switches its own, scoped
+// to itself and addressed by step name rather than by the element clicked.
+function switchPosPageTab(step) {
+  const modal = document.getElementById('pos-page-modal');
+  if (!modal) return;
+  modal.querySelectorAll('.tab-btn[data-postab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.postab === step);
+  });
+  modal.querySelectorAll('.tab-content').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `pos-page-tab-${step}`);
+  });
+  updatePosPageModalButtons();
+}
+
+// One step at a time: Next appears once Basic Info is complete, and Save only
+// once the POS token is there too. A page being edited already has its token
+// on file, so a blank box counts as filled for it.
+function updatePosPageModalButtons() {
+  const modal = document.getElementById('pos-page-modal');
+  if (!modal) return;
+  const value = (id) => (document.getElementById(id)?.value || '').trim();
+  const step = modal.querySelector('.tab-btn[data-postab].active')?.dataset.postab || 'basic';
+  const basicOk = Boolean(value('pancake-pos-page-id') && value('pancake-pos-shop-id') && value('pancake-pos-shop-name'));
+  const tokenOnFile = document.getElementById('pancake-pos-api-key')?.dataset.saved === '1';
+  const tokensOk = basicOk && Boolean(value('pancake-pos-api-key') || tokenOnFile);
+
+  const next = document.getElementById('pos-page-next-btn');
+  const save = document.getElementById('pos-page-save-btn');
+  const hint = document.getElementById('pos-page-step-hint');
+  if (next) next.style.display = step === 'basic' && basicOk ? 'inline-flex' : 'none';
+  if (save) save.style.display = step !== 'basic' && tokensOk ? 'inline-flex' : 'none';
+  if (hint) {
+    hint.textContent = step === 'basic'
+      ? (basicOk ? '' : 'Fill Page ID, Shop ID and Page Name to continue.')
+      : (basicOk ? (tokensOk ? '' : 'Enter the POS token to save this page.') : 'Basic Info is not complete yet.');
+  }
+}
+
 function switchTab(btn, contentId) {
   const tabsParent = btn.closest('.tabs');
   if (tabsParent) tabsParent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
