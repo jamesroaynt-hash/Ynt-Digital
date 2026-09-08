@@ -230,14 +230,11 @@ body::before {
    sparkline of both — this window solid, the one before it dashed. */
 /* ROAS bands on the Ad Spend tables: the number is coloured, the cell is not. */
 .roas-high { color: #047857; font-weight: 700; }
-.roas-good { color: #b45309; font-weight: 700; }
-.roas-fair { color: #c2410c; font-weight: 700; }
 .roas-low { color: #b91c1c; font-weight: 700; }
+.roas-mid { color: var(--text-primary); font-weight: 700; }
 .roas-none { color: var(--text-muted); }
 
 [data-theme="dark"] .roas-high { color: #34d399; }
-[data-theme="dark"] .roas-good { color: #fbbf24; }
-[data-theme="dark"] .roas-fair { color: #f59e0b; }
 [data-theme="dark"] .roas-low { color: #f87171; }
 
 .mkt-tile-grid {

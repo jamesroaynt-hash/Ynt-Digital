@@ -882,6 +882,31 @@ function ordersRoutes(db, { dispatch } = {}) {
     });
   });
 
+  // Every chat page that has carried an order, with the shop it belongs to and
+  // how many orders it holds. Grouped in SQL: the Pages list wants three
+  // numbers per page, not the orders behind them.
+  r.get('/pos-orders/pages', async (req, res) => {
+    const vis = await posVisibilityFilter();
+    const rows = await db.prepare(`
+      SELECT COALESCE(NULLIF(page_name, ''), '') AS page_name,
+             COALESCE(NULLIF(page_id, ''), '')   AS page_id,
+             COALESCE(NULLIF(shop_id, ''), '')   AS shop_id,
+             COUNT(*) AS orders
+        FROM pos_orders
+       WHERE ${vis.clause}
+       GROUP BY 1, 2, 3
+       ORDER BY COUNT(*) DESC
+    `).all(...vis.params);
+    res.json({
+      pages: rows.map((row) => ({
+        name: posPageLabel(row),
+        page_id: row.page_id || '',
+        shop_id: row.shop_id || '',
+        orders: Number(row.orders || 0),
+      })),
+    });
+  });
+
   r.get('/pos-orders/dashboard', async (req, res) => {
     const vis = await posVisibilityFilter();
     const rows = await db.prepare(`

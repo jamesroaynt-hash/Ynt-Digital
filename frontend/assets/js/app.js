@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
@@ -20,8 +20,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -169,6 +169,7 @@ function loadPage(page) {
     'evaluation-kpi': renderEvaluationKpi,
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
+    pages: renderOrderPages,
     'rmo-management': renderRmoManagement,
     'sms-automations': renderSmsAutomations,
     'odz-finder': renderOdzFinder,
@@ -208,6 +209,7 @@ const pageNames = {
   'evaluation-kpi': 'Monthly Evaluation / KPI',
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
+  pages: 'Pages',
   'rmo-management': 'RMO Management',
   'sms-automations': 'SMS Automations',
   'odz-finder': 'ODZ Finder',
@@ -8114,12 +8116,14 @@ function renderAdspendRoas() {
   // The figure carries the band, not the cell: a tinted block behind every ROAS
   // reads as a heat map nobody asked for. Colours live in CSS so each theme
   // gets a step that stays legible on its own surface.
+  // Two bands, the ones the team formats their own sheet with: 3.00 and up is
+  // green, 2.90 and under is red. The sliver between them is deliberately
+  // unpainted — it is the "about to tip either way" zone.
   function roasCellClass(roas) {
     if (!(roas > 0)) return 'roas-none';
-    if (roas >= 5) return 'roas-high';
-    if (roas >= 4) return 'roas-good';
-    if (roas >= 3) return 'roas-fair';
-    return 'roas-low';
+    if (roas >= 3) return 'roas-high';
+    if (roas <= 2.9) return 'roas-low';
+    return 'roas-mid';
   }
 
   // Build daily ROAS rows + totals for one page ('all' = every page combined).
@@ -8244,7 +8248,7 @@ function renderAdspendRoas() {
             <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(tot.spend)}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.orders > 0 && tot.spend > 0 ? fmt(tot.cpp) : '—'}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.rtsBase > 0 ? tot.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
+            <td class="${roasCellClass(tot.roas)}" style="padding:10px 14px;text-align:center;font-size:13px;">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
           </tr>
         </tfoot>
       </table>
@@ -8444,7 +8448,7 @@ function renderAdspendRoas() {
             <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.amount)}</td>
             <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.spend)}</td>
             ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:12px;">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
-            <td style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
+            <td class="${roasCellClass(t.roas)}" style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
           </tr>
           <tr style="background:rgba(16,185,129,0.10);font-weight:700;">
             <td style="padding:8px;text-align:center;font-size:12px;">Average</td>
@@ -8452,7 +8456,7 @@ function renderAdspendRoas() {
             <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.amount / days)}</td>
             <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.spend / days)}</td>
             ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:12px;">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
-            <td style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
+            <td class="${roasCellClass(t.roas)}" style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
           </tr>
         </tfoot>
       </table>
@@ -8631,6 +8635,71 @@ function renderAdspendRoas() {
 
   <div id="adspend-tab-adsets" style="display:${adspendActiveTab==='adsets'?'block':'none'};">
     ${renderAdspendAdsCardShell(totalAmount)}
+  </div>`;
+}
+
+// ─── ORDER PAGES ───────────────────────────────────────────
+// Every chat page that has carried an order, read straight off pos_orders:
+// what the page is called, the shop it posts under, and how many orders it
+// holds. The counting happens in SQL — this only draws the answer.
+let orderPagesState = { rows: [], loaded: false, error: '' };
+
+async function loadOrderPages() {
+  if (!hasActiveSession()) {
+    orderPagesState.error = 'Sign in to load the page list.';
+    orderPagesState.loaded = true;
+    return;
+  }
+  try {
+    const result = await authorizedJsonRequest('/orders/pos-orders/pages');
+    orderPagesState.rows = Array.isArray(result?.pages) ? result.pages : [];
+    orderPagesState.error = '';
+  } catch (error) {
+    orderPagesState.error = error.message || 'Could not load the page list.';
+  }
+  orderPagesState.loaded = true;
+}
+
+function renderOrderPages() {
+  const rows = orderPagesState.rows;
+  const totalOrders = rows.reduce((sum, row) => sum + Number(row.orders || 0), 0);
+  const num = (v) => Number(v || 0).toLocaleString('en-PH');
+  const th = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);';
+  const note = (text) => `<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">${escapeHtml(text)}</td></tr>`;
+  const body = !orderPagesState.loaded
+    ? note('Loading pages…')
+    : orderPagesState.error
+      ? note(orderPagesState.error)
+      : !rows.length
+        ? note('No orders have been synced yet, so there are no pages to list.')
+        : rows.map((row) => `<tr>
+            <td><strong>${escapeHtml(row.name || '')}</strong></td>
+            <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-secondary);">${row.shop_id ? escapeHtml(row.shop_id) : '<span style="color:var(--text-muted);">—</span>'}</td>
+            <td style="text-align:right;font-weight:600;">${num(row.orders)}</td>
+          </tr>`).join('');
+
+  return `
+  <div class="page-header">
+    <div class="page-title"><h1>Pages</h1><p>Every chat page carrying orders, with the shop it posts under.</p></div>
+  </div>
+
+  <div class="card erp-card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Order Pages</div>
+        <div class="card-subtitle">${rows.length} page${rows.length === 1 ? '' : 's'} · ${num(totalOrders)} order${totalOrders === 1 ? '' : 's'}</div>
+      </div>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead><tr style="background:var(--surface-2);">
+          <th style="${th}">Page</th>
+          <th style="${th}">Shop ID</th>
+          <th style="${th}text-align:right;">Orders</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
   </div>`;
 }
 
@@ -16250,6 +16319,14 @@ function initPage(page) {
       ? migrateLocalMarketingEntriesIfNeeded().then(refreshMarketingCenterEntries)
       : refreshMarketingCenterEntries();
     entriesPromise.catch(() => {});
+  }
+
+  if (page === 'pages') {
+    // First paint shows the loading row; the answer lands here.
+    loadOrderPages().then(() => {
+      if (App.currentPage !== 'pages') return;
+      document.getElementById('main-page-content').innerHTML = renderOrderPages();
+    }).catch(() => {});
   }
 
   if (page === 'adspend-roas') {
