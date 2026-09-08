@@ -1637,7 +1637,11 @@ function getMarketingState() {
       ...saved,
       targets: { ...fallback.targets, ...(saved.targets || {}) },
       pages: Array.isArray(saved.pages) && saved.pages.length ? saved.pages : fallback.pages,
-      team: Array.isArray(saved.team) && saved.team.length ? saved.team : fallback.team,
+      // An empty saved roster is a roster someone emptied on purpose, not a
+      // missing one — treating [] as "nothing saved" put the seed members back
+      // every time the last one was deleted. Only fall back when the key has
+      // never been written.
+      team: Array.isArray(saved.team) ? saved.team : fallback.team,
       entries: Array.isArray(DB.marketingEntries) ? DB.marketingEntries : [],
       creatives: Array.isArray(saved.creatives) ? saved.creatives : [],
       standups: Array.isArray(saved.standups) ? saved.standups : [],
@@ -9918,6 +9922,7 @@ function renderMarketingCenter() {
     }
     return { ...member, pages: memberPages, ...agg };
   });
+  const teamTh = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);';
 
   return `
   <div class="erp-command-center">
@@ -10271,23 +10276,36 @@ function renderMarketingCenter() {
       </div>` : ''}
       <div class="card erp-card">
         <div class="card-header"><div><div class="card-title">Team Performance</div><div class="card-subtitle">Date-range totals by owner.</div></div></div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px;">
-          ${ownerTotals.map((member, index) => `<div class="erp-member-card" style="position:relative;">
-            ${marketingManager ? `<div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;">
-              <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;" onclick="editMarketingTeamMember(${index})">Edit</button>
-              <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:var(--danger);" onclick="deleteMarketingTeamMember(${index})">×</button>
-            </div>` : ''}
-            <div class="stat-label" style="padding-right:${marketingManager ? '64px' : '0'}">${escapeHtml(member.role)}</div>
-            <div class="stat-value" style="font-size:18px;overflow-wrap:break-word;">${escapeHtml(member.name)}</div>
-            ${member.pages && member.pages.length ? `<div style="font-size:11px;color:var(--accent);font-weight:600;margin:4px 0;overflow-wrap:break-word;">📍 ${member.pages.map(p => escapeHtml(p)).join(', ')}</div>` : ''}
-            <div class="stat-meta" style="overflow-wrap:break-word;">${escapeHtml(member.primary)}</div>
-            <div style="margin-top:12px; display:grid; gap:4px; font-size:12px;">
-              <div style="display:flex;justify-content:space-between;"><span>Sales</span><strong>${marketingMoney(member.sales)}</strong></div>
-              <div style="display:flex;justify-content:space-between;"><span>Spend</span><strong>${marketingMoney(member.spend)}</strong></div>
-              <div style="display:flex;justify-content:space-between;"><span>ROAS</span><strong>${marketingRoas(member.roas)}</strong></div>
-              <div style="display:flex;justify-content:space-between;"><span>Orders</span><strong>${member.orders}</strong></div>
-            </div>
-          </div>`).join('')}
+        <div class="table-container">
+          <table>
+            <thead><tr style="background:var(--surface-2);">
+              <th style="${teamTh}">Member</th>
+              <th style="${teamTh}">Role</th>
+              <th style="${teamTh}">Pages</th>
+              <th style="${teamTh}text-align:right;">Sales</th>
+              <th style="${teamTh}text-align:right;">Spend</th>
+              <th style="${teamTh}text-align:right;">ROAS</th>
+              <th style="${teamTh}text-align:right;">Orders</th>
+              ${marketingManager ? `<th style="${teamTh}"></th>` : ''}
+            </tr></thead>
+            <tbody>
+              ${ownerTotals.length ? ownerTotals.map((member, index) => `<tr>
+                <td><strong>${escapeHtml(member.name)}</strong>${member.primary ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(member.primary)}</div>` : ''}</td>
+                <td>${member.role ? escapeHtml(member.role) : '<span style="color:var(--text-muted);">—</span>'}</td>
+                <td style="max-width:260px;">${member.pages && member.pages.length
+                  ? `<span style="font-size:12px;color:var(--accent);font-weight:600;overflow-wrap:break-word;">${member.pages.map((p) => escapeHtml(p)).join(', ')}</span>`
+                  : '<span style="color:var(--text-muted);">—</span>'}</td>
+                <td style="text-align:right;">${marketingMoney(member.sales)}</td>
+                <td style="text-align:right;">${marketingMoney(member.spend)}</td>
+                <td style="text-align:right;font-weight:600;">${marketingRoas(member.roas)}</td>
+                <td style="text-align:right;">${member.orders}</td>
+                ${marketingManager ? `<td style="white-space:nowrap;">
+                  <button class="btn btn-ghost btn-sm" onclick="editMarketingTeamMember(${index})">Edit</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteMarketingTeamMember(${index})">×</button>
+                </td>` : ''}
+              </tr>`).join('') : `<tr><td colspan="${marketingManager ? 8 : 7}" style="text-align:center;padding:32px;color:var(--text-muted);">No team members yet.${marketingManager ? ' Add one on the left.' : ''}</td></tr>`}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
