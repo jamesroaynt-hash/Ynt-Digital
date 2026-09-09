@@ -897,11 +897,27 @@ function ordersRoutes(db, { dispatch } = {}) {
        GROUP BY 1, 2, 3
        ORDER BY COUNT(*) DESC
     `).all(...vis.params);
+
+    // Owner is the one already recorded against the POS connection in API
+    // Connections — the shop is what a connection is keyed by, so read it off
+    // integration_settings.page_id rather than inventing a second store.
+    const ownerRows = await db.prepare(`
+      SELECT COALESCE(NULLIF(page_id, ''), '') AS shop_id, owner
+        FROM integration_settings
+       WHERE provider = 'pancake_pos' AND connection_id != ''
+    `).all();
+    const ownerByShop = new Map();
+    ownerRows.forEach((row) => {
+      const owner = String(row.owner || '').trim();
+      if (row.shop_id && owner) ownerByShop.set(String(row.shop_id), owner);
+    });
+
     res.json({
       pages: rows.map((row) => ({
         name: posPageLabel(row),
         page_id: row.page_id || '',
         shop_id: row.shop_id || '',
+        owner: ownerByShop.get(String(row.shop_id || '')) || '',
         orders: Number(row.orders || 0),
       })),
     });

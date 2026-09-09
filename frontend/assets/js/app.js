@@ -8741,8 +8741,10 @@ function renderOrderPages() {
   const rows = orderPagesState.rows;
   const totalOrders = rows.reduce((sum, row) => sum + Number(row.orders || 0), 0);
   const num = (v) => Number(v || 0).toLocaleString('en-PH');
-  const th = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);';
-  const note = (text) => `<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">${escapeHtml(text)}</td></tr>`;
+  const th = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;';
+  const td = 'padding:10px 12px;text-align:center;';
+  const dash = '<span style="color:var(--text-muted);">—</span>';
+  const note = (text) => `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">${escapeHtml(text)}</td></tr>`;
   const body = !orderPagesState.loaded
     ? note('Loading pages…')
     : orderPagesState.error
@@ -8750,18 +8752,22 @@ function renderOrderPages() {
       : !rows.length
         ? note('No orders have been synced yet, so there are no pages to list.')
         : rows.map((row) => `<tr>
-            <td><strong>${escapeHtml(row.name || '')}</strong></td>
-            <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-secondary);">${row.shop_id ? escapeHtml(row.shop_id) : '<span style="color:var(--text-muted);">—</span>'}</td>
-            <td style="text-align:right;font-weight:600;">${num(row.orders)}</td>
+            <td style="${td}"><strong>${escapeHtml(row.name || '')}</strong></td>
+            <td style="${td}">${row.owner ? escapeHtml(row.owner) : dash}</td>
+            <td style="${td}font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-secondary);">${row.shop_id ? escapeHtml(row.shop_id) : dash}</td>
+            <td style="${td}font-weight:600;">${num(row.orders)}</td>
           </tr>`).join('');
 
+  // A four-column list does not need the full page width, so the card sits at a
+  // medium width in the middle of the page with every column centred under its
+  // heading.
   return `
   <div class="page-header">
-    <div class="page-title"><h1>Pages</h1><p>Every chat page carrying orders, with the shop it posts under.</p></div>
+    <div class="page-title"><h1>Pages</h1><p>Every chat page carrying orders, with its owner and the shop it posts under.</p></div>
   </div>
 
-  <div class="card erp-card">
-    <div class="card-header">
+  <div class="card erp-card" style="max-width:820px;margin:0 auto;">
+    <div class="card-header" style="justify-content:center;text-align:center;">
       <div>
         <div class="card-title">Order Pages</div>
         <div class="card-subtitle">${rows.length} page${rows.length === 1 ? '' : 's'} · ${num(totalOrders)} order${totalOrders === 1 ? '' : 's'}</div>
@@ -8771,8 +8777,9 @@ function renderOrderPages() {
       <table>
         <thead><tr style="background:var(--surface-2);">
           <th style="${th}">Page</th>
+          <th style="${th}">Owner</th>
           <th style="${th}">Shop ID</th>
-          <th style="${th}text-align:right;">Orders</th>
+          <th style="${th}">Orders</th>
         </tr></thead>
         <tbody>${body}</tbody>
       </table>
