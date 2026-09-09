@@ -8079,11 +8079,13 @@ async function loadAdspendAdsSummary({ force = false } = {}) {
 // time, so the month is named and the year left to the range readout above the
 // cards. Built from a local Date rather than parsing the ISO string, which
 // would land the row a day early east of UTC.
-function gridDateLabel(iso) {
-  const parts = /^(d{4})-(d{2})-(d{2})$/.exec(String(iso || ''));
+function gridDateLabel(iso, withYear) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
   if (!parts) return String(iso || '');
   return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
-    .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    .toLocaleDateString('en-US', withYear
+      ? { month: 'short', day: 'numeric', year: 'numeric' }
+      : { month: 'short', day: 'numeric' });
 }
 
 // Per-page header colour on the All Pages cards. Each page keeps its own,
@@ -8294,7 +8296,7 @@ function renderAdspendRoas() {
         </thead>
         <tbody>
           ${displayRows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
-            <td style="padding:10px 14px;text-align:center;font-weight:500;font-size:13px;">${row.date}</td>
+            <td style="padding:10px 14px;text-align:center;font-weight:500;font-size:13px;white-space:nowrap;" title="${row.date}">${gridDateLabel(row.date, true)}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;">${row.orders.toLocaleString()}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
             <td style="padding:10px 14px;text-align:center;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
