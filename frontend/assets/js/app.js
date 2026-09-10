@@ -20514,7 +20514,6 @@ function renderRmoDetailPanel() {
 }
 
 function renderRmoOrderCard(order) {
-  const dash = '<span class="rmo-muted">—</span>';
   const rider = getRmoRider(order);
   const reason = getRmoReasonDisplay(order);
   const history = rmoCustomerHistory(order);
@@ -20537,21 +20536,18 @@ function renderRmoOrderCard(order) {
   return `
     <div class="rmo-card-head">
       <div>
-        <div class="rmo-card-name">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
-        <div class="rmo-card-sub">Order ${escapeHtml(order.external_id || '')}${order.page_name ? ` · ${escapeHtml(order.page_name)}` : ''}</div>
+        <div class="rmo-card-name">Order ${escapeHtml(order.external_id || '')}</div>
+        <div class="rmo-card-sub">${escapeHtml(order.page_name || 'No page')}${Number(order.cod || 0)
+          ? ` · <span class="rmo-card-cod">&#8369;${Number(order.cod).toLocaleString()}</span>` : ''}</div>
       </div>
       <button class="modal-close" type="button" onclick="closeRmoDetailPanel()" title="Close">&times;</button>
-    </div>
-
-    <div class="rmo-card-status">
-      <span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
-      <span class="rmo-card-cod">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</span>
     </div>
     ${reason ? `<div class="rmo-card-reason"><span class="rmo-reason-text">${escapeHtml(reason)}</span>${rmoStuckChip(order)}</div>` : ''}
 
     <div class="rmo-card-section">
       <div class="rmo-card-section-title">Customer</div>
       <div class="rmo-card-grid">
+        ${rmoDetailField('Name', escapeHtml(order.customer_name || ''), { wide: true })}
         ${rmoDetailField('Phone', copyable(order.customer_phone, 'Phone number'))}
         ${rmoDetailField('Province', escapeHtml(order.province || ''))}
         ${rmoDetailField('Address', escapeHtml(order.address || order.full_address || ''), { wide: true })}
@@ -20587,9 +20583,12 @@ function renderRmoOrderCard(order) {
       </div>
     </div>
 
+    <!-- Status leads the tag line: both say where the order stands, and read
+         together they save the card a row of its own. -->
     <div class="rmo-card-section">
-      <div class="rmo-card-section-title">Tags</div>
+      <div class="rmo-card-section-title">Status &amp; tags</div>
       <div class="rmo-tag-line">
+        <span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
         ${tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('') || '<span class="rmo-muted">No tag</span>'}
         <button class="rmo-tag-edit" type="button" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button>
       </div>

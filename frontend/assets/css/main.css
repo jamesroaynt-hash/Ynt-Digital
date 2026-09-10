@@ -3773,7 +3773,7 @@ tfoot td {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  padding: 16px;
+  padding: 14px;
   position: sticky;
   /* Clears the topbar, which is itself sticky at top:0. */
   top: calc(var(--navbar-h) + 16px);
@@ -3797,30 +3797,19 @@ tfoot td {
 .rmo-card-empty h4 { margin: 4px 0 0; font-size: 13.5px; color: var(--text-secondary); }
 .rmo-card-empty p { margin: 0; font-size: 12px; line-height: 1.45; max-width: 220px; }
 
-/* Whose order this is stays put while the rest of the card scrolls past with
-   the page — a card long enough to scroll would otherwise lose its own name,
-   leaving a column of fields belonging to nobody. top:0 is the top of the
-   card's own scrollport, not the page, so it needs no topbar offset. The
-   negative margins pull it out to the card's edges so it covers the padding it
-   is pinned over, and the close button rides along with it. */
+/* Scrolls with the rest of the card. Pinned, it sat over the fields passing
+   underneath it, which read as a rendering fault rather than a header. */
 .rmo-card-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin: -16px -16px 12px;
-  padding: 16px 16px 10px;
-  border-bottom: 1px solid var(--border);
-  border-radius: var(--radius) var(--radius) 0 0;
-  background: var(--surface);
+  margin-bottom: 10px;
 }
 
 .rmo-card-name {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 700;
   line-height: 1.3;
 }
@@ -3828,7 +3817,14 @@ tfoot td {
 .rmo-card-sub {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
+}
+
+/* The COD rides in the sub-line now, so it needs the weight the sub-line does
+   not have — it is the figure the desk reads before it dials. */
+.rmo-card-sub .rmo-card-cod {
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .rmo-card-status {
@@ -3846,22 +3842,22 @@ tfoot td {
 }
 
 .rmo-card-reason {
-  margin-bottom: 12px;
-  padding: 8px 10px;
+  margin-bottom: 10px;
+  padding: 7px 9px;
   border-radius: 6px;
   background: var(--danger-soft);
 }
 
 .rmo-card-section {
-  padding-top: 12px;
-  margin-top: 12px;
+  padding-top: 9px;
+  margin-top: 9px;
   border-top: 1px solid var(--border);
 }
 
 .rmo-card-section-title {
-  margin-bottom: 10px;
+  margin-bottom: 7px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.7px;
   text-transform: uppercase;
@@ -3872,16 +3868,16 @@ tfoot td {
 .rmo-card-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px 12px;
+  gap: 7px 10px;
 }
 
 .rmo-card-field.wide { grid-column: 1 / -1; }
 
 .rmo-card-label {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 1px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -3890,19 +3886,19 @@ tfoot td {
 .rmo-card-value {
   display: block;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.35;
   overflow-wrap: break-word;
 }
 
-.rmo-card-history { margin-top: 12px; }
+.rmo-card-history { margin-top: 8px; }
 .rmo-card-history .cust-hist-stack { margin-top: 0; }
 
 .rmo-card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .rmo-card-actions .btn { flex: 1; }
@@ -3916,7 +3912,7 @@ tfoot td {
 }
 
 .rmo-card-notes .rmo-note {
-  padding: 8px 10px;
+  padding: 7px 9px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-2);
@@ -3926,23 +3922,23 @@ tfoot td {
 
 .rmo-note-text {
   color: var(--text-primary);
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
 
 .rmo-note-meta {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .rmo-note-error { color: var(--danger); font-size: 12px; }
 
 .rmo-note-input {
-  min-height: 58px;
-  font-size: 12.5px;
+  min-height: 52px;
+  font-size: 12px;
   resize: vertical;
 }
 
