@@ -13712,8 +13712,8 @@ function renderRmoManagement() {
   const undeliverable = getRmoUndeliverableCount();
   const posStatusDisplayOptions = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const dateLabel = new Date().toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
-  // The failure tabs trade Confirmed By for Reason, which needs more room than a
-  // staff name — Product gives up the difference.
+  // The failure tabs are the only ones with a reason to filter by — it rides
+  // under the status badge in the table, but the desk filters on it up here.
   const showsReasonColumn = rmoTab === 'undeliverable' || rmoTab === 'returning';
 
   return `
@@ -13817,7 +13817,7 @@ function renderRmoManagement() {
 
       <div class="rmo-table-scroll">
         <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
-          <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:16%">Customer Name</th><th style="width:12%">Phone Number</th><th style="width:11%">Province</th><th style="width:${showsReasonColumn ? '17%' : '21%'}">Product</th><th style="width:8%">COD</th><th style="width:10%">Status</th><th style="width:${showsReasonColumn ? '16%' : '12%'}">${showsReasonColumn ? 'Reason' : 'Confirmed By'}</th><th style="width:10%">Message</th></tr></thead>
+          <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:18%">Customer</th><th style="width:22%">Product</th><th style="width:10%">Province</th><th style="width:9%">COD</th><th style="width:13%">Status</th><th style="width:12%">Date</th><th style="width:${rmoTab === 'orders' ? '11%' : '15%'}">Message</th></tr></thead>
           <tbody id="rec-pos-orders-tbody">
             <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
           </tbody>
@@ -20283,7 +20283,7 @@ function renderAssigneeSelect(order) {
 // Summary row up top, delivery detail hidden underneath. Which rows are open is
 // kept by order key rather than in the DOM, so a repaint (sync, filter, poll)
 // doesn't snap everything shut under whoever was reading it.
-const RMO_TABLE_COLSPAN = 9;
+const RMO_TABLE_COLSPAN = 8;
 const rmoExpandedRows = new Set();
 
 // The customer name, phone and tracking cells copy on click, so those — and any
@@ -20462,28 +20462,31 @@ function renderPosOrdersTable() {
       // rider under customer, rider phone under phone, and so on. Page and Last
       // Update aren't in the seven either, but the tabs filter by them, so they
       // ride along rather than disappearing.
-      const dateFields = [['Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash]];
-      if (rmoTab === 'delivering') dateFields.push(['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]);
-      // On the two failure tabs the reason is what the desk is reading for, so
-      // it takes the summary column and Confirmed By drops in underneath it.
-      const courierFields = [['Courier', escapeHtml(getRmoCourier(order)) || dash]];
-      if (showsReason) courierFields.push(['Confirmed By', escapeHtml(order.assigning_seller_name || '') || dash]);
-      // Sits in the detail row's first cell, under the order number and ahead of
-      // Page, so the expanded row opens with who this customer has been. Prefers
-      // anything already fetched from the POS over the counts the row came with.
+      // The summary row pairs each column with the field that belongs to it —
+      // phone under the customer, page under the product, attempts under the
+      // date — so eight columns carry what thirteen used to, and the detail row
+      // is left holding only the delivery side.
+      const attempts = Number(order.attempts || 0);
+      const statusSub = showsReason
+        ? `${reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash}${rmoTab === 'undeliverable' ? rmoStuckChip(order) : ''}`
+        : dash;
+      const orderedAt = escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash;
+      // Sits in the detail row's first cell, under the order number, so the
+      // expanded row opens with who this customer has been. Prefers anything
+      // already fetched from the POS over the counts the row came with.
       const historyBlock = customerHistoryCell(rmoCustomerHistory(order));
+      const statusDetail = rmoTab === 'delivering'
+        ? [['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]]
+        : [];
       const detailColumns = [
-        [['Page', escapeHtml(order.page_name || '') || dash]],
         [['Rider Assign', escapeHtml(rider.name || '') || dash]],
         [['Rider Phone', escapeHtml(rider.tel || '') || dash]],
         [['Tracking', order.tracking_no
           ? `<span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>`
           : dash]],
-        dateFields,
-        [['Attempts', Number(order.attempts || 0) > 1
-          ? `<span class="rmo-attempt">${Number(order.attempts || 0)}</span>`
-          : (Number(order.attempts || 0) || dash)]],
-        courierFields,
+        [['Courier', escapeHtml(getRmoCourier(order)) || dash]],
+        [['Confirmed By', escapeHtml(order.assigning_seller_name || '') || dash]],
+        statusDetail,
         // Tags last: the edit button makes this the one interactive field.
         [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
       ];
@@ -20496,15 +20499,26 @@ function renderPosOrdersTable() {
             <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
           </span>
         </td>
-        <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div></td>
-        <td><div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div></td>
+        <td>
+          <div class="rmo-item-main rmo-copy" data-copy="${escapeHtml(order.customer_name || '')}" data-copy-label="Customer name" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
+          <div class="rmo-item-sub rmo-copy" data-copy="${escapeHtml(order.customer_phone || '')}" data-copy-label="Phone number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.customer_phone || 'No phone')}</div>
+        </td>
+        <td>
+          <div class="rmo-item-main">${escapeHtml(product)}</div>
+          <div class="rmo-item-sub">${escapeHtml(order.page_name || '') || dash}</div>
+        </td>
         <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
-        <td><div class="rmo-item-main">${escapeHtml(product)}</div></td>
         <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
-        <td><span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span></td>
-        <td>${showsReason
-          ? `${reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash}${rmoTab === 'undeliverable' ? rmoStuckChip(order) : ''}`
-          : (escapeHtml(order.assigning_seller_name || '') || dash)}</td>
+        <td>
+          <span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
+          <div class="rmo-item-sub">${statusSub}</div>
+        </td>
+        <td>
+          <div class="rmo-item-main">${orderedAt}</div>
+          <div class="rmo-item-sub">${attempts > 1
+            ? `<span class="rmo-attempt">${attempts}</span> attempts`
+            : `${attempts} attempt(s)`}</div>
+        </td>
         <td>
           <div class="rmo-msg-actions">
             ${order.can_message

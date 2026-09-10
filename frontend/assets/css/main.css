@@ -3606,7 +3606,7 @@ tfoot td {
    layout sized them from whatever the page's longest value happened to be,
    which left the headers unevenly spaced and moved them between pages. */
 .rmo-table {
-  min-width: 1200px;
+  min-width: 1080px;
   table-layout: fixed;
   background: var(--surface);
 }
@@ -3616,24 +3616,30 @@ tfoot td {
   overflow-wrap: break-word;
 }
 
-/* Every column centred, header and body alike, so each one reads as a single
-   line down the table. The flex-based cells have to be told separately —
-   text-align does nothing to a flex container's own children. */
+/* Every column ranged left, header and body alike. The cells now stack a main
+   value over a secondary one — phone under the customer, page under the
+   product — and a centred stack has no edge to run the eye down, so each pair
+   lines up on the same left margin as its header. */
 .rmo-table thead th,
 .rmo-table tbody td {
-  text-align: center;
-}
-
-/* Order # and the customer name stay left: they are what the eye runs down
-   when looking for a row, and centring makes ragged names hard to scan. */
-.rmo-table thead th:nth-child(-n+2),
-.rmo-table tbody td:nth-child(-n+2) {
   text-align: left;
 }
 
 .rmo-msg-actions,
 .rmo-tag-line {
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+/* The second line of a stacked cell. Sits tight under its main value so the
+   pair reads as one field rather than two rows. */
+.rmo-table tbody td > .rmo-item-sub {
+  margin-top: 3px;
+}
+
+/* Status is a badge with its own line under it — the reason on the failure
+   tabs, an em dash everywhere else — so the badge needs to start a block. */
+.rmo-table tbody td > .rmo-status {
+  margin-bottom: 1px;
 }
 
 /* Checkboxes stay out of the table until Select is switched on — bulk sending
@@ -3672,6 +3678,9 @@ tfoot td {
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.6px;
+  /* Uppercase, matching the detail row's own labels: the header is now the
+     label for a stacked pair, not a one-word column name. */
+  text-transform: uppercase;
   padding: 12px 16px;
 }
 
