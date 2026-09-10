@@ -13979,7 +13979,7 @@ function renderRmoManagement() {
       <div class="rmo-table-split">
         <div class="rmo-table-scroll">
           <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
-            <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:18%">Customer</th><th style="width:22%">Product</th><th style="width:10%">Province</th><th style="width:9%">COD</th><th style="width:13%">Status</th><th style="width:12%">Date</th><th style="width:${rmoTab === 'orders' ? '11%' : '15%'}">Message</th></tr></thead>
+            <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:20%">Customer</th><th style="width:26%">Product</th><th style="width:12%">Province</th><th style="width:10%">COD</th><th style="width:16%">Status</th><th style="width:14%">Date</th></tr></thead>
             <tbody id="rec-pos-orders-tbody">
               <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
             </tbody>
@@ -20470,8 +20470,12 @@ function renderAssigneeSelect(order) {
 // Clicking a row opens its card beside the table. Which order is open is kept
 // by key rather than in the DOM, so a repaint (sync, filter, poll) leaves the
 // card standing on whatever the desk was reading.
-const RMO_TABLE_COLSPAN = 8;
-let rmoSelectedKey = '';
+const RMO_TABLE_COLSPAN = 7;
+// Up to two orders open at once, left to right, so a desk chasing one delivery
+// can hold a second beside it — the same customer's other parcel, or the order
+// they are comparing a rider or an address against.
+let rmoOpenKeys = [];
+const RMO_MAX_OPEN_CARDS = 2;
 
 // The customer name, phone and tracking cells copy on click, so those — and any
 // real control — keep their own behaviour; clicking anywhere else on the row
@@ -20480,24 +20484,38 @@ function toggleRmoRowDetails(event, row) {
   if (!row) return;
   if (event.target.closest('input, button, select, a, label, .rmo-copy')) return;
   const key = row.dataset.key || '';
-  // Clicking the open row again closes the card, the way the collapse did.
-  rmoSelectedKey = rmoSelectedKey === key ? '' : key;
+  const at = rmoOpenKeys.indexOf(key);
+  if (at >= 0) {
+    // Clicking an open row again closes its card, the way the collapse did.
+    rmoOpenKeys.splice(at, 1);
+  } else {
+    rmoOpenKeys.push(key);
+    // Opening a third drops the oldest, so what is on screen is always the two
+    // most recently opened rather than refusing the click.
+    if (rmoOpenKeys.length > RMO_MAX_OPEN_CARDS) rmoOpenKeys.shift();
+    loadRmoCustomerStats(row);
+  }
   markRmoSelectedRow();
   renderRmoDetailPanel();
-  if (rmoSelectedKey) loadRmoCustomerStats(row);
+}
+
+function closeRmoDetailCard(key) {
+  rmoOpenKeys = rmoOpenKeys.filter((open) => open !== key);
+  markRmoSelectedRow();
+  renderRmoDetailPanel();
 }
 
 function closeRmoDetailPanel() {
-  rmoSelectedKey = '';
+  rmoOpenKeys = [];
   markRmoSelectedRow();
   renderRmoDetailPanel();
 }
 
-// Only the highlight moves, so selecting a row never repaints the table under
+// Only the highlight moves, so opening a card never repaints the table under
 // the pointer.
 function markRmoSelectedRow() {
   document.querySelectorAll('#rec-pos-orders-tbody tr.rmo-row').forEach((tr) => {
-    tr.classList.toggle('rmo-row-selected', !!rmoSelectedKey && tr.dataset.key === rmoSelectedKey);
+    tr.classList.toggle('rmo-row-selected', rmoOpenKeys.includes(tr.dataset.key));
   });
 }
 
@@ -20522,7 +20540,7 @@ async function loadRmoCustomerStats(row) {
     if (!stats || (!stats.delivered && !stats.returned)) return;
     DB.posCustomerStats[key] = stats;
     // The card may have been closed or moved on while this was in flight.
-    if (rmoSelectedKey === row.dataset.key) renderRmoDetailPanel();
+    if (rmoOpenKeys.includes(row.dataset.key)) renderRmoDetailPanel();
   } catch {
     // Leave the counts the row came with — the POS being unreachable is not
     // worth blanking a card the desk is reading.
@@ -20559,10 +20577,10 @@ function posDisplayStatus(order) {
 }
 
 /* ─── THE ORDER CARD ────────────────────────────────────────
-   Everything the summary row does not show, for the one order that is open:
-   who the customer is and how they have paid up until now, then the order, then
-   the delivery. Sits beside the table rather than inside it, so opening an
-   order moves nothing else on the page. */
+   Everything the summary row does not show, for each open order: who the
+   customer is and how they have paid up until now, then the order, then the
+   delivery. Sits beside the table rather than inside it, so opening an order
+   moves nothing else on the page — and two can stand side by side. */
 function rmoDetailField(label, value, { wide = false } = {}) {
   return `<div class="rmo-card-field${wide ? ' wide' : ''}">
     <span class="rmo-card-label">${escapeHtml(label)}</span>
@@ -20570,24 +20588,31 @@ function rmoDetailField(label, value, { wide = false } = {}) {
   </div>`;
 }
 
+function rmoOrderByKey(key) {
+  return (DB.posRawOrders || []).find((o) => `${o.shop_id || ''}::${o.external_id || ''}` === key) || null;
+}
+
 function renderRmoDetailPanel() {
   const panel = document.getElementById('rmo-detail-panel');
   if (!panel) return;
-  const order = rmoSelectedKey
-    ? (DB.posRawOrders || []).find((o) => `${o.shop_id || ''}::${o.external_id || ''}` === rmoSelectedKey)
-    : null;
+  // A key whose order has left the table (filtered out, or gone on a sync) is
+  // dropped rather than leaving a blank card behind.
+  const open = rmoOpenKeys.map((key) => ({ key, order: rmoOrderByKey(key) })).filter((entry) => entry.order);
 
-  if (!order) {
+  if (!open.length) {
     panel.classList.remove('open');
-    panel.innerHTML = `<div class="rmo-card-empty">
+    panel.innerHTML = `<div class="rmo-detail-card"><div class="rmo-card-empty">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M2 6.5h12M5.5 9.5h5"/></svg>
       <h4>No order open</h4>
-      <p>Click any row to see the customer, the order and the delivery.</p>
-    </div>`;
+      <p>Click any row to see the customer, the order and the delivery. Click a second row to hold two side by side.</p>
+    </div></div>`;
     return;
   }
   panel.classList.add('open');
+  panel.innerHTML = open.map(({ key, order }) => renderRmoOrderCard(order, key)).join('');
+}
 
+function renderRmoOrderCard(order, key) {
   const dash = '<span class="rmo-muted">—</span>';
   const rider = getRmoRider(order);
   const reason = getRmoReasonDisplay(order);
@@ -20608,13 +20633,14 @@ function renderRmoDetailPanel() {
     : '');
   const canSend = !!order.can_message || (rmoSendCanUseSms() && !!(order.customer_phone || rider.tel));
 
-  panel.innerHTML = `
+  return `
+    <div class="rmo-detail-card">
     <div class="rmo-card-head">
       <div>
         <div class="rmo-card-name">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
         <div class="rmo-card-sub">Order ${escapeHtml(order.external_id || '')}${order.page_name ? ` · ${escapeHtml(order.page_name)}` : ''}</div>
       </div>
-      <button class="modal-close" type="button" onclick="closeRmoDetailPanel()" title="Close">&times;</button>
+      <button class="modal-close" type="button" onclick="closeRmoDetailCard('${escapeHtml(key)}')" title="Close this order">&times;</button>
     </div>
 
     <div class="rmo-card-status">
@@ -20675,6 +20701,7 @@ function renderRmoDetailPanel() {
       <button class="btn btn-secondary btn-sm" type="button" data-phone="${escapeHtml(order.customer_phone || '')}"
         data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)"
         ${order.customer_phone ? '' : 'disabled'}>&#128221; Notes</button>
+    </div>
     </div>`;
 }
 
@@ -20769,7 +20796,7 @@ function renderPosOrdersTable() {
         ? `${reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash}${rmoTab === 'undeliverable' ? rmoStuckChip(order) : ''}`
         : dash;
       const orderedAt = escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash;
-      return `<tr class="rmo-row${rmoSelectedKey === rowKey ? ' rmo-row-selected' : ''}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to open this order" onclick="toggleRmoRowDetails(event, this)">
+      return `<tr class="rmo-row${rmoOpenKeys.includes(rowKey) ? ' rmo-row-selected' : ''}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to open this order" onclick="toggleRmoRowDetails(event, this)">
         <td>
           <span class="rmo-check-cell">
             ${canSendRmoMessage
@@ -20797,16 +20824,6 @@ function renderPosOrdersTable() {
           <div class="rmo-item-sub">${attempts > 1
             ? `<span class="rmo-attempt">${attempts}</span> attempts`
             : `${attempts} attempt(s)`}</div>
-        </td>
-        <td>
-          <div class="rmo-msg-actions">
-            ${canSendRmoMessage
-              ? `<button class="rmo-msg-btn" onclick="openRmoSendModal('single','${msgId}','${msgShop}')" title="Text the rider or the customer${order.can_message ? ', or send a Messenger broadcast' : ''}">✉ Send</button>`
-              : '<span class="rmo-muted">—</span>'}
-            ${rmoTab !== 'orders'
-              ? `<button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button>`
-              : ''}
-          </div>
         </td>
       </tr>`;
     }
