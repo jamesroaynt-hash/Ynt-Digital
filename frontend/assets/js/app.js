@@ -1361,70 +1361,6 @@ async function saveOrderTags() {
   }
 }
 
-// ─── Customer notes (per-phone, append-only history) ──────────
-let customerNotesPhone = '';
-
-async function openCustomerNotesModal(btn) {
-  customerNotesPhone = btn?.dataset?.phone || '';
-  const name = btn?.dataset?.name || '';
-  if (!customerNotesPhone) { showToast('warning', 'No phone', 'This order has no customer phone to attach notes to.'); return; }
-  const recap = document.getElementById('customer-notes-recap');
-  if (recap) recap.innerHTML = `Notes for <strong>${escapeHtml(name || 'customer')}</strong> · ${escapeHtml(customerNotesPhone)}`;
-  const err = document.getElementById('customer-notes-error');
-  if (err) err.textContent = '';
-  const input = document.getElementById('customer-note-input');
-  if (input) input.value = '';
-  openModal('customer-notes-modal');
-  await loadCustomerNotes();
-}
-
-async function loadCustomerNotes() {
-  const thread = document.getElementById('customer-notes-thread');
-  if (thread) thread.innerHTML = 'Loading…';
-  try {
-    const data = await authorizedJsonRequest(`/orders/customer-notes?phone=${encodeURIComponent(customerNotesPhone)}&_=${Date.now()}`);
-    renderCustomerNotesThread(Array.isArray(data?.notes) ? data.notes : []);
-  } catch (error) {
-    if (thread) thread.innerHTML = `<div style="color:var(--danger);font-size:13px;">Failed to load notes: ${escapeHtml(error.message || 'Request failed')}</div>`;
-  }
-}
-
-function renderCustomerNotesThread(notes) {
-  const thread = document.getElementById('customer-notes-thread');
-  if (!thread) return;
-  if (!notes.length) {
-    thread.innerHTML = '<div class="field-help">No notes yet. Add the first one below.</div>';
-    return;
-  }
-  thread.innerHTML = notes.map((n) => `
-    <div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:var(--surface-1);">
-      <div style="font-size:13px;white-space:pre-wrap;color:var(--text-primary);">${escapeHtml(n.note || '')}</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${escapeHtml(n.author_name || 'Unknown')} · ${escapeHtml(formatPosTimestamp(n.created_at))}</div>
-    </div>`).join('');
-}
-
-async function addCustomerNote() {
-  const input = document.getElementById('customer-note-input');
-  const err = document.getElementById('customer-notes-error');
-  const btn = document.getElementById('customer-note-add');
-  const note = (input?.value || '').trim();
-  if (err) err.textContent = '';
-  if (!note) { if (err) err.textContent = 'Please type a note first.'; return; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
-  try {
-    await authorizedJsonRequest('/orders/customer-notes', {
-      method: 'POST',
-      body: JSON.stringify({ phone: customerNotesPhone, note }),
-    });
-    if (input) input.value = '';
-    await loadCustomerNotes();
-  } catch (error) {
-    if (err) err.textContent = error.message || 'Failed to add note.';
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Add note'; }
-  }
-}
-
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
 // RMO Management is a live order-monitoring dashboard, so it polls every 45s.
@@ -13914,6 +13850,10 @@ function renderRmoManagement() {
       ${renderRmoMetricCard('problematic', 'Problematic', problematic, 'purple', rmoMetricShare(problematic, DB.posRawTotal))}
     </div>
 
+    <!-- The table and the order card are two cards side by side, not one card
+         split down the middle: nested inside the table's card, a tall order
+         card stretched it and left a band of empty space under the rows. -->
+    <div class="rmo-page-split">
     <div class="rmo-table-wrap">
       <div class="rmo-toolbar">
         <div class="rmo-toolbar-periods">
@@ -13972,22 +13912,19 @@ function renderRmoManagement() {
         <button class="btn btn-secondary btn-sm" onclick="clearRmoSelection()">Clear</button>
       </div>
 
-      <!-- Table on the left, the clicked order's card on the right. The card
-           replaced an expanding detail row: opening one used to push every row
-           below it down the page, so reading an order cost you your place in
-           the list. -->
-      <div class="rmo-table-split">
-        <div class="rmo-table-scroll">
-          <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
-            <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:20%">Customer</th><th style="width:26%">Product</th><th style="width:12%">Province</th><th style="width:10%">COD</th><th style="width:16%">Status</th><th style="width:14%">Date</th></tr></thead>
-            <tbody id="rec-pos-orders-tbody">
-              <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <aside class="rmo-detail-panel" id="rmo-detail-panel"></aside>
+      <div class="rmo-table-scroll">
+        <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
+          <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:20%">Customer</th><th style="width:26%">Product</th><th style="width:12%">Province</th><th style="width:10%">COD</th><th style="width:16%">Status</th><th style="width:14%">Date</th></tr></thead>
+          <tbody id="rec-pos-orders-tbody">
+            <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+          </tbody>
+        </table>
       </div>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
+    </div>
+    <!-- The clicked order's card, beside the table rather than inside it: an
+         expanding detail row used to push every row below it down the page. -->
+    <aside class="rmo-detail-panel" id="rmo-detail-panel"></aside>
     </div>
 
     <!-- Two ways out of the same button: a text through Infotxt, which reaches
@@ -14047,28 +13984,6 @@ function renderRmoManagement() {
           <div style="display:flex;gap:8px;margin-top:12px;">
             <button type="button" class="btn btn-primary" id="pos-tags-save" style="flex:1;" onclick="saveOrderTags()">Save tags</button>
             <button type="button" class="btn btn-secondary" onclick="closeModal('pos-tags-modal')">Cancel</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-overlay" id="customer-notes-modal">
-      <div class="modal" style="max-width:520px;">
-        <div class="modal-header">
-          <div class="modal-title">Customer Notes</div>
-          <button class="modal-close" onclick="closeModal('customer-notes-modal')">×</button>
-        </div>
-        <div class="modal-body">
-          <div id="customer-notes-recap" class="field-help" style="margin-bottom:10px;"></div>
-          <div id="customer-notes-thread" style="max-height:300px;overflow-y:auto;margin-bottom:12px;">Loading…</div>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label class="form-label">Add a note</label>
-            <textarea class="form-control" id="customer-note-input" rows="3" placeholder="Type a note for this customer…"></textarea>
-          </div>
-          <div id="customer-notes-error" style="color:var(--danger);font-size:12px;margin-bottom:6px;"></div>
-          <div style="display:flex;gap:8px;">
-            <button type="button" class="btn btn-primary" id="customer-note-add" style="flex:1;" onclick="addCustomerNote()">Add note</button>
-            <button type="button" class="btn btn-secondary" onclick="closeModal('customer-notes-modal')">Close</button>
           </div>
         </div>
       </div>
@@ -20471,11 +20386,10 @@ function renderAssigneeSelect(order) {
 // by key rather than in the DOM, so a repaint (sync, filter, poll) leaves the
 // card standing on whatever the desk was reading.
 const RMO_TABLE_COLSPAN = 7;
-// Up to two orders open at once, left to right, so a desk chasing one delivery
-// can hold a second beside it — the same customer's other parcel, or the order
-// they are comparing a rider or an address against.
-let rmoOpenKeys = [];
-const RMO_MAX_OPEN_CARDS = 2;
+// The one order whose card is open, by key rather than in the DOM, so a repaint
+// (sync, filter, poll) leaves the card standing on whatever the desk was
+// reading.
+let rmoSelectedKey = '';
 
 // The customer name, phone and tracking cells copy on click, so those — and any
 // real control — keep their own behaviour; clicking anywhere else on the row
@@ -20484,29 +20398,15 @@ function toggleRmoRowDetails(event, row) {
   if (!row) return;
   if (event.target.closest('input, button, select, a, label, .rmo-copy')) return;
   const key = row.dataset.key || '';
-  const at = rmoOpenKeys.indexOf(key);
-  if (at >= 0) {
-    // Clicking an open row again closes its card, the way the collapse did.
-    rmoOpenKeys.splice(at, 1);
-  } else {
-    rmoOpenKeys.push(key);
-    // Opening a third drops the oldest, so what is on screen is always the two
-    // most recently opened rather than refusing the click.
-    if (rmoOpenKeys.length > RMO_MAX_OPEN_CARDS) rmoOpenKeys.shift();
-    loadRmoCustomerStats(row);
-  }
+  // Clicking the open row again closes the card, the way the collapse did.
+  rmoSelectedKey = rmoSelectedKey === key ? '' : key;
   markRmoSelectedRow();
   renderRmoDetailPanel();
-}
-
-function closeRmoDetailCard(key) {
-  rmoOpenKeys = rmoOpenKeys.filter((open) => open !== key);
-  markRmoSelectedRow();
-  renderRmoDetailPanel();
+  if (rmoSelectedKey) loadRmoCustomerStats(row);
 }
 
 function closeRmoDetailPanel() {
-  rmoOpenKeys = [];
+  rmoSelectedKey = '';
   markRmoSelectedRow();
   renderRmoDetailPanel();
 }
@@ -20515,7 +20415,7 @@ function closeRmoDetailPanel() {
 // the pointer.
 function markRmoSelectedRow() {
   document.querySelectorAll('#rec-pos-orders-tbody tr.rmo-row').forEach((tr) => {
-    tr.classList.toggle('rmo-row-selected', rmoOpenKeys.includes(tr.dataset.key));
+    tr.classList.toggle('rmo-row-selected', !!rmoSelectedKey && tr.dataset.key === rmoSelectedKey);
   });
 }
 
@@ -20540,7 +20440,7 @@ async function loadRmoCustomerStats(row) {
     if (!stats || (!stats.delivered && !stats.returned)) return;
     DB.posCustomerStats[key] = stats;
     // The card may have been closed or moved on while this was in flight.
-    if (rmoOpenKeys.includes(row.dataset.key)) renderRmoDetailPanel();
+    if (rmoSelectedKey === row.dataset.key) renderRmoDetailPanel();
   } catch {
     // Leave the counts the row came with — the POS being unreachable is not
     // worth blanking a card the desk is reading.
@@ -20595,24 +20495,25 @@ function rmoOrderByKey(key) {
 function renderRmoDetailPanel() {
   const panel = document.getElementById('rmo-detail-panel');
   if (!panel) return;
-  // A key whose order has left the table (filtered out, or gone on a sync) is
-  // dropped rather than leaving a blank card behind.
-  const open = rmoOpenKeys.map((key) => ({ key, order: rmoOrderByKey(key) })).filter((entry) => entry.order);
+  // An order that has left the table (filtered out, or gone on a sync) closes
+  // its card rather than leaving a blank one behind.
+  const order = rmoSelectedKey ? rmoOrderByKey(rmoSelectedKey) : null;
 
-  if (!open.length) {
+  if (!order) {
     panel.classList.remove('open');
-    panel.innerHTML = `<div class="rmo-detail-card"><div class="rmo-card-empty">
+    panel.innerHTML = `<div class="rmo-card-empty">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M2 6.5h12M5.5 9.5h5"/></svg>
       <h4>No order open</h4>
-      <p>Click any row to see the customer, the order and the delivery. Click a second row to hold two side by side.</p>
-    </div></div>`;
+      <p>Click any row to see the customer, the order and the delivery.</p>
+    </div>`;
     return;
   }
   panel.classList.add('open');
-  panel.innerHTML = open.map(({ key, order }) => renderRmoOrderCard(order, key)).join('');
+  panel.innerHTML = renderRmoOrderCard(order);
+  loadRmoCardNotes(order);
 }
 
-function renderRmoOrderCard(order, key) {
+function renderRmoOrderCard(order) {
   const dash = '<span class="rmo-muted">—</span>';
   const rider = getRmoRider(order);
   const reason = getRmoReasonDisplay(order);
@@ -20634,13 +20535,12 @@ function renderRmoOrderCard(order, key) {
   const canSend = !!order.can_message || (rmoSendCanUseSms() && !!(order.customer_phone || rider.tel));
 
   return `
-    <div class="rmo-detail-card">
     <div class="rmo-card-head">
       <div>
         <div class="rmo-card-name">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
         <div class="rmo-card-sub">Order ${escapeHtml(order.external_id || '')}${order.page_name ? ` · ${escapeHtml(order.page_name)}` : ''}</div>
       </div>
-      <button class="modal-close" type="button" onclick="closeRmoDetailCard('${escapeHtml(key)}')" title="Close this order">&times;</button>
+      <button class="modal-close" type="button" onclick="closeRmoDetailPanel()" title="Close">&times;</button>
     </div>
 
     <div class="rmo-card-status">
@@ -20698,11 +20598,82 @@ function renderRmoOrderCard(order, key) {
     <div class="rmo-card-actions">
       <button class="btn btn-primary btn-sm" type="button" ${canSend ? '' : 'disabled title="No number and no Messenger contact"'}
         onclick="openRmoSendModal('single','${msgId}','${msgShop}')">&#9993; Send message</button>
-      <button class="btn btn-secondary btn-sm" type="button" data-phone="${escapeHtml(order.customer_phone || '')}"
-        data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)"
-        ${order.customer_phone ? '' : 'disabled'}>&#128221; Notes</button>
     </div>
+
+    <!-- Notes read and write in the card itself. They used to open a modal over
+         the table, which hid the order the note was about. Kept keyed by phone,
+         so the history outlives the order's 30-day retention. -->
+    <div class="rmo-card-section">
+      <div class="rmo-card-section-title">Notes</div>
+      ${order.customer_phone ? `
+        <div class="rmo-card-notes" id="rmo-card-notes-thread"><span class="rmo-muted">Loading…</span></div>
+        <textarea class="form-control rmo-note-input" id="rmo-card-note-input" rows="2"
+          placeholder="Add a note about this customer…"
+          onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter')addRmoCardNote()"></textarea>
+        <div class="rmo-note-foot">
+          <span class="field-help" id="rmo-card-note-error"></span>
+          <button class="btn btn-secondary btn-sm" type="button" id="rmo-card-note-add" onclick="addRmoCardNote()">Add note</button>
+        </div>`
+        : '<div class="rmo-muted">This order has no customer phone, and notes are filed by number.</div>'}
     </div>`;
+}
+
+/* Notes for the open card's customer. Filed by phone rather than by order, so
+   every parcel that number has ever ordered shares one history. */
+let rmoCardNotesPhone = '';
+
+async function loadRmoCardNotes(order) {
+  const phone = order?.customer_phone || '';
+  rmoCardNotesPhone = phone;
+  const thread = document.getElementById('rmo-card-notes-thread');
+  if (!phone || !thread) return;
+  try {
+    const data = await authorizedJsonRequest(`/orders/customer-notes?phone=${encodeURIComponent(phone)}&_=${Date.now()}`);
+    // The card may have moved on to another order while this was in flight.
+    if (rmoCardNotesPhone !== phone) return;
+    renderRmoCardNotes(Array.isArray(data?.notes) ? data.notes : []);
+  } catch (error) {
+    const el = document.getElementById('rmo-card-notes-thread');
+    if (el) el.innerHTML = `<span class="rmo-note-error">Could not load notes: ${escapeHtml(error.message || 'Request failed')}</span>`;
+  }
+}
+
+function renderRmoCardNotes(notes) {
+  const thread = document.getElementById('rmo-card-notes-thread');
+  if (!thread) return;
+  if (!notes.length) {
+    thread.innerHTML = '<span class="rmo-muted">No notes yet.</span>';
+    return;
+  }
+  thread.innerHTML = notes.map((n) => `
+    <div class="rmo-note">
+      <div class="rmo-note-text">${escapeHtml(n.note || '')}</div>
+      <div class="rmo-note-meta">${escapeHtml(n.author_name || 'Unknown')} · ${escapeHtml(formatPosTimestamp(n.created_at))}</div>
+    </div>`).join('');
+}
+
+async function addRmoCardNote() {
+  const input = document.getElementById('rmo-card-note-input');
+  const err = document.getElementById('rmo-card-note-error');
+  const btn = document.getElementById('rmo-card-note-add');
+  const note = (input?.value || '').trim();
+  if (err) err.textContent = '';
+  if (!note) { if (err) err.textContent = 'Type a note first.'; return; }
+  if (!rmoCardNotesPhone) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  try {
+    await authorizedJsonRequest('/orders/customer-notes', {
+      method: 'POST',
+      body: JSON.stringify({ phone: rmoCardNotesPhone, note }),
+    });
+    if (input) input.value = '';
+    const data = await authorizedJsonRequest(`/orders/customer-notes?phone=${encodeURIComponent(rmoCardNotesPhone)}&_=${Date.now()}`);
+    renderRmoCardNotes(Array.isArray(data?.notes) ? data.notes : []);
+  } catch (error) {
+    if (err) err.textContent = error.message || 'Failed to add note.';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add note'; }
+  }
 }
 
 // The best history we hold for an order's customer: what the POS told us when a
@@ -20796,7 +20767,7 @@ function renderPosOrdersTable() {
         ? `${reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash}${rmoTab === 'undeliverable' ? rmoStuckChip(order) : ''}`
         : dash;
       const orderedAt = escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash;
-      return `<tr class="rmo-row${rmoOpenKeys.includes(rowKey) ? ' rmo-row-selected' : ''}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to open this order" onclick="toggleRmoRowDetails(event, this)">
+      return `<tr class="rmo-row${rmoSelectedKey === rowKey ? ' rmo-row-selected' : ''}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to open this order" onclick="toggleRmoRowDetails(event, this)">
         <td>
           <span class="rmo-check-cell">
             ${canSendRmoMessage

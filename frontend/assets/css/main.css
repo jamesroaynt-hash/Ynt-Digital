@@ -3532,8 +3532,8 @@ tfoot td {
    sits on the inner .rmo-table-scroll so the toolbar stays put when a wide
    table is scrolled sideways. */
 /* `clip`, not `hidden`: both keep the table's square corners inside the card,
-   but `hidden` makes this a scroll container, and that stops the order card
-   inside it from sticking to the viewport as the page scrolls. */
+   but `hidden` makes this a scroll container, which breaks anything sticky
+   positioned within it. */
 .rmo-table-wrap {
   overflow: clip;
   border: 1px solid var(--border);
@@ -3744,44 +3744,36 @@ tfoot td {
 
 /* ─── ORDER CARD (right of the table) ─────────────────────
    Replaced the expanding detail row: opening an order used to push every row
-   under it down the page. The card is its own column, so the table never
-   moves. */
-.rmo-table-split {
+   under it down the page. Two cards side by side — the table's and the order's
+   — rather than one card split in two: nested inside the table's card, a tall
+   order card stretched it and left a band of empty space under the rows. */
+.rmo-page-split {
   display: flex;
   align-items: flex-start;
-  gap: 0;
+  gap: 16px;
 }
 
-.rmo-table-split > .rmo-table-scroll {
+.rmo-page-split > .rmo-table-wrap {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-/* Holds one or two order cards side by side. Sized by its cards rather than
-   fixed, so the table keeps the width the second card is not using. */
+/* Its own card, sized by its content and nothing else. */
 .rmo-detail-panel {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: flex-start;
-  /* Starts level with the first order, not with the column headings: a card is
-     about one order, so lining its top edge up with the header row read as if
-     it were another column. */
-  align-self: flex-start;
-  margin-top: 42px;
-  /* Follows the page down: a long table would otherwise leave the cards behind
-     after a dozen rows. */
-  position: sticky;
-  top: 16px;
-}
-
-/* Each card scrolls on its own — two open orders are rarely the same height,
-   and one shared scrollbar would move both. */
-.rmo-detail-card {
   flex: 0 0 330px;
   width: 330px;
-  border-left: 1px solid var(--border);
-  background: var(--surface-2);
-  max-height: calc(100vh - 140px);
+  /* Starts level with the first order, not with the column headings — lined up
+     with the header it read as another column of the table. */
+  margin-top: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  /* Follows the page down: a long table would otherwise leave the card behind
+     after a dozen rows, and a long card scrolls itself rather than running off
+     the bottom of the screen. */
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 120px);
   overflow-y: auto;
   padding: 16px;
 }
@@ -3899,44 +3891,69 @@ tfoot td {
 
 .rmo-card-actions .btn { flex: 1; }
 
-/* Under about 1400px there is no room for a second card beside the table, so
-   the pair splits the panel's width rather than pushing the table into a
-   sideways scroll. */
-@media (max-width: 1400px) {
-  .rmo-detail-panel { max-width: 42vw; }
-  .rmo-detail-card { flex: 1 1 0; width: auto; min-width: 0; }
+/* Notes live in the card, under the actions: reading and writing one no longer
+   opens a modal over the table, which hid the order the note was about. */
+.rmo-card-notes {
+  max-height: 190px;
+  overflow-y: auto;
+  margin-bottom: 8px;
 }
 
-/* Under about 1100px a card would squeeze the table whatever its width, so the
-   panel stops being a column and sits above the table instead — same cards,
-   same open orders, now side by side across the full width. */
+.rmo-card-notes .rmo-note {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.rmo-card-notes .rmo-note + .rmo-note { margin-top: 6px; }
+
+.rmo-note-text {
+  color: var(--text-primary);
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.rmo-note-meta {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.rmo-note-error { color: var(--danger); font-size: 12px; }
+
+.rmo-note-input {
+  min-height: 58px;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.rmo-note-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rmo-note-foot .field-help { color: var(--danger); }
+
+/* Under about 1100px the card would squeeze the table into a sideways scroll,
+   so it stops being a column and sits above the table instead — same card,
+   still the clicked order. */
 @media (max-width: 1100px) {
-  .rmo-table-split { flex-direction: column-reverse; }
+  .rmo-page-split { flex-direction: column-reverse; }
   .rmo-detail-panel {
     flex: none;
     width: 100%;
-    max-width: none;
     margin-top: 0;
     position: static;
-    border-bottom: 1px solid var(--border);
-  }
-  .rmo-detail-card {
     max-height: none;
-    border-left: 0;
   }
-  .rmo-detail-card + .rmo-detail-card { border-left: 1px solid var(--border); }
   .rmo-detail-panel:not(.open) { display: none; }
-  .rmo-table-split > .rmo-table-scroll { width: 100%; }
-}
-
-/* Phone width: two cards side by side would leave neither readable. */
-@media (max-width: 700px) {
-  .rmo-detail-panel { flex-wrap: wrap; }
-  .rmo-detail-card { flex: 1 1 100%; }
-  .rmo-detail-card + .rmo-detail-card {
-    border-left: 0;
-    border-top: 1px solid var(--border);
-  }
+  .rmo-page-split > .rmo-table-wrap { width: 100%; }
 }
 
 .rmo-tag-line {
