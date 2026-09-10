@@ -2,6 +2,7 @@
 const express = require('express');
 const googleSheetsSync = require('../services/googleSheetsSync');
 const pancakePosSync = require('../services/pancakePosSync');
+const infotxtSms = require('../services/infotxtSms');
 
 function ordersRoutes(db, { dispatch } = {}) {
   const r = express.Router();
@@ -1336,6 +1337,12 @@ function ordersRoutes(db, { dispatch } = {}) {
         sprinter_tel: row.sprinter_tel,
         partner: parseJsonObject(row.partner_json, null),
         province: parseJsonObject(row.shipping_address_json, {})?.province_name || null,
+        // Where the parcel is actually going. Only the order card shows it —
+        // the table has no room — but that is where the desk reads it from
+        // when a rider calls about an address.
+        address: readNamedValue(parseJsonObject(row.shipping_address_json, {}), [
+          'full_address', 'address', 'street_address', 'address1',
+        ]) || null,
         assigned_to_user_id: row.assigned_to_user_id != null ? Number(row.assigned_to_user_id) : null,
         assigned_to_name: row.assigned_to_name || null,
         can_message: Boolean(row.psid),
@@ -1467,6 +1474,31 @@ function ordersRoutes(db, { dispatch } = {}) {
       if (!body.flow_id && !body.flowId) return res.status(400).json({ error: 'Missing flow_id.' });
       if (!orders.length && !Array.isArray(body.psids)) return res.status(400).json({ error: 'No recipients selected.' });
       const result = await pancakePosSync.sendBotcakeFlow(db, body);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Text an order's rider or its customer from the RMO desk, through Infotxt.
+  // Body: { recipient: 'rider'|'customer', message, orders: [{ external_id, shop_id }] }
+  //
+  // Same roles as the rest of SMS — a text costs credits, so the gate matches
+  // the SMS Automations page rather than who can open RMO Management.
+  const SMS_SEND_ROLES = new Set(['Administrator', 'RMO', 'RMO TL', 'Logistics']);
+  r.post('/pos-orders/sms/send', async (req, res) => {
+    if (!SMS_SEND_ROLES.has(String(req.user?.role || '').trim())) {
+      return res.status(403).json({ error: 'SMS access required to text riders or customers.' });
+    }
+    try {
+      const body = req.body || {};
+      const result = await infotxtSms.sendManualSms(db, {
+        recipient: body.recipient,
+        message: body.message,
+        orders: body.orders,
+        sim: body.sim,
+        sent_by: req.user?.full_name || req.user?.username || null,
+      });
       res.json(result);
     } catch (error) {
       res.status(400).json({ error: error.message });

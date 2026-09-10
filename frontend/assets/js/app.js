@@ -1000,10 +1000,11 @@ async function assignPosOrder(externalId, userId, shopId = '') {
   }
 }
 
-// ─── BOTCAKE SEND (RMO Management) ─────────────────────────
-// Lets RMO staff fire a Botcake "broadcast" flow to a customer (or several) over
-// Messenger. Recipients are resolved server-side from the order's stored PSID.
-let botcakeSend = { recipients: [], shopId: null };
+// ─── MESSAGING FROM RMO MANAGEMENT ─────────────────────────
+// Two channels behind one button: an Infotxt SMS to the order's rider or its
+// customer, and the Botcake "broadcast" flow over Messenger. Recipients are
+// resolved server-side either way — from the order's stored PSID for Messenger,
+// from its stored rider/customer number for SMS.
 
 // Read the currently checked row checkboxes into recipient objects.
 function getRmoSelectedRows() {
@@ -1054,37 +1055,153 @@ function toggleRmoSelectMode(btn) {
   if (!rmoSelectMode) clearRmoSelection();
 }
 
+/* ─── SENDING FROM THE RMO DESK ─────────────────────────────
+   One button, two channels. A text through Infotxt goes to the order's rider
+   or its customer — the desk chasing a delivery needs the rider far more often
+   than Messenger can help with. The Messenger broadcast stays for the orders
+   that came in through the page, and is the only one scoped to a single shop:
+   a Botcake flow id belongs to one page, while an SMS does not care. */
+let rmoSend = { recipients: [], shopId: '', channel: 'sms', who: 'customer', multiShop: false };
+
+function rmoSendCanUseSms() {
+  return canAccessPage('sms-automations');
+}
+
+// The row the table was built from, so the modal can show the actual numbers
+// rather than asking the server what it is about to text.
+function rmoOrderRow(externalId, shopId) {
+  return (DB.posRawOrders || []).find((o) => String(o.external_id) === String(externalId)
+    && (!shopId || String(o.shop_id || '') === String(shopId))) || null;
+}
+
+function rmoSendReachable(who) {
+  return rmoSend.recipients.filter((r) => (who === 'rider' ? r.rider_phone : r.customer_phone)).length;
+}
+
 // Open the send modal for one order ('single') or the current selection ('selected').
-// A Botcake flow id is page-specific, so a send is scoped to one shop/page; if a
-// multi-select spans pages we stop and ask the user to narrow it down.
-async function openBotcakeSendModal(mode, externalId, shopId) {
-  let recipients = mode === 'single'
+async function openRmoSendModal(mode, externalId, shopId) {
+  let picked = mode === 'single'
     ? [{ external_id: externalId, shop_id: shopId || '', name: '' }]
     : getRmoSelectedRows();
-  recipients = recipients.filter((r) => r.external_id);
-  if (!recipients.length) { showToast('error', 'No recipients', 'Select at least one messageable customer.'); return; }
+  picked = picked.filter((r) => r.external_id);
+  if (!picked.length) { showToast('error', 'No recipients', 'Select at least one order to message.'); return; }
 
+  const recipients = picked.map((r) => {
+    const row = rmoOrderRow(r.external_id, r.shop_id);
+    const rider = row ? getRmoRider(row) : { name: '', tel: '' };
+    return {
+      ...r,
+      name: r.name || row?.customer_name || '',
+      customer_phone: row?.customer_phone || '',
+      rider_name: rider.name || '',
+      rider_phone: rider.tel || '',
+      can_message: !!row?.can_message,
+    };
+  });
   const shops = [...new Set(recipients.map((r) => r.shop_id || ''))];
-  if (shops.length > 1) {
-    showToast('error', 'One page at a time', 'Selected orders span multiple pages. Filter to a single page, then send.');
-    return;
-  }
 
-  botcakeSend = { recipients, shopId: shops[0] || '' };
-  const recapEl = document.getElementById('botcake-send-recipients');
-  if (recapEl) {
-    const names = recipients.map((r) => r.name).filter(Boolean);
-    recapEl.textContent = recipients.length === 1
-      ? `Recipient: ${names[0] || recipients[0].external_id}`
-      : `${recipients.length} recipients on this page`;
-  }
-  const resultEl = document.getElementById('botcake-send-result');
+  rmoSend = {
+    recipients,
+    shopId: shops[0] || '',
+    multiShop: shops.length > 1,
+    // Messenger cannot carry a multi-page selection, and it is not offered at
+    // all to someone without SMS access — that leaves one channel, so start on
+    // whichever is actually usable.
+    channel: rmoSendCanUseSms() ? 'sms' : 'messenger',
+    who: rmoSendReachableFor(recipients, 'customer') ? 'customer' : 'rider',
+  };
+
+  const resultEl = document.getElementById('rmo-send-result');
   if (resultEl) resultEl.innerHTML = '';
-  const confirmBtn = document.getElementById('botcake-send-confirm');
+  const confirmBtn = document.getElementById('rmo-send-confirm');
   if (confirmBtn) confirmBtn.disabled = false;
 
-  openModal('botcake-send-modal');
-  await loadBotcakeFlows(botcakeSend.shopId);
+  openModal('rmo-send-modal');
+  renderRmoSendModal();
+}
+
+function rmoSendReachableFor(recipients, who) {
+  return recipients.filter((r) => (who === 'rider' ? r.rider_phone : r.customer_phone)).length;
+}
+
+function setRmoSendChannel(channel) {
+  rmoSend.channel = channel;
+  renderRmoSendModal();
+}
+
+function setRmoSendWho(who) {
+  rmoSend.who = who;
+  renderRmoSendModal();
+}
+
+function renderRmoSendModal() {
+  const { recipients } = rmoSend;
+  const one = recipients.length === 1 ? recipients[0] : null;
+  const recap = document.getElementById('rmo-send-recipients');
+  if (recap) {
+    recap.textContent = one
+      ? `Order ${one.external_id}${one.name ? ` · ${one.name}` : ''}`
+      : `${recipients.length} orders selected`;
+  }
+
+  // Messenger is hidden outright when it cannot run — a disabled pill on a
+  // multi-page selection just invites clicking it.
+  const messengerUsable = !rmoSend.multiShop && recipients.some((r) => r.can_message);
+  const channels = document.getElementById('rmo-send-channels');
+  if (channels) {
+    const tabs = [];
+    if (rmoSendCanUseSms()) tabs.push(['sms', 'Text (Infotxt SMS)']);
+    if (messengerUsable) tabs.push(['messenger', 'Messenger broadcast']);
+    channels.innerHTML = tabs.length > 1
+      ? tabs.map(([value, label]) =>
+        `<button class="filter-pill ${rmoSend.channel === value ? 'active' : ''}" type="button" onclick="setRmoSendChannel('${value}')">${label}</button>`).join('')
+      : '';
+    channels.style.display = tabs.length > 1 ? '' : 'none';
+  }
+  if (rmoSend.channel === 'messenger' && !messengerUsable) rmoSend.channel = 'sms';
+  if (rmoSend.channel === 'sms' && !rmoSendCanUseSms()) rmoSend.channel = 'messenger';
+
+  const smsPanel = document.getElementById('rmo-send-sms-panel');
+  const msgPanel = document.getElementById('rmo-send-messenger-panel');
+  const sms = rmoSend.channel === 'sms';
+  if (smsPanel) smsPanel.style.display = sms ? '' : 'none';
+  if (msgPanel) msgPanel.style.display = sms ? 'none' : '';
+
+  if (sms) {
+    const who = document.getElementById('rmo-send-who');
+    if (who) {
+      // Each side says how many of the selected orders it can actually reach,
+      // so picking the rider when only two of twelve have a number is a
+      // decision rather than a surprise.
+      who.innerHTML = [['customer', 'Customer'], ['rider', 'Rider']].map(([value, label]) => {
+        const reachable = rmoSendReachable(value);
+        const detail = one
+          ? (value === 'rider' ? (one.rider_phone || 'no number') : (one.customer_phone || 'no number'))
+          : `${reachable} of ${recipients.length}`;
+        return `<button class="filter-pill ${rmoSend.who === value ? 'active' : ''}" type="button"
+          ${reachable ? '' : 'disabled title="No number on the selected orders"'}
+          onclick="setRmoSendWho('${value}')">${label} · ${escapeHtml(String(detail))}</button>`;
+      }).join('');
+    }
+    refreshRmoSendCount();
+  } else {
+    loadBotcakeFlows(rmoSend.shopId);
+  }
+
+  const confirmBtn = document.getElementById('rmo-send-confirm');
+  if (confirmBtn) confirmBtn.textContent = sms ? 'Send SMS' : 'Send broadcast';
+}
+
+// Segments are the billing unit, so the count says both — a message that slips
+// to 161 characters costs twice as much to send.
+function refreshRmoSendCount() {
+  const el = document.getElementById('rmo-send-count');
+  if (!el) return;
+  const text = document.getElementById('rmo-send-message')?.value || '';
+  const chars = text.length;
+  const parts = chars <= 160 ? 1 : Math.ceil(chars / 153);
+  const reachable = rmoSendReachable(rmoSend.who);
+  el.textContent = `${chars} character${chars === 1 ? '' : 's'} · ${parts} SMS each · ${reachable} recipient${reachable === 1 ? '' : 's'}`;
 }
 
 async function loadBotcakeFlows(shopId) {
@@ -1107,42 +1224,82 @@ async function loadBotcakeFlows(shopId) {
   }
 }
 
+function confirmRmoSend() {
+  return rmoSend.channel === 'sms' ? sendRmoSms() : confirmBotcakeSend();
+}
+
+// Reports the outcome the same way for both channels: a clean send closes the
+// modal, anything else keeps it open with the first few failures named, since
+// the fix is usually to change the recipient or the message and try again.
+function reportRmoSendResult(data, { successTitle, unit }) {
+  const sent = Number(data?.sent || 0);
+  const failed = Number(data?.failed || 0);
+  const resultEl = document.getElementById('rmo-send-result');
+  if (sent && !failed) {
+    showToast('success', successTitle, `Delivered to ${sent} ${unit}${sent === 1 ? '' : 's'}.`);
+    closeModal('rmo-send-modal');
+    clearRmoSelection();
+    return;
+  }
+  if (sent) showToast('warning', 'Partly sent', `${sent} sent, ${failed} failed.`);
+  else showToast('error', 'Send failed', 'No messages were delivered.');
+  if (resultEl) {
+    const fails = (data?.results || []).filter((r) => !r.ok);
+    resultEl.innerHTML = `<div class="field-help" style="color:var(--danger,#ef4444)">${escapeHtml(
+      fails.slice(0, 5).map((r) => `${r.name || r.ref}: ${r.error || 'failed'}`).join('; ')
+    )}</div>`;
+  }
+}
+
+// The numbers are never sent from here — only the order ids and who to text —
+// so the server reads the rider's or the customer's number straight off the
+// order it already holds.
+async function sendRmoSms() {
+  const message = document.getElementById('rmo-send-message')?.value || '';
+  if (!message.trim()) { showToast('error', 'Write the message', 'An SMS needs something to say.'); return; }
+  if (!rmoSendReachable(rmoSend.who)) {
+    showToast('error', 'Nobody to text', `None of the selected orders carry a ${rmoSend.who} number.`);
+    return;
+  }
+  const confirmBtn = document.getElementById('rmo-send-confirm');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Sending…'; }
+  try {
+    const data = await authorizedJsonRequest('/orders/pos-orders/sms/send', {
+      method: 'POST',
+      body: JSON.stringify({
+        recipient: rmoSend.who,
+        message,
+        orders: rmoSend.recipients.map((r) => ({ external_id: r.external_id, shop_id: r.shop_id || '' })),
+      }),
+    });
+    reportRmoSendResult(data, { successTitle: 'SMS sent', unit: rmoSend.who });
+  } catch (error) {
+    showToast('error', 'Send failed', error.message || 'Request failed');
+  } finally {
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Send SMS'; }
+  }
+}
+
 async function confirmBotcakeSend() {
   const select = document.getElementById('botcake-flow-select');
   const flowId = select ? select.value : '';
   if (!flowId) { showToast('error', 'Pick a broadcast', 'Choose which broadcast to send.'); return; }
-  const confirmBtn = document.getElementById('botcake-send-confirm');
-  const resultEl = document.getElementById('botcake-send-result');
+  const confirmBtn = document.getElementById('rmo-send-confirm');
   if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Sending…'; }
   try {
     const data = await authorizedJsonRequest('/orders/pos-orders/botcake/send', {
       method: 'POST',
       body: JSON.stringify({
-        shop_id: botcakeSend.shopId,
+        shop_id: rmoSend.shopId,
         flow_id: flowId,
-        orders: botcakeSend.recipients.map((r) => ({ external_id: r.external_id })),
+        orders: rmoSend.recipients.map((r) => ({ external_id: r.external_id })),
       }),
     });
-    const sent = Number(data?.sent || 0);
-    const failed = Number(data?.failed || 0);
-    if (sent && !failed) {
-      showToast('success', 'Broadcast sent', `Delivered to ${sent} recipient${sent === 1 ? '' : 's'}.`);
-      closeModal('botcake-send-modal');
-      clearRmoSelection();
-    } else {
-      if (sent) showToast('warning', 'Partly sent', `${sent} sent, ${failed} failed.`);
-      else showToast('error', 'Send failed', 'No messages were delivered.');
-      if (resultEl) {
-        const fails = (data?.results || []).filter((r) => !r.ok);
-        resultEl.innerHTML = `<div class="field-help" style="color:var(--danger,#ef4444)">${escapeHtml(
-          fails.slice(0, 5).map((r) => `${r.name || r.ref}: ${r.error || 'failed'}`).join('; ')
-        )}</div>`;
-      }
-    }
+    reportRmoSendResult(data, { successTitle: 'Broadcast sent', unit: 'recipient' });
   } catch (error) {
     showToast('error', 'Send failed', error.message || 'Request failed');
   } finally {
-    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Send'; }
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Send broadcast'; }
   }
 }
 
@@ -1472,7 +1629,7 @@ const DB = {
   sheetRecordsForReport: [],
   sheetRecordsStats: { total: 0, delivered: 0, totalCOD: 0 },
   csrRecords: [],
-  // Pancake's own numbers for a customer, fetched when an RMO row is expanded.
+  // Pancake's own numbers for a customer, fetched when an RMO order card opens.
   // Kept for the session so re-opening a row, or a table repaint, costs nothing.
   posCustomerStats: {},
   csrPosOrders: {},
@@ -13811,38 +13968,68 @@ function renderRmoManagement() {
       <div id="pos-orders-status-summary" class="rmo-status-summary"></div>
       <div id="rmo-bulk-bar" class="rmo-bulk-bar" style="display:none;">
         <span id="rmo-bulk-count">0 selected</span>
-        <button class="btn btn-primary btn-sm" onclick="openBotcakeSendModal('selected')">✉ Send message</button>
+        <button class="btn btn-primary btn-sm" onclick="openRmoSendModal('selected')">✉ Send message</button>
         <button class="btn btn-secondary btn-sm" onclick="clearRmoSelection()">Clear</button>
       </div>
 
-      <div class="rmo-table-scroll">
-        <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
-          <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:18%">Customer</th><th style="width:22%">Product</th><th style="width:10%">Province</th><th style="width:9%">COD</th><th style="width:13%">Status</th><th style="width:12%">Date</th><th style="width:${rmoTab === 'orders' ? '11%' : '15%'}">Message</th></tr></thead>
-          <tbody id="rec-pos-orders-tbody">
-            <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
-          </tbody>
-        </table>
+      <!-- Table on the left, the clicked order's card on the right. The card
+           replaced an expanding detail row: opening one used to push every row
+           below it down the page, so reading an order cost you your place in
+           the list. -->
+      <div class="rmo-table-split">
+        <div class="rmo-table-scroll">
+          <table class="rmo-table ${rmoSelectMode ? 'select-mode' : ''}" id="rmo-pos-orders-table">
+            <thead><tr><th style="width:104px;"><span class="rmo-check-cell"><input type="checkbox" id="rmo-select-all" onclick="toggleRmoSelectAll(this)" title="Select all messageable on this page">Order #</span></th><th style="width:18%">Customer</th><th style="width:22%">Product</th><th style="width:10%">Province</th><th style="width:9%">COD</th><th style="width:13%">Status</th><th style="width:12%">Date</th><th style="width:${rmoTab === 'orders' ? '11%' : '15%'}">Message</th></tr></thead>
+            <tbody id="rec-pos-orders-tbody">
+              <tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS orders...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <aside class="rmo-detail-panel" id="rmo-detail-panel"></aside>
       </div>
       <div class="table-pagination rmo-pagination" id="pos-orders-pagination"><span>Loading POS orders...</span></div>
     </div>
 
-    <div class="modal-overlay" id="botcake-send-modal">
-      <div class="modal" style="max-width:460px;">
+    <!-- Two ways out of the same button: a text through Infotxt, which reaches
+         the rider as well as the customer, and the Messenger broadcast, which
+         only reaches customers who have written to the page. SMS leads because
+         it is the one that works on a delivery being chased. -->
+    <div class="modal-overlay" id="rmo-send-modal">
+      <div class="modal" style="max-width:540px;">
         <div class="modal-header">
-          <div class="modal-title">Send Messenger Broadcast</div>
-          <button class="modal-close" onclick="closeModal('botcake-send-modal')">×</button>
+          <div class="modal-title">Send Message</div>
+          <button class="modal-close" onclick="closeModal('rmo-send-modal')">×</button>
         </div>
         <div class="modal-body">
-          <div id="botcake-send-recipients" class="field-help" style="margin-bottom:10px;"></div>
-          <div class="form-group">
-            <label class="form-label">Broadcast (from the "UPDATE" folder)</label>
-            <select class="form-control" id="botcake-flow-select"><option value="">Loading…</option></select>
-            <div class="field-help">Move the broadcasts you want here into Botcake's "UPDATE" folder.</div>
+          <div id="rmo-send-recipients" class="field-help" style="margin-bottom:10px;"></div>
+          <div class="table-filters" id="rmo-send-channels" style="margin-bottom:14px;"></div>
+
+          <div id="rmo-send-sms-panel">
+            <div class="form-group">
+              <label class="form-label">Text who?</label>
+              <div class="table-filters" id="rmo-send-who"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Message</label>
+              <textarea class="form-control" id="rmo-send-message" rows="5" oninput="refreshRmoSendCount()"
+                placeholder="Hi {customer}, your order {order_id} is out for delivery today. Please keep your phone open. COD: {cod}."></textarea>
+              <div class="field-help" id="rmo-send-count">0 characters · 1 SMS</div>
+              <div class="field-help">Placeholders: {customer} {customer_phone} {rider} {rider_phone} {order_id} {tracking} {status} {cod} {product} {page}</div>
+            </div>
           </div>
-          <div id="botcake-send-result" style="margin-top:6px;"></div>
+
+          <div id="rmo-send-messenger-panel" style="display:none;">
+            <div class="form-group">
+              <label class="form-label">Broadcast (from the "UPDATE" folder)</label>
+              <select class="form-control" id="botcake-flow-select"><option value="">Loading…</option></select>
+              <div class="field-help">Move the broadcasts you want here into Botcake's "UPDATE" folder.</div>
+            </div>
+          </div>
+
+          <div id="rmo-send-result" style="margin-top:6px;"></div>
           <div style="display:flex;gap:8px;margin-top:10px;">
-            <button type="button" class="btn btn-primary" id="botcake-send-confirm" style="flex:1;" onclick="confirmBotcakeSend()">Send</button>
-            <button type="button" class="btn btn-secondary" onclick="closeModal('botcake-send-modal')">Cancel</button>
+            <button type="button" class="btn btn-primary" id="rmo-send-confirm" style="flex:1;" onclick="confirmRmoSend()">Send</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('rmo-send-modal')">Cancel</button>
           </div>
         </div>
       </div>
@@ -20280,43 +20467,48 @@ function renderAssigneeSelect(order) {
   </select>`;
 }
 
-// Summary row up top, delivery detail hidden underneath. Which rows are open is
-// kept by order key rather than in the DOM, so a repaint (sync, filter, poll)
-// doesn't snap everything shut under whoever was reading it.
+// Clicking a row opens its card beside the table. Which order is open is kept
+// by key rather than in the DOM, so a repaint (sync, filter, poll) leaves the
+// card standing on whatever the desk was reading.
 const RMO_TABLE_COLSPAN = 8;
-const rmoExpandedRows = new Set();
+let rmoSelectedKey = '';
 
 // The customer name, phone and tracking cells copy on click, so those — and any
 // real control — keep their own behaviour; clicking anywhere else on the row
-// opens its detail.
+// opens its card.
 function toggleRmoRowDetails(event, row) {
   if (!row) return;
   if (event.target.closest('input, button, select, a, label, .rmo-copy')) return;
+  const key = row.dataset.key || '';
+  // Clicking the open row again closes the card, the way the collapse did.
+  rmoSelectedKey = rmoSelectedKey === key ? '' : key;
+  markRmoSelectedRow();
+  renderRmoDetailPanel();
+  if (rmoSelectedKey) loadRmoCustomerStats(row);
+}
 
-  const detail = document.getElementById(row.dataset.detail);
-  if (!detail) return;
-  const open = detail.hidden;
-  detail.hidden = !open;
-  row.classList.toggle('expanded', open);
+function closeRmoDetailPanel() {
+  rmoSelectedKey = '';
+  markRmoSelectedRow();
+  renderRmoDetailPanel();
+}
 
-  if (open) loadRmoCustomerStats(row, detail);
-
-  const key = row.dataset.key;
-  if (!key) return;
-  if (open) rmoExpandedRows.add(key);
-  else rmoExpandedRows.delete(key);
+// Only the highlight moves, so selecting a row never repaints the table under
+// the pointer.
+function markRmoSelectedRow() {
+  document.querySelectorAll('#rec-pos-orders-tbody tr.rmo-row').forEach((tr) => {
+    tr.classList.toggle('rmo-row-selected', !!rmoSelectedKey && tr.dataset.key === rmoSelectedKey);
+  });
 }
 
 // Pancake's numbers for this row's customer, if the POS has better than what the
-// row was served with. Only fires on expand — one API call per customer per
-// session, cached server-side too, so browsing the table costs nothing until
-// somebody actually opens a row.
-async function loadRmoCustomerStats(row, detail) {
+// row was served with. Only fires when a card is opened — one API call per
+// customer per session, cached server-side too, so browsing the table costs
+// nothing until somebody actually opens an order.
+async function loadRmoCustomerStats(row) {
   const phone = row?.dataset?.phone || '';
   const key = normalizePhoneKey(phone);
-  const cell = detail?.querySelector('.rmo-detail-spacer');
-  if (!key || !cell || DB.posCustomerStats[key] || cell.dataset.statsPending === key) return;
-  cell.dataset.statsPending = key;
+  if (!key || DB.posCustomerStats[key]) return;
   try {
     const query = new URLSearchParams({ phone });
     if (row.dataset.shop) query.set('shop_id', row.dataset.shop);
@@ -20329,34 +20521,165 @@ async function loadRmoCustomerStats(row, detail) {
     // already had rather than replacing it with nothing.
     if (!stats || (!stats.delivered && !stats.returned)) return;
     DB.posCustomerStats[key] = stats;
-    renderRmoCustomerCell(cell, stats);
+    // The card may have been closed or moved on while this was in flight.
+    if (rmoSelectedKey === row.dataset.key) renderRmoDetailPanel();
   } catch {
     // Leave the counts the row came with — the POS being unreachable is not
-    // worth blanking a row the desk is reading.
-  } finally {
-    delete cell.dataset.statsPending;
+    // worth blanking a card the desk is reading.
   }
 }
 
-// The whole detail item, label included. The label names the source, because
-// the difference between Pancake's record of a customer and our own count of
-// the orders we happen to have synced is exactly what makes a number look wrong.
-function customerHistoryCell(history) {
-  const block = customerHistoryBadges(history);
-  if (!block) return '';
-  const label = history?.source === 'pancake' ? 'Customer · POS' : 'Customer · synced orders';
-  return `<div class="rmo-detail-item">
-    <span class="rmo-detail-label">${label}</span>
-    <span class="rmo-detail-value">${block}</span>
+// Pancake has no undeliverable ORDER status, so a parcel the courier gave up on
+// months ago still says 'shipped'. Past the abandonment cutoff the server counts
+// it as returned; show the same thing rather than a status nobody believes.
+// status_name itself is left as Pancake sent it.
+const POS_STATUS_MAP = {
+  new:        ['New',        'badge-info'],
+  pending:    ['New',        'badge-info'],
+  submitted:  ['Confirmed',  'badge-primary'],
+  wait_print: ['Confirmed',  'badge-primary'],
+  shipped:    ['Shipped',    'badge-primary'],
+  delivered:  ['Delivered',  'badge-success'],
+  returning:  ['Returning',  'badge-danger'],
+  returned:   ['Returned',   'badge-danger'],
+  canceled:   ['Canceled',   'badge-warning'],
+  removed:    ['Canceled',   'badge-warning'],
+};
+
+function posStatusPair(order) {
+  if (order?.abandoned_undeliverable) return ['Returned', 'badge-danger'];
+  return POS_STATUS_MAP[order?.status_name] || [
+    order?.status_name ? order.status_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : null,
+    'badge-gray',
+  ];
+}
+
+function posDisplayStatus(order) {
+  return posStatusPair(order)[0];
+}
+
+/* ─── THE ORDER CARD ────────────────────────────────────────
+   Everything the summary row does not show, for the one order that is open:
+   who the customer is and how they have paid up until now, then the order, then
+   the delivery. Sits beside the table rather than inside it, so opening an
+   order moves nothing else on the page. */
+function rmoDetailField(label, value, { wide = false } = {}) {
+  return `<div class="rmo-card-field${wide ? ' wide' : ''}">
+    <span class="rmo-card-label">${escapeHtml(label)}</span>
+    <span class="rmo-card-value">${value || '<span class="rmo-muted">—</span>'}</span>
   </div>`;
 }
 
-function renderRmoCustomerCell(cell, history) {
-  cell.innerHTML = customerHistoryCell(history);
+function renderRmoDetailPanel() {
+  const panel = document.getElementById('rmo-detail-panel');
+  if (!panel) return;
+  const order = rmoSelectedKey
+    ? (DB.posRawOrders || []).find((o) => `${o.shop_id || ''}::${o.external_id || ''}` === rmoSelectedKey)
+    : null;
+
+  if (!order) {
+    panel.classList.remove('open');
+    panel.innerHTML = `<div class="rmo-card-empty">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M2 6.5h12M5.5 9.5h5"/></svg>
+      <h4>No order open</h4>
+      <p>Click any row to see the customer, the order and the delivery.</p>
+    </div>`;
+    return;
+  }
+  panel.classList.add('open');
+
+  const dash = '<span class="rmo-muted">—</span>';
+  const rider = getRmoRider(order);
+  const reason = getRmoReasonDisplay(order);
+  const history = rmoCustomerHistory(order);
+  const historyLabel = history?.source === 'pancake' ? 'Reported by the POS' : 'Counted from synced orders';
+  const tagLabels = (Array.isArray(order.tags) ? order.tags : [])
+    .map((tag) => (typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || ''))).filter(Boolean);
+  const statusText = posDisplayStatus(order);
+  const statusTone = order.abandoned_undeliverable ? 'danger'
+    : ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
+    : order.status_name === 'delivered' ? 'success'
+    : ['shipped', 'submitted', 'wait_print'].includes(order.status_name) ? 'primary'
+    : 'info';
+  const msgId = escapeHtml(order.external_id || '');
+  const msgShop = escapeHtml(order.shop_id || '');
+  const copyable = (value, label) => (value
+    ? `<span class="rmo-copy" data-copy="${escapeHtml(value)}" data-copy-label="${escapeHtml(label)}" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(value)}</span>`
+    : '');
+  const canSend = !!order.can_message || (rmoSendCanUseSms() && !!(order.customer_phone || rider.tel));
+
+  panel.innerHTML = `
+    <div class="rmo-card-head">
+      <div>
+        <div class="rmo-card-name">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
+        <div class="rmo-card-sub">Order ${escapeHtml(order.external_id || '')}${order.page_name ? ` · ${escapeHtml(order.page_name)}` : ''}</div>
+      </div>
+      <button class="modal-close" type="button" onclick="closeRmoDetailPanel()" title="Close">&times;</button>
+    </div>
+
+    <div class="rmo-card-status">
+      <span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
+      <span class="rmo-card-cod">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</span>
+    </div>
+    ${reason ? `<div class="rmo-card-reason"><span class="rmo-reason-text">${escapeHtml(reason)}</span>${rmoStuckChip(order)}</div>` : ''}
+
+    <div class="rmo-card-section">
+      <div class="rmo-card-section-title">Customer</div>
+      <div class="rmo-card-grid">
+        ${rmoDetailField('Phone', copyable(order.customer_phone, 'Phone number'))}
+        ${rmoDetailField('Province', escapeHtml(order.province || ''))}
+        ${rmoDetailField('Address', escapeHtml(order.address || order.full_address || ''), { wide: true })}
+      </div>
+      ${customerHistoryBadges(history)
+        ? `<div class="rmo-card-history">
+            <span class="rmo-card-label">${escapeHtml(historyLabel)}</span>
+            ${customerHistoryBadges(history)}
+          </div>`
+        : '<div class="rmo-card-history"><span class="rmo-muted">No delivery history for this number yet.</span></div>'}
+    </div>
+
+    <div class="rmo-card-section">
+      <div class="rmo-card-section-title">Order</div>
+      <div class="rmo-card-grid">
+        ${rmoDetailField('Product', escapeHtml(order.note_product || 'POS order'), { wide: true })}
+        ${rmoDetailField('Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)))}
+        ${rmoDetailField('Attempts', Number(order.attempts || 0) > 1
+          ? `<span class="rmo-attempt">${Number(order.attempts)}</span>`
+          : escapeHtml(String(Number(order.attempts || 0))))}
+        ${rmoDetailField('Last update', escapeHtml(formatPosTimestamp(order.updated_at)))}
+        ${rmoDetailField('Confirmed by', escapeHtml(order.assigning_seller_name || ''))}
+      </div>
+    </div>
+
+    <div class="rmo-card-section">
+      <div class="rmo-card-section-title">Delivery</div>
+      <div class="rmo-card-grid">
+        ${rmoDetailField('Rider', escapeHtml(rider.name || ''))}
+        ${rmoDetailField('Rider phone', copyable(rider.tel, 'Rider phone'))}
+        ${rmoDetailField('Courier', escapeHtml(getRmoCourier(order) || ''))}
+        ${rmoDetailField('Tracking', copyable(order.tracking_no, 'Tracking number'))}
+      </div>
+    </div>
+
+    <div class="rmo-card-section">
+      <div class="rmo-card-section-title">Tags</div>
+      <div class="rmo-tag-line">
+        ${tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('') || '<span class="rmo-muted">No tag</span>'}
+        <button class="rmo-tag-edit" type="button" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button>
+      </div>
+    </div>
+
+    <div class="rmo-card-actions">
+      <button class="btn btn-primary btn-sm" type="button" ${canSend ? '' : 'disabled title="No number and no Messenger contact"'}
+        onclick="openRmoSendModal('single','${msgId}','${msgShop}')">&#9993; Send message</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-phone="${escapeHtml(order.customer_phone || '')}"
+        data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)"
+        ${order.customer_phone ? '' : 'disabled'}>&#128221; Notes</button>
+    </div>`;
 }
 
 // The best history we hold for an order's customer: what the POS told us when a
-// row was expanded, else the counts the list was served with.
+// card was opened, else the counts the list was served with.
 function rmoCustomerHistory(order) {
   const key = normalizePhoneKey(order?.customer_phone);
   return (key && DB.posCustomerStats[key]) || order?.customer_history || null;
@@ -20413,37 +20736,15 @@ function renderPosOrdersTable() {
   }
 
   const dash = '<span style="color:var(--text-muted)">—</span>';
-  const posStatusMap = {
-    new:        ['New',        'badge-info'],
-    pending:    ['New',        'badge-info'],
-    submitted:  ['Confirmed',  'badge-primary'],
-    wait_print: ['Confirmed',  'badge-primary'],
-    shipped:    ['Shipped',    'badge-primary'],
-    delivered:  ['Delivered',  'badge-success'],
-    returning:  ['Returning',  'badge-danger'],
-    returned:   ['Returned',   'badge-danger'],
-    canceled:   ['Canceled',   'badge-warning'],
-    removed:    ['Canceled',   'badge-warning'],
-  };
   tbody.innerHTML = DB.posRawOrders.map((order) => {
     const tags = Array.isArray(order.tags) ? order.tags : [];
     const tagLabels = tags.map((tag) => typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || '')).filter(Boolean);
-    // Pancake has no undeliverable ORDER status, so a parcel the courier gave up
-    // on months ago still says 'shipped'. Past the abandonment cutoff the server
-    // counts it as returned; show the same thing rather than a status nobody
-    // believes. status_name itself is left as Pancake sent it.
-    const [statusText, statusClass] = order.abandoned_undeliverable
-      ? ['Returned', 'badge-danger']
-      : posStatusMap[order.status_name] || [
-        order.status_name ? order.status_name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : null,
-        'badge-gray',
-      ];
+    const [statusText, statusClass] = posStatusPair(order);
     const statusLabel = statusText
       ? `<span class="badge ${statusClass}">${escapeHtml(statusText)}</span>`
       : dash;
     if (isRmoPage) {
       const product = order.note_product || 'POS order';
-      const tagHtml = tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('');
       const statusTone = order.abandoned_undeliverable ? 'danger'
         : ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
         : order.status_name === 'delivered' ? 'success'
@@ -20452,50 +20753,28 @@ function renderPosOrdersTable() {
       const msgId = escapeHtml(order.external_id || '');
       const msgShop = escapeHtml(order.shop_id || '');
       const rider = getRmoRider(order);
+      // Reachable by any channel: a Messenger PSID, or a number to text. SMS
+      // is what made the rider's number count — Messenger never could reach
+      // them, so before this a rider-only row had no Send button at all.
+      const canSendRmoMessage = !!order.can_message
+        || (rmoSendCanUseSms() && !!(order.customer_phone || rider.tel));
       const rowKey = `${order.shop_id || ''}::${order.external_id || ''}`;
-      const detailId = `rmo-detail-${rowKey.replace(/[^A-Za-z0-9]/g, '_')}`;
-      const open = rmoExpandedRows.has(rowKey);
       const reason = getRmoReasonDisplay(order);
       const showsReason = rmoTab === 'undeliverable' || rmoTab === 'returning';
-      // Everything the summary row no longer shows, laid out as one detail cell
-      // per summary column so each field sits under the column it belongs with:
-      // rider under customer, rider phone under phone, and so on. Page and Last
-      // Update aren't in the seven either, but the tabs filter by them, so they
-      // ride along rather than disappearing.
       // The summary row pairs each column with the field that belongs to it —
       // phone under the customer, page under the product, attempts under the
-      // date — so eight columns carry what thirteen used to, and the detail row
-      // is left holding only the delivery side.
+      // date — and everything else lives in the card beside the table.
       const attempts = Number(order.attempts || 0);
       const statusSub = showsReason
         ? `${reason ? `<span class="rmo-reason-text">${escapeHtml(reason)}</span>` : dash}${rmoTab === 'undeliverable' ? rmoStuckChip(order) : ''}`
         : dash;
       const orderedAt = escapeHtml(formatPosTimestamp(order.inserted_at || order.date)) || dash;
-      // Sits in the detail row's first cell, under the order number, so the
-      // expanded row opens with who this customer has been. Prefers anything
-      // already fetched from the POS over the counts the row came with.
-      const historyBlock = customerHistoryCell(rmoCustomerHistory(order));
-      const statusDetail = rmoTab === 'delivering'
-        ? [['Last Update', escapeHtml(formatPosTimestamp(order.updated_at)) || dash]]
-        : [];
-      const detailColumns = [
-        [['Rider Assign', escapeHtml(rider.name || '') || dash]],
-        [['Rider Phone', escapeHtml(rider.tel || '') || dash]],
-        [['Tracking', order.tracking_no
-          ? `<span class="rmo-copy" data-copy="${escapeHtml(order.tracking_no)}" data-copy-label="Tracking number" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(order.tracking_no)}</span>`
-          : dash]],
-        [['Courier', escapeHtml(getRmoCourier(order)) || dash]],
-        [['Confirmed By', escapeHtml(order.assigning_seller_name || '') || dash]],
-        statusDetail,
-        // Tags last: the edit button makes this the one interactive field.
-        [['Tags', `<div class="rmo-tag-line">${tagHtml || '<span class="rmo-muted">No tag</span>'}<button class="rmo-tag-edit" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button></div>`]],
-      ];
-      return `<tr class="rmo-row${open ? ' expanded' : ''}" data-detail="${detailId}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to show delivery details" onclick="toggleRmoRowDetails(event, this)">
+      return `<tr class="rmo-row${rmoSelectedKey === rowKey ? ' rmo-row-selected' : ''}" data-key="${escapeHtml(rowKey)}" data-phone="${escapeHtml(order.customer_phone || '')}" data-shop="${msgShop}" data-order="${msgId}" title="Click the row to open this order" onclick="toggleRmoRowDetails(event, this)">
         <td>
           <span class="rmo-check-cell">
-            ${order.can_message
+            ${canSendRmoMessage
               ? `<input type="checkbox" class="rmo-row-check" data-id="${msgId}" data-shop="${msgShop}" data-name="${escapeHtml(order.customer_name || '')}" onchange="onRmoRowCheck()">`
-              : '<span class="rmo-check-blank" title="No Messenger contact for this order">—</span>'}
+              : '<span class="rmo-check-blank" title="No number and no Messenger contact for this order">—</span>'}
             <span class="rmo-order-id">${escapeHtml(order.external_id || '')}</span>
           </span>
         </td>
@@ -20521,22 +20800,14 @@ function renderPosOrdersTable() {
         </td>
         <td>
           <div class="rmo-msg-actions">
-            ${order.can_message
-              ? `<button class="rmo-msg-btn" onclick="openBotcakeSendModal('single','${msgId}','${msgShop}')" title="Send Messenger broadcast">✉ Send</button>`
+            ${canSendRmoMessage
+              ? `<button class="rmo-msg-btn" onclick="openRmoSendModal('single','${msgId}','${msgShop}')" title="Text the rider or the customer${order.can_message ? ', or send a Messenger broadcast' : ''}">✉ Send</button>`
               : '<span class="rmo-muted">—</span>'}
             ${rmoTab !== 'orders'
               ? `<button class="rmo-msg-btn" data-phone="${escapeHtml(order.customer_phone || '')}" data-name="${escapeHtml(order.customer_name || '')}" onclick="openCustomerNotesModal(this)" ${order.customer_phone ? '' : 'disabled'} title="View / add customer notes">📝 Notes</button>`
               : ''}
           </div>
         </td>
-      </tr>
-      <tr class="rmo-detail-row" id="${detailId}" ${open ? '' : 'hidden'}>
-        <td class="rmo-detail-spacer">${historyBlock}</td>
-        ${detailColumns.map((fields) => `<td>${fields.map(([label, value]) => `
-          <div class="rmo-detail-item">
-            <span class="rmo-detail-label">${label}</span>
-            <span class="rmo-detail-value">${value}</span>
-          </div>`).join('')}</td>`).join('')}
       </tr>`;
     }
     return `<tr>
@@ -20558,7 +20829,13 @@ function renderPosOrdersTable() {
   }).join('') || `<tr><td colspan="${isRmoPage ? RMO_TABLE_COLSPAN : 14}" style="text-align:center;padding:32px;color:var(--text-muted)">No POS orders found.</td></tr>`;
 
   // The repaint replaced the row checkboxes, so reset the bulk selection bar.
-  if (isRmoPage) updateRmoBulkBar();
+  // The open card is redrawn from the fresh row, so a sync landing while an
+  // order is open updates it in place rather than closing it.
+  if (isRmoPage) {
+    updateRmoBulkBar();
+    markRmoSelectedRow();
+    renderRmoDetailPanel();
+  }
 
   const pagination = document.getElementById('pos-orders-pagination');
   if (pagination) {

@@ -655,6 +655,124 @@ async function sendToRecipient(db, posOrder, { recipient, triggers, setting, sho
   return { skipped: 'duplicate', triggers };
 }
 
+/* ─── MANUAL SEND FROM RMO MANAGEMENT ───────────────────────
+ * The desk picking up the phone, not a rule firing: someone opens an order in
+ * RMO Management, writes a line, and texts the rider or the customer on the
+ * spot. Deliberately NOT deduped — chasing a delivery means texting the same
+ * number again tomorrow, and sometimes twice today — so there is no
+ * sms_sent_events marker, only an sms_logs row per attempt.
+ */
+const MANUAL_MAX_RECIPIENTS = Math.max(1, Number(process.env.SMS_MANUAL_MAX || 100));
+
+// Every number comes out of pos_orders here rather than off the request: the
+// browser sends order ids and who to text, never the number itself, so a
+// tampered page cannot turn this into an open SMS gateway.
+async function loadOrdersForManualSms(db, orders = []) {
+  const wanted = [];
+  const seen = new Set();
+  for (const entry of Array.isArray(orders) ? orders : []) {
+    const externalId = stringOrNull(entry?.external_id ?? entry?.externalId);
+    if (!externalId) continue;
+    const shopId = stringOrNull(entry?.shop_id ?? entry?.shopId);
+    const key = `${shopId || ''}::${externalId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    wanted.push({ externalId, shopId });
+  }
+  const rows = [];
+  for (const { externalId, shopId } of wanted) {
+    // Pancake order ids repeat across shops, so the shop is part of the key
+    // whenever the caller knows it.
+    const row = shopId
+      ? await db.prepare('SELECT * FROM pos_orders WHERE external_id = ? AND shop_id = ?').get(externalId, shopId)
+      : await db.prepare('SELECT * FROM pos_orders WHERE external_id = ? ORDER BY updated_at DESC').get(externalId);
+    rows.push({ external_id: externalId, shop_id: shopId, row: row || null });
+  }
+  return rows;
+}
+
+// One SMS per order, sent in sequence. Nothing is thrown once sending starts —
+// an unreachable order is a per-order result, so one bad number never stops the
+// rest of the batch.
+async function sendManualSms(db, payload = {}) {
+  const setting = await getPrivateSetting(db);
+  if (!setting.enabled) throw new Error('Infotxt SMS is switched off, so nothing would be sent.');
+  if (!setting.user_id) throw new Error('Infotxt UserID is missing.');
+  if (!setting.api_key) throw new Error('Infotxt API key is missing.');
+
+  const recipient = normalizeRecipient(payload.recipient);
+  const fields = RECIPIENT_FIELDS[recipient];
+  const template = String(payload.message ?? '').trim();
+  if (!template) throw new Error('Message content is required.');
+
+  const targets = await loadOrdersForManualSms(db, payload.orders);
+  if (!targets.length) throw new Error('No orders selected.');
+  if (targets.length > MANUAL_MAX_RECIPIENTS) {
+    throw new Error(`That is ${targets.length} orders — text at most ${MANUAL_MAX_RECIPIENTS} at a time.`);
+  }
+
+  const sim = stringOrNull(payload.sim) || null;
+  const sentBy = stringOrNull(payload.sent_by);
+  const stamp = Date.now();
+  const results = [];
+  let sent = 0;
+  let failed = 0;
+
+  for (let index = 0; index < targets.length; index += 1) {
+    const { external_id: externalId, shop_id: shopId, row } = targets[index];
+    const ref = `${shopId || ''}::${externalId}`;
+    if (!row) {
+      failed += 1;
+      results.push({ ref, external_id: externalId, ok: false, error: 'Order not found.' });
+      continue;
+    }
+    const name = stringOrNull(row[fields.name]);
+    const rawTel = stringOrNull(row[fields.tel]);
+    const mobile = normalizeMobile(rawTel);
+    if (!mobile) {
+      failed += 1;
+      results.push({
+        ref,
+        external_id: externalId,
+        name,
+        ok: false,
+        error: rawTel
+          ? `${fields.label} number is not a usable PH mobile: ${rawTel}`
+          : `No ${recipient} number on this order.`,
+      });
+      continue;
+    }
+
+    const message = truncate(renderTemplate(template, row), 1550);
+    // Timestamped so the same desk can text the same number again later —
+    // manual chasing is repetitive by nature and must never be deduped away.
+    const eventKey = `manual-${recipient}:${shopId || 'unknown'}:${externalId}:${mobile}:${stamp}-${index}`;
+    const log = await insertSmsLog(db, {
+      provider: PROVIDER,
+      event_key: eventKey,
+      recipient_name: name || (sentBy ? `${fields.label} (sent by ${sentBy})` : fields.label),
+      mobile,
+      message,
+      status: 'pending',
+      related_table: 'pos_orders',
+      related_id: ref,
+    });
+    try {
+      const result = await sendSms(db, { mobile, message, sim });
+      if (log.id) await updateSmsLog(db, log.id, { status: 'sent', smsid: result.smsid || null });
+      sent += 1;
+      results.push({ ref, external_id: externalId, name, mobile, ok: true, smsid: result.smsid || null });
+    } catch (error) {
+      if (log.id) await updateSmsLog(db, log.id, { status: 'failed', error_message: truncate(error.message, 500) });
+      failed += 1;
+      results.push({ ref, external_id: externalId, name, mobile, ok: false, error: error.message });
+    }
+    if (index < targets.length - 1) await sleep(BLAST_DELAY_MS);
+  }
+
+  return { recipient, sent, failed, total: targets.length, results };
+}
+
 /* ─── SMS BLAST ─────────────────────────────────────────────
  * A one-off send to a list of numbers, unrelated to the trigger rules: no
  * dedupe marker (the same promo may legitimately go out twice) and no order to
@@ -1015,6 +1133,8 @@ module.exports = {
   DEFAULT_BASE_URL,
   DEFAULT_RIDER_TEMPLATE,
   BLAST_MAX_RECIPIENTS,
+  MANUAL_MAX_RECIPIENTS,
+  sendManualSms,
   listBlastRecipients,
   listBlastShops,
   listBlastTags,
