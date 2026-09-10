@@ -3759,6 +3759,10 @@ tfoot td {
 }
 
 /* Its own card, sized by its content and nothing else. */
+/* Shown whole: no cap and no scrollbar of its own, so every field down to the
+   notes is on the page at once. A card that scrolled inside itself hid its own
+   bottom — the notes box especially — behind a second scrollbar sitting inside
+   the page's. The card scrolls with the page like anything else. */
 .rmo-detail-panel {
   flex: 0 0 330px;
   width: 330px;
@@ -3768,13 +3772,6 @@ tfoot td {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  /* Follows the page down: a long table would otherwise leave the card behind
-     after a dozen rows, and a long card scrolls itself rather than running off
-     the bottom of the screen. */
-  position: sticky;
-  top: 16px;
-  max-height: calc(100vh - 120px);
-  overflow-y: auto;
   padding: 16px;
 }
 
@@ -3794,12 +3791,24 @@ tfoot td {
 .rmo-card-empty h4 { margin: 4px 0 0; font-size: 13.5px; color: var(--text-secondary); }
 .rmo-card-empty p { margin: 0; font-size: 12px; line-height: 1.45; max-width: 220px; }
 
+/* Whose order this is stays put while the rest of the card scrolls past with
+   the page — a card long enough to scroll would otherwise lose its own name,
+   leaving a column of fields belonging to nobody. The negative margins pull it
+   out to the card's edges so it covers the padding it is pinned over, and the
+   close button rides along with it. */
 .rmo-card-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
+  margin: -16px -16px 12px;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--surface);
 }
 
 .rmo-card-name {
@@ -3893,9 +3902,9 @@ tfoot td {
 
 /* Notes live in the card, under the actions: reading and writing one no longer
    opens a modal over the table, which hid the order the note was about. */
+/* The whole history, uncapped — a scrollbar here would be a third one nested
+   inside the page's. */
 .rmo-card-notes {
-  max-height: 190px;
-  overflow-y: auto;
   margin-bottom: 8px;
 }
 
@@ -3949,8 +3958,6 @@ tfoot td {
     flex: none;
     width: 100%;
     margin-top: 0;
-    position: static;
-    max-height: none;
   }
   .rmo-detail-panel:not(.open) { display: none; }
   .rmo-page-split > .rmo-table-wrap { width: 100%; }
