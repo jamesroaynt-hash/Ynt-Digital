@@ -3585,6 +3585,22 @@ tfoot td {
   padding: 2px 0 6px 8px;
 }
 
+/* A category's tags, in their own panel beside the list. */
+.rmo-tagfly-sub { width: 224px; }
+
+.rmo-tagfly-subhead {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* Not nested under a category row, so it needs no indent of its own. */
+.rmo-tagfly-tags.flat { padding: 2px 0; }
+
 .rmo-tagfly-tag {
   display: flex;
   align-items: center;

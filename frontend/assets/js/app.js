@@ -1353,6 +1353,7 @@ function holdRmoTagFlyout() {
 function closeRmoTagFlyout() {
   clearTimeout(rmoTagHoverTimer);
   clearTimeout(rmoTagCloseTimer);
+  document.getElementById('rmo-tag-subflyout')?.remove();
   document.getElementById('rmo-tag-flyout')?.remove();
   rmoTagFly = null;
 }
@@ -1426,10 +1427,15 @@ function renderRmoTagFlyout() {
   const order = rmoTagOrder(rmoTagFly.externalId, rmoTagFly.shopId);
   const current = rmoTagIdsOf(order);
   const groups = rmoTagGroups();
-  // Filtering names tags, not groups, so every group holding a match opens —
-  // typing then reads as one flat list of hits rather than a set of closed
-  // folders you still have to click through.
+  // A filter names tags, not groups, so it drops the categories and lists the
+  // hits flat — searching for a tag should not mean opening folders to find it.
   const filtering = !!String(rmoTagFly.filter || '').trim();
+
+  const tagRow = (tag) => `
+    <button class="rmo-tagfly-tag ${current.has(Number(tag.id)) ? 'on' : ''}" type="button"
+      onclick="toggleRmoTag(${Number(tag.id)})">
+      <span class="rmo-tagfly-box"></span>${escapeHtml(tag.name)}
+    </button>`;
 
   const body = rmoTagFly.error
     ? `<div class="rmo-tagfly-empty" style="color:var(--danger)">Could not load tags: ${escapeHtml(rmoTagFly.error)}</div>`
@@ -1437,21 +1443,21 @@ function renderRmoTagFlyout() {
       ? '<div class="rmo-tagfly-empty">Loading tags…</div>'
       : !groups.length
         ? `<div class="rmo-tagfly-empty">${filtering ? 'No tag matches that.' : 'No tags configured for this page.'}</div>`
-        : groups.map(([name, tags], index) => {
-          const open = filtering || rmoTagFly.group === name;
-          const on = tags.filter((t) => current.has(Number(t.id))).length;
-          return `
-            <button class="rmo-tagfly-group ${open ? 'open' : ''}" type="button" onclick="toggleRmoTagGroup(${index})">
-              <span class="rmo-tagfly-gname">${escapeHtml(name)}</span>
-              <span class="rmo-tagfly-count">${on ? `${on} on` : ''}</span>
-              <span class="rmo-tagfly-chev">${open ? '&#9662;' : '&#9656;'}</span>
-            </button>
-            ${open ? `<div class="rmo-tagfly-tags">${tags.map((tag) => `
-              <button class="rmo-tagfly-tag ${current.has(Number(tag.id)) ? 'on' : ''}" type="button"
-                onclick="toggleRmoTag(${Number(tag.id)})">
-                <span class="rmo-tagfly-box"></span>${escapeHtml(tag.name)}
-              </button>`).join('')}</div>` : ''}`;
-        }).join('');
+        : filtering
+          ? `<div class="rmo-tagfly-tags flat">${groups.flatMap(([, tags]) => tags).map(tagRow).join('')}</div>`
+          // The categories are a fixed list: a group's tags open in a panel
+          // beside this one rather than inside it, so choosing one never
+          // changes this panel's height and shoves the rest off the screen.
+          : groups.map(([name, tags], index) => {
+            const on = tags.filter((t) => current.has(Number(t.id))).length;
+            return `
+              <button class="rmo-tagfly-group ${rmoTagFly.group === name ? 'open' : ''}" type="button"
+                onclick="openRmoTagGroup(${index}, this)" onmouseenter="openRmoTagGroup(${index}, this)">
+                <span class="rmo-tagfly-gname">${escapeHtml(name)}</span>
+                <span class="rmo-tagfly-count">${on ? `${on} on` : ''}</span>
+                <span class="rmo-tagfly-chev">&#9666;</span>
+              </button>`;
+          }).join('');
 
   el.innerHTML = `
     <div class="rmo-tagfly-search">
@@ -1460,18 +1466,55 @@ function renderRmoTagFlyout() {
         oninput="filterRmoTagFlyout(this.value)" onkeydown="if(event.key==='Escape')closeRmoTagFlyout()">
     </div>
     <div class="rmo-tagfly-body">${body}</div>`;
+  renderRmoTagSub();
 }
 
 // Groups are addressed by position rather than name: a group name is free text
 // from Pancake and would need escaping to survive a round trip through an
 // onclick attribute.
-function toggleRmoTagGroup(index) {
+function openRmoTagGroup(index, row) {
   if (!rmoTagFly) return;
   const name = rmoTagGroups()[index]?.[0];
   if (!name) return;
-  rmoTagFly.group = rmoTagFly.group === name ? '' : name;
+  // Clicking the open one closes it; arriving from another row just switches.
+  rmoTagFly.group = (rmoTagFly.group === name && rmoTagFly.groupRow === row) ? '' : name;
+  rmoTagFly.groupRow = row;
   renderRmoTagFlyout();
-  positionRmoTagFlyout();
+}
+
+// The chosen category's tags, in their own panel to the LEFT of the list: the
+// picker opens at the right edge of the screen, so that is the side with room.
+function renderRmoTagSub() {
+  document.getElementById('rmo-tag-subflyout')?.remove();
+  const main = document.getElementById('rmo-tag-flyout');
+  if (!main || !rmoTagFly?.group) return;
+  const entry = rmoTagGroups().find(([name]) => name === rmoTagFly.group);
+  const row = main.querySelector('.rmo-tagfly-group.open');
+  if (!entry || !row) return;
+
+  const order = rmoTagOrder(rmoTagFly.externalId, rmoTagFly.shopId);
+  const current = rmoTagIdsOf(order);
+  const sub = document.createElement('div');
+  sub.id = 'rmo-tag-subflyout';
+  sub.className = 'rmo-tagfly rmo-tagfly-sub';
+  sub.addEventListener('mouseenter', holdRmoTagFlyout);
+  sub.addEventListener('mouseleave', unscheduleRmoTagFlyout);
+  sub.innerHTML = `
+    <div class="rmo-tagfly-subhead">${escapeHtml(entry[0])}</div>
+    <div class="rmo-tagfly-body"><div class="rmo-tagfly-tags flat">${entry[1].map((tag) => `
+      <button class="rmo-tagfly-tag ${current.has(Number(tag.id)) ? 'on' : ''}" type="button"
+        onclick="toggleRmoTag(${Number(tag.id)})">
+        <span class="rmo-tagfly-box"></span>${escapeHtml(tag.name)}
+      </button>`).join('')}</div></div>`;
+  document.body.appendChild(sub);
+
+  // Level with the row that opened it, to the left of the list — and flipped
+  // to the right only if there is no room on the left.
+  const mainBox = main.getBoundingClientRect();
+  const rowBox = row.getBoundingClientRect();
+  const left = mainBox.left - sub.offsetWidth - 4;
+  sub.style.left = `${left >= 8 ? left : Math.min(mainBox.right + 4, window.innerWidth - sub.offsetWidth - 8)}px`;
+  sub.style.top = `${Math.max(8, Math.min(rowBox.top - 6, window.innerHeight - sub.offsetHeight - 8))}px`;
 }
 
 function filterRmoTagFlyout(value) {
@@ -1518,10 +1561,14 @@ async function toggleRmoTag(tagId) {
 // A click anywhere else puts it away; a scroll keeps it with its tags.
 document.addEventListener('mousedown', (event) => {
   if (!rmoTagFly) return;
-  if (event.target.closest('#rmo-tag-flyout, .rmo-tag-line')) return;
+  if (event.target.closest('#rmo-tag-flyout, #rmo-tag-subflyout, .rmo-tag-line')) return;
   closeRmoTagFlyout();
 });
-window.addEventListener('scroll', () => { if (rmoTagFly) positionRmoTagFlyout(); }, true);
+window.addEventListener('scroll', () => {
+  if (!rmoTagFly) return;
+  positionRmoTagFlyout();
+  renderRmoTagSub();
+}, true);
 
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
@@ -1592,7 +1639,11 @@ async function refreshOrderViewsFromBackend() {
       loadDataReportSummary().then(() => renderDataReportDashboard()).catch(() => {});
     }
     if (App.currentPage === 'rmo-management') {
-      loadPage('rmo-management');
+      // Re-render in place rather than rebuilding the page. loadPage() threw
+      // the whole DOM away every time the poll saw a new version, which blanked
+      // the table back to "Loading POS orders…", emptied the open order card
+      // and shut the tag picker — every 45 seconds, mid-read.
+      refreshPosRawOrdersFromBackend().then(renderPosOrdersTable).catch(() => {});
     }
     if (App.currentPage === 'rts-rate') {
       renderRTSRateDashboard();
@@ -20656,6 +20707,16 @@ function renderRmoDetailPanel() {
   panel.classList.add('open');
   panel.innerHTML = renderRmoOrderCard(order);
   loadRmoCardNotes(order);
+  // A repaint replaced the tag line an open picker was measured against, so
+  // point it at the new one instead of leaving it hanging over nothing.
+  if (rmoTagFly) {
+    const line = panel.querySelector('.rmo-tag-line');
+    if (line) {
+      rmoTagFly.anchor = line;
+      positionRmoTagFlyout();
+      renderRmoTagSub();
+    }
+  }
 }
 
 function renderRmoOrderCard(order) {
