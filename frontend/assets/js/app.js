@@ -1303,63 +1303,225 @@ async function confirmBotcakeSend() {
   }
 }
 
-// ─── POS ORDER TAG EDITOR (RMO Management) ─────────────────
-// Edit a Pancake POS order's tags from the dashboard and push the change back
-// to Pancake. Available tags are fetched per shop and cached.
-let tagEditor = { externalId: null, shopId: null };
-const shopTagsCache = {};
+/* ─── TAG PICKER (RMO Management) ───────────────────────────
+   Pancake's own tag list, opened by resting the pointer on the card's tags for
+   a moment — or by the pencil — instead of a modal over the table, so the order
+   stays in view while its tags are being changed. Tags are grouped the way
+   Pancake groups them, and a click applies straight away: there is no Save, and
+   nothing to cancel.
 
-async function openTagEditor(externalId, shopId) {
-  tagEditor = { externalId, shopId };
-  const order = DB.posRawOrders.find((o) =>
-    String(o.external_id) === String(externalId) && String(o.shop_id || '') === String(shopId));
-  const current = Array.isArray(order?.tags)
-    ? order.tags.map((t) => Number(t && typeof t === 'object' ? t.id : t)).filter(Number.isInteger)
-    : [];
-  const recap = document.getElementById('pos-tags-recap');
-  if (recap) recap.textContent = order?.customer_name ? `Order for ${order.customer_name}` : `Order ${externalId}`;
-  const list = document.getElementById('pos-tags-list');
-  if (list) list.innerHTML = 'Loading…';
-  openModal('pos-tags-modal');
-  try {
-    let tags = shopTagsCache[shopId];
-    if (!tags) {
+   The panel is fixed to the body rather than placed in the card, because the
+   card scrolls and would clip anything hanging out of it. */
+const RMO_TAG_HOVER_MS = 2000;
+const RMO_TAG_CLOSE_MS = 320;
+const shopTagsCache = {};
+let rmoTagFly = null;
+let rmoTagHoverTimer = null;
+let rmoTagCloseTimer = null;
+
+function rmoTagOrder(externalId, shopId) {
+  return (DB.posRawOrders || []).find((o) => String(o.external_id) === String(externalId)
+    && String(o.shop_id || '') === String(shopId)) || null;
+}
+
+function rmoTagIdsOf(order) {
+  return new Set((Array.isArray(order?.tags) ? order.tags : [])
+    .map((t) => Number(t && typeof t === 'object' ? t.id : t)).filter(Number.isInteger));
+}
+
+// Resting the pointer opens it; passing over on the way somewhere else does not.
+function scheduleRmoTagFlyout(anchor, externalId, shopId) {
+  clearTimeout(rmoTagCloseTimer);
+  clearTimeout(rmoTagHoverTimer);
+  if (rmoTagFly && rmoTagFly.externalId === String(externalId)) return;
+  rmoTagHoverTimer = setTimeout(() => openRmoTagFlyout(anchor, externalId, shopId), RMO_TAG_HOVER_MS);
+}
+
+// Leaving cancels an unopened one, and gives an open one a moment's grace so the
+// pointer can travel from the tags to the panel without it shutting.
+function unscheduleRmoTagFlyout() {
+  clearTimeout(rmoTagHoverTimer);
+  if (!rmoTagFly) return;
+  clearTimeout(rmoTagCloseTimer);
+  rmoTagCloseTimer = setTimeout(closeRmoTagFlyout, RMO_TAG_CLOSE_MS);
+}
+
+function holdRmoTagFlyout() {
+  clearTimeout(rmoTagCloseTimer);
+}
+
+function closeRmoTagFlyout() {
+  clearTimeout(rmoTagHoverTimer);
+  clearTimeout(rmoTagCloseTimer);
+  document.getElementById('rmo-tag-flyout')?.remove();
+  rmoTagFly = null;
+}
+
+async function openRmoTagFlyout(anchor, externalId, shopId) {
+  clearTimeout(rmoTagHoverTimer);
+  closeRmoTagFlyout();
+  const el = document.createElement('div');
+  el.id = 'rmo-tag-flyout';
+  el.className = 'rmo-tagfly';
+  el.addEventListener('mouseenter', holdRmoTagFlyout);
+  el.addEventListener('mouseleave', unscheduleRmoTagFlyout);
+  document.body.appendChild(el);
+  rmoTagFly = {
+    externalId: String(externalId),
+    shopId: String(shopId || ''),
+    anchor,
+    tags: shopTagsCache[shopId] || null,
+    group: '',
+    filter: '',
+    saving: false,
+  };
+  renderRmoTagFlyout();
+  positionRmoTagFlyout();
+
+  if (!rmoTagFly.tags) {
+    try {
       const data = await authorizedJsonRequest(`/orders/pos-orders/tags?shop_id=${encodeURIComponent(shopId || '')}`);
-      tags = Array.isArray(data?.tags) ? data.tags : [];
+      const tags = Array.isArray(data?.tags) ? data.tags : [];
       shopTagsCache[shopId] = tags;
+      if (rmoTagFly?.externalId !== String(externalId)) return;
+      rmoTagFly.tags = tags;
+    } catch (error) {
+      if (rmoTagFly?.externalId !== String(externalId)) return;
+      rmoTagFly.error = error.message || 'Request failed';
     }
-    if (!tags.length) { list.innerHTML = '<div class="field-help">No tags configured for this page.</div>'; return; }
-    const cur = new Set(current);
-    list.innerHTML = tags.map((t) =>
-      `<label class="pos-tag-opt"><input type="checkbox" value="${escapeHtml(t.id)}" ${cur.has(Number(t.id)) ? 'checked' : ''}>
-        <span>${escapeHtml(t.name)}</span>${t.group ? `<span class="pos-tag-group">${escapeHtml(t.group)}</span>` : ''}</label>`
-    ).join('');
-  } catch (error) {
-    if (list) list.innerHTML = `<div class="field-help" style="color:var(--danger,#ef4444)">Failed to load tags: ${escapeHtml(error.message)}</div>`;
+    renderRmoTagFlyout();
+    positionRmoTagFlyout();
   }
 }
 
-async function saveOrderTags() {
-  const ids = [...document.querySelectorAll('#pos-tags-list input:checked')].map((cb) => Number(cb.value)).filter(Number.isInteger);
-  const btn = document.getElementById('pos-tags-save');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+// Under the tags when there is room below, above them when there is not.
+function positionRmoTagFlyout() {
+  const el = document.getElementById('rmo-tag-flyout');
+  const anchor = rmoTagFly?.anchor;
+  if (!el || !anchor?.isConnected) return;
+  const box = anchor.getBoundingClientRect();
+  const height = el.offsetHeight;
+  const below = window.innerHeight - box.bottom;
+  el.style.left = `${Math.max(8, Math.min(box.left, window.innerWidth - el.offsetWidth - 8))}px`;
+  el.style.top = below > height + 12 || below > box.top
+    ? `${box.bottom + 6}px`
+    : `${Math.max(8, box.top - height - 6)}px`;
+}
+
+function rmoTagGroups() {
+  const filter = String(rmoTagFly?.filter || '').trim().toLowerCase();
+  const groups = new Map();
+  (rmoTagFly?.tags || []).forEach((tag) => {
+    if (filter && !String(tag.name || '').toLowerCase().includes(filter)) return;
+    const name = String(tag.group || '').trim() || 'Ungrouped';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(tag);
+  });
+  return [...groups.entries()];
+}
+
+function renderRmoTagFlyout() {
+  const el = document.getElementById('rmo-tag-flyout');
+  if (!el || !rmoTagFly) return;
+  const order = rmoTagOrder(rmoTagFly.externalId, rmoTagFly.shopId);
+  const current = rmoTagIdsOf(order);
+  const groups = rmoTagGroups();
+  // Filtering names tags, not groups, so every group holding a match opens —
+  // typing then reads as one flat list of hits rather than a set of closed
+  // folders you still have to click through.
+  const filtering = !!String(rmoTagFly.filter || '').trim();
+
+  const body = rmoTagFly.error
+    ? `<div class="rmo-tagfly-empty" style="color:var(--danger)">Could not load tags: ${escapeHtml(rmoTagFly.error)}</div>`
+    : !rmoTagFly.tags
+      ? '<div class="rmo-tagfly-empty">Loading tags…</div>'
+      : !groups.length
+        ? `<div class="rmo-tagfly-empty">${filtering ? 'No tag matches that.' : 'No tags configured for this page.'}</div>`
+        : groups.map(([name, tags], index) => {
+          const open = filtering || rmoTagFly.group === name;
+          const on = tags.filter((t) => current.has(Number(t.id))).length;
+          return `
+            <button class="rmo-tagfly-group ${open ? 'open' : ''}" type="button" onclick="toggleRmoTagGroup(${index})">
+              <span class="rmo-tagfly-gname">${escapeHtml(name)}</span>
+              <span class="rmo-tagfly-count">${on ? `${on} on` : ''}</span>
+              <span class="rmo-tagfly-chev">${open ? '&#9662;' : '&#9656;'}</span>
+            </button>
+            ${open ? `<div class="rmo-tagfly-tags">${tags.map((tag) => `
+              <button class="rmo-tagfly-tag ${current.has(Number(tag.id)) ? 'on' : ''}" type="button"
+                onclick="toggleRmoTag(${Number(tag.id)})">
+                <span class="rmo-tagfly-box"></span>${escapeHtml(tag.name)}
+              </button>`).join('')}</div>` : ''}`;
+        }).join('');
+
+  el.innerHTML = `
+    <div class="rmo-tagfly-search">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+      <input type="text" id="rmo-tagfly-filter" placeholder="Filter tags" value="${escapeHtml(rmoTagFly.filter || '')}"
+        oninput="filterRmoTagFlyout(this.value)" onkeydown="if(event.key==='Escape')closeRmoTagFlyout()">
+    </div>
+    <div class="rmo-tagfly-body">${body}</div>`;
+}
+
+// Groups are addressed by position rather than name: a group name is free text
+// from Pancake and would need escaping to survive a round trip through an
+// onclick attribute.
+function toggleRmoTagGroup(index) {
+  if (!rmoTagFly) return;
+  const name = rmoTagGroups()[index]?.[0];
+  if (!name) return;
+  rmoTagFly.group = rmoTagFly.group === name ? '' : name;
+  renderRmoTagFlyout();
+  positionRmoTagFlyout();
+}
+
+function filterRmoTagFlyout(value) {
+  if (!rmoTagFly) return;
+  rmoTagFly.filter = value;
+  renderRmoTagFlyout();
+  positionRmoTagFlyout();
+  // Re-rendering replaced the box the user is typing in.
+  const input = document.getElementById('rmo-tagfly-filter');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+// Applies on the spot. The card and the row are repainted from what Pancake
+// sends back, so a tag that failed to save never appears to have stuck.
+async function toggleRmoTag(tagId) {
+  if (!rmoTagFly || rmoTagFly.saving) return;
+  const { externalId, shopId } = rmoTagFly;
+  const order = rmoTagOrder(externalId, shopId);
+  const ids = rmoTagIdsOf(order);
+  if (ids.has(tagId)) ids.delete(tagId);
+  else ids.add(tagId);
+  rmoTagFly.saving = true;
   try {
-    const data = await authorizedJsonRequest(`/orders/pos-orders/${encodeURIComponent(tagEditor.externalId)}/tags`, {
+    const data = await authorizedJsonRequest(`/orders/pos-orders/${encodeURIComponent(externalId)}/tags`, {
       method: 'POST',
-      body: JSON.stringify({ shop_id: tagEditor.shopId, tags: ids }),
+      body: JSON.stringify({ shop_id: shopId, tags: [...ids] }),
     });
-    const order = DB.posRawOrders.find((o) =>
-      String(o.external_id) === String(tagEditor.externalId) && String(o.shop_id || '') === String(tagEditor.shopId));
     if (order) order.tags = Array.isArray(data?.tags) ? data.tags : [];
-    showToast('success', 'Tags updated', `Saved ${(data?.tags || []).length} tag(s) to Pancake.`);
-    closeModal('pos-tags-modal');
     renderPosOrdersTable();
+    if (rmoTagFly) {
+      // The repaint replaced the tag line the panel was measured against.
+      const card = document.getElementById('rmo-detail-panel');
+      rmoTagFly.anchor = card?.querySelector('.rmo-tag-line') || rmoTagFly.anchor;
+      renderRmoTagFlyout();
+      positionRmoTagFlyout();
+    }
   } catch (error) {
     showToast('error', 'Tag update failed', error.message || 'Request failed');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save tags'; }
+    if (rmoTagFly) rmoTagFly.saving = false;
   }
 }
+
+// A click anywhere else puts it away; a scroll keeps it with its tags.
+document.addEventListener('mousedown', (event) => {
+  if (!rmoTagFly) return;
+  if (event.target.closest('#rmo-tag-flyout, .rmo-tag-line')) return;
+  closeRmoTagFlyout();
+});
+window.addEventListener('scroll', () => { if (rmoTagFly) positionRmoTagFlyout(); }, true);
 
 let posOrdersAutoRefreshTimer = null;
 let posOrdersLastVersion = null;
@@ -13971,23 +14133,6 @@ function renderRmoManagement() {
         </div>
       </div>
     </div>
-
-    <div class="modal-overlay" id="pos-tags-modal">
-      <div class="modal" style="max-width:460px;">
-        <div class="modal-header">
-          <div class="modal-title">Edit Order Tags</div>
-          <button class="modal-close" onclick="closeModal('pos-tags-modal')">×</button>
-        </div>
-        <div class="modal-body">
-          <div id="pos-tags-recap" class="field-help" style="margin-bottom:10px;"></div>
-          <div id="pos-tags-list" class="pos-tags-list">Loading…</div>
-          <div style="display:flex;gap:8px;margin-top:12px;">
-            <button type="button" class="btn btn-primary" id="pos-tags-save" style="flex:1;" onclick="saveOrderTags()">Save tags</button>
-            <button type="button" class="btn btn-secondary" onclick="closeModal('pos-tags-modal')">Cancel</button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>`;
 }
 
@@ -20532,13 +20677,13 @@ function renderRmoOrderCard(order) {
     ? `<span class="rmo-copy" data-copy="${escapeHtml(value)}" data-copy-label="${escapeHtml(label)}" onclick="copyRmoField(this)" title="Click to copy">${escapeHtml(value)}</span>`
     : '');
   const canSend = !!order.can_message || (rmoSendCanUseSms() && !!(order.customer_phone || rider.tel));
+  const hasDelivery = !!(rider.name || rider.tel || getRmoCourier(order) || order.tracking_no);
 
   return `
     <div class="rmo-card-head">
       <div>
         <div class="rmo-card-name">Order ${escapeHtml(order.external_id || '')}</div>
-        <div class="rmo-card-sub">${escapeHtml(order.page_name || 'No page')}${Number(order.cod || 0)
-          ? ` · <span class="rmo-card-cod">&#8369;${Number(order.cod).toLocaleString()}</span>` : ''}</div>
+        <div class="rmo-card-sub">${escapeHtml(order.page_name || 'No page')}</div>
       </div>
       <button class="modal-close" type="button" onclick="closeRmoDetailPanel()" title="Close">&times;</button>
     </div>
@@ -20562,8 +20707,19 @@ function renderRmoOrderCard(order) {
 
     <div class="rmo-card-section">
       <div class="rmo-card-section-title">Order</div>
+      <!-- Product takes the room it needs and the COD hugs the right, rather
+           than the even halves the rest of the card uses: one is a sentence,
+           the other is four characters the desk reads before it dials. -->
+      <div class="rmo-card-split">
+        ${rmoDetailField('Product', escapeHtml(order.note_product || 'POS order'))}
+        <div class="rmo-card-field rmo-card-money">
+          <span class="rmo-card-label">COD</span>
+          <span class="rmo-card-value">${Number(order.cod || 0)
+            ? `&#8369;${Number(order.cod).toLocaleString()}`
+            : '<span class="rmo-muted">—</span>'}</span>
+        </div>
+      </div>
       <div class="rmo-card-grid">
-        ${rmoDetailField('Product', escapeHtml(order.note_product || 'POS order'), { wide: true })}
         ${rmoDetailField('Date', escapeHtml(formatPosTimestamp(order.inserted_at || order.date)))}
         ${rmoDetailField('Attempts', Number(order.attempts || 0) > 1
           ? `<span class="rmo-attempt">${Number(order.attempts)}</span>`
@@ -20573,24 +20729,33 @@ function renderRmoOrderCard(order) {
       </div>
     </div>
 
+    <!-- A new order has no rider, no courier and no tracking, so four columns
+         of em dashes cost the card two rows to say nothing. One line says it
+         instead, and the fields come back the moment there is something in
+         them. -->
     <div class="rmo-card-section">
       <div class="rmo-card-section-title">Delivery</div>
-      <div class="rmo-card-grid">
+      ${hasDelivery ? `<div class="rmo-card-grid">
         ${rmoDetailField('Rider', escapeHtml(rider.name || ''))}
         ${rmoDetailField('Rider phone', copyable(rider.tel, 'Rider phone'))}
         ${rmoDetailField('Courier', escapeHtml(getRmoCourier(order) || ''))}
         ${rmoDetailField('Tracking', copyable(order.tracking_no, 'Tracking number'))}
-      </div>
+      </div>` : '<div class="rmo-muted">Not handed to a courier yet.</div>'}
     </div>
 
     <!-- Status leads the tag line: both say where the order stands, and read
          together they save the card a row of its own. -->
     <div class="rmo-card-section">
       <div class="rmo-card-section-title">Status &amp; tags</div>
-      <div class="rmo-tag-line">
+      <!-- Rest on the tags and the picker opens on its own; the pencil is for
+           anyone who would rather not wait for it. -->
+      <div class="rmo-tag-line" title="Rest here to change the tags"
+        onmouseenter="scheduleRmoTagFlyout(this,'${msgId}','${msgShop}')"
+        onmouseleave="unscheduleRmoTagFlyout()">
         <span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
         ${tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('') || '<span class="rmo-muted">No tag</span>'}
-        <button class="rmo-tag-edit" type="button" onclick="openTagEditor('${msgId}','${msgShop}')" title="Edit tags">&#9998;</button>
+        <button class="rmo-tag-edit" type="button" title="Change tags"
+          onclick="openRmoTagFlyout(this.parentNode,'${msgId}','${msgShop}')">&#9998;</button>
       </div>
     </div>
 

@@ -3488,35 +3488,136 @@ tfoot td {
   color: var(--text-primary);
 }
 
-.pos-tags-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 320px;
-  overflow-y: auto;
+/* The tag picker: a panel that hangs off the card's tag line, fixed to the
+   viewport so the card's own scrolling cannot clip it. */
+.rmo-tagfly {
+  position: fixed;
+  z-index: 120;
+  width: 268px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
 }
 
-.pos-tag-opt {
+.rmo-tagfly-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rmo-tagfly-search svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.rmo-tagfly-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.rmo-tagfly-body {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.rmo-tagfly-empty {
+  padding: 12px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* One row per category, the way Pancake groups its tags. */
+.rmo-tagfly-group {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
   border-radius: 6px;
-  font-size: 13px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
   cursor: pointer;
 }
 
-.pos-tag-opt:hover { background: var(--surface-2); }
+.rmo-tagfly-group:hover { background: var(--surface-2); }
+.rmo-tagfly-group.open { color: var(--accent); }
 
-.pos-tag-group {
-  margin-left: auto;
-  font-size: 10px;
-  font-weight: 600;
+.rmo-tagfly-gname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rmo-tagfly-count {
   color: var(--text-muted);
-  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rmo-tagfly-chev {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.rmo-tagfly-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 6px 8px;
+}
+
+.rmo-tagfly-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rmo-tagfly-tag:hover { background: var(--surface-2); color: var(--text-primary); }
+
+/* The box fills in when the tag is on, so the state reads down the left edge
+   without a checkbox control of its own. */
+.rmo-tagfly-box {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+}
+
+.rmo-tagfly-tag.on { color: var(--text-primary); font-weight: 600; }
+
+.rmo-tagfly-tag.on .rmo-tagfly-box {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--surface);
 }
 
 .rmo-courier-note {
@@ -3849,13 +3950,13 @@ tfoot td {
 }
 
 .rmo-card-section {
-  padding-top: 9px;
-  margin-top: 9px;
+  padding-top: 8px;
+  margin-top: 8px;
   border-top: 1px solid var(--border);
 }
 
 .rmo-card-section-title {
-  margin-bottom: 7px;
+  margin-bottom: 6px;
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
@@ -3868,10 +3969,31 @@ tfoot td {
 .rmo-card-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 7px 10px;
+  gap: 6px 10px;
 }
 
 .rmo-card-field.wide { grid-column: 1 / -1; }
+
+/* Product takes what it needs; the COD hugs the right of the same line. */
+.rmo-card-split {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.rmo-card-split > .rmo-card-field:first-child { flex: 1 1 auto; min-width: 0; }
+
+.rmo-card-money {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.rmo-card-money .rmo-card-value {
+  color: var(--text-primary);
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .rmo-card-label {
   display: block;
@@ -3892,13 +4014,13 @@ tfoot td {
   overflow-wrap: break-word;
 }
 
-.rmo-card-history { margin-top: 8px; }
+.rmo-card-history { margin-top: 7px; }
 .rmo-card-history .cust-hist-stack { margin-top: 0; }
 
 .rmo-card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .rmo-card-actions .btn { flex: 1; }
@@ -3937,7 +4059,7 @@ tfoot td {
 .rmo-note-error { color: var(--danger); font-size: 12px; }
 
 .rmo-note-input {
-  min-height: 52px;
+  min-height: 44px;
   font-size: 12px;
   resize: vertical;
 }
@@ -3947,7 +4069,7 @@ tfoot td {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .rmo-note-foot .field-help { color: var(--danger); }
