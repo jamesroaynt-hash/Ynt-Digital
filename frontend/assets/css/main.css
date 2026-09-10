@@ -3759,10 +3759,11 @@ tfoot td {
 }
 
 /* Its own card, sized by its content and nothing else. */
-/* Shown whole: no cap and no scrollbar of its own, so every field down to the
-   notes is on the page at once. A card that scrolled inside itself hid its own
-   bottom — the notes box especially — behind a second scrollbar sitting inside
-   the page's. The card scrolls with the page like anything else. */
+/* Stays beside the table as the page scrolls, instead of being left behind at
+   the top of a long list. The cap is the screen itself: a card that fits shows
+   whole with no scrollbar at all, and only one too tall to fit scrolls — which
+   is the price of keeping it in view, since an uncapped sticky card pins its
+   top and puts its own bottom out of reach. */
 .rmo-detail-panel {
   flex: 0 0 330px;
   width: 330px;
@@ -3773,6 +3774,11 @@ tfoot td {
   border-radius: var(--radius);
   background: var(--surface);
   padding: 16px;
+  position: sticky;
+  /* Clears the topbar, which is itself sticky at top:0. */
+  top: calc(var(--navbar-h) + 16px);
+  max-height: calc(100vh - var(--navbar-h) - 32px);
+  overflow-y: auto;
 }
 
 .rmo-card-empty {
@@ -3793,13 +3799,13 @@ tfoot td {
 
 /* Whose order this is stays put while the rest of the card scrolls past with
    the page — a card long enough to scroll would otherwise lose its own name,
-   leaving a column of fields belonging to nobody. It pins BELOW the topbar,
-   which is itself sticky at top:0 and would hide it at any smaller offset. The
+   leaving a column of fields belonging to nobody. top:0 is the top of the
+   card's own scrollport, not the page, so it needs no topbar offset. The
    negative margins pull it out to the card's edges so it covers the padding it
    is pinned over, and the close button rides along with it. */
 .rmo-card-head {
   position: sticky;
-  top: var(--navbar-h);
+  top: 0;
   z-index: 2;
   display: flex;
   align-items: flex-start;
@@ -3959,6 +3965,9 @@ tfoot td {
     flex: none;
     width: 100%;
     margin-top: 0;
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
   .rmo-detail-panel:not(.open) { display: none; }
   .rmo-page-split > .rmo-table-wrap { width: 100%; }
