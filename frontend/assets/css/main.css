@@ -3793,12 +3793,13 @@ tfoot td {
 
 /* Whose order this is stays put while the rest of the card scrolls past with
    the page — a card long enough to scroll would otherwise lose its own name,
-   leaving a column of fields belonging to nobody. The negative margins pull it
-   out to the card's edges so it covers the padding it is pinned over, and the
-   close button rides along with it. */
+   leaving a column of fields belonging to nobody. It pins BELOW the topbar,
+   which is itself sticky at top:0 and would hide it at any smaller offset. The
+   negative margins pull it out to the card's edges so it covers the padding it
+   is pinned over, and the close button rides along with it. */
 .rmo-card-head {
   position: sticky;
-  top: 0;
+  top: var(--navbar-h);
   z-index: 2;
   display: flex;
   align-items: flex-start;
