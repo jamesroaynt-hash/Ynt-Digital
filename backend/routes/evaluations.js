@@ -103,6 +103,13 @@ function isHrManager(user) {
   return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
+// Evaluating is HR's job, not a peer exercise: HR and the Administrator write
+// the sheets, everybody else only reads the one written about them. Same gate
+// as the rest of HR's access, so Operation clears it too.
+function canEvaluate(user) {
+  return isHrManager(user);
+}
+
 // Evaluations are anonymous to HR and Operation — only the Administrator sees
 // who wrote which sheet. Role text is typed by hand, so both spellings count.
 function isAdministrator(user) {
@@ -227,6 +234,44 @@ module.exports = function evaluationRoutes(db) {
     };
   }
 
+  // Every sheet written about one employee in a period, scored. `namesVisible`
+  // decides whether the evaluators are named or numbered — only the
+  // Administrator is ever shown who wrote what.
+  async function summaryFor(subjectId, period, weights, namesVisible) {
+    const rows = await db.prepare(`
+      SELECT e.*, u.full_name AS evaluator_name, u.username AS evaluator_username
+      FROM evaluations e
+      JOIN users u ON u.id = e.evaluator_id
+      WHERE e.period = ? AND e.subject_id = ?
+      ORDER BY e.updated_at DESC
+    `).all(period, subjectId);
+    return {
+      period,
+      weights,
+      criteria: CRITERIA,
+      result: scoreFor(rows, weights),
+      anonymous: !namesVisible,
+      responses: rows.filter(hasMatrix).map((row, index) => ({
+        ...(namesVisible
+          ? {
+            evaluator_id: row.evaluator_id,
+            evaluator_name: row.evaluator_name || row.evaluator_username,
+          }
+          // Numbered by the order they come back in, which shifts as sheets
+          // are revised — nothing to line up across periods.
+          : { evaluator_label: `Evaluator ${index + 1}` }),
+        items: parseItems(row),
+        // This one sheet scored on its own, so HR can open a single
+        // evaluation and read the same matrix the average is built from.
+        result: scoreFor([row], weights),
+        development_areas: row.development_areas || '',
+        proceed_to_final: row.proceed_to_final || '',
+        passed: row.passed || '',
+        date_evaluated: String(row.updated_at || row.created_at || '').slice(0, 10),
+      })),
+    };
+  }
+
   // Current period, window state, the matrix itself and the weights. Everyone
   // may read this — it carries no scores.
   router.get('/config', async (req, res) => {
@@ -236,6 +281,7 @@ module.exports = function evaluationRoutes(db) {
         weights: await loadWeights(),
         criteria: CRITERIA,
         can_manage: isHrManager(req.user),
+        can_evaluate: canEvaluate(req.user),
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -270,15 +316,26 @@ module.exports = function evaluationRoutes(db) {
     }
   });
 
-  // The signed-in user's queue: everyone they may rate this period, never
-  // themselves. Scores ride along only for HR/Administrator.
+  // HR's queue: everyone they may rate this period, never themselves. Scores
+  // ride along only for HR/Administrator. Everybody else is not an evaluator,
+  // so the queue comes back empty — the page has nothing for them to fill in.
   router.get('/queue', async (req, res) => {
     try {
       const window = evaluationWindow();
       const period = String(req.query?.period || window.period);
       const viewerId = Number(req.user?.id);
       const canSeeScores = isHrManager(req.user);
+      const mayEvaluate = canEvaluate(req.user);
       const weights = await loadWeights();
+
+      // Not an evaluator: no queue at all. Their own record is a request of
+      // its own — /evaluations/me — so there is one place that builds it.
+      if (!mayEvaluate) {
+        return res.json({
+          period, window, weights, criteria: CRITERIA,
+          can_see_scores: false, can_evaluate: false, data: [],
+        });
+      }
 
       const users = (await ratableUsers()).filter((user) => Number(user.id) !== viewerId);
       const mine = await db.prepare(`
@@ -320,15 +377,22 @@ module.exports = function evaluationRoutes(db) {
         return entry;
       });
 
-      res.json({ period, window, weights, criteria: CRITERIA, can_see_scores: canSeeScores, data: rows });
+      res.json({
+        period, window, weights, criteria: CRITERIA,
+        can_see_scores: canSeeScores, can_evaluate: true, data: rows,
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Submit or revise one evaluation. The window is enforced here, not just in
-  // the UI — the three-day rule is the point of the feature.
+  // Submit or revise one evaluation. Writing a sheet is HR's and the
+  // Administrator's alone, and the window is enforced here rather than only in
+  // the UI — both rules are the point of the feature.
   router.post('/', async (req, res) => {
+    if (!canEvaluate(req.user)) {
+      return res.status(403).json({ error: 'Only HR and the Administrator can submit evaluations.' });
+    }
     try {
       const window = evaluationWindow();
       if (!window.open) {
@@ -396,41 +460,40 @@ module.exports = function evaluationRoutes(db) {
   router.get('/summary/:subjectId', async (req, res) => {
     if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
     try {
-      const namesVisible = isAdministrator(req.user);
       const window = evaluationWindow();
       const period = String(req.query?.period || window.period);
-      const subjectId = Number(req.params.subjectId);
+      res.json(await summaryFor(Number(req.params.subjectId), period, await loadWeights(), isAdministrator(req.user)));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // What was written about the signed-in user: their own evaluation, and
+  // nobody else's. This is the whole of the page for everyone outside HR — the
+  // sheets stay anonymous, so an employee reads their ratings without reading
+  // who gave them.
+  router.get('/me', async (req, res) => {
+    try {
+      const window = evaluationWindow();
+      const period = String(req.query?.period || window.period);
+      const viewerId = Number(req.user?.id);
       const weights = await loadWeights();
-      const rows = await db.prepare(`
-        SELECT e.*, u.full_name AS evaluator_name, u.username AS evaluator_username
-        FROM evaluations e
-        JOIN users u ON u.id = e.evaluator_id
-        WHERE e.period = ? AND e.subject_id = ?
-        ORDER BY e.updated_at DESC
-      `).all(period, subjectId);
+      const summary = await summaryFor(viewerId, period, weights, false);
+      const history = await db.prepare(
+        'SELECT * FROM evaluations WHERE subject_id = ? ORDER BY period DESC'
+      ).all(viewerId);
+      const byPeriod = new Map();
+      history.forEach((row) => {
+        if (!byPeriod.has(row.period)) byPeriod.set(row.period, []);
+        byPeriod.get(row.period).push(row);
+      });
       res.json({
-        period,
-        weights,
-        criteria: CRITERIA,
-        result: scoreFor(rows, weights),
-        anonymous: !namesVisible,
-        responses: rows.filter(hasMatrix).map((row, index) => ({
-          ...(namesVisible
-            ? {
-              evaluator_id: row.evaluator_id,
-              evaluator_name: row.evaluator_name || row.evaluator_username,
-            }
-            // Numbered by the order they come back in, which shifts as sheets
-            // are revised — nothing to line up across periods.
-            : { evaluator_label: `Evaluator ${index + 1}` }),
-          items: parseItems(row),
-          // This one sheet scored on its own, so HR can open a single
-          // evaluation and read the same matrix the average is built from.
-          result: scoreFor([row], weights),
-          development_areas: row.development_areas || '',
-          proceed_to_final: row.proceed_to_final || '',
-          passed: row.passed || '',
-          date_evaluated: String(row.updated_at || row.created_at || '').slice(0, 10),
+        ...summary,
+        window,
+        can_evaluate: canEvaluate(req.user),
+        history: [...byPeriod.entries()].map(([historyPeriod, periodRows]) => ({
+          period: historyPeriod,
+          ...scoreFor(periodRows, weights),
         })),
       });
     } catch (error) {
@@ -440,9 +503,12 @@ module.exports = function evaluationRoutes(db) {
 
   // Every period this employee has been rated in, for the record card.
   router.get('/history/:subjectId', async (req, res) => {
-    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    const subjectId = Number(req.params.subjectId);
+    // HR reads anybody's record; everyone else only their own.
+    if (!isHrManager(req.user) && subjectId !== Number(req.user?.id)) {
+      return res.status(403).json({ error: 'HR or Administrator access required' });
+    }
     try {
-      const subjectId = Number(req.params.subjectId);
       const weights = await loadWeights();
       const rows = await db.prepare(
         'SELECT * FROM evaluations WHERE subject_id = ? ORDER BY period DESC'

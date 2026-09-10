@@ -4526,6 +4526,13 @@ let evaluationState = {
   window: null,
   weights: null,
   canSeeScores: false,
+  // Writing a sheet is HR's and the Administrator's. Everyone else opens this
+  // page to read the evaluation written about them, and nothing else.
+  canEvaluate: false,
+  // That read-only record, and the periods before it, for a viewer who is not
+  // an evaluator.
+  mine: null,
+  mineHistory: [],
   rows: [],
   selectedId: null,
   // The matrix currently being filled in the modal.
@@ -4546,7 +4553,7 @@ function renderEvaluationKpi() {
   <div class="page-header">
     <div class="page-title">
       <h1>Monthly Evaluation / KPI</h1>
-      <p>Evaluation Matrix — General Evaluation, filled every month.</p>
+      <p id="evaluation-page-sub">Evaluation Matrix — General Evaluation, filled every month.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
@@ -4556,7 +4563,20 @@ function renderEvaluationKpi() {
   <div id="evaluation-window-wrap"></div>
   <div id="evaluation-weights-wrap"></div>
 
-  <div class="card" style="margin-bottom:20px;">
+  <!-- Everyone who is not an evaluator sees only this: the evaluation HR
+       wrote about them. Hidden until the server says which of the two this
+       viewer is, so neither card flashes for the wrong role. -->
+  <div class="card" id="evaluation-mine-card" style="display:none;margin-bottom:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">My Evaluation</div>
+        <div class="card-subtitle">The evaluation HR filled in for you this period.</div>
+      </div>
+    </div>
+    <div class="card-body" id="evaluation-mine-wrap"></div>
+  </div>
+
+  <div class="card" id="evaluation-queue-card" style="display:none;margin-bottom:20px;">
     <div class="card-header">
       <div>
         <div class="card-title">Evaluation Queue</div>
@@ -4654,9 +4674,11 @@ async function initEvaluationKpi() {
     evaluationState.window = result.window;
     evaluationState.weights = result.weights;
     evaluationState.canSeeScores = !!result.can_see_scores;
+    evaluationState.canEvaluate = !!result.can_evaluate;
     evaluationState.rows = Array.isArray(result.data) ? result.data : [];
   } catch (error) {
     evaluationState.rows = [];
+    evaluationState.mine = null;
     showToast('error', 'Evaluation load failed', error.message || 'Could not load the evaluation queue.');
   }
   if (!evaluationState.rows.some((row) => row.id === evaluationState.selectedId)) {
@@ -4666,9 +4688,11 @@ async function initEvaluationKpi() {
   if (App.currentPage !== 'evaluation-kpi') return;
   renderEvaluationWindowNotice();
   renderEvaluationWeights();
+  renderEvaluationMine();
   renderEvaluationQueue();
   renderEvaluationRecord();
   loadEvaluationSummary();
+  loadMyEvaluation();
 }
 
 function renderEvaluationWindowNotice() {
@@ -4676,14 +4700,23 @@ function renderEvaluationWindowNotice() {
   const win = evaluationState.window;
   if (!wrap || !win) return;
   const period = evaluationPeriodLabel(win.period);
+  // An employee does not fill anything in, so telling them to would be a
+  // deadline they cannot act on — they are told when HR's window runs instead.
+  const evaluator = evaluationState.canEvaluate;
+  const openLine = evaluator
+    ? `Fill it in by ${escapeHtml(win.closes_on)} — the form closes after that and cannot be reopened.`
+    : `HR is filling in the sheets until ${escapeHtml(win.closes_on)}. Yours appears below once it is submitted.`;
+  const shutLine = evaluator
+    ? `It stays open for three days, until ${escapeHtml(win.closes_on)}.`
+    : `HR fills the sheets in over the three days to ${escapeHtml(win.closes_on)}.`;
   wrap.innerHTML = win.open
     ? `<div class="alert alert-success" style="margin-bottom:16px;">
          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 5L6 12l-3-3"/></svg>
-         <div><strong>${escapeHtml(period)} evaluation is open.</strong> Fill it in by ${escapeHtml(win.closes_on)} — the form closes after that and cannot be reopened.</div>
+         <div><strong>${escapeHtml(period)} evaluation is open.</strong> ${openLine}</div>
        </div>`
     : `<div class="alert alert-info" style="margin-bottom:16px;">
          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
-         <div><strong>${escapeHtml(period)} evaluation opens ${escapeHtml(win.opens_on)}.</strong> It stays open for three days, until ${escapeHtml(win.closes_on)}.</div>
+         <div><strong>${escapeHtml(period)} evaluation opens ${escapeHtml(win.opens_on)}.</strong> ${shutLine}</div>
        </div>`;
 }
 
@@ -4756,11 +4789,142 @@ async function saveEvaluationWeights() {
   }
 }
 
+// ─── The employee's own evaluation ─────────────────────────
+// Everyone outside HR reads exactly one record here: the sheets written about
+// them. The evaluators are not named — the server sends numbered labels — so
+// the ratings can be read without reading who gave them.
+async function loadMyEvaluation() {
+  if (evaluationState.canEvaluate) { evaluationState.mine = null; return; }
+  try {
+    const result = await authorizedJsonRequest(`/evaluations/me?_=${Date.now()}`);
+    evaluationState.mine = result;
+    evaluationState.mineHistory = Array.isArray(result.history) ? result.history : [];
+  } catch (error) {
+    evaluationState.mine = null;
+    evaluationState.mineHistory = [];
+    showToast('error', 'Evaluation load failed', error.message || 'Could not load your evaluation.');
+  }
+  if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationMine();
+}
+
+function renderEvaluationMine() {
+  const wrap = document.getElementById('evaluation-mine-wrap');
+  const card = document.getElementById('evaluation-mine-card');
+  if (!wrap || !card) return;
+  const pageSub = document.getElementById('evaluation-page-sub');
+  if (evaluationState.canEvaluate) {
+    if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation, filled every month.';
+    card.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation. HR evaluates; this is your record.';
+  card.style.display = '';
+
+  const periodLabel = evaluationPeriodLabel(evaluationState.mine?.period || evaluationState.period);
+  const subtitle = card.querySelector('.card-subtitle');
+  if (subtitle) subtitle.textContent = `${periodLabel} — filled in by HR.`;
+
+  if (!evaluationState.mine) {
+    wrap.innerHTML = '<div class="empty-state"><h3>Loading your evaluation</h3><p>Pulling the sheets written about you.</p></div>';
+    return;
+  }
+
+  const result = evaluationState.mine.result || { score: 0, covered_weight: 0, per_criteria: {}, responses: 0 };
+  const responses = evaluationState.mine.responses || [];
+  if (!result.responses) {
+    wrap.innerHTML = `<div class="empty-state"><h3>No evaluation yet</h3>
+      <p>HR has not submitted your ${escapeHtml(periodLabel)} evaluation. It appears here once they do.</p></div>
+      <div id="evaluation-mine-history"></div>`;
+    renderEvaluationMineHistory();
+    return;
+  }
+
+  const level = evaluationLevelFor(result.score);
+  wrap.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:16px;">
+      <div class="stat-card">
+        <div class="stat-label">Over All Percentage</div>
+        <div class="stat-value">${evaluationPercentText(result.score)}</div>
+        <div class="stat-meta">${result.covered_weight}% of the matrix rated</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Performance Level</div>
+        <div class="stat-value" style="font-size:20px;">${escapeHtml(level.label)}</div>
+        <div class="stat-meta">${escapeHtml(periodLabel)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Evaluations</div>
+        <div class="stat-value">${result.responses}</div>
+        <div class="stat-meta">submitted by HR</div>
+      </div>
+    </div>
+    ${renderEvaluationResultMatrix(result)}
+    <div class="ev-notes">
+      <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish</div>
+      ${responses.map((response, index) => `
+        <div class="ev-note">
+          <div class="ev-note-head">
+            <strong>${escapeHtml(evaluationResponseName(response, index))}</strong>
+            <span class="ev-muted">${escapeHtml(response.date_evaluated || '')}</span>
+          </div>
+          <div class="ev-note-body">${response.development_areas
+            ? escapeHtml(response.development_areas).replace(/\n/g, '<br>')
+            : '<span class="ev-muted">No notes written.</span>'}</div>
+          <div class="ev-note-foot">
+            <span>Proceed to Final Evaluation: <strong>${escapeHtml(response.proceed_to_final || '—')}</strong></span>
+            <span>Passed or not passed: <strong>${escapeHtml(response.passed || '—')}</strong></span>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div id="evaluation-mine-history"></div>`;
+  renderEvaluationMineHistory();
+}
+
+// Every period this employee has been rated in, so the current score is read
+// against the ones before it.
+function renderEvaluationMineHistory() {
+  const wrap = document.getElementById('evaluation-mine-history');
+  if (!wrap) return;
+  const history = (evaluationState.mineHistory || []).filter((row) => row.responses);
+  if (history.length < 2) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `
+    <div class="ev-sheet-block">
+      <div class="ev-sheet-block-title">Previous periods</div>
+      <div class="ev-scroll">
+        <table class="ev-table">
+          <thead><tr><th>Period</th><th>Over All Percentage</th><th>Performance Level</th></tr></thead>
+          <tbody>
+            ${history.map((row) => {
+              const level = evaluationLevelFor(Number(row.score) || 0);
+              return `<tr>
+                <td>${escapeHtml(evaluationPeriodLabel(row.period))}</td>
+                <td><strong>${evaluationPercentText(row.score)}</strong></td>
+                <td><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderEvaluationQueue() {
   const wrap = document.getElementById('evaluation-queue-wrap');
-  if (!wrap) return;
+  const card = document.getElementById('evaluation-queue-card');
+  if (!wrap || !card) return;
+  // Only HR and the Administrator write evaluations, so for anyone else the
+  // queue is not emptied, it is not there — there is nothing on it they could
+  // act on.
+  if (!evaluationState.canEvaluate) {
+    card.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  card.style.display = '';
   if (!evaluationState.rows.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>Nobody to evaluate</h3><p>You are the only active account, so there is nobody else to rate.</p></div>';
+    wrap.innerHTML = '<div class="empty-state"><h3>Nobody to evaluate</h3><p>There is no other active employee to rate this period.</p></div>';
     return;
   }
   const period = evaluationPeriodLabel(evaluationState.period);
@@ -5103,6 +5267,12 @@ function backToEvaluationResponses() {
 
 // ─── The matrix form ───────────────────────────────────────
 function openEvaluationForm(userId) {
+  // The server refuses a sheet from anyone but HR and the Administrator; this
+  // keeps a stale page from offering the form in the first place.
+  if (!evaluationState.canEvaluate) {
+    showToast('warning', 'HR fills this in', 'Only HR and the Administrator write evaluations.');
+    return;
+  }
   const row = evaluationState.rows.find((r) => r.id === Number(userId));
   if (!row) return;
   if (!evaluationState.window?.open) {
@@ -5305,6 +5475,13 @@ async function refreshEvaluationTopbarButton({ force = false } = {}) {
   _evalTopbarCheckedAt = Date.now();
   try {
     const result = await authorizedJsonRequest(`/evaluations/queue?_=${Date.now()}`);
+    // Nothing is pending for someone who does not write sheets — the dot marks
+    // work to do, and reading your own evaluation is not work to do.
+    if (!result.can_evaluate) {
+      button.classList.remove('has-dot');
+      button.title = 'My evaluation';
+      return;
+    }
     const pending = (result.data || []).filter((row) => !row.submitted).length;
     button.classList.toggle('has-dot', !!result.window?.open && pending > 0);
     button.title = result.window?.open
