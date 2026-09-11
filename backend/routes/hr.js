@@ -70,6 +70,26 @@ function calculateWorkedMinutes(record) {
   return Math.max(0, duration - Math.max(0, breakMinutes));
 }
 
+// Time on the clock for the half-day floor, counted the way the attendance card
+// shows it: only a punched lunch comes off. calculateWorkedMinutes also takes
+// the legacy 15-minute break_minutes when no lunch was punched, so the floor
+// used to refuse people the card said were already past 4 hours.
+function minutesOnClock(record, nowTime) {
+  const start = toMinutes(record?.time_in);
+  const end = toMinutes(nowTime);
+  if (start === null || end === null) return 0;
+  let duration = end - start;
+  if (duration < 0) duration += 24 * 60;
+
+  const lunchOut = toMinutes(record?.break_out);
+  if (lunchOut !== null) {
+    // A lunch still running when they punch out ends now.
+    const lunch = spanMinutes(record.break_out, record?.break_in || nowTime);
+    duration -= lunch || 0;
+  }
+  return Math.max(0, duration);
+}
+
 function calculateOtMinutes(record) {
   const manualOt = Number(record?.ot_minutes || 0);
   if (manualOt > 0) return manualOt;
@@ -367,7 +387,7 @@ module.exports = function hrRoutes(db) {
       if (!existing || !existing.time_in) {
         return res.status(409).json({ error: 'Time in first before timing out.' });
       }
-      const worked = calculateWorkedMinutes({ ...existing, time_out: now.time });
+      const worked = minutesOnClock(existing, now.time);
       if (worked < MIN_TIME_OUT_MINUTES) {
         const short = MIN_TIME_OUT_MINUTES - worked;
         return res.status(409).json({
