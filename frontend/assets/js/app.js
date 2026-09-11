@@ -20727,11 +20727,15 @@ function renderRmoOrderCard(order) {
   const tagLabels = (Array.isArray(order.tags) ? order.tags : [])
     .map((tag) => (typeof tag === 'string' ? tag : (tag?.name || tag?.tag_name || tag?.label || ''))).filter(Boolean);
   const statusText = posDisplayStatus(order);
-  const statusTone = order.abandoned_undeliverable ? 'danger'
-    : ['returning', 'returned', 'canceled', 'removed'].includes(order.status_name) ? 'danger'
-    : order.status_name === 'delivered' ? 'success'
-    : ['shipped', 'submitted', 'wait_print'].includes(order.status_name) ? 'primary'
-    : 'info';
+  // One tone for the header band and the status pill, so the two never
+  // disagree about where the order stands.
+  const statusTone = order.abandoned_undeliverable || order.status_name === 'returned' ? 'returned'
+    : order.status_name === 'returning' ? 'returning'
+    : order.status_name === 'delivered' ? 'delivered'
+    : order.status_name === 'shipped' ? 'shipping'
+    : ['submitted', 'wait_print'].includes(order.status_name) ? 'confirmed'
+    : ['canceled', 'removed'].includes(order.status_name) ? 'canceled'
+    : 'new';
   const msgId = escapeHtml(order.external_id || '');
   const msgShop = escapeHtml(order.shop_id || '');
   const copyable = (value, label) => (value
@@ -20741,10 +20745,10 @@ function renderRmoOrderCard(order) {
   const hasDelivery = !!(rider.name || rider.tel || getRmoCourier(order) || order.tracking_no);
 
   return `
-    <div class="rmo-card-head">
+    <div class="rmo-card-head rmo-tone-${statusTone}">
       <div>
-        <div class="rmo-card-name">Order ${escapeHtml(order.external_id || '')}</div>
-        <div class="rmo-card-sub">${escapeHtml(order.page_name || 'No page')}</div>
+        <div class="rmo-card-name">${escapeHtml(order.page_name || 'No page')}</div>
+        <div class="rmo-card-sub">Order ${escapeHtml(order.external_id || '')}</div>
       </div>
       <button class="modal-close" type="button" onclick="closeRmoDetailPanel()" title="Close">&times;</button>
     </div>
@@ -20813,7 +20817,7 @@ function renderRmoOrderCard(order) {
       <div class="rmo-tag-line" title="Rest here to change the tags"
         onmouseenter="scheduleRmoTagFlyout(this,'${msgId}','${msgShop}')"
         onmouseleave="unscheduleRmoTagFlyout()">
-        <span class="rmo-status ${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
+        <span class="rmo-status rmo-tone-${statusTone}">${escapeHtml(statusText || 'Unknown')}</span>
         ${tagLabels.map((t) => `<span class="rmo-alert-tag">${escapeHtml(t)}</span>`).join('') || '<span class="rmo-muted">No tag</span>'}
         <button class="rmo-tag-edit" type="button" title="Change tags"
           onclick="openRmoTagFlyout(this.parentNode,'${msgId}','${msgShop}')">&#9998;</button>

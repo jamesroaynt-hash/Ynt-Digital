@@ -3916,24 +3916,52 @@ tfoot td {
 
 /* Scrolls with the rest of the card. Pinned, it sat over the fields passing
    underneath it, which read as a rendering fault rather than a header. */
+/* Runs edge to edge across the top of the card, tinted by the order's status
+   so the desk can tell where it stands before reading a word. */
 .rmo-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin: -14px -14px 14px;
+  padding: 14px;
+  background: var(--tone-soft, transparent);
+  border-bottom: 1px solid var(--tone-line, var(--border));
 }
 
+/* The section under the header would draw a second rule right below its own. */
+.rmo-card-head + .rmo-card-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Faded status tones, shared by the header band and the status pill. */
+.rmo-tone-returned  { --tone: #ef4444;        --tone-soft: rgba(239, 68, 68, 0.20);   --tone-line: rgba(239, 68, 68, 0.35); }
+.rmo-tone-returning { --tone: #f87171;        --tone-soft: rgba(248, 113, 113, 0.10); --tone-line: rgba(248, 113, 113, 0.22); }
+.rmo-tone-delivered { --tone: #10b981;        --tone-soft: rgba(16, 185, 129, 0.20);  --tone-line: rgba(16, 185, 129, 0.35); }
+.rmo-tone-shipping  { --tone: #34d399;        --tone-soft: rgba(52, 211, 153, 0.10);  --tone-line: rgba(52, 211, 153, 0.22); }
+.rmo-tone-confirmed { --tone: var(--accent);  --tone-soft: rgba(59, 130, 246, 0.16);  --tone-line: rgba(59, 130, 246, 0.30); }
+.rmo-tone-new       { --tone: #94a3b8;        --tone-soft: rgba(148, 163, 184, 0.12); --tone-line: rgba(148, 163, 184, 0.24); }
+.rmo-tone-canceled  { --tone: #f59e0b;        --tone-soft: rgba(245, 158, 11, 0.12);  --tone-line: rgba(245, 158, 11, 0.26); }
+
+.rmo-status[class*="rmo-tone-"] {
+  background: var(--tone-soft);
+  color: var(--tone);
+}
+
+/* The page leads: it tells the desk which product line is calling. The order
+   number is only needed to look the parcel up, so it steps back. */
 .rmo-card-name {
   color: var(--text-primary);
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.3;
 }
 
 .rmo-card-sub {
-  margin-top: 2px;
-  color: var(--text-muted);
+  margin-top: 3px;
+  color: var(--text-secondary);
   font-size: 11.5px;
 }
 
@@ -3966,13 +3994,13 @@ tfoot td {
 }
 
 .rmo-card-section {
-  padding-top: 8px;
-  margin-top: 8px;
+  padding-top: 14px;
+  margin-top: 14px;
   border-top: 1px solid var(--border);
 }
 
 .rmo-card-section-title {
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
@@ -3985,7 +4013,7 @@ tfoot td {
 .rmo-card-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px 10px;
+  gap: 12px 14px;
 }
 
 .rmo-card-field.wide { grid-column: 1 / -1; }
@@ -3994,8 +4022,8 @@ tfoot td {
 .rmo-card-split {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 7px;
+  gap: 14px;
+  margin-bottom: 12px;
 }
 
 .rmo-card-split > .rmo-card-field:first-child { flex: 1 1 auto; min-width: 0; }
@@ -4013,7 +4041,7 @@ tfoot td {
 
 .rmo-card-label {
   display: block;
-  margin-bottom: 1px;
+  margin-bottom: 3px;
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
@@ -4030,13 +4058,13 @@ tfoot td {
   overflow-wrap: break-word;
 }
 
-.rmo-card-history { margin-top: 7px; }
+.rmo-card-history { margin-top: 12px; }
 .rmo-card-history .cust-hist-stack { margin-top: 0; }
 
 .rmo-card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .rmo-card-actions .btn { flex: 1; }
