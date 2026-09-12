@@ -336,6 +336,19 @@ module.exports = function hrRoutes(db) {
     next();
   }
 
+  // Writing a day nobody clocked is the Administrator's and HR's alone.
+  // Deliberately narrower than requireHrManager: Operation clears every other
+  // HR gate, but not this one — an attendance record is pay, and authoring one
+  // from nothing is a different act from correcting one that already exists.
+  const ATTENDANCE_AUTHOR_ROLES = new Set(['administrator', 'hr']);
+  function requireAttendanceAuthor(req, res, next) {
+    const role = String(req.currentUser?.role || '').trim().toLowerCase();
+    if (!ATTENDANCE_AUTHOR_ROLES.has(role)) {
+      return res.status(403).json({ error: 'Only an Administrator or HR can add an attendance record.' });
+    }
+    next();
+  }
+
   // Scope defaults to active accounts, which is what every caller wanted before
   // ?status existed. A deactivated employee still has attendance and unpaid
   // advances behind them, so HR can widen this to reach a final payout.
@@ -582,6 +595,85 @@ module.exports = function hrRoutes(db) {
 
     const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(existing.id);
     res.json({ record });
+  });
+
+  // HR adding a day nobody clocked — a missed punch, a field day, a correction
+  // after the fact. The clock routes above are self-service and both key off
+  // today, so neither can fill in another user's past date.
+  router.post('/attendance', requireAttendanceAuthor, async (req, res) => {
+    const userId = Number(req.body?.user_id);
+    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'User is required' });
+    const user = await getActiveUser(db, userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const workDate = normalizeDate(req.body?.work_date, manilaParts().date);
+
+    // One row per user per day (UNIQUE(user_id, work_date)). Say which day
+    // already has one instead of letting the constraint surface as a 500.
+    const clash = await db.prepare(
+      'SELECT id FROM attendance_records WHERE user_id = ? AND work_date = ?'
+    ).get(userId, workDate);
+    if (clash) {
+      return res.status(409).json({
+        error: `${user.full_name || 'This user'} already has a record for ${workDate}. Open that row to edit it.`,
+      });
+    }
+
+    const times = {};
+    for (const field of ['time_in', 'break_out', 'break_in', 'break2_out', 'break2_in', 'time_out']) {
+      const raw = String(req.body?.[field] || '').trim();
+      const normalized = normalizeTime(raw);
+      if (raw && !normalized) return res.status(400).json({ error: `${field.replace('_', ' ')} must be HH:MM` });
+      times[field] = normalized || null;
+    }
+    // A row with no clock at all would count as a day present with zero hours,
+    // which is never what anyone means to add.
+    if (!times.time_in && !times.time_out) {
+      return res.status(400).json({ error: 'Enter at least a time in or a time out.' });
+    }
+
+    const breakMinutes = Math.max(0, Number(req.body?.break_minutes ?? DEFAULT_BREAK_MINUTES));
+    const holidayPercentage = Math.max(100, Number(req.body?.holiday_percentage || 100));
+    const holidayType = String(req.body?.holiday_type || 'Regular day').trim() || 'Regular day';
+
+    let rateOverride = null;
+    const rawOverride = req.body?.rate_override;
+    if (rawOverride !== undefined && rawOverride !== null && String(rawOverride).trim() !== '') {
+      const parsed = Number(rawOverride);
+      if (!Number.isFinite(parsed) || parsed < 0) return res.status(400).json({ error: 'Daily salary must be a number' });
+      rateOverride = parsed;
+    }
+
+    // Derived the same way the clock derives it, so a hand-added day earns OT
+    // on the same terms as one somebody punched.
+    const otMinutes = Object.prototype.hasOwnProperty.call(req.body || {}, 'ot_minutes')
+      ? Math.max(0, Number(req.body?.ot_minutes || 0))
+      : calculateOtMinutes({ ...times, break_minutes: breakMinutes });
+
+    const result = await db.prepare(`
+      INSERT INTO attendance_records
+        (user_id, work_date, time_in, break_out, break_in, break2_out, break2_in, time_out,
+         break_minutes, ot_minutes, holiday_type, holiday_percentage, notes, rate_override)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      userId,
+      workDate,
+      times.time_in,
+      times.break_out,
+      times.break_in,
+      times.break2_out,
+      times.break2_in,
+      times.time_out,
+      breakMinutes,
+      otMinutes,
+      holidayType,
+      holidayPercentage,
+      String(req.body?.notes || '').trim() || null,
+      rateOverride,
+    );
+
+    const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json({ record });
   });
 
   router.put('/attendance/:id', requireHrManager, async (req, res) => {

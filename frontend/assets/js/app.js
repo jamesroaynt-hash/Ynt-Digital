@@ -17441,6 +17441,19 @@ function renderAttendanceLog() {
       </div>
       <div class="modal-body">
         <input type="hidden" id="att-modal-record-id">
+        <!-- Add mode only. An edit already knows whose day it is from the row
+             that was clicked, and moving a record to another user or date is
+             not what a row click is for. -->
+        <div id="att-modal-new-fields" class="form-grid-2" style="display:none;">
+          <div class="form-group">
+            <label class="form-label">User</label>
+            <select id="att-modal-user" class="form-control"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Date</label>
+            <input type="date" id="att-modal-work-date" class="form-control">
+          </div>
+        </div>
         <div class="form-grid-2">
           <div class="form-group">
             <label class="form-label">Time In</label>
@@ -17490,9 +17503,9 @@ function renderAttendanceLog() {
           <textarea id="att-modal-notes" class="form-control" rows="2" placeholder="Optional note"></textarea>
         </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
-          <button class="btn btn-primary" style="flex:1;" onclick="saveAttendanceFromModal()">Save Changes</button>
+          <button class="btn btn-primary" style="flex:1;" id="att-modal-save" onclick="saveAttendanceFromModal()">Save Changes</button>
           <button class="btn btn-secondary" onclick="closeModal('edit-attendance-modal')">Cancel</button>
-          <button class="btn btn-ghost" style="color:var(--error-color,#dc2626);" onclick="deleteAttendanceFromModal()">Delete</button>
+          <button class="btn btn-ghost" id="att-modal-delete" style="color:var(--error-color,#dc2626);" onclick="deleteAttendanceFromModal()">Delete</button>
         </div>
       </div>
     </div>
@@ -17845,13 +17858,29 @@ function renderHRPayrollTable() {
 function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
   const wrap = document.getElementById(containerId);
   if (!wrap) return;
+  // Adding a day by hand is the Administrator's and HR's, not Operation's, even
+  // though Operation clears every other HR gate on this page. The server
+  // enforces the same narrower rule; this only keeps the button out of reach.
+  //
+  // Built above the empty-state return on purpose: a period with no records is
+  // exactly when someone needs to add one, so the button has to survive it.
+  // This function backs both the Timekeeping and the HR/Payroll tables, so the
+  // button lands on both from here.
+  const canAdd = isAdminUser() || isHRUser();
+  const toolbar = canAdd ? `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+      <button class="btn btn-primary btn-sm" onclick="openAttendanceAddModal()">+ Add Attendance</button>
+    </div>` : '';
   if (!hrState.attendance.length) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No attendance logs</h3><p>Users can create records from the Home time clock.</p></div>';
+    wrap.innerHTML = `${toolbar}<div class="empty-state"><h3>No attendance logs</h3><p>${canAdd
+      ? 'Add a record here, or users can clock in from the Home time clock.'
+      : 'Users can clock in from the Home time clock.'}</p></div>`;
     return;
   }
 
   const timeTxt = (v) => v ? escapeHtml(formatClock12(v)) : '<span style="color:var(--text-muted)">—</span>';
   wrap.innerHTML = `
+    ${toolbar}
     <div class="table-scroll">
       <table class="data-table" style="cursor:pointer;">
         <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Break Out</th><th>Break In</th><th>Time Out</th><th>Work Hours</th><th>OT</th><th>Daily Salary</th></tr></thead>
@@ -18022,6 +18051,57 @@ async function savePayrollRate() {
   }
 }
 
+// Add and edit share one modal: the fields are identical apart from who and
+// when, which an edit already knows. Swapping the mode is cheaper than keeping
+// a second copy of the form in step with this one.
+function setAttendanceModalMode(mode) {
+  const isAdd = mode === 'add';
+  const newFields = document.getElementById('att-modal-new-fields');
+  if (newFields) newFields.style.display = isAdd ? '' : 'none';
+  const del = document.getElementById('att-modal-delete');
+  if (del) del.style.display = isAdd ? 'none' : '';
+  const save = document.getElementById('att-modal-save');
+  if (save) save.textContent = isAdd ? 'Add Record' : 'Save Changes';
+}
+
+// Filled at open time rather than by populateHRUserSelects, which only runs on
+// the payroll page — this modal is reachable from Timekeeping too.
+async function fillAttendanceModalUsers() {
+  const select = document.getElementById('att-modal-user');
+  if (!select) return;
+  if (!hrState.users.length) {
+    try {
+      const data = await authorizedJsonRequest('/auth/users');
+      hrState.users = Array.isArray(data?.users) ? data.users : [];
+    } catch { /* leave it empty; saving without a user says so plainly */ }
+  }
+  select.innerHTML = hrState.users
+    .map((user) => `<option value="${user.id}">${escapeHtml(user.full_name || user.username || `User ${user.id}`)}</option>`)
+    .join('');
+}
+
+function openAttendanceAddModal() {
+  document.getElementById('att-modal-record-id').value = '';
+  document.getElementById('att-modal-title').textContent = 'Add Attendance';
+  document.getElementById('att-modal-subtitle').textContent = 'Record a time in and time out for a user.';
+  const dateEl = document.getElementById('att-modal-work-date');
+  if (dateEl) dateEl.value = normalizeDateString(new Date());
+  ['time-in', 'time-out', 'break-out', 'break-in', 'break2-out', 'break2-in'].forEach((key) => {
+    const el = document.getElementById(`att-modal-${key}`);
+    if (el) el.value = '';
+  });
+  document.getElementById('att-modal-ot-minutes').value = 0;
+  const pctSelect = document.getElementById('att-modal-holiday-pct');
+  [...pctSelect.options].filter((o) => o.dataset.legacy).forEach((o) => o.remove());
+  pctSelect.value = '100';
+  document.getElementById('att-modal-notes').value = '';
+  const overrideEl = document.getElementById('att-modal-rate-override');
+  if (overrideEl) overrideEl.value = '';
+  setAttendanceModalMode('add');
+  fillAttendanceModalUsers();
+  openModal('edit-attendance-modal');
+}
+
 function openAttendanceEditModal(recordId) {
   const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
   if (!record) return;
@@ -18053,6 +18133,7 @@ function openAttendanceEditModal(recordId) {
   document.getElementById('att-modal-notes').value = record.notes || '';
   const overrideEl = document.getElementById('att-modal-rate-override');
   if (overrideEl) overrideEl.value = (record.rate_override === null || record.rate_override === undefined) ? '' : record.rate_override;
+  setAttendanceModalMode('edit');
   openModal('edit-attendance-modal');
 }
 
@@ -18065,32 +18146,53 @@ function holidayTypeForPremium(pct, existingType) {
   return existingType || 'Holiday';
 }
 
+// No record id means the modal was opened by the Add button, so the same
+// fields are POSTed as a new day instead of PUT over an existing one.
 async function saveAttendanceFromModal() {
   const recordId = Number(document.getElementById('att-modal-record-id')?.value || 0);
-  if (!recordId) return;
-  const record = (hrState.attendance || []).find((r) => Number(r.id) === recordId);
-  if (!record) return;
+  const record = recordId ? (hrState.attendance || []).find((r) => Number(r.id) === recordId) : null;
+  if (recordId && !record) return;
   const holidayPercentage = Math.max(100, Number(document.getElementById('att-modal-holiday-pct')?.value || 100));
+  const payload = {
+    time_in: document.getElementById('att-modal-time-in')?.value || '',
+    break_out: document.getElementById('att-modal-break-out')?.value || '',
+    break_in: document.getElementById('att-modal-break-in')?.value || '',
+    break2_out: document.getElementById('att-modal-break2-out')?.value || '',
+    break2_in: document.getElementById('att-modal-break2-in')?.value || '',
+    time_out: document.getElementById('att-modal-time-out')?.value || '',
+    // 15 is the backend's own DEFAULT_BREAK_MINUTES, used for a brand new day.
+    break_minutes: Number(record?.break_minutes ?? 15),
+    ot_minutes: Math.max(0, Number(document.getElementById('att-modal-ot-minutes')?.value || 0)),
+    holiday_type: holidayTypeForPremium(holidayPercentage, record?.holiday_type),
+    holiday_percentage: holidayPercentage,
+    notes: document.getElementById('att-modal-notes')?.value || '',
+    rate_override: document.getElementById('att-modal-rate-override')?.value ?? '',
+  };
+
+  if (!recordId) {
+    payload.user_id = Number(document.getElementById('att-modal-user')?.value || 0);
+    payload.work_date = document.getElementById('att-modal-work-date')?.value || '';
+    if (!payload.user_id) {
+      showToast('error', 'User required', 'Pick the user this record belongs to.');
+      return;
+    }
+    if (!payload.work_date) {
+      showToast('error', 'Date required', 'Pick the date this record is for.');
+      return;
+    }
+  }
+
   try {
-    await authorizedJsonRequest(`/hr/attendance/${recordId}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        time_in: document.getElementById('att-modal-time-in')?.value || '',
-        break_out: document.getElementById('att-modal-break-out')?.value || '',
-        break_in: document.getElementById('att-modal-break-in')?.value || '',
-        break2_out: document.getElementById('att-modal-break2-out')?.value || '',
-        break2_in: document.getElementById('att-modal-break2-in')?.value || '',
-        time_out: document.getElementById('att-modal-time-out')?.value || '',
-        break_minutes: Number(record.break_minutes || 0),
-        ot_minutes: Math.max(0, Number(document.getElementById('att-modal-ot-minutes')?.value || 0)),
-        holiday_type: holidayTypeForPremium(holidayPercentage, record.holiday_type),
-        holiday_percentage: holidayPercentage,
-        notes: document.getElementById('att-modal-notes')?.value || '',
-        rate_override: document.getElementById('att-modal-rate-override')?.value ?? '',
-      }),
+    await authorizedJsonRequest(recordId ? `/hr/attendance/${recordId}` : '/hr/attendance', {
+      method: recordId ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
     });
     closeModal('edit-attendance-modal');
-    showToast('success', 'Attendance saved', 'Attendance record was updated.');
+    showToast(
+      'success',
+      recordId ? 'Attendance saved' : 'Attendance added',
+      recordId ? 'Attendance record was updated.' : 'The attendance record was created.',
+    );
     await refreshHRViews();
   } catch (error) {
     showToast('error', 'Attendance failed', error.message || 'Could not save attendance.');
