@@ -20829,11 +20829,23 @@ function renderRmoOrderCard(order) {
         onclick="openRmoSendModal('single','${msgId}','${msgShop}')">&#9993; Send message</button>
     </div>
 
+    <!-- Pancake's own note on the order — the Note panel's Internal tab. It has
+         been synced all along, but no endpoint ever selected it, so the desk had
+         to open Pancake to read what its own confirmers had written. Read-only:
+         it is written in Pancake, and only the desk notes below belong to us. -->
+    ${order.note ? `<div class="rmo-card-section">
+      <div class="rmo-card-section-title">Pancake note</div>
+      <div class="rmo-card-notes">
+        <div class="rmo-note"><div class="rmo-note-text">${escapeHtml(order.note)}</div></div>
+      </div>
+    </div>` : ''}
+
     <!-- Notes read and write in the card itself. They used to open a modal over
          the table, which hid the order the note was about. Kept keyed by phone,
-         so the history outlives the order's 30-day retention. -->
+         so the history outlives the order's 30-day retention. Titled apart from
+         the Pancake note above so the two are never read as one thing. -->
     <div class="rmo-card-section">
-      <div class="rmo-card-section-title">Notes</div>
+      <div class="rmo-card-section-title">Desk notes</div>
       ${order.customer_phone ? `
         <div class="rmo-card-notes" id="rmo-card-notes-thread"><span class="rmo-muted">Loading…</span></div>
         <textarea class="form-control rmo-note-input" id="rmo-card-note-input" rows="2"

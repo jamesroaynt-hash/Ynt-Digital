@@ -1285,7 +1285,7 @@ function ordersRoutes(db, { dispatch } = {}) {
     const rows = await db.prepare(`
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote, ${effectiveInsertedAt} AS inserted_at_effective,
              updated_at_remote, customer_name, customer_phone,
-             note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
+             note, note_product, tags_json, attempts, cod, assigning_seller_name, status_name, sprinter_name, sprinter_tel,
              partner_json, shipping_address_json, assigned_to_user_id, assigned_to_name, psid, partner_status, courier_note, partner_reason, undeliverable_since, items_json,
              customer_order_count, customer_succeed_count, customer_returned_count
       FROM pos_orders ${where}
@@ -1327,6 +1327,10 @@ function ordersRoutes(db, { dispatch } = {}) {
         customer_name: row.customer_name,
         customer_phone: row.customer_phone,
         note_product: row.note_product,
+        // The order's own note from Pancake — the Note panel's Internal tab.
+        // Synced since the column existed, but never selected, so the desk had
+        // to open Pancake to read what its own confirmers had written.
+        note: row.note || null,
         tags: parseJsonObject(row.tags_json, []),
         attempts: row.attempts,
         cod: Number(row.cod || 0),
