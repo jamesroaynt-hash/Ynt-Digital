@@ -5812,6 +5812,9 @@ function renderHR() {
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="loadHRDashboard()">Refresh</button>
+      ${(isAdminUser() || isHRUser())
+        ? '<button class="btn btn-primary btn-sm" onclick="openAttendanceAddModal()">+ Add Attendance</button>'
+        : ''}
       <button class="btn btn-primary btn-sm" onclick="openModal('cash-advance-modal')">+ Cash Advance</button>
       <button class="btn btn-secondary btn-sm" onclick="openScheduleModal()">+ Schedule</button>
     </div>
@@ -17309,6 +17312,9 @@ function renderAttendanceLog() {
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="loadAttendanceLogDashboard()">Refresh</button>
+      ${(isAdminUser() || isHRUser())
+        ? '<button class="btn btn-primary btn-sm" onclick="openAttendanceAddModal()">+ Add Attendance</button>'
+        : ''}
     </div>
   </div>
 
@@ -17858,29 +17864,20 @@ function renderHRPayrollTable() {
 function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
   const wrap = document.getElementById(containerId);
   if (!wrap) return;
-  // Adding a day by hand is the Administrator's and HR's, not Operation's, even
-  // though Operation clears every other HR gate on this page. The server
-  // enforces the same narrower rule; this only keeps the button out of reach.
-  //
-  // Built above the empty-state return on purpose: a period with no records is
-  // exactly when someone needs to add one, so the button has to survive it.
-  // This function backs both the Timekeeping and the HR/Payroll tables, so the
-  // button lands on both from here.
+  // Add Attendance lives in each page's header next to Refresh, not here — this
+  // function only has to say so in the empty state, where there is no table to
+  // point at. Adding is the Administrator's and HR's, not Operation's, so the
+  // wording follows the same gate the header button does.
   const canAdd = isAdminUser() || isHRUser();
-  const toolbar = canAdd ? `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
-      <button class="btn btn-primary btn-sm" onclick="openAttendanceAddModal()">+ Add Attendance</button>
-    </div>` : '';
   if (!hrState.attendance.length) {
-    wrap.innerHTML = `${toolbar}<div class="empty-state"><h3>No attendance logs</h3><p>${canAdd
-      ? 'Add a record here, or users can clock in from the Home time clock.'
+    wrap.innerHTML = `<div class="empty-state"><h3>No attendance logs</h3><p>${canAdd
+      ? 'Use Add Attendance above, or users can clock in from the Home time clock.'
       : 'Users can clock in from the Home time clock.'}</p></div>`;
     return;
   }
 
   const timeTxt = (v) => v ? escapeHtml(formatClock12(v)) : '<span style="color:var(--text-muted)">—</span>';
   wrap.innerHTML = `
-    ${toolbar}
     <div class="table-scroll">
       <table class="data-table" style="cursor:pointer;">
         <thead><tr><th>Date</th><th>User</th><th>Time In</th><th>Break Out</th><th>Break In</th><th>Time Out</th><th>Work Hours</th><th>OT</th><th>Daily Salary</th></tr></thead>
