@@ -200,6 +200,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
       ot_pay: 0,
       holiday_pay: 0,
       rest_days_worked: 0,
+      holidays_worked: 0,
       cash_advances: 0,
       gross_pay: 0,
       net_pay: 0,
@@ -225,27 +226,42 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
     const recordDayOff = Number(summary.user.day_off);
     const restDayWorked = Number.isInteger(recordDayOff) && recordDayOff >= 0 && recordDayOff <= 6
       && weekdayForDate(record.work_date) === recordDayOff;
+    // A holiday is only ever what HR flagged on the record itself: payroll has
+    // no holiday calendar of its own, and the Philippine calendar on the
+    // frontend is for display only and never reaches here. The percentage is
+    // deliberately not part of the test — a day marked as a holiday with the
+    // premium left at 100% is still a holiday, and still not a day of work.
+    const holidayWorked = String(record.holiday_type || 'Regular day').trim() !== 'Regular day';
 
     if (workedMinutes > 0 || overridden) {
-      if (restDayWorked) {
-        // She came in on her rest day. The day is still paid — prorated the
-        // same as any other — and earns 30% on top, but none of it is a
-        // regular work day: the day's own pay and its premium both land in OT,
-        // so days worked and base pay are untouched. An overridden day is the
-        // exception: the figure entered by hand IS the day's pay, premium
-        // included, so nothing is added on top of it.
-        summary.rest_days_worked += 1;
+      if (restDayWorked || holidayWorked) {
+        // She came in on her rest day, or on a holiday. The day is still paid —
+        // prorated the same as any other — and earns its premium on top, but
+        // none of it is a regular work day: the day's own pay and every premium
+        // land in OT, so days worked and base pay are untouched. An overridden
+        // day is the exception: the figure entered by hand IS the day's pay,
+        // premiums included, so nothing is added on top of it.
+        //
+        // A day that is both earns both premiums, which is what it did before
+        // holidays moved here — the holiday premium simply lands in OT now
+        // instead of in its own bucket.
+        const premium = (restDayWorked ? REST_DAY_PREMIUM_RATE : 0)
+          + (holidayWorked ? Math.max(0, holidayPercentage - 100) / 100 : 0);
+        if (restDayWorked) summary.rest_days_worked += 1;
+        if (holidayWorked) summary.holidays_worked += 1;
         summary.ot_minutes += cappedWorkedMinutes;
-        summary.ot_pay += overridden ? dayBase : dayBase * (1 + REST_DAY_PREMIUM_RATE);
+        summary.ot_pay += overridden ? dayBase : dayBase * (1 + premium);
       } else {
         summary.days_worked += 1;
         summary.days_paid += overridden ? 1 : cappedWorkedMinutes / STANDARD_DAY_MINUTES;
         summary.base_pay += dayBase;
-      }
-      // Same reason: a hand-entered rate already accounts for the holiday, so
-      // the premium is not stacked on top of it.
-      if (holidayPercentage > 100 && !overridden) {
-        summary.holiday_pay += dayBase * ((holidayPercentage - 100) / 100);
+        // A premium set on a day HR never flagged as a holiday still pays. It
+        // cannot reach the branch above, so keep it in its own bucket rather
+        // than dropping the money on the floor. Same reason as ever: a
+        // hand-entered rate already accounts for it, so nothing stacks on that.
+        if (holidayPercentage > 100 && !overridden) {
+          summary.holiday_pay += dayBase * ((holidayPercentage - 100) / 100);
+        }
       }
     }
     summary.worked_minutes += workedMinutes;

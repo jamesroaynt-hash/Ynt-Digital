@@ -6128,13 +6128,21 @@ function restDayBadge(worked) {
   return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${title}">${label}</span>`;
 }
 
-// The pills shown under a date: PH holiday first, then the rest-day marker.
-// Work on the scheduled rest day is not a regular day: the shift is paid as
-// overtime (the 30% premium), so those minutes belong in the OT column rather
-// than in the day count. Capped at the standard day, the same as payroll.
-function restDayOtMinutes(dateStr, dayOff, workedMinutes) {
+// True when HR flagged the day as a holiday on the attendance record itself.
+// The Philippine calendar above is decoration — payroll never sees it — so a
+// day counts as a holiday here only if it was flagged, exactly as the backend
+// tests it. Keep this in step with holidayWorked in backend/routes/hr.js.
+function isFlaggedHoliday(holidayType) {
+  return String(holidayType || 'Regular day').trim() !== 'Regular day';
+}
+
+// Neither a worked rest day nor a worked holiday is a regular day: the shift is
+// paid as overtime (plus its premium), so those minutes belong in the OT column
+// rather than in the day count. Capped at the standard day, the same as payroll.
+function nonRegularDayOtMinutes(dateStr, dayOff, workedMinutes, holidayType) {
   const worked = Number(workedMinutes || 0);
-  if (worked <= 0 || !isRestDayFor(dateStr, dayOff)) return 0;
+  if (worked <= 0) return 0;
+  if (!isRestDayFor(dateStr, dayOff) && !isFlaggedHoliday(holidayType)) return 0;
   return Math.min(worked, 480);
 }
 
@@ -15846,9 +15854,9 @@ function renderMyWorkHours(payslip) {
   const totalWorked = records.reduce((sum, r) => sum + Number(r.worked_minutes || 0), 0);
   // Only approved OT counts: hours clocked past the standard day without an
   // approved request are not paid, so showing them here would overstate. A
-  // worked rest day is all OT, so its shift lands here too.
+  // worked rest day or holiday is all OT, so those shifts land here too.
   const totalOt = records.reduce((sum, r) => sum
-    + restDayOtMinutes(r.work_date, dayOff, r.worked_minutes)
+    + nonRegularDayOtMinutes(r.work_date, dayOff, r.worked_minutes, r.holiday_type)
     + Number(r.payable_ot_minutes || 0), 0);
 
   // The cards render for any range, including a custom one with no punches in
@@ -15858,7 +15866,11 @@ function renderMyWorkHours(payslip) {
     <div style="display:flex;gap:12px;flex-wrap:wrap;padding:16px 16px 8px;">
       <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Days Worked</div>
-        <div class="stat-value" style="font-size:1.4rem;">${totals.days_worked || records.filter((r) => r.time_in && r.time_out).length}</div>
+        <!-- ?? not ||: a period made up of rest days and holidays now has a
+             genuine zero days worked, and || would fall through to counting
+             clocked records and contradict payroll. The fallback is only for
+             a payslip that carried no totals at all. -->
+        <div class="stat-value" style="font-size:1.4rem;">${totals.days_worked ?? records.filter((r) => r.time_in && r.time_out).length}</div>
       </div>
       <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Total Work Hours</div>
@@ -15893,7 +15905,7 @@ function renderMyWorkHours(payslip) {
         <tbody>
           ${records.map((r) => {
             const worked = Number(r.worked_minutes || 0);
-            const ot = restDayOtMinutes(r.work_date, dayOff, worked) + Number(r.payable_ot_minutes || 0);
+            const ot = nonRegularDayOtMinutes(r.work_date, dayOff, worked, r.holiday_type) + Number(r.payable_ot_minutes || 0);
             const complete = r.time_in && r.time_out;
             const otApproved = Boolean(r.ot_approved);
             const otApprovedIcon = otApproved
@@ -17861,22 +17873,34 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             // payslip agree.
             const dayFraction = Math.min(workedMins, 480) / 480;
             const dayBase = hasCustomRate ? dailyRate : dailyRate * dayFraction;
-            // A hand-entered rate is the day's pay, full stop: no holiday
-            // premium and no rest-day premium are stacked on top of it.
-            const basePay = paidDay ? (hasCustomRate ? dayBase : dayBase * (holidayPct / 100)) : 0;
+            // Coming in on the scheduled rest day, or on a day HR flagged as a
+            // holiday, pays the day itself plus its premium — but never as a
+            // regular work day: payroll books the whole of it as OT. An
+            // unworked rest day pays nothing at all. Mirrors hr.js, so this
+            // column, the payslip and payroll all agree.
+            const restDay = isRestDayFor(record.work_date, record.day_off);
+            const holiday = isFlaggedHoliday(record.holiday_type);
+            const nonRegularDay = restDay || holiday;
+            // A day that is both earns both premiums. A hand-entered rate is
+            // the day's pay, full stop: no premium is stacked on top of it.
+            const premiumRate = hasCustomRate ? 0
+              : (restDay ? 0.3 : 0) + (holiday ? Math.max(0, holidayPct - 100) / 100 : 0);
+            // Nothing lands in base pay on a rest day or a holiday — the whole
+            // of it, premium included, is OT.
+            const basePay = paidDay && !nonRegularDay
+              ? (hasCustomRate ? dayBase : dayBase * (holidayPct / 100))
+              : 0;
+            const nonRegularPay = paidDay && nonRegularDay ? dayBase * (1 + premiumRate) : 0;
             // Approved overtime is paid at the plain minute rate, the same
             // formula payroll uses, so the column matches the payslip.
             const otPay = otApproved && payableOt > 0 && dailyRate > 0
               ? (dailyRate / 480) * payableOt
               : 0;
-            // Coming in on the scheduled rest day pays the day itself plus a
-            // 30% premium, but never as a regular work day: payroll books the
-            // whole 130% as OT. An unworked rest day pays nothing at all.
-            const restDay = isRestDayFor(record.work_date, record.day_off);
-            const restDayPremium = paidDay && restDay && !hasCustomRate ? dayBase * 0.3 : 0;
-            const restDayOt = paidDay ? restDayOtMinutes(record.work_date, record.day_off, workedMins) : 0;
-            const paidOtMinutes = restDayOt + (otApproved ? payableOt : 0);
-            const dailySalary = basePay + restDayPremium + otPay;
+            const nonRegularOt = paidDay
+              ? nonRegularDayOtMinutes(record.work_date, record.day_off, workedMins, record.holiday_type)
+              : 0;
+            const paidOtMinutes = nonRegularOt + (otApproved ? payableOt : 0);
+            const dailySalary = basePay + nonRegularPay + otPay;
             // A part day says so, so ₱419.25 on a ₱645 rate reads as half a
             // day paid rather than as a wrong number.
             const partDayNote = paidDay && !hasCustomRate && workedMins < 480
@@ -17923,13 +17947,13 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
               <td>${timeTxt(record.time_out)}</td>
               <td>${workedMins ? `<span>${formatMinutes(workedMins)}</span>${partDayNote}` : '<span style="color:var(--text-muted)">—</span>'}</td>
               <td>${paidOtMinutes > 0
-                ? `<span class="badge badge-success" title="${restDayOt > 0 ? 'Rest day worked — the whole shift is paid as OT' : 'Approved OT (paid)'}">${formatMinutes(paidOtMinutes)}</span>`
+                ? `<span class="badge badge-success" title="${nonRegularOt > 0 ? 'Rest day or holiday worked — the whole shift is paid as OT' : 'Approved OT (paid)'}">${formatMinutes(paidOtMinutes)}</span>`
                 : (earnedOt > 0
                   ? `<span style="color:var(--text-muted);font-size:11px;" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
                   : '<span style="color:var(--text-muted)">—</span>')}</td>
               <td><strong>${(paidDay || otPay > 0)
-                ? `<span title="${restDay ? 'Rest day, paid as OT:' : 'Day'} ${formatPHP(basePay)}${!hasCustomRate && workedMins < 480 ? ` (${Math.round(dayFraction * 100)}% of ${formatPHP(dailyRate)})` : ''}${restDayPremium > 0 ? ` + 30% premium ${formatPHP(restDayPremium)}` : ''}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
-                : '<span class="text-muted text-xs">—</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}${restDayPremium > 0 ? ' <span class="badge badge-info" style="font-size:9px;" title="Worked on the scheduled rest day — the 30% premium is paid as OT">OT +30%</span>' : ''}</td>
+                ? `<span title="${nonRegularDay ? (restDay && holiday ? 'Rest day + holiday, paid as OT:' : holiday ? 'Holiday, paid as OT:' : 'Rest day, paid as OT:') : 'Day'} ${formatPHP(nonRegularDay ? nonRegularPay : basePay)}${!hasCustomRate && workedMins < 480 ? ` (${Math.round(dayFraction * 100)}% of ${formatPHP(dailyRate)})` : ''}${premiumRate > 0 ? ` incl. +${Math.round(premiumRate * 100)}% premium` : ''}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
+                : '<span class="text-muted text-xs">—</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}${premiumRate > 0 ? ` <span class="badge badge-info" style="font-size:9px;" title="Worked on a rest day or holiday — the day and its premium are paid as OT">OT +${Math.round(premiumRate * 100)}%</span>` : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -18523,9 +18547,9 @@ function buildPayslipDocument(slip) {
 
   const attendanceRows = (slip.attendance || []).map((record) => {
     const holidayPct = Number(record.holiday_percentage || 100);
-    // A worked rest day is paid entirely as OT, so its shift shows in the OT
-    // column here the same way payroll counts it.
-    const otMinutes = restDayOtMinutes(record.work_date, user.day_off, record.worked_minutes)
+    // A worked rest day or holiday is paid entirely as OT, so its shift shows
+    // in the OT column here the same way payroll counts it.
+    const otMinutes = nonRegularDayOtMinutes(record.work_date, user.day_off, record.worked_minutes, record.holiday_type)
       + Number(record.payable_ot_minutes || 0);
     return `
       <tr style="border-bottom:1px solid #eaedf1;">
@@ -18584,9 +18608,11 @@ function buildPayslipDocument(slip) {
         ? row('Days Paid (part days prorated)', Number(totals.days_paid || 0)) : ''}
       ${row('Base Pay', formatPHP(totals.base_pay))}
       ${row(`OT (${formatMinutes(totals.ot_minutes)})`, formatPHP(totals.ot_pay))}
-      ${row('Holiday Pay', formatPHP(totals.holiday_pay))}
+      ${Number(totals.holiday_pay || 0) > 0 ? row('Holiday Pay', formatPHP(totals.holiday_pay)) : ''}
       ${Number(totals.rest_days_worked || 0) > 0
         ? row('Rest Days Worked (day +30%, paid as OT above)', Number(totals.rest_days_worked)) : ''}
+      ${Number(totals.holidays_worked || 0) > 0
+        ? row('Holidays Worked (day + premium, paid as OT above)', Number(totals.holidays_worked)) : ''}
       ${row('Cash Advances', `-${formatPHP(totals.cash_advances)}`)}
       <div style="display:grid;grid-template-columns:1fr auto;padding:18px 20px;background:#eef4fb;">
         <div style="font-size:16px;font-weight:700;">Net Pay</div>
