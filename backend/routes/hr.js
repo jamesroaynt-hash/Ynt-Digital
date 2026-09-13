@@ -288,7 +288,12 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
     summary.net_pay = summary.gross_pay - summary.cash_advances;
   });
 
-  return [...byUser.values()];
+  // Payroll is read top-down by what people are owed, not by name, so the
+  // biggest net pay leads. Names break a tie — two people on the same rate with
+  // the same days worked land on the same peso — which keeps the order stable
+  // from one refresh to the next instead of shuffling on Map order.
+  return [...byUser.values()].sort((a, b) => (b.net_pay - a.net_pay)
+    || String(a.user.full_name || '').localeCompare(String(b.user.full_name || '')));
 }
 
 function normalizeDate(value, fallback) {
