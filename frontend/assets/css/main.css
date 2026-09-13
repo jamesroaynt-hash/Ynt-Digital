@@ -2750,10 +2750,12 @@ tfoot td {
 
 /* ─── LOGIN PAGE ──────────────────────────────────────────── */
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   padding: 28px 48px;
+  overflow: hidden;
   background:
     radial-gradient(1100px 560px at 80% -8%, rgba(40, 70, 140, 0.45) 0%, transparent 58%),
     radial-gradient(900px 500px at 8% 110%, rgba(30, 50, 110, 0.35) 0%, transparent 60%),
@@ -2761,11 +2763,54 @@ tfoot td {
   color: #e6edf8;
 }
 
+/* The night sky behind the sign-in panel. The dashboard's own #starfield is
+   hidden while login is up (it sits at z-index:-1, behind this opaque page),
+   so login carries its own copy — same .star-layer / .shooting-star classes
+   and the same keyframes, just steeper streaks so they read as falling. */
+.login-sky {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.login-main,
+.login-footer {
+  position: relative;
+  z-index: 1;
+}
+
 .login-main {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Signing in lifts the whole page out of frame — see appShellRiseIn(), which
+   brings the dashboard up behind it so the two read as one movement. */
+.login-page.login-leaving {
+  animation: login-lift-out 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes login-lift-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-7vh) scale(0.985); }
+}
+
+#app-shell.app-rise-in {
+  animation: app-rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes app-rise-in {
+  from { opacity: 0; transform: translateY(26px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-page.login-leaving,
+  #app-shell.app-rise-in { animation: none; }
 }
 
 .login-shell {

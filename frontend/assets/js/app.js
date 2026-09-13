@@ -1702,6 +1702,34 @@ async function handleAuthSubmit(e) {
   await handleLogin();
 }
 
+function prefersReducedMotion() {
+  return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Signing in lifts the login page out of frame; init() then brings the
+// dashboard up behind it, so the switch reads as one upward movement rather
+// than a hard cut. Resolves either way — a dropped animationend must never
+// strand someone on a login screen they already signed in from.
+function playLoginLiftOut() {
+  const page = document.getElementById('login-page');
+  if (!page || prefersReducedMotion()) return Promise.resolve();
+  page.classList.add('login-leaving');
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(); } };
+    page.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, 600);
+  });
+}
+
+// The other half of the handoff. Kept off the normal page load: coming back to
+// an open session should just be there, not replay the sign-in animation.
+function appShellRiseIn(shell) {
+  if (!shell || prefersReducedMotion()) return;
+  shell.classList.add('app-rise-in');
+  shell.addEventListener('animationend', () => shell.classList.remove('app-rise-in'), { once: true });
+}
+
 async function handleLogin(e) {
   e && e.preventDefault();
   const username = document.getElementById('username')?.value.trim();
@@ -1734,7 +1762,8 @@ async function handleLogin(e) {
 
       persistLoggedInUser(data.user, data.token);
       showToast('success', 'Welcome back!', `Logged in as ${data.user.name}`);
-      init();
+      await playLoginLiftOut();
+      init({ rise: true });
       return;
     } catch (error) {
       showToast('error', 'Login failed', error.message || 'Could not sign in.');
@@ -1754,7 +1783,8 @@ async function handleLogin(e) {
 
   persistLoggedInUser(match);
   showToast('success', 'Welcome back!', `Logged in as ${match.name}`);
-  init();
+  await playLoginLiftOut();
+  init({ rise: true });
 }
 
 function handleLogout() {
@@ -2613,6 +2643,17 @@ function renderLogin() {
   const year = new Date().getFullYear();
   return `
   <div class="login-page" id="login-page">
+    <div class="login-sky" aria-hidden="true">
+      <div class="star-layer star-layer-1"></div>
+      <div class="star-layer star-layer-2"></div>
+      <div class="star-layer star-layer-3"></div>
+      <span class="shooting-star" style="--sx:14%; --sy:-10%; --a:62deg; --dur:9s;  --delay:0.6s; --travel:125vh;"></span>
+      <span class="shooting-star" style="--sx:44%; --sy:-14%; --a:58deg; --dur:12s; --delay:3s;   --travel:130vh;"></span>
+      <span class="shooting-star" style="--sx:72%; --sy:-8%;  --a:66deg; --dur:15s; --delay:6.5s; --travel:120vh;"></span>
+      <span class="shooting-star" style="--sx:90%; --sy:-12%; --a:54deg; --dur:18s; --delay:10s;  --travel:135vh;"></span>
+      <span class="shooting-star" style="--sx:28%; --sy:-6%;  --a:70deg; --dur:21s; --delay:14s;  --travel:115vh;"></span>
+    </div>
+
     <div class="login-main">
       <div class="login-shell">
         <!-- LEFT: sign-in -->
@@ -24702,10 +24743,13 @@ function applyThemeFromStorage() {
 }
 
 // ─── INIT ──────────────────────────────────────────────────
-async function init() {
+// `options.rise` is set only by handleLogin: DOMContentLoaded hands this an
+// Event, which has no such field, so a page load never plays the animation.
+async function init(options) {
   const loginScreen = document.getElementById('login-screen');
   const shell = document.getElementById('app-shell');
   if (!loginScreen || !shell) return;
+  const rise = !!(options && options.rise === true);
 
   applyThemeFromStorage();
 
@@ -24732,6 +24776,7 @@ async function init() {
 
   loginScreen.innerHTML = '';
   shell.style.display = 'flex';
+  if (rise) appShellRiseIn(shell);
   applySidebarCollapsedFromStorage();
   applyThemeFromStorage();
   startPhilippineClockTicker();
