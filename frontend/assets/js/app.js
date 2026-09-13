@@ -6252,43 +6252,6 @@ function renderAttendance() {
         </section>
       </div>
     </div>
-
-    ${canManageHR() ? `<div class="card">
-        <div class="card-header"><div><div class="card-title">Time Inputs</div><div class="card-subtitle">Adjust the current day record when needed.</div></div></div>
-        <div class="card-body">
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label class="form-label">Time In</label>
-              <input type="time" id="attendance-time-in" class="form-control">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Time Out</label>
-              <input type="time" id="attendance-time-out" class="form-control">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Break Out</label>
-              <input type="time" id="attendance-break-out" class="form-control">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Break In</label>
-              <input type="time" id="attendance-break-in" class="form-control">
-            </div>
-            <div class="form-group">
-              <label class="form-label">15-min Out</label>
-              <input type="time" id="attendance-break2-out" class="form-control">
-            </div>
-            <div class="form-group">
-              <label class="form-label">15-min In</label>
-              <input type="time" id="attendance-break2-in" class="form-control">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Notes</label>
-            <textarea id="attendance-notes" class="form-control" rows="3" placeholder="Optional attendance note"></textarea>
-          </div>
-          <button class="btn btn-primary" onclick="saveAttendanceTimes()">Save Time Record</button>
-        </div>
-      </div>` : ''}
   </div>
 
   <div id="attendance-tab-cash" class="tab-content">
@@ -6394,9 +6357,12 @@ function renderAttendance() {
       <div class="card-header">
         <div><div class="card-title">Work Hours</div><div class="card-subtitle">Your attendance history — read only.</div></div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select id="wh-month-filter" class="form-control" style="width:auto;" onchange="applyWorkHoursMonth()">
+            ${buildHRMonthOptions(whRange.from.slice(0, 7))}
+          </select>
           <div class="table-filters">
-            <button class="filter-pill wh-cutoff-pill ${whCutoff === 1 ? 'active' : ''}" onclick="setWorkHoursCutoff(1, this)">1–15</button>
-            <button class="filter-pill wh-cutoff-pill ${whCutoff === 2 ? 'active' : ''}" onclick="setWorkHoursCutoff(2, this)">16–End</button>
+            <button class="filter-pill wh-cutoff-pill ${whCutoff === 1 ? 'active' : ''}" data-half="1" onclick="setWorkHoursCutoff(1, this)">1–15</button>
+            <button class="filter-pill wh-cutoff-pill ${whCutoff === 2 ? 'active' : ''}" data-half="2" onclick="setWorkHoursCutoff(2, this)">16–End</button>
           </div>
           <input type="date" id="wh-date-from" class="form-control" style="width:auto;" value="${whRange.from}" onchange="clearWorkHoursCutoff()">
           <span style="color:var(--text-muted);font-size:13px;">to</span>
@@ -15812,7 +15778,11 @@ function cutoffHalfFor(dateString) {
 }
 
 function setWorkHoursCutoff(half, btn) {
-  const anchor = document.getElementById('wh-date-from')?.value || normalizeDateString(new Date());
+  // The month dropdown owns which month the halves belong to; fall back to the
+  // From box only when the dropdown isn't on screen.
+  const month = document.getElementById('wh-month-filter')?.value;
+  const anchor = month ? `${month}-01`
+    : (document.getElementById('wh-date-from')?.value || normalizeDateString(new Date()));
   const { from, to } = cutoffRange(anchor, half);
   const fromEl = document.getElementById('wh-date-from');
   const toEl = document.getElementById('wh-date-to');
@@ -15823,10 +15793,37 @@ function setWorkHoursCutoff(half, btn) {
   loadMyWorkHours();
 }
 
+// The month dropdown and the cutoff pills describe one range together: the
+// pills say which half, the dropdown says which month. Picking a month keeps
+// whichever half is highlighted, and covers the whole month when neither is —
+// the range was typed by hand then, so there is no half to preserve.
+function applyWorkHoursMonth() {
+  const month = document.getElementById('wh-month-filter')?.value;
+  if (!month) return;
+  const activePill = document.querySelector('.wh-cutoff-pill.active');
+  const [year, mon] = month.split('-').map(Number);
+  const lastDay = String(new Date(year, mon, 0).getDate()).padStart(2, '0');
+  const range = activePill
+    ? cutoffRange(`${month}-01`, Number(activePill.dataset.half))
+    : { from: `${month}-01`, to: `${month}-${lastDay}` };
+  const fromEl = document.getElementById('wh-date-from');
+  const toEl = document.getElementById('wh-date-to');
+  if (fromEl) fromEl.value = range.from;
+  if (toEl) toEl.value = range.to;
+  loadMyWorkHours();
+}
+
 // Typing a date by hand means the range is no longer a cutoff — drop the
 // highlight rather than leave a pill claiming a period that isn't shown.
 function clearWorkHoursCutoff() {
   document.querySelectorAll('.wh-cutoff-pill').forEach((b) => b.classList.remove('active'));
+  // Keep the dropdown honest about the month being shown. A date older than the
+  // twelve months it lists has no option to move to, so it is left alone.
+  const monthEl = document.getElementById('wh-month-filter');
+  const typedMonth = (document.getElementById('wh-date-from')?.value || '').slice(0, 7);
+  if (monthEl && typedMonth && Array.from(monthEl.options).some((o) => o.value === typedMonth)) {
+    monthEl.value = typedMonth;
+  }
 }
 
 async function loadMyWorkHours() {
@@ -16144,19 +16141,6 @@ function showAttendancePanel(contentId) {
 function goAttendanceTab(contentId) {
   showAttendancePanel(contentId);
 }
-function fillAttendanceInputs(record) {
-  const setValue = (id, value) => {
-    const input = document.getElementById(id);
-    if (input) input.value = value || '';
-  };
-  setValue('attendance-time-in', record?.time_in);
-  setValue('attendance-time-out', record?.time_out);
-  setValue('attendance-break-out', record?.break_out);
-  setValue('attendance-break-in', record?.break_in);
-  setValue('attendance-break2-out', record?.break2_out);
-  setValue('attendance-break2-in', record?.break2_in);
-  setValue('attendance-notes', record?.notes);
-}
 
 async function loadAttendanceDashboard() {
   const today = normalizeDateString(new Date());
@@ -16173,37 +16157,10 @@ async function loadAttendanceDashboard() {
     attendanceState.advances = Array.isArray(advancesData?.advances) ? advancesData.advances : [];
     attendanceState.leaves = Array.isArray(leavesData?.requests) ? leavesData.requests : [];
     renderAttendanceClockStatus(attendanceState.today, attendanceState.date);
-    fillAttendanceInputs(attendanceState.today);
     renderAttendanceCashList();
     renderAttendanceLeaveList();
   } catch (error) {
     showToast('error', 'Attendance load failed', error.message || 'Could not load attendance records.');
-  }
-}
-
-async function saveAttendanceTimes() {
-  if (!canManageHR()) {
-    showToast('warning', 'Access denied', 'Only HR or Admin can edit time records.');
-    return;
-  }
-  try {
-    const data = await authorizedJsonRequest('/hr/attendance/self', {
-      method: 'PUT',
-      body: JSON.stringify({
-        time_in: document.getElementById('attendance-time-in')?.value || '',
-        time_out: document.getElementById('attendance-time-out')?.value || '',
-        break_out: document.getElementById('attendance-break-out')?.value || '',
-        break_in: document.getElementById('attendance-break-in')?.value || '',
-        break2_out: document.getElementById('attendance-break2-out')?.value || '',
-        break2_in: document.getElementById('attendance-break2-in')?.value || '',
-        notes: document.getElementById('attendance-notes')?.value || '',
-      }),
-    });
-    attendanceState.today = data?.record || attendanceState.today;
-    renderAttendanceClockStatus(attendanceState.today, attendanceState.today?.work_date || attendanceState.date);
-    showToast('success', 'Time saved', 'Attendance time record was updated.');
-  } catch (error) {
-    showToast('error', 'Time save failed', error.message || 'Could not save attendance time.');
   }
 }
 
@@ -17216,14 +17173,15 @@ function setHRStatusFilter(status) {
 }
 
 // Build "YYYY-MM" month options for the last 12 months (current month first).
-function buildHRMonthOptions() {
+function buildHRMonthOptions(selectedMonth) {
   const now = new Date();
   const opts = [];
   for (let i = 0; i < 12; i += 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    opts.push(`<option value="${value}"${i === 0 ? ' selected' : ''}>${label}</option>`);
+    const isSelected = selectedMonth ? value === selectedMonth : i === 0;
+    opts.push(`<option value="${value}"${isSelected ? ' selected' : ''}>${label}</option>`);
   }
   return opts.join('');
 }
