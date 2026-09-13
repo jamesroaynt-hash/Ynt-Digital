@@ -2078,7 +2078,7 @@ function aggregateMarketingByPage(entries) {
 }
 
 function marketingMoney(value) {
-  return `PHP ${Math.round(Number(value || 0)).toLocaleString()}`;
+  return `₱${Math.round(Number(value || 0)).toLocaleString()}`;
 }
 
 function marketingRoas(value) {
@@ -6752,7 +6752,7 @@ function formatPercent(value) {
 }
 
 function formatPeso(value) {
-  return `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function renderRTSMetricCard(label, value, color, total) {
@@ -7897,7 +7897,7 @@ function autoFillMarketingSalesFromOrders() {
   const ordersInput = document.getElementById('mkt-orders');
   if (salesInput) salesInput.value = total;
   if (ordersInput) ordersInput.value = count;
-  showToast('success', 'Auto-filled from delivered orders', `${count} orders — PHP ${total.toLocaleString()}`);
+  showToast('success', 'Auto-filled from delivered orders', `${count} orders — ₱${total.toLocaleString()}`);
 }
 
 // ─── AD SPEND ROAS SUMMARY ─────────────────────────────────
@@ -8181,12 +8181,12 @@ function setAdspendRoasPerPage(val) {
 }
 
 function adspendApiMoney(value) {
-  return `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function adspendMetricMoney(value) {
   const parsed = Number(value || 0);
-  return parsed ? `PHP ${parsed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}` : '-';
+  return parsed ? `₱${parsed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}` : '-';
 }
 
 function getAdspendCampaignId(item) {
@@ -17095,7 +17095,7 @@ async function loadManagedUsers() {
 }
 
 function formatPHP(value) {
-  return `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatMinutes(value) {
@@ -17702,16 +17702,17 @@ function renderAttendanceLogSummary() {
   const totals = hrState.summary.reduce((acc, item) => {
     acc.days += Number(item.days_worked || 0);
     acc.ot += Number(item.ot_minutes || 0);
+    acc.restDay += Number(item.rest_day_pay || 0);
     acc.holiday += Number(item.holiday_pay || 0);
     acc.cash += Number(item.cash_advances || 0);
     acc.net += Number(item.net_pay || 0);
     return acc;
-  }, { days: 0, ot: 0, holiday: 0, cash: 0, net: 0 });
+  }, { days: 0, ot: 0, restDay: 0, holiday: 0, cash: 0, net: 0 });
 
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>Name</th><th>Total Work Days</th><th>OT</th><th>Holiday</th><th>Cash Advance</th><th>Total Salary</th></tr></thead>
+        <thead><tr><th>Name</th><th>Total Work Days</th><th>OT</th><th>Rest Day +30%</th><th>Holiday</th><th>Cash Advance</th><th>Total Salary</th></tr></thead>
         <tbody>
           ${hrState.summary.map((item) => {
             const user = item.user || {};
@@ -17720,6 +17721,7 @@ function renderAttendanceLogSummary() {
                 <td><strong>${escapeHtml(user.full_name || user.username || 'User')}</strong>${hrInactiveBadge(user)}<div class="text-xs text-muted">${escapeHtml(formatRoleLabel(user.role))}</div></td>
                 <td>${formatWorkDays(item)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
+                <td>${formatPHP(item.rest_day_pay)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
                 <td>${formatPHP(item.cash_advances)}</td>
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
@@ -17731,6 +17733,7 @@ function renderAttendanceLogSummary() {
             <td>TOTAL</td>
             <td>${totals.days}</td>
             <td>${formatMinutes(totals.ot)}</td>
+            <td>${formatPHP(totals.restDay)}</td>
             <td>${formatPHP(totals.holiday)}</td>
             <td>${formatPHP(totals.cash)}</td>
             <td>${formatPHP(totals.net)}</td>
@@ -17792,7 +17795,7 @@ function renderHRPayrollTable() {
   wrap.innerHTML = `
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Payslip / Account</th></tr></thead>
+        <thead><tr><th>User</th><th>Rate / Day</th><th>Days</th><th>OT</th><th>OT Pay</th><th>Rest Day +30%</th><th>Holiday</th><th>Cash Adv.</th><th>Net Pay</th><th>Payslip / Account</th></tr></thead>
         <tbody>
           ${hrState.summary.map((item) => {
             const user = item.user || {};
@@ -17803,6 +17806,7 @@ function renderHRPayrollTable() {
                 <td>${formatWorkDays(item)}</td>
                 <td>${formatMinutes(item.ot_minutes)}</td>
                 <td>${formatPHP(item.ot_pay)}</td>
+                <td>${formatPHP(item.rest_day_pay)}</td>
                 <td>${formatPHP(item.holiday_pay)}</td>
                 <td>${formatPHP(item.cash_advances)}</td>
                 <td><strong>${formatPHP(item.net_pay)}</strong></td>
@@ -17869,8 +17873,10 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             // the day's pay, full stop: no premium is stacked on top of it.
             const premiumRate = hasCustomRate ? 0
               : (restDay ? 0.3 : 0) + (holiday ? Math.max(0, holidayPct - 100) / 100 : 0);
-            // Nothing lands in base pay on a rest day or a holiday — the whole
-            // of it, premium included, is OT.
+            // Nothing lands in base pay on a rest day or a holiday. Payroll
+            // splits what is left — the day and the rest-day 30% into OT, the
+            // holiday premium into holiday pay — but this column is the day's
+            // total either way, so it adds up the same.
             const basePay = paidDay && !nonRegularDay
               ? (hasCustomRate ? dayBase : dayBase * (holidayPct / 100))
               : 0;
@@ -18489,6 +18495,7 @@ function buildPayrollSheetDocument(rows, from, to) {
         <td style="${cell}">${Number(item.days_paid ?? item.days_worked ?? 0)}</td>
         <td style="${cell}">${formatMinutes(item.ot_minutes)}</td>
         <td style="${cell}">${formatPHP(item.ot_pay)}</td>
+        <td style="${cell}">${formatPHP(item.rest_day_pay)}</td>
         <td style="${cell}">${formatPHP(item.holiday_pay)}</td>
         <td style="${cell}">${formatPHP(item.cash_advances)}</td>
         <td style="${cell}font-weight:700;">${formatPHP(item.net_pay)}</td>
@@ -18535,6 +18542,7 @@ function buildPayrollSheetDocument(rows, from, to) {
         <th style="${head}">Days Paid</th>
         <th style="${head}">OT</th>
         <th style="${head}">OT Pay</th>
+        <th style="${head}">Rest Day +30%</th>
         <th style="${head}">Holiday</th>
         <th style="${head}">Cash Adv.</th>
         <th style="${head}">Net Pay</th>
@@ -18549,6 +18557,7 @@ function buildPayrollSheetDocument(rows, from, to) {
         <td style="padding:12px;font-weight:700;">${Math.round(rows.reduce((total, item) => total + Number(item.days_paid ?? item.days_worked ?? 0), 0) * 100) / 100}</td>
         <td style="padding:12px;"></td>
         <td style="padding:12px;font-weight:700;">${formatPHP(sum('ot_pay'))}</td>
+        <td style="padding:12px;font-weight:700;">${formatPHP(sum('rest_day_pay'))}</td>
         <td style="padding:12px;font-weight:700;">${formatPHP(sum('holiday_pay'))}</td>
         <td style="padding:12px;font-weight:700;">${formatPHP(sum('cash_advances'))}</td>
         <td style="padding:12px;font-weight:700;color:${navy};">${formatPHP(sum('net_pay'))}</td>
@@ -18604,8 +18613,9 @@ function buildPayslipDocument(slip) {
 
   const attendanceRows = (slip.attendance || []).map((record) => {
     const holidayPct = Number(record.holiday_percentage || 100);
-    // A worked rest day or holiday is paid entirely as OT, so its shift shows
-    // in the OT column here the same way payroll counts it.
+    // A worked rest day or holiday has its shift paid as OT, so it shows in
+    // the OT column here the same way payroll counts it. Only the holiday
+    // premium is paid outside OT, on its own Holiday Pay line above.
     const otMinutes = nonRegularDayOtMinutes(record.work_date, user.day_off, record.worked_minutes, record.holiday_type)
       + Number(record.payable_ot_minutes || 0);
     return `
@@ -18665,11 +18675,12 @@ function buildPayslipDocument(slip) {
         ? row('Days Paid (part days prorated)', Number(totals.days_paid || 0)) : ''}
       ${row('Base Pay', formatPHP(totals.base_pay))}
       ${row(`OT (${formatMinutes(totals.ot_minutes)})`, formatPHP(totals.ot_pay))}
+      ${Number(totals.rest_day_pay || 0) > 0 ? row('Rest Day Premium (30%)', formatPHP(totals.rest_day_pay)) : ''}
       ${Number(totals.holiday_pay || 0) > 0 ? row('Holiday Pay', formatPHP(totals.holiday_pay)) : ''}
       ${Number(totals.rest_days_worked || 0) > 0
-        ? row('Rest Days Worked (day +30%, paid as OT above)', Number(totals.rest_days_worked)) : ''}
+        ? row('Rest Days Worked (day paid as OT above, 30% on its own line)', Number(totals.rest_days_worked)) : ''}
       ${Number(totals.holidays_worked || 0) > 0
-        ? row('Holidays Worked (day + premium, paid as OT above)', Number(totals.holidays_worked)) : ''}
+        ? row('Holidays Worked (day paid as OT above, premium in Holiday Pay)', Number(totals.holidays_worked)) : ''}
       ${row('Cash Advances', `-${formatPHP(totals.cash_advances)}`)}
       <div style="display:grid;grid-template-columns:1fr auto;padding:18px 20px;background:#eef4fb;">
         <div style="font-size:16px;font-weight:700;">Net Pay</div>
@@ -23348,7 +23359,7 @@ async function reviewUnknownShopOrders() {
     const span = shop.first_order && shop.last_order
       ? `, ${String(shop.first_order).slice(0, 10)} to ${String(shop.last_order).slice(0, 10)}`
       : '';
-    return `• Shop ${label}: ${Number(shop.orders || 0).toLocaleString()} orders, PHP ${Math.round(Number(shop.cod_total || 0)).toLocaleString()}${span}`;
+    return `• Shop ${label}: ${Number(shop.orders || 0).toLocaleString()} orders, ₱${Math.round(Number(shop.cod_total || 0)).toLocaleString()}${span}`;
   }).join('\n');
 
   const message = `${totalOrders.toLocaleString()} order${totalOrders === 1 ? '' : 's'} `

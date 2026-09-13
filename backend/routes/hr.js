@@ -198,6 +198,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
       ot_minutes: 0,
       base_pay: 0,
       ot_pay: 0,
+      rest_day_pay: 0,
       holiday_pay: 0,
       rest_days_worked: 0,
       holidays_worked: 0,
@@ -237,20 +238,24 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
       if (restDayWorked || holidayWorked) {
         // She came in on her rest day, or on a holiday. The day is still paid —
         // prorated the same as any other — and earns its premium on top, but
-        // none of it is a regular work day: the day's own pay and every premium
-        // land in OT, so days worked and base pay are untouched. An overridden
-        // day is the exception: the figure entered by hand IS the day's pay,
-        // premiums included, so nothing is added on top of it.
+        // none of it is a regular work day: the day's own pay lands in OT, so
+        // days worked and base pay are untouched. An overridden day is the
+        // exception: the figure entered by hand IS the day's pay, premiums
+        // included, so nothing is added on top of it.
         //
-        // A day that is both earns both premiums, which is what it did before
-        // holidays moved here — the holiday premium simply lands in OT now
-        // instead of in its own bucket.
-        const premium = (restDayWorked ? REST_DAY_PREMIUM_RATE : 0)
-          + (holidayWorked ? Math.max(0, holidayPercentage - 100) / 100 : 0);
+        // Each premium gets its own column; OT Pay is left holding the day's
+        // own pay alone. A day that is both a rest day and a holiday earns
+        // both, and now shows both — which is the point of splitting them.
+        const restPremium = restDayWorked ? REST_DAY_PREMIUM_RATE : 0;
+        const holidayPremium = holidayWorked ? Math.max(0, holidayPercentage - 100) / 100 : 0;
         if (restDayWorked) summary.rest_days_worked += 1;
         if (holidayWorked) summary.holidays_worked += 1;
         summary.ot_minutes += cappedWorkedMinutes;
-        summary.ot_pay += overridden ? dayBase : dayBase * (1 + premium);
+        summary.ot_pay += dayBase;
+        if (!overridden) {
+          summary.rest_day_pay += dayBase * restPremium;
+          summary.holiday_pay += dayBase * holidayPremium;
+        }
       } else {
         summary.days_worked += 1;
         summary.days_paid += overridden ? 1 : cappedWorkedMinutes / STANDARD_DAY_MINUTES;
@@ -279,7 +284,7 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
 
   byUser.forEach((summary) => {
     summary.days_paid = Math.round(summary.days_paid * 100) / 100;
-    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.holiday_pay;
+    summary.gross_pay = summary.base_pay + summary.ot_pay + summary.rest_day_pay + summary.holiday_pay;
     summary.net_pay = summary.gross_pay - summary.cash_advances;
   });
 
