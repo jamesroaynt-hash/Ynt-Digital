@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="assets/css/main.css?v=20260908-dark-select">
+<link rel="stylesheet" href="assets/css/ads-manager.css?v=20260915-ads-manager">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -121,6 +122,13 @@
               <path d="M2 13L6 8l3 3 2.5-4L14 9"/><circle cx="14" cy="4" r="1.5"/><path d="M14 5.5V9"/>
             </svg>
             ROAS Summary
+          </a>
+
+          <a class="nav-item" data-page="ads-manager" onclick="navigateTo('ads-manager')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 6h12"/><path d="M5 9h2M5 11h4"/><path d="M10.5 9.5l1 1 1.5-2"/>
+            </svg>
+            Ads Manager
           </a>
 
           <a class="nav-item" data-page="pages" onclick="navigateTo('pages')">
@@ -407,6 +415,9 @@
 </div>
 <!-- /app-root -->
 
+  <!-- Loaded before app.js: it only declares functions, and app.js's page
+       router references renderAdsManager when any page loads. -->
+  <script src="assets/js/ads-manager.js?v=20260915-ads-manager"></script>
   <script src="assets/js/app.js?v=20260912-add-attendance-header"></script>
 </body>
 </html>

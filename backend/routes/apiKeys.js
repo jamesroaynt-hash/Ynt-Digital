@@ -6,6 +6,9 @@ const ALLOWED_SCOPES = [
   'inventory:read', 'inventory:write',
   'expenses:read', 'expenses:write',
   'hr:read',
+  // Meta Ads module / MCP server. meta:write allows pause, activate and budget
+  // changes (still two-step: preview then confirm).
+  'meta:read', 'meta:write',
 ];
 
 function hashKey(key) {

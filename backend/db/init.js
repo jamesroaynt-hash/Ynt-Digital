@@ -1391,6 +1391,8 @@ async function ensurePerformanceIndexesAsync(db) {
   await db.exec('CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, order_date DESC)');
 }
 
+const { ensureMetaAdsSchema } = require('./metaAdsSchema');
+
 function initializeDatabase(db) {
   runSqlFile(db, 'schema.sql');
   runMigrations(db);
@@ -1400,12 +1402,12 @@ function initializeDatabase(db) {
 async function initializeDatabaseAsync(db) {
   if (db.type !== 'postgres') {
     initializeDatabase(db);
-    return;
+  } else {
+    await runSqlFileAsync(db, 'schema.pg.sql');
+    await runPostgresMigrations(db);
+    await runSqlFileAsync(db, 'seed.pg.sql');
   }
-
-  await runSqlFileAsync(db, 'schema.pg.sql');
-  await runPostgresMigrations(db);
-  await runSqlFileAsync(db, 'seed.pg.sql');
+  await ensureMetaAdsSchema(db);
 }
 
 async function runSqlFileAsync(db, filename) {

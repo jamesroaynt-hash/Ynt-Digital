@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
@@ -20,8 +20,8 @@ const NAV_ACCESS = {
   RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -175,6 +175,7 @@ function loadPage(page) {
     'odz-finder': renderOdzFinder,
     creatives: renderCreatives,
     'adspend-roas': renderAdspendRoas,
+    'ads-manager': renderAdsManager,
     csr: renderCSR,
     'sales-marketing-tracker': renderSalesMarketingTracker,
     inventory: renderInventory,
@@ -215,6 +216,7 @@ const pageNames = {
   'odz-finder': 'ODZ Finder',
   creatives: 'Ad Creatives',
   'adspend-roas': 'ROAS Summary',
+  'ads-manager': 'Ads Manager',
   csr: 'CSR Records',
   'sales-marketing-tracker': 'Sales Marketing Tracker',
   inventory: 'Stock',
@@ -3437,7 +3439,7 @@ function renderApiConnections() {
             <div class="form-group" style="flex:3">
               <label class="form-label">Scopes (select all that apply)</label>
               <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
-                ${['orders:read','orders:write','inventory:read','inventory:write','expenses:read','expenses:write','hr:read'].map(s => `<label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="api-key-scope" value="${s}" ${s === 'orders:read' ? 'checked' : ''}/>${s}</label>`).join('')}
+                ${['orders:read','orders:write','inventory:read','inventory:write','expenses:read','expenses:write','hr:read','meta:read','meta:write'].map(s => `<label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="api-key-scope" value="${s}" ${s === 'orders:read' ? 'checked' : ''}/>${s}</label>`).join('')}
               </div>
             </div>
           </div>
@@ -16899,6 +16901,10 @@ function initPage(page) {
       if (App.currentPage !== 'pages') return;
       document.getElementById('main-page-content').innerHTML = renderOrderPages();
     }).catch(() => {});
+  }
+
+  if (page === 'ads-manager') {
+    initAdsManager();
   }
 
   if (page === 'adspend-roas') {

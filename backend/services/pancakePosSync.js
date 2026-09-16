@@ -1464,6 +1464,19 @@ function effectivePosStatusSql(cutoff = abandonedUndeliverableCutoff(), column =
             THEN 'returned' ELSE ${column} END`;
 }
 
+// The Manila business day an order was placed, as SQL. Same two corrections as
+// posManilaExprs() in routes/_all.js (and its copy in infotxtSms.js): the raw
+// payload's inserted_at wins over the early-sync inserted_at_remote, and the UTC
+// timestamp is shifted +8h. `prefix` qualifies the columns ("p.") for joins.
+function posManilaDaySql(dbType, prefix = '') {
+  const effectiveInsertedAt = dbType === 'postgres'
+    ? `COALESCE(NULLIF(${prefix}raw_payload::jsonb ->> 'inserted_at', ''), ${prefix}inserted_at_remote)`
+    : `COALESCE(NULLIF(json_extract(CASE WHEN json_valid(${prefix}raw_payload) THEN ${prefix}raw_payload ELSE '{}' END, '$.inserted_at'), ''), ${prefix}inserted_at_remote)`;
+  return dbType === 'postgres'
+    ? `to_char((${effectiveInsertedAt})::timestamp + interval '8 hours', 'YYYY-MM-DD')`
+    : `date(${effectiveInsertedAt}, '+8 hours')`;
+}
+
 // The same test for a single row already loaded.
 function isAbandonedUndeliverable(row, now = new Date()) {
   if (String(row?.partner_status || '').toLowerCase() !== 'undeliverable') return false;
@@ -3898,6 +3911,7 @@ module.exports = {
   ABANDONED_UNDELIVERABLE_DAYS,
   abandonedUndeliverableCutoff,
   effectivePosStatusSql,
+  posManilaDaySql,
   isAbandonedUndeliverable,
   POS_API_BASE,
   unixSecondsFromDate,

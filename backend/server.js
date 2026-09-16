@@ -12,6 +12,7 @@ const { initializeDatabaseAsync } = require('./db/init');
 const googleSheetsSync = require('./services/googleSheetsSync');
 const pancakePosSync = require('./services/pancakePosSync');
 const infotxtSms = require('./services/infotxtSms');
+const metaAds = require('./services/metaAds');
 const { dispatch: dispatchWebhook } = require('./services/webhookDispatcher');
 const { hashKey: hashApiKey } = require('./routes/apiKeys');
 
@@ -354,6 +355,11 @@ async function createApp() {
   app.use('/api/webhooks', authMiddleware, require('./routes/webhooks')(db));
   app.use('/api/announcements', authMiddleware, require('./routes/announcements')(db));
   app.use('/api/chat', authMiddleware, require('./routes/chat')(db));
+  // Meta Ads module. The OAuth callback is public (Meta redirects the browser to
+  // it); its signed state ties it back to the user who started the flow.
+  const metaAdsRouter = require('./routes/metaAds')(db, { onSyncFinished: () => backupScheduler.schedule() });
+  app.use('/api/meta/oauth/callback', metaAdsRouter.oauthCallback);
+  app.use('/api/meta', authMiddleware, metaAdsRouter);
 
   // API discovery endpoint
   app.get('/api', (req, res) => {
@@ -588,6 +594,25 @@ async function createApp() {
     }, RETENTION_INTERVAL_MS);
   }
 
+  // Meta Ads auto-sync: off unless META_SYNC_ENABLED=true, so a local run and a
+  // deployed instance never both pull the same ad accounts by accident.
+  const META_SYNC_INTERVAL_MS = Math.max(5 * 60 * 1000, Number(process.env.META_SYNC_INTERVAL_MS || 15 * 60 * 1000));
+  function scheduleMetaAdsSync() {
+    setTimeout(async () => {
+      try {
+        const results = await metaAds.syncAllConnections(db, { trigger: 'interval' });
+        if (results.length) {
+          backupScheduler.schedule();
+          console.log(`[meta_ads] interval sync: ${results.map((r) => `#${r.connection_id}=${r.status}`).join(', ')}`);
+        }
+      } catch (error) {
+        console.error(`[meta_ads] interval sync failed: ${error.message}`);
+      }
+      scheduleMetaAdsSync();
+    }, META_SYNC_INTERVAL_MS);
+  }
+  app.locals.scheduleMetaAdsSync = scheduleMetaAdsSync;
+
   app.locals.db = db;
   app.locals.backupDatabase = () => backupScheduler.uploadBackup({ force: true });
   app.locals.runGoogleSheetsSync = runGoogleSheetsSync;
@@ -698,6 +723,11 @@ if (require.main === module) {
         }, 45 * 1000);
 
         app.locals.scheduleSmsLogCleanup();
+
+        if (process.env.META_SYNC_ENABLED === 'true') {
+          console.log('[meta_ads] auto-sync enabled.');
+          app.locals.scheduleMetaAdsSync();
+        }
       }
 
       // Backups are now throttled (see createBackupScheduler), so flush a final
