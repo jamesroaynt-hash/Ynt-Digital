@@ -940,26 +940,35 @@ async function amLoadBilling() {
   }
 }
 
-// How many charges the invoice list shows before "Show more".
+// How many charges the payment table shows before "Show more".
 const AM_BILL_PAGE = 25;
 let amBillShown = AM_BILL_PAGE;
 
-// Meta's status wording varies by account, so the badge is driven by the text.
+// Meta's status wording varies by account, so the pill is driven by the text.
+// Ad credit is a payment method, not a refund, so it never lands in "refund".
 function amChargeClass(charge) {
   const status = String(charge.status || '');
-  const type = String(charge.charge_type || '');
-  if (/refund|credit|chargeback|reversal/i.test(status) || /refund|credit|chargeback|reversal/i.test(type) || Number(charge.amount) < 0) return ['refund', 'badge-info', 'REFUND'];
-  if (/fail|declin|cancel|void|dispute|error/i.test(status)) return ['failed', 'badge-danger', 'FAILED'];
-  if (/pending|process|review|authoriz/i.test(status)) return ['pending', 'badge-warning', 'PENDING'];
-  return ['paid', 'badge-success', 'PAID'];
+  if (charge.is_ad_credit) return ['credit', 'badge-success', 'Paid'];
+  if (/refund|chargeback|reversal/i.test(status) || Number(charge.amount) < 0) return ['refund', 'badge-info', 'Refund'];
+  if (/fail|declin|cancel|void|dispute|error/i.test(status)) return ['failed', 'badge-danger', 'Failed'];
+  if (/pending|process|review|authoriz/i.test(status)) return ['pending', 'badge-warning', 'Pending'];
+  return ['paid', 'badge-success', 'Paid'];
 }
 
 const amMonthName = (m) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('en-PH', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-const amInvDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: '2-digit', year: 'numeric' }) : '—');
+const amInvDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 
 function amBillShowMore() {
   amBillShown += AM_BILL_PAGE;
   if (amState.billing) amRenderBilling(amState.billing);
+}
+
+// Meta's own billing hub, where the VAT invoice PDF downloads under the
+// viewer's Facebook session. The PDF is not fetchable with an API token, so
+// the row links out instead of pretending to hand over a file.
+function amBillingHubUrl(adAccountId) {
+  const id = String(adAccountId || '').replace(/^act_/, '');
+  return `https://business.facebook.com/billing_hub/payment_activity?asset_id=${encodeURIComponent(id)}`;
 }
 
 function amRenderBilling(data) {
@@ -997,27 +1006,39 @@ function amRenderBilling(data) {
   const paidTotal = months.reduce((sum, m) => sum + Number(m.net_paid || 0), 0);
   const shown = Math.min(amBillShown, charges.length);
 
-  // Paid per month, kept as a strip above the list rather than a second table.
+  // Paid per month, as a strip above the table. Ad credit is listed apart
+  // because it never touched the card.
   const monthStrip = months.length ? `
     <div class="am-bill-months">
       ${months.map((m) => `
-        <div class="am-bill-month-pill" title="${amFmt(m.count, 'int')} charge${m.count === 1 ? '' : 's'}${m.refunded ? ` · refunds ${amMoney(m.refunded, m.currency || logCurrency)}` : ''}${m.failed ? ` · failed ${amMoney(m.failed, m.currency || logCurrency)}` : ''}">
+        <div class="am-bill-month-pill" title="${amFmt(m.count, 'int')} transaction${m.count === 1 ? '' : 's'}${m.refunded ? ` · refunds ${amMoney(m.refunded, m.currency || logCurrency)}` : ''}${m.failed ? ` · failed ${amMoney(m.failed, m.currency || logCurrency)}` : ''}">
           <div class="am-kpi-label">${amEsc(amMonthName(m.month))}</div>
           <div class="am-bill-value">${amMoney(m.net_paid, m.currency || logCurrency)}</div>
+          ${m.ad_credit ? `<div class="am-sub">+ ${amMoney(m.ad_credit, m.currency || logCurrency)} ad credit</div>` : ''}
         </div>`).join('')}
     </div>` : '';
 
+  // Same columns Meta shows under Billing & payments.
   const rows = charges.slice(0, shown).map((c) => {
     const [kind, tone, label] = amChargeClass(c);
     const amount = kind === 'refund' ? -Math.abs(Number(c.amount || 0)) : c.amount;
+    const idParts = String(c.id || '').split('-');
     return `
-      <tr class="am-inv-row am-inv-${kind}">
-        <td class="am-inv-icon">${AM_ICONS.invoice}</td>
-        <td class="am-inv-date">${amEsc(amInvDate(c.time))}</td>
-        <td class="am-inv-amount">${amMoney(amount, c.currency)}</td>
-        ${many ? `<td class="am-inv-account">${amEsc(c.ad_account_name || c.ad_account_id || '')}</td>` : ''}
-        <td class="am-inv-id" title="${amEsc(String(c.charge_type || '').replace(/_/g, ' '))}">${amEsc(c.id || '—')}</td>
-        <td class="am-inv-status"><span class="badge ${tone}" title="${amEsc(String(c.status || ''))}">${amEsc(label)}</span></td>
+      <tr class="am-tx am-tx-${kind}">
+        <td class="am-tx-id">${idParts.map((part) => `<div>${amEsc(part)}</div>`).join('') || '—'}</td>
+        <td class="am-tx-date">${amEsc(amInvDate(c.time))}</td>
+        <td class="am-tx-amount" title="${c.tax_amount ? `includes ${amMoney(c.tax_amount, c.currency)} tax` : ''}">${amMoney(amount, c.currency)}</td>
+        ${many ? `<td class="am-tx-account">${amEsc(c.ad_account_name || c.ad_account_id || '')}</td>` : ''}
+        <td class="am-tx-method">
+          ${c.is_ad_credit
+            ? '<span class="am-tx-credit">Ad credit</span>'
+            : `${c.payment_method ? amEsc(c.payment_method) : '<span class="am-muted">—</span>'}${c.tracking_id ? `<div class="am-tx-ref">${amEsc(c.tracking_id)}</div>` : ''}`}
+        </td>
+        <td class="am-tx-status"><span class="badge ${tone}" title="${amEsc(String(c.status || ''))}">${amEsc(label)}</span></td>
+        <td class="am-tx-vat">${c.vat_invoice_id ? amEsc(c.vat_invoice_id) : '<span class="am-muted">—</span>'}</td>
+        <td class="am-tx-action">
+          <a class="btn btn-secondary btn-sm am-tx-open" href="${amEsc(amBillingHubUrl(c.ad_account_id))}" target="_blank" rel="noopener noreferrer" title="Open this ad account's billing in Meta to download the invoice">${AM_ICONS.download}</a>
+        </td>
       </tr>`;
   }).join('');
 
@@ -1025,36 +1046,40 @@ function amRenderBilling(data) {
     <div class="card am-bill-card">
       <div class="am-bill-head">
         <div>
-          <div class="card-title">Payments</div>
-          <div class="card-subtitle">What the card was actually charged, newest first, straight from Meta's own records.</div>
+          <div class="card-title">Payment activity</div>
+          <div class="card-subtitle">Meta's own transactions, newest first. Invoice PDFs download from Meta, where your Facebook session can sign for them.</div>
         </div>
         <div class="am-bill-fact">
-          <div class="am-kpi-label">Total paid</div>
+          <div class="am-kpi-label">Total paid by card</div>
           <div class="am-bill-value">${amMoney(paidTotal, logCurrency)}</div>
         </div>
       </div>
       ${monthStrip}
-      <table class="am-table am-inv-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Date</th>
-            <th>Amount</th>
-            ${many ? '<th>Ad account</th>' : ''}
-            <th>Charge number</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div class="am-table-wrap">
+        <table class="am-table am-tx-table">
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Date</th>
+              <th>Amount</th>
+              ${many ? '<th>Ad account</th>' : ''}
+              <th>Payment method</th>
+              <th>Payment status</th>
+              <th>VAT invoice ID</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
       <div class="am-inv-foot">
-        <span class="am-muted">Showing 1 to ${amFmt(shown, 'int')} out of ${amFmt(charges.length, 'int')} charge${charges.length === 1 ? '' : 's'}</span>
+        <span class="am-muted">Showing 1 to ${amFmt(shown, 'int')} out of ${amFmt(charges.length, 'int')} transaction${charges.length === 1 ? '' : 's'}</span>
         ${shown < charges.length ? '<button class="btn btn-secondary btn-sm" type="button" onclick="amBillShowMore()">Show more</button>' : ''}
       </div>
     </div>` : `
     <div class="card am-bill-card">
-      <div class="card-title">Payments</div>
-      <div class="am-sub">No charges came back from Meta for these ad accounts.</div>
+      <div class="card-title">Payment activity</div>
+      <div class="am-sub">No transactions came back from Meta for these ad accounts.</div>
     </div>`;
 
   wrap.innerHTML = `

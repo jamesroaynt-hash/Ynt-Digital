@@ -109,11 +109,12 @@ function fakeGraph(overrides = {}) {
     if (path === 'act_1/transactions') {
       if (state.transactionsError) return jsonResponse(400, { error: { code: 200, message: 'Requires account admin' } });
       return jsonResponse(200, { data: [
-        { id: 't1', time: '2026-09-10T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '450000' } },
+        { id: 't1-t1b', time: '2026-09-10T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', tracking_id: 'GJTGA3NH24', vat_invoice_id: 'FBADS-582-106588313', billed_amount_details: { currency: 'PHP', total_amount: '450000', tax_amount: '48214' } },
         { id: 't2', time: '2026-09-02T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '300000' } },
         { id: 't3', time: '2026-09-04T02:00:00+0000', charge_type: 'ad_spend', status: 'Declined', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '100000' } },
         { id: 't4', time: '2026-09-06T02:00:00+0000', charge_type: 'refund', status: 'Refunded', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '50000' } },
         { id: 't5', time: '2026-08-15T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '900000' } },
+        { id: 't6', time: '2026-09-05T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'ad_credit', billed_amount_details: { currency: 'PHP', total_amount: '354' } },
       ] });
     }
     if (/^A\d\/previews$/.test(path)) {
@@ -647,11 +648,20 @@ test('billing reads live from Meta, sums our own spend, and totals what the card
 
     // The payment log itself: newest first and tagged with the ad account it
     // was billed to, so several accounts can share one list.
-    assert.equal(res.data.charges.length, 5);
-    assert.equal(res.data.charges[0].id, 't1');
+    assert.equal(res.data.charges.length, 6);
+    assert.equal(res.data.charges[0].id, 't1-t1b');
     assert.equal(res.data.charges.at(-1).id, 't5');
     assert.equal(res.data.charges[0].ad_account_name, 'TAKARA Main');
     assert.equal(res.data.charges[0].amount, 4500);
+    // The billing columns Meta shows: invoice id, card reference, tax, method.
+    assert.equal(res.data.charges[0].vat_invoice_id, 'FBADS-582-106588313');
+    assert.equal(res.data.charges[0].tracking_id, 'GJTGA3NH24');
+    assert.equal(res.data.charges[0].tax_amount, 482.14);
+    assert.equal(res.data.charges[0].payment_method, 'Mastercard *1234');
+    // Ad credit is a payment method, not a refund, and never a card charge.
+    const credit = res.data.charges.find((c) => c.id === 't6');
+    assert.equal(credit.is_ad_credit, true);
+    assert.equal(credit.payment_method, 'Ad credit');
 
     // Paid per month: refunds netted off, declines and pending kept apart.
     const september = res.data.charges_by_month.find((m) => m.month === '2026-09');
@@ -659,7 +669,8 @@ test('billing reads live from Meta, sums our own spend, and totals what the card
     assert.equal(september.refunded, 500);
     assert.equal(september.net_paid, 7000);
     assert.equal(september.failed, 1000);
-    assert.equal(september.count, 4);
+    assert.equal(september.ad_credit, 3.54);
+    assert.equal(september.count, 5);
     assert.equal(res.data.charges_by_month[0].month, '2026-09', 'newest month first');
     assert.equal(res.data.charges_by_month[1].net_paid, 9000);
 

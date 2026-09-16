@@ -478,6 +478,9 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
           ad_account_id: account.ad_account_id,
           ad_account_name: account.name,
           currency: charge.currency || account.currency,
+          // Meta puts the card on the funding source, not on the charge, so the
+          // account's current payment method is what a card row can show.
+          payment_method: charge.is_ad_credit ? 'Ad credit' : account.funding_source || null,
         }));
       }));
       // Newest first, so the log reads like a statement.
@@ -503,6 +506,7 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
           'Balance, payment method and spend cap are read from Meta at the moment you open this tab and are never stored here.',
           'Spend figures are the synced daily insights, so they match the other tabs; Meta can still revise the last few days.',
           'Lifetime spent is what Meta bills on the account and includes spend from before this dashboard was connected.',
+          'Payment method is the ad account’s current funding source: Meta stores the card on the account, not on each charge, so an older charge may have been paid with a card since replaced.',
           "Paid per month is grouped from Meta's own charge records, so it is what the card was actually charged — it will not match the spend figures exactly, because a month's last days are usually billed in the next month.",
         ],
       });

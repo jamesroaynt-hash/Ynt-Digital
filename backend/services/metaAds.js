@@ -712,29 +712,62 @@ async function accountBilling(db, adAccountId, options = {}) {
   };
 }
 
-// The billed charges themselves. Meta gates this edge behind account-admin
-// access, so a refusal is reported as a note rather than failing the page.
+// The billed charges themselves — the same rows Meta shows under Billing &
+// payments, including the VAT invoice id and the card reference per charge.
+// Meta gates this edge behind account-admin access, so a refusal is reported
+// as a note rather than failing the page.
+const CHARGE_FIELDS = 'id,time,charge_type,status,amount,payment_option,product_type,transaction_type,tracking_id,vat_invoice_id,credential_id,billing_start_time,billing_end_time,billed_amount_details{currency,total_amount,tax_amount}';
+// An API version can drop a field and Meta then rejects the whole request
+// (code 100), so the older, narrower list is tried before giving up.
+const CHARGE_FIELDS_MIN = 'id,time,charge_type,status,amount,billed_amount_details,payment_option';
+
+// "Ad credit" is a payment method, not a refund: Meta pays for the spend out of
+// a credit balance and the row is still a positive, paid charge.
+function isAdCredit(row) {
+  // Matched narrowly: "credit_card" is the opposite of an ad credit, so a bare
+  // /credit/ test would flip every card charge.
+  return /ad[_\s-]?credit|coupon/i.test([row.payment_option, row.product_type, row.charge_type].filter(Boolean).join(' '));
+}
+
 async function accountCharges(db, adAccountId, options = {}) {
   const account = await db.prepare('SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id = ?').get(adAccountId);
   if (!account?.connection_id) return { charges: [], note: 'This ad account is not connected.' };
   const { token } = await loadConnectionToken(db, account.connection_id);
+  const limit = Math.min(500, Number(options.limit) || 100);
   try {
-    const json = await graphRequest(token, `${adAccountId}/transactions`, {
-      ...options,
-      params: { fields: 'id,time,charge_type,status,amount,billed_amount_details,payment_option', limit: Math.min(500, Number(options.limit) || 100) },
-      retries: 1,
+    let json;
+    try {
+      json = await graphRequest(token, `${adAccountId}/transactions`, { ...options, params: { fields: CHARGE_FIELDS, limit }, retries: 1 });
+    } catch (error) {
+      if (error.code !== 100) throw error;
+      json = await graphRequest(token, `${adAccountId}/transactions`, { ...options, params: { fields: CHARGE_FIELDS_MIN, limit }, retries: 1 });
+    }
+    const charges = (json.data || []).map((row) => {
+      const currency = row.billed_amount_details?.currency || account.currency;
+      return {
+        id: row.id,
+        time: row.time || null,
+        billing_start_time: row.billing_start_time || null,
+        billing_end_time: row.billing_end_time || null,
+        charge_type: row.charge_type || null,
+        transaction_type: row.transaction_type ?? null,
+        product_type: row.product_type ?? null,
+        status: row.status || null,
+        payment_option: row.payment_option || null,
+        is_ad_credit: isAdCredit(row),
+        // The reference Meta prints under the card on its own billing table.
+        tracking_id: row.tracking_id || null,
+        vat_invoice_id: row.vat_invoice_id || null,
+        credential_id: row.credential_id || null,
+        currency,
+        amount: row.billed_amount_details?.total_amount !== undefined
+          ? budgetFromMinor(row.billed_amount_details.total_amount, currency)
+          : budgetFromMinor(row.amount, currency),
+        tax_amount: row.billed_amount_details?.tax_amount !== undefined
+          ? budgetFromMinor(row.billed_amount_details.tax_amount, currency)
+          : null,
+      };
     });
-    const charges = (json.data || []).map((row) => ({
-      id: row.id,
-      time: row.time || null,
-      charge_type: row.charge_type || null,
-      status: row.status || null,
-      payment_option: row.payment_option || null,
-      currency: row.billed_amount_details?.currency || account.currency,
-      amount: row.billed_amount_details?.total_amount !== undefined
-        ? budgetFromMinor(row.billed_amount_details.total_amount, row.billed_amount_details?.currency || account.currency)
-        : budgetFromMinor(row.amount, account.currency),
-    }));
     return { charges, note: null };
   } catch (error) {
     return { charges: [], note: `Meta did not return the charge history: ${error.message}` };
@@ -746,7 +779,7 @@ async function accountCharges(db, adAccountId, options = {}) {
 // than by a fixed enum, and the raw status stays visible in the charge list so
 // a figure can always be traced back.
 const NOT_PAID = /fail|declin|cancel|void|dispute|error/i;
-const REFUND = /refund|credit|chargeback|reversal/i;
+const REFUND = /refund|chargeback|reversal|credit memo/i;
 const PENDING = /pending|process|review|authoriz/i;
 
 function chargesByMonth(charges = []) {
@@ -754,10 +787,11 @@ function chargesByMonth(charges = []) {
   for (const charge of charges) {
     const month = String(charge.time || '').slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
-    const row = months.get(month) || { month, paid: 0, refunded: 0, pending: 0, failed: 0, count: 0, currency: charge.currency || null };
+    const row = months.get(month) || { month, paid: 0, ad_credit: 0, refunded: 0, pending: 0, failed: 0, count: 0, currency: charge.currency || null };
     const amount = Number(charge.amount || 0);
     const status = String(charge.status || '');
-    if (REFUND.test(status) || REFUND.test(String(charge.charge_type || '')) || amount < 0) row.refunded += Math.abs(amount);
+    if (charge.is_ad_credit) row.ad_credit += amount;
+    else if (REFUND.test(status) || REFUND.test(String(charge.charge_type || '')) || amount < 0) row.refunded += Math.abs(amount);
     else if (NOT_PAID.test(status)) row.failed += amount;
     else if (PENDING.test(status)) row.pending += amount;
     else row.paid += amount;
@@ -830,6 +864,7 @@ module.exports = {
   ACCOUNT_STATUS,
   accountBilling,
   accountCharges,
+  isAdCredit,
   chargesByMonth,
   AD_PREVIEW_FORMATS,
   iframeSrc,
