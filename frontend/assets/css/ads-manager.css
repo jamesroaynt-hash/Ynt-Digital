@@ -429,3 +429,6 @@
   .am-tx-id { display: none; }
   .am-tx td { padding: 10px 8px; }
 }
+
+/* Way out to Meta's billing hub when its API has nothing to give. */
+.am-bill-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }

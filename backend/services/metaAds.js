@@ -647,6 +647,31 @@ async function updateEntity(db, { level, metaId, fields }, options = {}) {
   return { entity, account, fresh };
 }
 
+// Meta rejects a whole request over one unknown field (code 100) and names the
+// field in the message. Field availability moves between API versions —
+// adtrust_dsl and next_bill_date are gone in v24 — so rather than hardcode a
+// narrower list and lose the good fields with it, the named field is dropped
+// and the call retried.
+async function graphRequestPruning(token, path, fields, options = {}) {
+  let remaining = fields.slice();
+  const dropped = [];
+  for (let attempt = 0; attempt <= fields.length; attempt += 1) {
+    if (!remaining.length) return { json: {}, dropped, fields: remaining };
+    try {
+      const json = await graphRequest(token, path, { ...options, params: { ...options.params, fields: remaining.join(',') }, retries: 1 });
+      return { json, dropped, fields: remaining };
+    } catch (error) {
+      const name = error.code === 100 ? /nonexisting field \(([^)]+)\)/.exec(error.message)?.[1] : null;
+      // The field name can be nested, e.g. funding_source_details{foo}.
+      const index = name ? remaining.findIndex((f) => f === name || f.startsWith(`${name}{`)) : -1;
+      if (index < 0) throw error;
+      dropped.push(remaining[index]);
+      remaining = remaining.filter((_, i) => i !== index);
+    }
+  }
+  throw new MetaApiError(`Meta rejected every field for ${path}`, { kind: 'api', code: 100 });
+}
+
 // ─── Billing ──────────────────────────────────────────────────────────────────
 // Read live from Meta on request and never stored: balance and payment method
 // change on Meta's side, a stale copy would be worse than none, and a snapshot
@@ -663,10 +688,10 @@ const ACCOUNT_STATUS = {
   101: 'Closed',
 };
 
-const BILLING_FIELDS = 'name,currency,account_status,disable_reason,amount_spent,spend_cap,balance,is_prepay_account,adtrust_dsl,funding_source_details{id,type,display_string},business{id,name}';
-// Meta rejects the whole request over one unknown field (code 100), so a
-// narrower list is tried before giving up — an API version can drop a field.
-const BILLING_FIELDS_MIN = 'name,currency,account_status,amount_spent,spend_cap,balance';
+const BILLING_FIELDS = [
+  'name', 'currency', 'account_status', 'disable_reason', 'amount_spent', 'spend_cap', 'balance',
+  'is_prepay_account', 'funding_source_details{id,type,display_string}', 'business{id,name}',
+];
 
 async function accountBilling(db, adAccountId, options = {}) {
   const account = await db.prepare('SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id = ?').get(adAccountId);
@@ -674,13 +699,7 @@ async function accountBilling(db, adAccountId, options = {}) {
   if (!account.connection_id) throw Object.assign(new Error('This ad account is not connected'), { statusCode: 409 });
   const { token } = await loadConnectionToken(db, account.connection_id);
 
-  let live;
-  try {
-    live = await graphRequest(token, adAccountId, { ...options, params: { fields: BILLING_FIELDS }, retries: 1 });
-  } catch (error) {
-    if (error.code !== 100) throw error;
-    live = await graphRequest(token, adAccountId, { ...options, params: { fields: BILLING_FIELDS_MIN }, retries: 1 });
-  }
+  const { json: live } = await graphRequestPruning(token, adAccountId, BILLING_FIELDS, options);
 
   const currency = live.currency || account.currency;
   // Meta writes "no limit" as 0 for both caps; showing that as a 0 cap would
@@ -705,21 +724,27 @@ async function accountBilling(db, adAccountId, options = {}) {
     // postpaid (card) account.
     balance: budgetFromMinor(live.balance, currency),
     is_prepay: live.is_prepay_account === true || live.is_prepay_account === 1,
-    daily_spend_limit: capOrNull(live.adtrust_dsl),
     funding_source: live.funding_source_details?.display_string || null,
     funding_source_type: live.funding_source_details?.type ?? null,
     business_name: live.business?.name || account.business_name || null,
   };
 }
 
-// The billed charges themselves — the same rows Meta shows under Billing &
-// payments, including the VAT invoice id and the card reference per charge.
-// Meta gates this edge behind account-admin access, so a refusal is reported
-// as a note rather than failing the page.
-const CHARGE_FIELDS = 'id,time,charge_type,status,amount,payment_option,product_type,transaction_type,tracking_id,vat_invoice_id,credential_id,billing_start_time,billing_end_time,billed_amount_details{currency,total_amount,tax_amount}';
-// An API version can drop a field and Meta then rejects the whole request
-// (code 100), so the older, narrower list is tried before giving up.
-const CHARGE_FIELDS_MIN = 'id,time,charge_type,status,amount,billed_amount_details,payment_option';
+// Meta's per-charge payment activity. The act_<id>/transactions edge that used
+// to return it does not exist from v24 (probed live: "nonexisting field
+// (transactions)"), and there is no replacement for card-paid accounts — the
+// charge list and its VAT invoice PDFs live only in Meta's billing hub. It is
+// still attempted, because accounts on a credit line do get invoices through
+// business_invoices, and because Meta has restored edges before.
+const CHARGE_FIELDS = [
+  'id', 'time', 'charge_type', 'status', 'amount', 'payment_option', 'product_type', 'transaction_type',
+  'tracking_id', 'vat_invoice_id', 'credential_id', 'billing_start_time', 'billing_end_time',
+  'billed_amount_details{currency,total_amount,tax_amount}',
+];
+
+const INVOICE_FIELDS = [
+  'id', 'invoice_date', 'due_date', 'payment_status', 'billing_period', 'amount_due', 'currency', 'invoice_id',
+];
 
 // "Ad credit" is a payment method, not a refund: Meta pays for the spend out of
 // a credit balance and the row is still a positive, paid charge.
@@ -729,48 +754,65 @@ function isAdCredit(row) {
   return /ad[_\s-]?credit|coupon/i.test([row.payment_option, row.product_type, row.charge_type].filter(Boolean).join(' '));
 }
 
+function mapCharge(row, fallbackCurrency) {
+  const currency = row.billed_amount_details?.currency || row.currency || fallbackCurrency;
+  return {
+    id: row.id || row.invoice_id || null,
+    time: row.time || row.invoice_date || null,
+    due_date: row.due_date || null,
+    billing_period: row.billing_period || null,
+    billing_start_time: row.billing_start_time || null,
+    billing_end_time: row.billing_end_time || null,
+    charge_type: row.charge_type || null,
+    transaction_type: row.transaction_type ?? null,
+    product_type: row.product_type ?? null,
+    status: row.status || row.payment_status || null,
+    payment_option: row.payment_option || null,
+    is_ad_credit: isAdCredit(row),
+    // The reference Meta prints under the card on its own billing table.
+    tracking_id: row.tracking_id || null,
+    vat_invoice_id: row.vat_invoice_id || null,
+    credential_id: row.credential_id || null,
+    currency,
+    amount: row.billed_amount_details?.total_amount !== undefined
+      ? budgetFromMinor(row.billed_amount_details.total_amount, currency)
+      : budgetFromMinor(row.amount ?? row.amount_due, currency),
+    tax_amount: row.billed_amount_details?.tax_amount !== undefined
+      ? budgetFromMinor(row.billed_amount_details.tax_amount, currency)
+      : null,
+  };
+}
+
 async function accountCharges(db, adAccountId, options = {}) {
   const account = await db.prepare('SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id = ?').get(adAccountId);
-  if (!account?.connection_id) return { charges: [], note: 'This ad account is not connected.' };
+  if (!account?.connection_id) return { charges: [], note: 'This ad account is not connected.', source: null };
   const { token } = await loadConnectionToken(db, account.connection_id);
   const limit = Math.min(500, Number(options.limit) || 100);
+  const params = { limit };
+
   try {
-    let json;
+    const { json } = await graphRequestPruning(token, `${adAccountId}/transactions`, CHARGE_FIELDS, { ...options, params });
+    return { charges: (json.data || []).map((row) => mapCharge(row, account.currency)), note: null, source: 'transactions' };
+  } catch (transactionsError) {
+    // Fall through to the business invoices, which is where an account on a
+    // credit line keeps the same information.
     try {
-      json = await graphRequest(token, `${adAccountId}/transactions`, { ...options, params: { fields: CHARGE_FIELDS, limit }, retries: 1 });
-    } catch (error) {
-      if (error.code !== 100) throw error;
-      json = await graphRequest(token, `${adAccountId}/transactions`, { ...options, params: { fields: CHARGE_FIELDS_MIN, limit }, retries: 1 });
+      const business = await graphRequest(token, adAccountId, { ...options, params: { fields: 'business{id}' }, retries: 1 });
+      const businessId = business?.business?.id;
+      if (!businessId) throw transactionsError;
+      const { json } = await graphRequestPruning(token, `${businessId}/business_invoices`, INVOICE_FIELDS, { ...options, params });
+      const charges = (json.data || []).map((row) => mapCharge(row, account.currency));
+      if (!charges.length) {
+        return {
+          charges: [],
+          source: 'business_invoices',
+          note: 'Meta no longer exposes the per-charge list through its API, and this business has no invoices (that edge only covers accounts on a credit line). Open billing in Meta for the transaction ids and VAT invoice PDFs.',
+        };
+      }
+      return { charges, note: null, source: 'business_invoices' };
+    } catch {
+      return { charges: [], note: `Meta did not return the charge history: ${transactionsError.message}`, source: null };
     }
-    const charges = (json.data || []).map((row) => {
-      const currency = row.billed_amount_details?.currency || account.currency;
-      return {
-        id: row.id,
-        time: row.time || null,
-        billing_start_time: row.billing_start_time || null,
-        billing_end_time: row.billing_end_time || null,
-        charge_type: row.charge_type || null,
-        transaction_type: row.transaction_type ?? null,
-        product_type: row.product_type ?? null,
-        status: row.status || null,
-        payment_option: row.payment_option || null,
-        is_ad_credit: isAdCredit(row),
-        // The reference Meta prints under the card on its own billing table.
-        tracking_id: row.tracking_id || null,
-        vat_invoice_id: row.vat_invoice_id || null,
-        credential_id: row.credential_id || null,
-        currency,
-        amount: row.billed_amount_details?.total_amount !== undefined
-          ? budgetFromMinor(row.billed_amount_details.total_amount, currency)
-          : budgetFromMinor(row.amount, currency),
-        tax_amount: row.billed_amount_details?.tax_amount !== undefined
-          ? budgetFromMinor(row.billed_amount_details.tax_amount, currency)
-          : null,
-      };
-    });
-    return { charges, note: null };
-  } catch (error) {
-    return { charges: [], note: `Meta did not return the charge history: ${error.message}` };
   }
 }
 
@@ -844,6 +886,7 @@ module.exports = {
   encryptToken,
   decryptToken,
   graphRequest,
+  graphRequestPruning,
   graphPaginate,
   inspectToken,
   oauthConfigured,

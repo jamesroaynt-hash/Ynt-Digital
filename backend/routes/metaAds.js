@@ -439,15 +439,25 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
         'SELECT COALESCE(SUM(spend), 0) AS spend FROM meta_insights_daily WHERE ad_account_id = ? AND date >= ? AND date <= ?',
       ).get(id, from, to))?.spend || 0);
 
+      // Spend per calendar month from our own synced insights. Meta dropped the
+      // per-charge edge, so this is the monthly figure the tab can actually
+      // stand behind — spend, not what the card was charged.
+      const spendByMonth = async (id) => (await db.prepare(`
+        SELECT substr(date, 1, 7) AS month, COALESCE(SUM(spend), 0) AS spend
+        FROM meta_insights_daily WHERE ad_account_id = ?
+        GROUP BY substr(date, 1, 7) ORDER BY month DESC LIMIT 12
+      `).all(id)).map((r) => ({ month: r.month, spend: Number(r.spend || 0) }));
+
       const rows = await Promise.all(accounts.map(async (account) => {
         const id = account.meta_ad_account_id;
         const today = meta.todayInZone(account.timezone_name);
-        const [range, month, day] = await Promise.all([
+        const [range, month, day, byMonth] = await Promise.all([
           spendSince(id, f.from, f.to),
           spendSince(id, `${today.slice(0, 7)}-01`, today),
           spendSince(id, today, today),
+          spendByMonth(id),
         ]);
-        const spend = { range, month_to_date: month, today: day, from: f.from, to: f.to };
+        const spend = { range, month_to_date: month, today: day, from: f.from, to: f.to, by_month: byMonth };
         try {
           return { ...(await meta.accountBilling(db, id, metaOptions)), spend, error: null };
         } catch (error) {
@@ -488,6 +498,15 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
       const chargesByMonth = meta.chargesByMonth(charges);
       const chargesNote = notes.join(' ') || null;
 
+      // One merged monthly series for the whole scope.
+      const merged = new Map();
+      for (const row of rows) {
+        for (const m of row.spend.by_month) merged.set(m.month, (merged.get(m.month) || 0) + m.spend);
+      }
+      const spendMonths = [...merged.entries()]
+        .map(([month, spend]) => ({ month, spend }))
+        .sort((a, b) => (a.month < b.month ? 1 : -1));
+
       const currencies = [...new Set(rows.map((r) => r.currency).filter(Boolean))];
       res.json({
         filters: { from: f.from, to: f.to },
@@ -499,6 +518,7 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
           spend_month_to_date: rows.reduce((sum, r) => sum + Number(r.spend.month_to_date || 0), 0),
           spend_today: rows.reduce((sum, r) => sum + Number(r.spend.today || 0), 0),
         } : null,
+        spend_by_month: spendMonths,
         charges,
         charges_by_month: chargesByMonth,
         charges_note: chargesNote,
@@ -506,6 +526,7 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
           'Balance, payment method and spend cap are read from Meta at the moment you open this tab and are never stored here.',
           'Spend figures are the synced daily insights, so they match the other tabs; Meta can still revise the last few days.',
           'Lifetime spent is what Meta bills on the account and includes spend from before this dashboard was connected.',
+          'Meta removed the per-charge transactions edge from its API (v24), so the transaction ids and VAT invoice PDFs can only be read in Meta’s own billing hub. Spend per month below is from our synced insights instead.',
           'Payment method is the ad account’s current funding source: Meta stores the card on the account, not on each charge, so an older charge may have been paid with a card since replaced.',
           "Paid per month is grouped from Meta's own charge records, so it is what the card was actually charged — it will not match the spend figures exactly, because a month's last days are usually billed in the next month.",
         ],

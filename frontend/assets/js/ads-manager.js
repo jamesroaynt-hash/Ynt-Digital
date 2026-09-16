@@ -1042,6 +1042,36 @@ function amRenderBilling(data) {
       </tr>`;
   }).join('');
 
+  // Spend per month from our own data. This is what the tab can stand behind
+  // now that Meta's per-charge edge is gone: spend, clearly labelled as such.
+  const spendMonths = data.spend_by_month || [];
+  const spendTotal = spendMonths.reduce((sum, m) => sum + Number(m.spend || 0), 0);
+  const spendTable = spendMonths.length ? `
+    <div class="card am-bill-card">
+      <div class="am-bill-head">
+        <div>
+          <div class="card-title">Spend per month</div>
+          <div class="card-subtitle">From our synced daily insights, newest first. This is spend, not what the card was charged — Meta bills a month's last days in the next month.</div>
+        </div>
+        <div class="am-bill-fact">
+          <div class="am-kpi-label">Total, last ${amFmt(spendMonths.length, 'int')} month${spendMonths.length === 1 ? '' : 's'}</div>
+          <div class="am-bill-value">${amMoney(spendTotal, logCurrency)}</div>
+        </div>
+      </div>
+      <div class="am-table-wrap">
+        <table class="am-table">
+          <thead><tr><th>Month</th><th class="am-num">Spend</th></tr></thead>
+          <tbody>
+            ${spendMonths.map((m) => `
+              <tr>
+                <td>${amEsc(amMonthName(m.month))}</td>
+                <td class="am-num">${amMoney(m.spend, logCurrency)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
   const log = charges.length ? `
     <div class="card am-bill-card">
       <div class="am-bill-head">
@@ -1078,8 +1108,15 @@ function amRenderBilling(data) {
       </div>
     </div>` : `
     <div class="card am-bill-card">
-      <div class="card-title">Payment activity</div>
-      <div class="am-sub">No transactions came back from Meta for these ad accounts.</div>
+      <div class="am-bill-head">
+        <div>
+          <div class="card-title">Payment activity</div>
+          <div class="card-subtitle">Meta removed the per-charge transactions edge from its API in v24, so transaction ids, VAT invoice ids and the invoice PDFs can only be read in its own billing hub. Spend per month above comes from our synced data instead.</div>
+        </div>
+      </div>
+      <div class="am-bill-links">
+        ${accounts.map((a) => `<a class="btn btn-secondary btn-sm" href="${amEsc(amBillingHubUrl(a.ad_account_id))}" target="_blank" rel="noopener noreferrer">${AM_ICONS.download} ${amEsc(a.name || a.ad_account_id)} billing in Meta</a>`).join('')}
+      </div>
     </div>`;
 
   wrap.innerHTML = `
@@ -1099,6 +1136,7 @@ function amRenderBilling(data) {
           </table>
         </div>
       </div>
+      ${spendTable}
       ${log}
       ${data.charges_note ? `<div class="am-sub am-bill-note">${amEsc(data.charges_note)}</div>` : ''}
       ${(data.notes || []).map((n) => `<div class="am-sub am-bill-note">· ${amEsc(n)}</div>`).join('')}

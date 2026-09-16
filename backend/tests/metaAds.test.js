@@ -35,6 +35,7 @@ function fakeGraph(overrides = {}) {
     spend: '100.50',
     insightFailuresLeft: overrides.insightFailures || 0,
     campaignsError: overrides.campaignsError || null,
+    deadBillingField: overrides.deadBillingField || null,
     pagesError: overrides.pagesError || null,
   };
   const fetchImpl = async (url, init = {}) => {
@@ -96,8 +97,9 @@ function fakeGraph(overrides = {}) {
       return jsonResponse(200, { data: u.searchParams.get('after') ? [rows[1]] : rows });
     }
     if (path === 'act_1' && (init.method || 'GET') === 'GET') {
-      if (state.billingFieldError && u.searchParams.get('fields').includes('funding_source_details')) {
-        return jsonResponse(400, { error: { code: 100, message: 'Unknown field' } });
+      const asked = u.searchParams.get('fields') || '';
+      if (state.deadBillingField && asked.includes(state.deadBillingField)) {
+        return jsonResponse(400, { error: { code: 100, message: `(#100) Tried accessing nonexisting field (${state.deadBillingField}) on node type (AdAccount)` } });
       }
       return jsonResponse(200, {
         name: 'TAKARA Main', currency: 'PHP', account_status: 1, amount_spent: '50000000', spend_cap: '0',
@@ -638,7 +640,6 @@ test('billing reads live from Meta, sums our own spend, and totals what the card
     // Minor units converted once, by the account's currency.
     assert.equal(account.balance, 1250.75);
     assert.equal(account.amount_spent, 500000);
-    assert.equal(account.daily_spend_limit, 25000);
     assert.equal(account.spend_cap, null, "Meta's 0 means no cap, not a zero cap");
     assert.equal(account.funding_source, 'Mastercard *1234');
     assert.equal(account.is_prepay, false);
@@ -674,17 +675,29 @@ test('billing reads live from Meta, sums our own spend, and totals what the card
     assert.equal(res.data.charges_by_month[0].month, '2026-09', 'newest month first');
     assert.equal(res.data.charges_by_month[1].net_paid, 9000);
 
-    // A field an API version dropped falls back instead of failing the tab.
-    graph.state.billingFieldError = true;
-    assert.equal((await call('GET', '/billing')).data.accounts[0].balance, 1250.75);
-    graph.state.billingFieldError = false;
+    // Spend per month comes from our own insights — the monthly figure the tab
+    // stands behind now that Meta removed its per-charge edge.
+    assert.deepEqual(res.data.spend_by_month, [
+      { month: '2026-09', spend: 150.5 },
+    ]);
 
-    // Meta gates the charge edge on some accounts: a note, not an error.
+    // A field this API version dropped is pruned and the call retried, so the
+    // rest of the billing details survive instead of falling back to a stub.
+    graph.state.deadBillingField = 'disable_reason';
+    const pruned = (await call('GET', '/billing')).data.accounts[0];
+    assert.equal(pruned.balance, 1250.75);
+    assert.equal(pruned.funding_source, 'Mastercard *1234', 'the card must survive a dropped field');
+    assert.equal(pruned.error, null);
+    graph.state.deadBillingField = null;
+
+    // Meta gates or removes the charge edge depending on the account and API
+    // version: a note and the monthly spend, never a broken tab.
     graph.state.transactionsError = true;
     const gated = await call('GET', '/billing');
     assert.equal(gated.status, 200);
     assert.deepEqual(gated.data.charges, []);
-    assert.match(gated.data.charges_note, /account admin/);
+    assert.ok(gated.data.charges_note, 'the reason is reported');
+    assert.ok(gated.data.spend_by_month.length, 'monthly spend still renders');
     graph.state.transactionsError = false;
 
     assert.equal((await call('GET', '/billing', { as: 'csr' })).status, 403);
