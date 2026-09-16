@@ -420,6 +420,100 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
     }
   });
 
+  // ─── Billing ────────────────────────────────────────────────────────────────
+  // Payment method, credit balance, spend cap and account standing, read live
+  // from Meta per request — nothing is cached or stored. The spend figures come
+  // from our own synced insights so they match the rest of the dashboard.
+  router.get('/billing', read, async (req, res) => {
+    try {
+      const f = reports.parseFilters(req.query);
+      const params = [];
+      let sql = `SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id IN (${reports.VISIBLE_ACCOUNTS_SQL})`;
+      if (f.accounts.length) {
+        sql += ` AND meta_ad_account_id IN (${f.accounts.map(() => '?').join(', ')})`;
+        params.push(...f.accounts);
+      }
+      const accounts = await db.prepare(`${sql} ORDER BY name`).all(...params);
+
+      const spendSince = async (id, from, to) => Number((await db.prepare(
+        'SELECT COALESCE(SUM(spend), 0) AS spend FROM meta_insights_daily WHERE ad_account_id = ? AND date >= ? AND date <= ?',
+      ).get(id, from, to))?.spend || 0);
+
+      const rows = await Promise.all(accounts.map(async (account) => {
+        const id = account.meta_ad_account_id;
+        const today = meta.todayInZone(account.timezone_name);
+        const [range, month, day] = await Promise.all([
+          spendSince(id, f.from, f.to),
+          spendSince(id, `${today.slice(0, 7)}-01`, today),
+          spendSince(id, today, today),
+        ]);
+        const spend = { range, month_to_date: month, today: day, from: f.from, to: f.to };
+        try {
+          return { ...(await meta.accountBilling(db, id, metaOptions)), spend, error: null };
+        } catch (error) {
+          // One unreadable account must not blank the whole tab.
+          return {
+            ad_account_id: id, name: account.name, currency: account.currency, timezone_name: account.timezone_name,
+            account_status: account.account_status, account_status_label: meta.ACCOUNT_STATUS[Number(account.account_status)] || 'Unknown',
+            amount_spent: account.amount_spent, spend_cap: account.spend_cap, balance: null, is_prepay: null,
+            daily_spend_limit: null, funding_source: null, funding_source_type: null,
+            business_name: account.business_name, spend, error: error.message,
+          };
+        }
+      }));
+
+      // The charge history is one Graph call per account, so it is only fetched
+      // when a single ad account is in scope.
+      let charges = null;
+      let chargesByMonth = null;
+      let chargesNote = null;
+      if (rows.length === 1) {
+        const result = await meta.accountCharges(db, rows[0].ad_account_id, { ...metaOptions, limit: req.query.charge_limit });
+        charges = result.charges;
+        chargesByMonth = meta.chargesByMonth(result.charges);
+        chargesNote = result.note;
+      } else if (rows.length > 1) {
+        chargesNote = 'Pick a single ad account above to see what the card was charged per month.';
+      }
+
+      const currencies = [...new Set(rows.map((r) => r.currency).filter(Boolean))];
+      res.json({
+        filters: { from: f.from, to: f.to },
+        accounts: rows,
+        // Only meaningful when every account bills in the same currency.
+        totals: currencies.length === 1 ? {
+          currency: currencies[0],
+          spend_range: rows.reduce((sum, r) => sum + Number(r.spend.range || 0), 0),
+          spend_month_to_date: rows.reduce((sum, r) => sum + Number(r.spend.month_to_date || 0), 0),
+          spend_today: rows.reduce((sum, r) => sum + Number(r.spend.today || 0), 0),
+        } : null,
+        charges,
+        charges_by_month: chargesByMonth,
+        charges_note: chargesNote,
+        notes: [
+          'Balance, payment method and spend cap are read from Meta at the moment you open this tab and are never stored here.',
+          'Spend figures are the synced daily insights, so they match the other tabs; Meta can still revise the last few days.',
+          'Lifetime spent is what Meta bills on the account and includes spend from before this dashboard was connected.',
+          "Paid per month is grouped from Meta's own charge records, so it is what the card was actually charged — it will not match the spend figures exactly, because a month's last days are usually billed in the next month.",
+        ],
+      });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  // The rendered ad — video included — as Meta itself draws it. Returns only a
+  // signed URL on Meta's domain that the browser loads directly, so no creative
+  // is ever stored here and no media streams through this server. The URL is
+  // short-lived by design: fetch it per view, never cache it.
+  router.get('/ads/:id/preview', read, async (req, res) => {
+    try {
+      res.json(await meta.adPreview(db, String(req.params.id), { ...metaOptions, format: req.query.format }));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.get('/profitability', read, async (req, res) => {
     try {
       const groupBy = LEVEL_ROUTES[`${req.query.group_by}s`] || (reports.LEVELS[req.query.group_by] ? req.query.group_by : 'page');

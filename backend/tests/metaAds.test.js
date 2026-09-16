@@ -95,6 +95,31 @@ function fakeGraph(overrides = {}) {
       }
       return jsonResponse(200, { data: u.searchParams.get('after') ? [rows[1]] : rows });
     }
+    if (path === 'act_1' && (init.method || 'GET') === 'GET') {
+      if (state.billingFieldError && u.searchParams.get('fields').includes('funding_source_details')) {
+        return jsonResponse(400, { error: { code: 100, message: 'Unknown field' } });
+      }
+      return jsonResponse(200, {
+        name: 'TAKARA Main', currency: 'PHP', account_status: 1, amount_spent: '50000000', spend_cap: '0',
+        balance: '125075', is_prepay_account: false, adtrust_dsl: '2500000',
+        funding_source_details: { id: 'FS1', type: 1, display_string: 'Mastercard *1234' },
+        business: { id: 'B1', name: 'YNT' },
+      });
+    }
+    if (path === 'act_1/transactions') {
+      if (state.transactionsError) return jsonResponse(400, { error: { code: 200, message: 'Requires account admin' } });
+      return jsonResponse(200, { data: [
+        { id: 't1', time: '2026-09-10T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '450000' } },
+        { id: 't2', time: '2026-09-02T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '300000' } },
+        { id: 't3', time: '2026-09-04T02:00:00+0000', charge_type: 'ad_spend', status: 'Declined', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '100000' } },
+        { id: 't4', time: '2026-09-06T02:00:00+0000', charge_type: 'refund', status: 'Refunded', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '50000' } },
+        { id: 't5', time: '2026-08-15T02:00:00+0000', charge_type: 'ad_spend', status: 'Paid', payment_option: 'credit_card', billed_amount_details: { currency: 'PHP', total_amount: '900000' } },
+      ] });
+    }
+    if (/^A\d\/previews$/.test(path)) {
+      const format = u.searchParams.get('ad_format');
+      return jsonResponse(200, { data: [{ body: `<iframe src="https://www.facebook.com/ads/api/preview_iframe.php?d=AQ1&amp;f=${format}" width="476" height="592"></iframe>` }] });
+    }
     if (/^(C|S|A)\d$/.test(path) && (init.method || 'GET') === 'POST') return jsonResponse(200, { success: true });
     if (/^(C|S|A)\d$/.test(path)) {
       const last = calls.filter((c) => c.path === path && c.method === 'POST').pop();
@@ -567,6 +592,87 @@ test('hiding: unticking an ad account or disabling a connection takes it out of 
     assert.equal((await call('GET', `/campaigns${range}`)).data.total, 0);
     await call('PATCH', '/connections/1', { body: { enabled: true } });
     assert.equal((await call('GET', `/campaigns${range}`)).data.total, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test('ad preview returns a Meta-hosted URL and stores nothing', async () => {
+  const db = await seededDb();
+  const graph = fakeGraph();
+  const { server, call } = await startApp(db, graph);
+  try {
+    const before = Number((await db.prepare('SELECT COUNT(*) AS n FROM meta_ads').get()).n);
+    const preview = await call('GET', '/ads/A1/preview?format=reels');
+    assert.equal(preview.status, 200);
+    // A signed URL on Meta's own domain: the browser loads it, this server never
+    // proxies the video, and no row or byte of creative is written.
+    assert.match(preview.data.iframe_src, /^https:\/\/www\.facebook\.com\/ads\/api\/preview_iframe\.php\?/);
+    assert.equal(preview.data.format, 'FACEBOOK_REELS_MOBILE');
+    assert.ok(!preview.data.iframe_src.includes('&amp;'), 'entities decoded for the browser');
+    assert.equal(Number((await db.prepare('SELECT COUNT(*) AS n FROM meta_ads').get()).n), before);
+
+    // An unknown format falls back instead of failing.
+    assert.equal((await call('GET', '/ads/A1/preview?format=nonsense')).data.format, 'MOBILE_FEED_STANDARD');
+
+    assert.equal((await call('GET', '/ads/NOPE/preview')).status, 404);
+    assert.equal((await call('GET', '/ads/A1/preview', { as: 'csr' })).status, 403);
+
+    // The token is what renders it, so a detached ad account cannot be previewed.
+    await call('DELETE', '/connections/1');
+    assert.equal((await call('GET', '/ads/A1/preview')).status, 409);
+  } finally {
+    server.close();
+  }
+});
+
+test('billing reads live from Meta, sums our own spend, and totals what the card paid per month', async () => {
+  const db = await seededDb();
+  const graph = fakeGraph();
+  const { server, call } = await startApp(db, graph);
+  try {
+    const res = await call('GET', '/billing?from=2026-09-14&to=2026-09-15');
+    assert.equal(res.status, 200);
+    const [account] = res.data.accounts;
+    // Minor units converted once, by the account's currency.
+    assert.equal(account.balance, 1250.75);
+    assert.equal(account.amount_spent, 500000);
+    assert.equal(account.daily_spend_limit, 25000);
+    assert.equal(account.spend_cap, null, "Meta's 0 means no cap, not a zero cap");
+    assert.equal(account.funding_source, 'Mastercard *1234');
+    assert.equal(account.is_prepay, false);
+    assert.equal(account.account_status_label, 'Active');
+    // Spend comes from our synced insights, not from Meta's billing fields.
+    assert.equal(account.spend.range, 150.5);
+
+    // Paid per month: refunds netted off, declines and pending kept apart.
+    const september = res.data.charges_by_month.find((m) => m.month === '2026-09');
+    assert.equal(september.paid, 7500);
+    assert.equal(september.refunded, 500);
+    assert.equal(september.net_paid, 7000);
+    assert.equal(september.failed, 1000);
+    assert.equal(september.count, 4);
+    assert.equal(res.data.charges_by_month[0].month, '2026-09', 'newest month first');
+    assert.equal(res.data.charges_by_month[1].net_paid, 9000);
+
+    // A field an API version dropped falls back instead of failing the tab.
+    graph.state.billingFieldError = true;
+    assert.equal((await call('GET', '/billing')).data.accounts[0].balance, 1250.75);
+    graph.state.billingFieldError = false;
+
+    // Meta gates the charge edge on some accounts: a note, not an error.
+    graph.state.transactionsError = true;
+    const gated = await call('GET', '/billing');
+    assert.equal(gated.status, 200);
+    assert.deepEqual(gated.data.charges, []);
+    assert.match(gated.data.charges_note, /account admin/);
+    graph.state.transactionsError = false;
+
+    assert.equal((await call('GET', '/billing', { as: 'csr' })).status, 403);
+
+    // Hidden ad accounts are not billed here either.
+    await call('PATCH', '/ad-accounts/act_1', { body: { enabled: false } });
+    assert.deepEqual((await call('GET', '/billing')).data.accounts, []);
   } finally {
     server.close();
   }

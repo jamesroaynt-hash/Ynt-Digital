@@ -88,6 +88,8 @@ syncing it.
 | PATCH / DELETE | `/connections/:id` | PATCH `{name}` renames, `{enabled:false}` hides (status `disabled`: out of every report and out of the auto-sync, token and history kept). DELETE detaches the ad accounts, which hides them too; `?purge=1` also deletes their campaigns, ad sets, ads and daily insights (irreversible). |
 | GET | any report | A report only shows ad accounts that are attached to a connection that is not `disabled` and whose own `enabled` tick is on. `include_detached=1` ignores all three and reads the full synced history. |
 | PATCH | `/ad-accounts/:id` | `{enabled}` — the per-ad-account hide switch: off means no sync, no actions and no rows in any report, history kept. |
+| GET | `/ads/:id/preview` | `?format=mobile\|desktop\|story\|reels\|instagram` → a short-lived iframe URL on facebook.com. Meta renders the creative; the browser streams it. Nothing is stored or proxied, so the URL is fetched per view and never cached. |
+| GET | `/billing` | Per visible ad account: payment method, balance, spend cap, daily spend limit and account standing read live from Meta (never stored), plus today / month-to-date / range spend from the synced insights. With a single ad account in scope it also returns `charges` and `charges_by_month` (what the card was actually charged, refunds netted off, declines and pending kept apart). Meta gates the charge edge on some accounts — that comes back as `charges_note`, not an error. |
 | GET | `/oauth/start` → Meta → `/oauth/callback` | Facebook login |
 | POST | `/sync` | `{connection_id?, days?, ad_account_id?}` → 202, runs in background |
 | GET | `/sync-logs` | |

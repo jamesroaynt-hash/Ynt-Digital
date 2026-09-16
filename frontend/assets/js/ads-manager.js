@@ -12,6 +12,8 @@ const AM_LEVELS = {
   ad: { label: 'Ads', path: '/ads', noun: 'Ad', manageable: true },
   page: { label: 'Pages', path: '/pages', noun: 'Page', manageable: false },
   account: { label: 'Ad Accounts', path: '/accounts', noun: 'Ad Account', manageable: false },
+  // Not a report level: its own loader and renderer, no columns, no CSV.
+  billing: { label: 'Billing', path: '/billing', noun: 'Billing', manageable: false, custom: true },
 };
 
 // Column sets. `kind` picks the formatter; `tone` colors the cell against the
@@ -213,6 +215,7 @@ const AM_ICONS = {
   download: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/></svg>',
   columns: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M6 3v10M10 3v10"/></svg>',
   bolt: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8l1-5.5z"/></svg>',
+  billing: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13M4 10h3"/></svg>',
 };
 
 function renderAdsManager() {
@@ -279,7 +282,7 @@ function renderAdsManager() {
               ${Object.entries(AM_COLUMN_SETS).map(([key, set]) => `<option value="${key}">Columns: ${set.label}</option>`).join('')}
             </select>
           </label>
-          <button class="btn btn-secondary btn-sm" type="button" onclick="amExportCsv()">${AM_ICONS.download} Export CSV</button>
+          <button class="btn btn-secondary btn-sm" type="button" id="am-export-csv" onclick="amExportCsv()">${AM_ICONS.download} Export CSV</button>
           <button class="btn btn-secondary btn-sm" type="button" onclick="amOpenSettings()">${AM_ICONS.gear} Connections</button>
         </div>
       </div>
@@ -423,7 +426,7 @@ function amRenderTabs() {
     return n ? `<span class="am-chip">${n} Selected <span class="am-chip-x" role="button" title="Clear selection" onclick="event.stopPropagation(); amClearSelection('${level}')">×</span></span>` : '';
   };
   el.innerHTML = Object.entries(AM_LEVELS).map(([key, def]) => `
-    <button type="button" class="am-tab ${amState.level === key ? 'active' : ''} ${key === 'page' ? 'am-tab-gap' : ''}" onclick="amSetLevel('${key}')">
+    <button type="button" class="am-tab ${amState.level === key ? 'active' : ''} ${key === 'page' || key === 'billing' ? 'am-tab-gap' : ''}" onclick="amSetLevel('${key}')">
       <span class="am-tab-icon">${AM_ICONS[key]}</span>
       <span class="am-tab-label">${def.label}</span>
       ${chip(key)}
@@ -450,6 +453,10 @@ function amRenderScopeNote() {
   let note = '';
   if (scope.adset_id) note = `Showing ads in ${names(amState.selected.adset)}`;
   else if (scope.campaign_id) note = `Showing ${amState.level === 'ad' ? 'ads' : 'ad sets'} in ${names(amState.selected.campaign)}`;
+  if (AM_LEVELS[amState.level].custom) {
+    el.innerHTML = '<span class="am-muted">Read live from Meta — nothing on this tab is stored.</span>';
+    return;
+  }
   el.innerHTML = `<span class="am-muted">${amState.total.toLocaleString('en-PH')} ${AM_LEVELS[amState.level].label.toLowerCase()}</span>${note ? ` · <span>${note}</span>` : ''}`;
 }
 
@@ -523,9 +530,22 @@ function amDrawTrend(days) {
   });
 }
 
+// Delivery and Columns steer the report table only; Billing has neither.
+function amToggleTableControls() {
+  const custom = !!AM_LEVELS[amState.level].custom;
+  for (const id of ['am-status', 'am-columns']) {
+    const label = document.getElementById(id)?.closest('.am-select');
+    if (label) label.hidden = custom;
+  }
+  const csv = document.getElementById('am-export-csv');
+  if (csv) csv.hidden = custom;
+}
+
 async function amLoadTable() {
   const wrap = document.getElementById('am-table-wrap');
   if (!wrap) return;
+  amToggleTableControls();
+  if (AM_LEVELS[amState.level].custom) return amLoadBilling();
   const seq = ++amState.seq;
   wrap.classList.add('am-loading');
   try {
@@ -778,6 +798,7 @@ function amDrillDown(level, id, name) {
 }
 
 async function amExportCsv() {
+  if (AM_LEVELS[amState.level].custom) { showToast('info', 'Export', 'Billing is read live from Meta and has no CSV. Export a report tab instead.'); return; }
   try {
     const query = amFilterQuery({ ...amScopeQuery(), status: amState.status, search: amState.search, sort: amState.sort, dir: amState.dir, format: 'csv' });
     const response = await fetch(`${getApiBase()}/meta${AM_LEVELS[amState.level].path}?${amQs(query)}`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
@@ -871,6 +892,152 @@ function amRequestBudget(level, id, current) {
   amRequestAction({ action: 'update_budget', level, id, dailyBudget: value, onDone: () => amOpenDetail(level, id) });
 }
 
+// The creative itself, on demand. Meta signs a short-lived URL on its own
+// domain and the browser loads it directly, so nothing is stored here and no
+// media crosses this server — which is also why the URL is never cached: it
+// expires, so each view asks for a fresh one.
+async function amLoadPreview(id) {
+  const slot = document.getElementById('am-preview-slot');
+  if (!slot) return;
+  const format = document.getElementById('am-preview-format')?.value || 'mobile';
+  slot.innerHTML = '<div class="am-sub">Asking Meta to render it…</div>';
+  try {
+    const { iframe_src: src } = await amApi(`/ads/${encodeURIComponent(id)}/preview?format=${encodeURIComponent(format)}`);
+    slot.innerHTML = `<iframe class="am-preview-frame" src="${amEsc(src)}" title="Ad preview" allow="encrypted-media" referrerpolicy="no-referrer"></iframe>`;
+  } catch (error) {
+    slot.innerHTML = `<div class="am-warning">${amEsc(error.message)}</div>`;
+  }
+}
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+// Everything here is fetched from Meta on open and held only in this render —
+// balance and payment method change on their side, so a stored copy would lie.
+function amMoney(value, currency) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '<span class="am-muted">—</span>';
+  const code = String(currency || 'PHP').toUpperCase();
+  try {
+    return Number(value).toLocaleString('en-PH', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } catch {
+    return `${amEsc(code)} ${Number(value).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+}
+
+async function amLoadBilling() {
+  const wrap = document.getElementById('am-table-wrap');
+  if (!wrap) return;
+  const seq = ++amState.seq;
+  document.getElementById('am-pagination').innerHTML = '';
+  wrap.innerHTML = '<div class="empty-state"><p>Asking Meta for the billing details…</p></div>';
+  try {
+    const data = await amApi(`/billing?${amQs(amFilterQuery())}`);
+    if (seq !== amState.seq || App.currentPage !== 'ads-manager') return;
+    amRenderBilling(data);
+  } catch (error) {
+    if (seq !== amState.seq) return;
+    wrap.innerHTML = `<div class="empty-state"><h3>Could not read billing</h3><p>${amEsc(error.message)}</p><button class="btn btn-secondary btn-sm" type="button" onclick="amLoadBilling()">Retry</button></div>`;
+  }
+}
+
+function amRenderBilling(data) {
+  const wrap = document.getElementById('am-table-wrap');
+  const accounts = data.accounts || [];
+  if (!accounts.length) {
+    wrap.innerHTML = '<div class="empty-state"><h3>No ad account to bill</h3><p>Connect a Meta account, or tick an ad account in Connections.</p></div>';
+    return;
+  }
+  const statusTone = (row) => (row.account_status === 1 ? 'badge-success' : row.account_status === 9 || row.account_status === 3 ? 'badge-warning' : 'badge-danger');
+  const fact = (label, value, title = '') => `<div class="am-bill-fact"${title ? ` title="${amEsc(title)}"` : ''}><div class="am-kpi-label">${label}</div><div class="am-bill-value">${value}</div></div>`;
+
+  const cards = accounts.map((a) => `
+    <div class="card am-bill-card">
+      <div class="am-bill-head">
+        <div>
+          <div class="am-detail-name">${amEsc(a.name || a.ad_account_id)} <span class="badge ${statusTone(a)}">${amEsc(a.account_status_label)}</span></div>
+          <div class="am-sub">${amEsc(a.ad_account_id)}${a.business_name ? ` · ${amEsc(a.business_name)}` : ''} · ${amEsc(a.currency || '')}${a.timezone_name ? ` · ${amEsc(a.timezone_name)}` : ''}</div>
+        </div>
+        ${a.is_prepay === true ? '<span class="badge badge-info">Prepaid</span>' : a.is_prepay === false ? '<span class="badge badge-gray">Postpaid</span>' : ''}
+      </div>
+      ${a.error ? `<div class="am-warning">Meta would not return the live billing details: ${amEsc(a.error)}. The spend below is from our own synced data.</div>` : ''}
+      ${a.disable_reason ? `<div class="am-warning">Disable reason code from Meta: ${amEsc(String(a.disable_reason))}</div>` : ''}
+      <div class="am-bill-grid">
+        ${fact('Payment method', a.funding_source ? amEsc(a.funding_source) : '<span class="am-muted">—</span>')}
+        ${fact(a.is_prepay ? 'Credit left' : 'Unbilled balance', amMoney(a.balance, a.currency), a.is_prepay ? 'Prepaid credit still available' : 'Run up since the last bill')}
+        ${fact('Spend cap', amMoney(a.spend_cap, a.currency), 'Meta stops delivery once lifetime spend reaches this')}
+        ${fact('Daily spend limit', amMoney(a.daily_spend_limit, a.currency), 'Set by Meta on the account, not by us')}
+        ${fact('Spent today', amMoney(a.spend.today, a.currency), `Ad account day in ${amEsc(a.timezone_name || 'account timezone')}`)}
+        ${fact('Month to date', amMoney(a.spend.month_to_date, a.currency))}
+        ${fact(`Spend ${amEsc(a.spend.from)} – ${amEsc(a.spend.to)}`, amMoney(a.spend.range, a.currency))}
+        ${fact('Lifetime spent', amMoney(a.amount_spent, a.currency), 'Billed by Meta on this account, including spend from before this dashboard was connected')}
+      </div>
+    </div>`).join('');
+
+  const byMonth = (data.charges_by_month || []).filter((m) => m.count);
+  const monthName = (m) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('en-PH', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const paidTotal = byMonth.reduce((sum, m) => sum + Number(m.net_paid || 0), 0);
+  const monthly = byMonth.length ? `
+    <div class="card am-bill-card">
+      <div class="card-title">Paid per month</div>
+      <div class="card-subtitle">What the card was actually charged, grouped from Meta's own charge records.</div>
+      <div class="am-table-wrap">
+        <table class="am-table">
+          <thead><tr><th>Month</th><th class="am-num">Paid</th><th class="am-num">Refunds</th><th class="am-num">Net paid</th><th class="am-num">Pending</th><th class="am-num">Failed</th><th class="am-num">Charges</th></tr></thead>
+          <tbody>
+            ${byMonth.map((m) => `
+              <tr>
+                <td>${amEsc(monthName(m.month))}</td>
+                <td class="am-num">${amMoney(m.paid, m.currency)}</td>
+                <td class="am-num">${m.refunded ? amMoney(-m.refunded, m.currency) : '<span class="am-muted">—</span>'}</td>
+                <td class="am-num"><strong>${amMoney(m.net_paid, m.currency)}</strong></td>
+                <td class="am-num">${m.pending ? amMoney(m.pending, m.currency) : '<span class="am-muted">—</span>'}</td>
+                <td class="am-num">${m.failed ? amMoney(m.failed, m.currency) : '<span class="am-muted">—</span>'}</td>
+                <td class="am-num">${amFmt(m.count, 'int')}</td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot><tr><th>Total paid</th><th class="am-num" colspan="2"></th><th class="am-num">${amMoney(paidTotal, byMonth[0].currency)}</th><th colspan="3"></th></tr></tfoot>
+        </table>
+      </div>
+      <div class="am-sub am-bill-note">Covers only the charges Meta returned (newest ${amFmt(byMonth.reduce((n, m) => n + m.count, 0), 'int')}), so the oldest month shown may be partial.</div>
+    </div>` : '';
+
+  const charges = (data.charges || []).length ? `
+    <div class="card am-bill-card">
+      <div class="card-title">Billed charges</div>
+      <div class="card-subtitle">Straight from Meta, newest first.</div>
+      <div class="am-table-wrap">
+        <table class="am-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Payment</th><th>Status</th><th class="am-num">Amount</th></tr></thead>
+          <tbody>
+            ${data.charges.map((c) => `
+              <tr>
+                <td>${c.time ? amEsc(new Date(c.time).toLocaleString('en-PH')) : '<span class="am-muted">—</span>'}</td>
+                <td>${amEsc(String(c.charge_type || '—').replace(/_/g, ' '))}</td>
+                <td>${amEsc(String(c.payment_option || '—').replace(/_/g, ' '))}</td>
+                <td>${amEsc(String(c.status || '—').replace(/_/g, ' '))}</td>
+                <td class="am-num">${amMoney(c.amount, c.currency)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  wrap.innerHTML = `
+    <div class="am-bill">
+      ${data.totals && accounts.length > 1 ? `
+        <div class="card am-bill-card am-bill-totals">
+          <div class="am-bill-grid">
+            ${fact('Spend today (all accounts)', amMoney(data.totals.spend_today, data.totals.currency))}
+            ${fact('Month to date', amMoney(data.totals.spend_month_to_date, data.totals.currency))}
+            ${fact(`Spend ${amEsc(data.filters.from)} – ${amEsc(data.filters.to)}`, amMoney(data.totals.spend_range, data.totals.currency))}
+          </div>
+        </div>` : ''}
+      ${cards}
+      ${monthly}
+      ${charges}
+      ${data.charges_note ? `<div class="am-sub am-bill-note">${amEsc(data.charges_note)}</div>` : ''}
+      ${(data.notes || []).map((n) => `<div class="am-sub am-bill-note">· ${amEsc(n)}</div>`).join('')}
+    </div>`;
+}
+
 // ─── Detail ───────────────────────────────────────────────────────────────────
 async function amOpenDetail(level, id) {
   const body = document.getElementById('am-detail-body');
@@ -898,6 +1065,21 @@ async function amOpenDetail(level, id) {
           ${r.flag ? `<div class="am-sub">${r.flag === 'winning' ? '🔥 Winning' : '⚠ Needs attention'}: ${amEsc((r.flag_reasons || []).join('; '))}</div>` : ''}
         </div>
       </div>
+      ${level === 'ad' ? `
+      <div class="am-preview-bar">
+        <div class="am-select">
+          <select id="am-preview-format">
+            <option value="mobile">Mobile feed</option>
+            <option value="desktop">Desktop feed</option>
+            <option value="story">Mobile (basic)</option>
+            <option value="reels">Facebook Reels</option>
+            <option value="instagram">Instagram</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="amLoadPreview(${amEsc(JSON.stringify(String(id)))})">${AM_ICONS.play || '▶'} Play ad preview</button>
+        <span class="am-muted">Rendered by Meta and streamed from Facebook — no video is stored or proxied here.</span>
+      </div>
+      <div id="am-preview-slot"></div>` : ''}
       <div class="am-mini-grid">
         ${metric('Spend', amFmt(r.spend, 'money'))}
         ${metric('Delivered COD', amFmt(r.delivered_cod, 'money'))}

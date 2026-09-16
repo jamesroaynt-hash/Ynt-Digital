@@ -647,6 +647,163 @@ async function updateEntity(db, { level, metaId, fields }, options = {}) {
   return { entity, account, fresh };
 }
 
+// ─── Billing ──────────────────────────────────────────────────────────────────
+// Read live from Meta on request and never stored: balance and payment method
+// change on Meta's side, a stale copy would be worse than none, and a snapshot
+// table would grow for no reason. Spend history already lives in
+// meta_insights_daily, so this only adds what that cannot answer.
+const ACCOUNT_STATUS = {
+  1: 'Active',
+  2: 'Disabled',
+  3: 'Unsettled',
+  7: 'Pending risk review',
+  8: 'Pending settlement',
+  9: 'In grace period',
+  100: 'Pending closure',
+  101: 'Closed',
+};
+
+const BILLING_FIELDS = 'name,currency,account_status,disable_reason,amount_spent,spend_cap,balance,is_prepay_account,adtrust_dsl,funding_source_details{id,type,display_string},business{id,name}';
+// Meta rejects the whole request over one unknown field (code 100), so a
+// narrower list is tried before giving up — an API version can drop a field.
+const BILLING_FIELDS_MIN = 'name,currency,account_status,amount_spent,spend_cap,balance';
+
+async function accountBilling(db, adAccountId, options = {}) {
+  const account = await db.prepare('SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id = ?').get(adAccountId);
+  if (!account) throw Object.assign(new Error('Ad account not found in synced data'), { statusCode: 404 });
+  if (!account.connection_id) throw Object.assign(new Error('This ad account is not connected'), { statusCode: 409 });
+  const { token } = await loadConnectionToken(db, account.connection_id);
+
+  let live;
+  try {
+    live = await graphRequest(token, adAccountId, { ...options, params: { fields: BILLING_FIELDS }, retries: 1 });
+  } catch (error) {
+    if (error.code !== 100) throw error;
+    live = await graphRequest(token, adAccountId, { ...options, params: { fields: BILLING_FIELDS_MIN }, retries: 1 });
+  }
+
+  const currency = live.currency || account.currency;
+  // Meta writes "no limit" as 0 for both caps; showing that as a 0 cap would
+  // read as "delivery stopped".
+  const capOrNull = (value) => {
+    const amount = budgetFromMinor(value, currency);
+    return amount ? amount : null;
+  };
+  return {
+    ad_account_id: adAccountId,
+    name: live.name || account.name,
+    currency,
+    timezone_name: account.timezone_name,
+    account_status: Number(live.account_status ?? account.account_status) || null,
+    account_status_label: ACCOUNT_STATUS[Number(live.account_status ?? account.account_status)] || 'Unknown',
+    disable_reason: live.disable_reason ?? null,
+    // Lifetime spend on the account, as Meta bills it — not the same as the
+    // date-range spend the reports sum from meta_insights_daily.
+    amount_spent: budgetFromMinor(live.amount_spent, currency),
+    spend_cap: capOrNull(live.spend_cap),
+    // Prepaid credit left, or the amount run up since the last bill on a
+    // postpaid (card) account.
+    balance: budgetFromMinor(live.balance, currency),
+    is_prepay: live.is_prepay_account === true || live.is_prepay_account === 1,
+    daily_spend_limit: capOrNull(live.adtrust_dsl),
+    funding_source: live.funding_source_details?.display_string || null,
+    funding_source_type: live.funding_source_details?.type ?? null,
+    business_name: live.business?.name || account.business_name || null,
+  };
+}
+
+// The billed charges themselves. Meta gates this edge behind account-admin
+// access, so a refusal is reported as a note rather than failing the page.
+async function accountCharges(db, adAccountId, options = {}) {
+  const account = await db.prepare('SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id = ?').get(adAccountId);
+  if (!account?.connection_id) return { charges: [], note: 'This ad account is not connected.' };
+  const { token } = await loadConnectionToken(db, account.connection_id);
+  try {
+    const json = await graphRequest(token, `${adAccountId}/transactions`, {
+      ...options,
+      params: { fields: 'id,time,charge_type,status,amount,billed_amount_details,payment_option', limit: Math.min(500, Number(options.limit) || 100) },
+      retries: 1,
+    });
+    const charges = (json.data || []).map((row) => ({
+      id: row.id,
+      time: row.time || null,
+      charge_type: row.charge_type || null,
+      status: row.status || null,
+      payment_option: row.payment_option || null,
+      currency: row.billed_amount_details?.currency || account.currency,
+      amount: row.billed_amount_details?.total_amount !== undefined
+        ? budgetFromMinor(row.billed_amount_details.total_amount, row.billed_amount_details?.currency || account.currency)
+        : budgetFromMinor(row.amount, account.currency),
+    }));
+    return { charges, note: null };
+  } catch (error) {
+    return { charges: [], note: `Meta did not return the charge history: ${error.message}` };
+  }
+}
+
+// What the card was actually charged, per calendar month. Meta's status wording
+// varies by account and API version, so the split is driven by the text rather
+// than by a fixed enum, and the raw status stays visible in the charge list so
+// a figure can always be traced back.
+const NOT_PAID = /fail|declin|cancel|void|dispute|error/i;
+const REFUND = /refund|credit|chargeback|reversal/i;
+const PENDING = /pending|process|review|authoriz/i;
+
+function chargesByMonth(charges = []) {
+  const months = new Map();
+  for (const charge of charges) {
+    const month = String(charge.time || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    const row = months.get(month) || { month, paid: 0, refunded: 0, pending: 0, failed: 0, count: 0, currency: charge.currency || null };
+    const amount = Number(charge.amount || 0);
+    const status = String(charge.status || '');
+    if (REFUND.test(status) || REFUND.test(String(charge.charge_type || '')) || amount < 0) row.refunded += Math.abs(amount);
+    else if (NOT_PAID.test(status)) row.failed += amount;
+    else if (PENDING.test(status)) row.pending += amount;
+    else row.paid += amount;
+    row.count += 1;
+    if (!row.currency) row.currency = charge.currency || null;
+    months.set(month, row);
+  }
+  return [...months.values()]
+    .map((row) => ({ ...row, net_paid: row.paid - row.refunded }))
+    .sort((a, b) => (a.month < b.month ? 1 : -1));
+}
+
+// ─── Creative preview ─────────────────────────────────────────────────────────
+// Meta renders the ad itself — video, copy, CTA — and hands back an <iframe>
+// pointing at a short-lived signed URL on its own domain. Nothing is stored and
+// nothing streams through this server: the viewer's browser loads the video
+// straight from Meta's CDN. The URL expires, so it is fetched per view and
+// never cached in the database.
+const AD_PREVIEW_FORMATS = {
+  mobile: 'MOBILE_FEED_STANDARD',
+  desktop: 'DESKTOP_FEED_STANDARD',
+  story: 'MOBILE_FEED_BASIC',
+  reels: 'FACEBOOK_REELS_MOBILE',
+  instagram: 'INSTAGRAM_STANDARD',
+};
+
+// Meta returns the whole iframe tag; the browser only needs its src.
+function iframeSrc(body) {
+  const match = /src="([^"]+)"/.exec(String(body || ''));
+  if (!match) return null;
+  return match[1].replace(/&amp;/g, '&');
+}
+
+async function adPreview(db, adId, options = {}) {
+  const ad = await db.prepare('SELECT * FROM meta_ads WHERE meta_ad_id = ?').get(adId);
+  if (!ad) throw Object.assign(new Error('Ad not found in synced data'), { statusCode: 404 });
+  const account = await db.prepare('SELECT * FROM meta_ad_accounts WHERE meta_ad_account_id = ?').get(ad.ad_account_id);
+  if (!account?.connection_id) throw Object.assign(new Error('This ad account is not connected, so Meta cannot render its preview'), { statusCode: 409 });
+  const format = AD_PREVIEW_FORMATS[String(options.format || 'mobile')] || AD_PREVIEW_FORMATS.mobile;
+  const { token } = await loadConnectionToken(db, account.connection_id);
+  const json = await graphRequest(token, `${adId}/previews`, { ...options, params: { ad_format: format }, retries: 1 });
+  const src = iframeSrc(json?.data?.[0]?.body);
+  if (!src) throw Object.assign(new Error('Meta returned no preview for this ad'), { statusCode: 404 });
+  return { ad_id: adId, format, iframe_src: src };
+}
+
 module.exports = {
   OAUTH_SCOPES,
   MetaApiError,
@@ -670,5 +827,12 @@ module.exports = {
   syncConnection,
   syncAllConnections,
   updateEntity,
+  ACCOUNT_STATUS,
+  accountBilling,
+  accountCharges,
+  chargesByMonth,
+  AD_PREVIEW_FORMATS,
+  iframeSrc,
+  adPreview,
   isSyncRunning: (id) => runningConnections.has(id),
 };

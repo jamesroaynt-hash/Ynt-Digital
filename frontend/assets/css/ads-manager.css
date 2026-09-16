@@ -358,3 +358,32 @@
   .am-budget-edit { margin-left: 0; }
   .am-toolbar-right { width: 100%; }
 }
+
+/* Ad creative preview. The iframe is Meta's own renderer on facebook.com, so
+   its height is whatever Meta draws; 620px fits a mobile feed video without
+   an inner scrollbar on the common formats. */
+.am-preview-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
+.am-preview-bar .am-muted { font-size: 12px; }
+.am-preview-frame {
+  width: 100%;
+  max-width: 500px;
+  height: 620px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated, #fff);
+  display: block;
+}
+@media (max-width: 560px) {
+  .am-preview-frame { height: 520px; }
+}
+
+/* Billing tab. Cards rather than a report table: the figures are unrelated
+   quantities (a balance, a cap, a month's charges), not one metric per row. */
+.am-bill { display: flex; flex-direction: column; gap: 14px; padding: 4px 0; }
+.am-bill-card { padding: 16px; }
+.am-bill-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.am-bill-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.am-bill-fact { background: var(--bg-subtle, rgba(127,127,127,.06)); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.am-bill-value { font-size: 15px; font-weight: 600; margin-top: 2px; word-break: break-word; }
+.am-bill-totals .am-bill-value { font-size: 18px; }
+.am-bill-note { font-size: 12px; }
