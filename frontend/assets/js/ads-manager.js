@@ -216,6 +216,7 @@ const AM_ICONS = {
   columns: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M6 3v10M10 3v10"/></svg>',
   bolt: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8l1-5.5z"/></svg>',
   billing: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13M4 10h3"/></svg>',
+  invoice: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5L12 4.5v10H4z"/><path d="M9 1.5v3h3M6 8h4M6 10.5h4"/></svg>',
 };
 
 function renderAdsManager() {
@@ -926,6 +927,7 @@ async function amLoadBilling() {
   const wrap = document.getElementById('am-table-wrap');
   if (!wrap) return;
   const seq = ++amState.seq;
+  amBillShown = AM_BILL_PAGE;
   document.getElementById('am-pagination').innerHTML = '';
   wrap.innerHTML = '<div class="empty-state"><p>Asking Meta for the billing details…</p></div>';
   try {
@@ -938,101 +940,141 @@ async function amLoadBilling() {
   }
 }
 
+// How many charges the invoice list shows before "Show more".
+const AM_BILL_PAGE = 25;
+let amBillShown = AM_BILL_PAGE;
+
+// Meta's status wording varies by account, so the badge is driven by the text.
+function amChargeClass(charge) {
+  const status = String(charge.status || '');
+  const type = String(charge.charge_type || '');
+  if (/refund|credit|chargeback|reversal/i.test(status) || /refund|credit|chargeback|reversal/i.test(type) || Number(charge.amount) < 0) return ['refund', 'badge-info', 'REFUND'];
+  if (/fail|declin|cancel|void|dispute|error/i.test(status)) return ['failed', 'badge-danger', 'FAILED'];
+  if (/pending|process|review|authoriz/i.test(status)) return ['pending', 'badge-warning', 'PENDING'];
+  return ['paid', 'badge-success', 'PAID'];
+}
+
+const amMonthName = (m) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('en-PH', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const amInvDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: '2-digit', year: 'numeric' }) : '—');
+
+function amBillShowMore() {
+  amBillShown += AM_BILL_PAGE;
+  if (amState.billing) amRenderBilling(amState.billing);
+}
+
 function amRenderBilling(data) {
   const wrap = document.getElementById('am-table-wrap');
+  amState.billing = data;
   const accounts = data.accounts || [];
   if (!accounts.length) {
     wrap.innerHTML = '<div class="empty-state"><h3>No ad account to bill</h3><p>Connect a Meta account, or tick an ad account in Connections.</p></div>';
     return;
   }
+  const many = accounts.length > 1;
   const statusTone = (row) => (row.account_status === 1 ? 'badge-success' : row.account_status === 9 || row.account_status === 3 ? 'badge-warning' : 'badge-danger');
-  const fact = (label, value, title = '') => `<div class="am-bill-fact"${title ? ` title="${amEsc(title)}"` : ''}><div class="am-kpi-label">${label}</div><div class="am-bill-value">${value}</div></div>`;
 
-  const cards = accounts.map((a) => `
+  // Accounts as one row each, so a second ad account adds a line rather than
+  // another card to scroll past.
+  const accountRows = accounts.map((a) => `
+    <tr>
+      <td>
+        <div class="am-name">${amEsc(a.name || a.ad_account_id)}</div>
+        <div class="am-sub">${amEsc(a.ad_account_id)}${a.business_name ? ` · ${amEsc(a.business_name)}` : ''}</div>
+        ${a.error ? `<div class="am-sub am-bill-error">Live billing unavailable: ${amEsc(a.error)}</div>` : ''}
+      </td>
+      <td><span class="badge ${statusTone(a)}">${amEsc(a.account_status_label)}</span>${a.is_prepay === true ? ' <span class="badge badge-gray">Prepaid</span>' : ''}</td>
+      <td>${a.funding_source ? amEsc(a.funding_source) : '<span class="am-muted">—</span>'}</td>
+      <td class="am-num" title="${a.is_prepay ? 'Prepaid credit left' : 'Run up since the last bill'}">${amMoney(a.balance, a.currency)}</td>
+      <td class="am-num" title="Meta stops delivery at this lifetime total">${amMoney(a.spend_cap, a.currency)}</td>
+      <td class="am-num">${amMoney(a.spend.today, a.currency)}</td>
+      <td class="am-num">${amMoney(a.spend.month_to_date, a.currency)}</td>
+      <td class="am-num" title="Billed by Meta on this account, including spend from before this dashboard was connected">${amMoney(a.amount_spent, a.currency)}</td>
+    </tr>`).join('');
+
+  const charges = data.charges || [];
+  const months = (data.charges_by_month || []).filter((m) => m.count);
+  const logCurrency = charges[0]?.currency || accounts[0].currency;
+  const paidTotal = months.reduce((sum, m) => sum + Number(m.net_paid || 0), 0);
+  const shown = Math.min(amBillShown, charges.length);
+
+  // Paid per month, kept as a strip above the list rather than a second table.
+  const monthStrip = months.length ? `
+    <div class="am-bill-months">
+      ${months.map((m) => `
+        <div class="am-bill-month-pill" title="${amFmt(m.count, 'int')} charge${m.count === 1 ? '' : 's'}${m.refunded ? ` · refunds ${amMoney(m.refunded, m.currency || logCurrency)}` : ''}${m.failed ? ` · failed ${amMoney(m.failed, m.currency || logCurrency)}` : ''}">
+          <div class="am-kpi-label">${amEsc(amMonthName(m.month))}</div>
+          <div class="am-bill-value">${amMoney(m.net_paid, m.currency || logCurrency)}</div>
+        </div>`).join('')}
+    </div>` : '';
+
+  const rows = charges.slice(0, shown).map((c) => {
+    const [kind, tone, label] = amChargeClass(c);
+    const amount = kind === 'refund' ? -Math.abs(Number(c.amount || 0)) : c.amount;
+    return `
+      <tr class="am-inv-row am-inv-${kind}">
+        <td class="am-inv-icon">${AM_ICONS.invoice}</td>
+        <td class="am-inv-date">${amEsc(amInvDate(c.time))}</td>
+        <td class="am-inv-amount">${amMoney(amount, c.currency)}</td>
+        ${many ? `<td class="am-inv-account">${amEsc(c.ad_account_name || c.ad_account_id || '')}</td>` : ''}
+        <td class="am-inv-id" title="${amEsc(String(c.charge_type || '').replace(/_/g, ' '))}">${amEsc(c.id || '—')}</td>
+        <td class="am-inv-status"><span class="badge ${tone}" title="${amEsc(String(c.status || ''))}">${amEsc(label)}</span></td>
+      </tr>`;
+  }).join('');
+
+  const log = charges.length ? `
     <div class="card am-bill-card">
       <div class="am-bill-head">
         <div>
-          <div class="am-detail-name">${amEsc(a.name || a.ad_account_id)} <span class="badge ${statusTone(a)}">${amEsc(a.account_status_label)}</span></div>
-          <div class="am-sub">${amEsc(a.ad_account_id)}${a.business_name ? ` · ${amEsc(a.business_name)}` : ''} · ${amEsc(a.currency || '')}${a.timezone_name ? ` · ${amEsc(a.timezone_name)}` : ''}</div>
+          <div class="card-title">Payments</div>
+          <div class="card-subtitle">What the card was actually charged, newest first, straight from Meta's own records.</div>
         </div>
-        ${a.is_prepay === true ? '<span class="badge badge-info">Prepaid</span>' : a.is_prepay === false ? '<span class="badge badge-gray">Postpaid</span>' : ''}
+        <div class="am-bill-fact">
+          <div class="am-kpi-label">Total paid</div>
+          <div class="am-bill-value">${amMoney(paidTotal, logCurrency)}</div>
+        </div>
       </div>
-      ${a.error ? `<div class="am-warning">Meta would not return the live billing details: ${amEsc(a.error)}. The spend below is from our own synced data.</div>` : ''}
-      ${a.disable_reason ? `<div class="am-warning">Disable reason code from Meta: ${amEsc(String(a.disable_reason))}</div>` : ''}
-      <div class="am-bill-grid">
-        ${fact('Payment method', a.funding_source ? amEsc(a.funding_source) : '<span class="am-muted">—</span>')}
-        ${fact(a.is_prepay ? 'Credit left' : 'Unbilled balance', amMoney(a.balance, a.currency), a.is_prepay ? 'Prepaid credit still available' : 'Run up since the last bill')}
-        ${fact('Spend cap', amMoney(a.spend_cap, a.currency), 'Meta stops delivery once lifetime spend reaches this')}
-        ${fact('Daily spend limit', amMoney(a.daily_spend_limit, a.currency), 'Set by Meta on the account, not by us')}
-        ${fact('Spent today', amMoney(a.spend.today, a.currency), `Ad account day in ${amEsc(a.timezone_name || 'account timezone')}`)}
-        ${fact('Month to date', amMoney(a.spend.month_to_date, a.currency))}
-        ${fact(`Spend ${amEsc(a.spend.from)} – ${amEsc(a.spend.to)}`, amMoney(a.spend.range, a.currency))}
-        ${fact('Lifetime spent', amMoney(a.amount_spent, a.currency), 'Billed by Meta on this account, including spend from before this dashboard was connected')}
+      ${monthStrip}
+      <table class="am-table am-inv-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Date</th>
+            <th>Amount</th>
+            ${many ? '<th>Ad account</th>' : ''}
+            <th>Charge number</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="am-inv-foot">
+        <span class="am-muted">Showing 1 to ${amFmt(shown, 'int')} out of ${amFmt(charges.length, 'int')} charge${charges.length === 1 ? '' : 's'}</span>
+        ${shown < charges.length ? '<button class="btn btn-secondary btn-sm" type="button" onclick="amBillShowMore()">Show more</button>' : ''}
       </div>
-    </div>`).join('');
-
-  const byMonth = (data.charges_by_month || []).filter((m) => m.count);
-  const monthName = (m) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString('en-PH', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-  const paidTotal = byMonth.reduce((sum, m) => sum + Number(m.net_paid || 0), 0);
-  const monthly = byMonth.length ? `
+    </div>` : `
     <div class="card am-bill-card">
-      <div class="card-title">Paid per month</div>
-      <div class="card-subtitle">What the card was actually charged, grouped from Meta's own charge records.</div>
-      <div class="am-table-wrap">
-        <table class="am-table">
-          <thead><tr><th>Month</th><th class="am-num">Paid</th><th class="am-num">Refunds</th><th class="am-num">Net paid</th><th class="am-num">Pending</th><th class="am-num">Failed</th><th class="am-num">Charges</th></tr></thead>
-          <tbody>
-            ${byMonth.map((m) => `
-              <tr>
-                <td>${amEsc(monthName(m.month))}</td>
-                <td class="am-num">${amMoney(m.paid, m.currency)}</td>
-                <td class="am-num">${m.refunded ? amMoney(-m.refunded, m.currency) : '<span class="am-muted">—</span>'}</td>
-                <td class="am-num"><strong>${amMoney(m.net_paid, m.currency)}</strong></td>
-                <td class="am-num">${m.pending ? amMoney(m.pending, m.currency) : '<span class="am-muted">—</span>'}</td>
-                <td class="am-num">${m.failed ? amMoney(m.failed, m.currency) : '<span class="am-muted">—</span>'}</td>
-                <td class="am-num">${amFmt(m.count, 'int')}</td>
-              </tr>`).join('')}
-          </tbody>
-          <tfoot><tr><th>Total paid</th><th class="am-num" colspan="2"></th><th class="am-num">${amMoney(paidTotal, byMonth[0].currency)}</th><th colspan="3"></th></tr></tfoot>
-        </table>
-      </div>
-      <div class="am-sub am-bill-note">Covers only the charges Meta returned (newest ${amFmt(byMonth.reduce((n, m) => n + m.count, 0), 'int')}), so the oldest month shown may be partial.</div>
-    </div>` : '';
-
-  const charges = (data.charges || []).length ? `
-    <div class="card am-bill-card">
-      <div class="card-title">Billed charges</div>
-      <div class="card-subtitle">Straight from Meta, newest first.</div>
-      <div class="am-table-wrap">
-        <table class="am-table">
-          <thead><tr><th>Date</th><th>Type</th><th>Payment</th><th>Status</th><th class="am-num">Amount</th></tr></thead>
-          <tbody>
-            ${data.charges.map((c) => `
-              <tr>
-                <td>${c.time ? amEsc(new Date(c.time).toLocaleString('en-PH')) : '<span class="am-muted">—</span>'}</td>
-                <td>${amEsc(String(c.charge_type || '—').replace(/_/g, ' '))}</td>
-                <td>${amEsc(String(c.payment_option || '—').replace(/_/g, ' '))}</td>
-                <td>${amEsc(String(c.status || '—').replace(/_/g, ' '))}</td>
-                <td class="am-num">${amMoney(c.amount, c.currency)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>` : '';
+      <div class="card-title">Payments</div>
+      <div class="am-sub">No charges came back from Meta for these ad accounts.</div>
+    </div>`;
 
   wrap.innerHTML = `
     <div class="am-bill">
-      ${data.totals && accounts.length > 1 ? `
-        <div class="card am-bill-card am-bill-totals">
-          <div class="am-bill-grid">
-            ${fact('Spend today (all accounts)', amMoney(data.totals.spend_today, data.totals.currency))}
-            ${fact('Month to date', amMoney(data.totals.spend_month_to_date, data.totals.currency))}
-            ${fact(`Spend ${amEsc(data.filters.from)} – ${amEsc(data.filters.to)}`, amMoney(data.totals.spend_range, data.totals.currency))}
+      <div class="card am-bill-card">
+        <div class="am-bill-head">
+          <div>
+            <div class="card-title">Ad accounts</div>
+            <div class="card-subtitle">Read live from Meta on open — never stored here.</div>
           </div>
-        </div>` : ''}
-      ${cards}
-      ${monthly}
-      ${charges}
+          ${data.totals && many ? `<div class="am-bill-fact"><div class="am-kpi-label">Spend ${amEsc(data.filters.from)} – ${amEsc(data.filters.to)}</div><div class="am-bill-value">${amMoney(data.totals.spend_range, data.totals.currency)}</div></div>` : ''}
+        </div>
+        <div class="am-table-wrap">
+          <table class="am-table">
+            <thead><tr><th>Ad account</th><th>Standing</th><th>Payment method</th><th class="am-num">Balance</th><th class="am-num">Spend cap</th><th class="am-num">Spent today</th><th class="am-num">Month to date</th><th class="am-num">Lifetime spent</th></tr></thead>
+            <tbody>${accountRows}</tbody>
+          </table>
+        </div>
+      </div>
+      ${log}
       ${data.charges_note ? `<div class="am-sub am-bill-note">${amEsc(data.charges_note)}</div>` : ''}
       ${(data.notes || []).map((n) => `<div class="am-sub am-bill-note">· ${amEsc(n)}</div>`).join('')}
     </div>`;

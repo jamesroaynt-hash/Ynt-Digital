@@ -645,6 +645,14 @@ test('billing reads live from Meta, sums our own spend, and totals what the card
     // Spend comes from our synced insights, not from Meta's billing fields.
     assert.equal(account.spend.range, 150.5);
 
+    // The payment log itself: newest first and tagged with the ad account it
+    // was billed to, so several accounts can share one list.
+    assert.equal(res.data.charges.length, 5);
+    assert.equal(res.data.charges[0].id, 't1');
+    assert.equal(res.data.charges.at(-1).id, 't5');
+    assert.equal(res.data.charges[0].ad_account_name, 'TAKARA Main');
+    assert.equal(res.data.charges[0].amount, 4500);
+
     // Paid per month: refunds netted off, declines and pending kept apart.
     const september = res.data.charges_by_month.find((m) => m.month === '2026-09');
     assert.equal(september.paid, 7500);

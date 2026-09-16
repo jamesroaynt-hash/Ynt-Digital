@@ -462,19 +462,28 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
         }
       }));
 
-      // The charge history is one Graph call per account, so it is only fetched
-      // when a single ad account is in scope.
-      let charges = null;
-      let chargesByMonth = null;
-      let chargesNote = null;
-      if (rows.length === 1) {
-        const result = await meta.accountCharges(db, rows[0].ad_account_id, { ...metaOptions, limit: req.query.charge_limit });
-        charges = result.charges;
-        chargesByMonth = meta.chargesByMonth(result.charges);
-        chargesNote = result.note;
-      } else if (rows.length > 1) {
-        chargesNote = 'Pick a single ad account above to see what the card was charged per month.';
+      // The payment log. One Graph call per ad account, so the number of
+      // accounts read at once is capped; pick one in the header to go past it.
+      const MAX_CHARGE_ACCOUNTS = 8;
+      const readFrom = rows.slice(0, MAX_CHARGE_ACCOUNTS);
+      const notes = [];
+      if (rows.length > MAX_CHARGE_ACCOUNTS) {
+        notes.push(`Payment log covers the first ${MAX_CHARGE_ACCOUNTS} ad accounts; pick one in the header for the rest.`);
       }
+      const perAccount = await Promise.all(readFrom.map(async (account) => {
+        const result = await meta.accountCharges(db, account.ad_account_id, { ...metaOptions, limit: req.query.charge_limit });
+        if (result.note) notes.push(`${account.name || account.ad_account_id}: ${result.note}`);
+        return result.charges.map((charge) => ({
+          ...charge,
+          ad_account_id: account.ad_account_id,
+          ad_account_name: account.name,
+          currency: charge.currency || account.currency,
+        }));
+      }));
+      // Newest first, so the log reads like a statement.
+      const charges = perAccount.flat().sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')));
+      const chargesByMonth = meta.chargesByMonth(charges);
+      const chargesNote = notes.join(' ') || null;
 
       const currencies = [...new Set(rows.map((r) => r.currency).filter(Boolean))];
       res.json({

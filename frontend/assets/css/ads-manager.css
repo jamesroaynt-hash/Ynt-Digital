@@ -387,3 +387,36 @@
 .am-bill-value { font-size: 15px; font-weight: 600; margin-top: 2px; word-break: break-word; }
 .am-bill-totals .am-bill-value { font-size: 18px; }
 .am-bill-note { font-size: 12px; }
+
+/* Payment list. Reads like an invoice list rather than a metrics table: a
+   document mark, the date and amount carrying the weight, the charge id in a
+   quiet mono, and the status as a pill. */
+.am-inv-table { margin-top: 4px; }
+.am-inv-table thead th { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.am-inv-row td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.am-inv-row:last-child td { border-bottom: none; }
+.am-inv-icon { width: 34px; color: var(--text-tertiary, var(--text-secondary)); }
+.am-inv-icon svg { width: 16px; height: 16px; display: block; }
+.am-inv-date { font-weight: 600; white-space: nowrap; }
+.am-inv-amount { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.am-inv-account { color: var(--text-secondary); }
+.am-inv-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text-secondary); word-break: break-all; }
+.am-inv-status { white-space: nowrap; }
+.am-inv-refund .am-inv-amount, .am-inv-failed .am-inv-amount { color: var(--text-secondary); }
+.am-inv-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 2px 2px; font-size: 12px; }
+
+/* Paid per month, as a strip above the list. */
+.am-bill-months { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px; }
+.am-bill-month-pill {
+  background: var(--bg-subtle, rgba(127,127,127,.06));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  min-width: 132px;
+}
+.am-bill-error { color: var(--danger, #ef4444); }
+
+@media (max-width: 560px) {
+  .am-inv-account, .am-inv-id { display: none; }
+  .am-inv-row td { padding: 10px 8px; }
+}
