@@ -6921,3 +6921,12 @@ tfoot td {
     grid-template-columns: 1fr;
   }
 }
+
+/* The confirmed-orders column headers sat in --text-muted, which on the light
+   theme is a pale grey barely separable from the rule beneath them. Full
+   strength instead, so the column names read at a glance. The token rather
+   than a literal black: on the dark theme that same rule has to go light. */
+#csr-confirmed-table thead th {
+  color: var(--text-primary);
+  font-weight: 700;
+}
