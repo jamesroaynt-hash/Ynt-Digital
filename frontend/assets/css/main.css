@@ -6896,3 +6896,28 @@ tfoot td {
     flex-wrap: wrap;
   }
 }
+
+/* The daily records window. Wider than a form modal because it holds the
+   filing form and the whole records table; the modal's own 90vh cap and scroll
+   still apply, so a long list scrolls inside the window. */
+.modal.csr-records-modal {
+  max-width: 1120px;
+}
+
+/* Header runs title over subtitle on the left, Export and close on the right. */
+.csr-records-modal .modal-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.csr-records-modal .modal-header .card-subtitle {
+  margin-top: 3px;
+}
+
+/* The split form/summary layout stacks once the window is too narrow for two
+   columns, which on a phone is immediately. */
+@media (max-width: 860px) {
+  .csr-records-modal .split-layout {
+    grid-template-columns: 1fr;
+  }
+}

@@ -11172,22 +11172,35 @@ function renderCSR() {
 
   return `
   <div class="page-header">
-    <div class="page-title"><h1>CSR Daily Records</h1><p>Everyone files their own daily records here. Admins, CSR TL, Logistics and Sales &amp; Marketing can view all CSR entries.</p></div>
+    <div class="page-title"><h1>CSR Records</h1><p>The orders you confirmed in the POS. Daily records are filed in their own window.</p></div>
     <div class="page-actions">
-      <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-records-table', 'csr-daily-records')">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
-        Export CSV
+      <button class="btn btn-primary btn-sm" onclick="openCSRRecordsModal()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.5h6M5 8h6M5 10.5h4"/></svg>
+        Daily Records
       </button>
     </div>
   </div>
 
-  <div class="tabs" style="margin-bottom:16px;">
-    <button class="tab-btn active" onclick="switchTab(this,'csr-tab-records')">Daily Records</button>
-    <button class="tab-btn" onclick="switchTab(this,'csr-tab-confirmed'); openCsrConfirmedTab()">My Confirmed Orders</button>
-  </div>
+  ${renderCsrConfirmedPanel()}
 
-  <!-- Tab: the records the member files by hand -->
-  <div class="tab-content active" id="csr-tab-records">
+  <!-- The records the member files by hand. A window rather than a second tab:
+       filing one is an errand you come back from, not a place to sit. -->
+  <div class="modal-overlay" id="csr-records-modal">
+    <div class="modal csr-records-modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">CSR Daily Records</div>
+          <div class="card-subtitle">Everyone files their own. Admins, CSR TL, Logistics and Sales &amp; Marketing see all entries.</div>
+        </div>
+        <div class="flex gap-2" style="align-items:center;">
+          <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-records-table', 'csr-daily-records')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M2 12h12"/></svg>
+            Export CSV
+          </button>
+          <button class="modal-close" onclick="closeModal('csr-records-modal')">×</button>
+        </div>
+      </div>
+      <div class="modal-body">
   <div class="split-layout" style="margin-bottom:20px;">
     ${inputPanel}
 
@@ -11232,12 +11245,8 @@ function renderCSR() {
     </div>
     <div class="table-pagination" id="csr-pagination"></div>
   </div>
-  </div>
-
-  <!-- Tab: what this member confirmed in the POS, attributed by their linked
-       POS account rather than by a name typed into a form. -->
-  <div class="tab-content" id="csr-tab-confirmed">
-    ${renderCsrConfirmedPanel()}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -11461,11 +11470,21 @@ async function loadCsrConfirmedOrders(page = csrConfirmedState.page) {
   if (App.currentPage === 'csr') renderCsrConfirmedTable();
 }
 
-// Opened from the tab. The first look loads; after that the pills, the search
-// and the status filter each reload on their own, so re-opening keeps the view.
-function openCsrConfirmedTab() {
-  if (csrConfirmedState.loaded || csrConfirmedState.loading) return;
-  loadCsrConfirmedOrders(csrConfirmedState.page);
+// The daily records live in a window off the confirmed-orders page. Their table
+// is drawn on open: it is in the DOM the whole time, but the records behind it
+// are refreshed in the background on every visit to the page.
+function openCSRRecordsModal() {
+  renderCSRTable();
+  openModal('csr-records-modal');
+}
+
+// A full re-render of the page tears the window down with it. Put it back when
+// it was open, so a background refresh — or an import run from inside it —
+// does not close the window the member is working in.
+function reloadCsrPage() {
+  const wasOpen = document.getElementById('csr-records-modal')?.classList.contains('open');
+  loadPage('csr');
+  if (wasOpen) openCSRRecordsModal();
 }
 
 function setCsrConfirmedPeriod(period) {
@@ -15293,7 +15312,7 @@ function lookupCSROrder() {
   const records = DB.sheetRecordsForReport || [];
   if (!records.length) {
     showToast('warning', 'Orders still loading', 'Google Orders are still loading — please try again in a moment.');
-    loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') loadPage('csr'); }).catch(() => {});
+    loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') reloadCsrPage(); }).catch(() => {});
     return;
   }
 
@@ -15596,7 +15615,7 @@ async function importCSRFile(file) {
     // Pull the saved rows back so the table shows the server's refs and the
     // per-role visibility, rather than the file's contents.
     await loadCsrRecordsFromBackend({ force: true });
-    if (App.currentPage === 'csr') loadPage('csr');
+    if (App.currentPage === 'csr') reloadCsrPage();
     showToast(
       'success',
       'Import complete',
@@ -17220,17 +17239,18 @@ function initPage(page) {
     loadCsrRecordsFromBackend({ force: true })
       .then(() => { if (App.currentPage === 'csr') renderCSRTable(); })
       .catch(() => {});
-    // The confirmed-orders tab loads when it is first opened; clear last
-    // visit's figures so its cards cannot show a stale range in the meantime.
+    // Confirmed orders are what the page opens on, so they load with it rather
+    // than waiting to be asked for — and last visit's figures go first, or the
+    // cards would show a stale range while the new one is on its way.
     csrConfirmedState = {
       ...csrConfirmedState,
       data: [], total: 0, summary: null, accounts: [],
       page: 1, loaded: false, loading: false, error: '',
     };
-    renderCsrConfirmedTable();
+    loadCsrConfirmedOrders(1).catch(() => {});
     // Google Orders power the Page Name dropdown and the Order ID auto-fill.
     if (!DB.sheetRecordsForReport.length) {
-      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') loadPage('csr'); }).catch(() => {});
+      loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') reloadCsrPage(); }).catch(() => {});
     }
   }
 
