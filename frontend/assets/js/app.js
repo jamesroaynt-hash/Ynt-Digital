@@ -929,7 +929,6 @@ async function refreshPosRawOrdersFromBackend() {
 
   const query = new URLSearchParams({ page: String(posRawPage), per_page: '50', _: String(Date.now()) });
   if (posOrdersSearch) query.set('search', posOrdersSearch);
-  if (posOrdersProductFilter !== 'all') query.set('product', posOrdersProductFilter);
   if (posOrdersPageFilter !== 'all') query.set('source', posOrdersPageFilter);
   if (posOrdersStatusFilter !== 'all') query.set('status', posOrdersStatusFilter);
   if (posOrdersTagFilter !== 'all') query.set('tags', posOrdersTagFilter);
@@ -14073,11 +14072,6 @@ function getPosOrderFilterOptions() {
   const rawOrders = Array.isArray(DB.posRawOrders) ? DB.posRawOrders : [];
   const dashboardOrders = Array.isArray(DB.posOrders) ? DB.posOrders : [];
   const backendOptions = DB.posRawFilterOptions || {};
-  const posProductOptions = [...new Set([
-    ...(Array.isArray(backendOptions.products) ? backendOptions.products : []),
-    ...rawOrders.map((o) => o.note_product),
-    ...dashboardOrders.map((o) => o.product),
-  ].filter(Boolean))].sort();
   const posPageOptions = [...new Set([
     ...(Array.isArray(backendOptions.pages) ? backendOptions.pages : []),
     ...rawOrders.map((o) => o.page_name),
@@ -14092,7 +14086,7 @@ function getPosOrderFilterOptions() {
     ...(Array.isArray(backendOptions.reasons) ? backendOptions.reasons : []),
     ...rawOrders.map((o) => getRmoUndeliverableReason(o)),
   ].filter(Boolean))].sort();
-  return { posProductOptions, posPageOptions, posTagOptions, posReasonOptions };
+  return { posPageOptions, posTagOptions, posReasonOptions };
 }
 
 function updatePosFilterSelect(id, allLabel, options, selectedValue) {
@@ -14107,8 +14101,7 @@ function updatePosFilterSelect(id, allLabel, options, selectedValue) {
 
 function updateRmoFilterOptions() {
   if (App.currentPage !== 'rmo-management') return;
-  const { posProductOptions, posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
-  updatePosFilterSelect('pos-orders-product', 'All Products', posProductOptions, posOrdersProductFilter);
+  const { posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
   updatePosFilterSelect('pos-orders-page', 'All Pages', posPageOptions, posOrdersPageFilter);
   updatePosFilterSelect('pos-orders-tags', 'All Tags', posTagOptions, posOrdersTagFilter);
   // Reason select only exists on the Undeliverable / Returning tabs.
@@ -14331,7 +14324,7 @@ function rmoMetricShare(value, total) {
 }
 
 function renderRmoManagement() {
-  const { posProductOptions, posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
+  const { posPageOptions, posTagOptions, posReasonOptions } = getPosOrderFilterOptions();
   const statusCounts = Object.fromEntries((DB.posRawStatusCounts || []).map((row) => [row.display_status, Number(row.count || 0)]));
   const delivered = statusCounts.Delivered || 0;
   const returning = statusCounts.Returning || 0;
@@ -14353,6 +14346,10 @@ function renderRmoManagement() {
       <div class="rmo-actions">
         <button class="rmo-icon-btn" title="Refresh POS orders" onclick="refreshPosOrdersNow()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 5a5 5 0 1 0 1 3.8"/><path d="M13 2v3h-3"/></svg>
+        </button>
+        <button class="rmo-action-btn" onclick="openTagMergeModal()" title="Merge different spellings of the same tag">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v3.5a2 2 0 0 0 2 2h6"/><path d="M3 13V9.5"/><path d="M9 6.5L11.5 8.5 9 10.5"/></svg>
+          Merge tags
         </button>
         <button class="rmo-action-btn" onclick="exportRmoCSV()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/><path d="M3 13h10"/></svg>
@@ -14418,11 +14415,6 @@ function renderRmoManagement() {
           <select class="rmo-select" id="pos-orders-tags" onchange="applyPosOrdersDropdown()">
             <option value="all">All Tags</option>
             ${posTagOptions.map((t) => `<option value="${escapeHtml(t)}" ${posOrdersTagFilter === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
-          </select>
-          <button class="btn btn-secondary btn-sm" onclick="openTagMergeModal()" title="Merge different spellings of the same tag">Merge tags…</button>
-          <select class="rmo-select" id="pos-orders-product" onchange="applyPosOrdersDropdown()">
-            <option value="all">All Products</option>
-            ${posProductOptions.map((p) => `<option value="${escapeHtml(p)}" ${posOrdersProductFilter === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
           </select>
           <select class="rmo-select" id="pos-orders-page" onchange="applyPosOrdersDropdown()">
             <option value="all">All Pages</option>
@@ -19362,7 +19354,6 @@ let recordsYearFilter = 'all';
 let recordsMonthFilter = 'all';
 let posRawSearch = '';
 let posOrdersSearch = '';
-let posOrdersProductFilter = 'all';
 let posOrdersPageFilter = 'all';
 let posOrdersStatusFilter = 'all';
 let posOrdersTagFilter = 'all';
@@ -19698,7 +19689,6 @@ function openRmoFromCard(tab, status) {
   posOrdersStatusFilter = status || 'all';
   posOrdersReasonFilter = 'all';
   posOrdersTagFilter = 'all';
-  posOrdersProductFilter = 'all';
   posOrdersPageFilter = 'all';
   posOrdersAttemptFilter = 'all';
   posOrdersPeriod = 'all';
@@ -21554,7 +21544,6 @@ function applyPosOrdersSearch() {
 }
 
 function applyPosOrdersDropdown() {
-  posOrdersProductFilter = document.getElementById('pos-orders-product')?.value || 'all';
   posOrdersPageFilter = document.getElementById('pos-orders-page')?.value || 'all';
   posOrdersStatusFilter = document.getElementById('pos-orders-status')?.value || 'all';
   posOrdersTagFilter = document.getElementById('pos-orders-tags')?.value || 'all';

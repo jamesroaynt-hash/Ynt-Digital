@@ -3730,11 +3730,17 @@ tfoot td {
   margin-left: auto;
 }
 
-/* Product and page names run long; without a cap one dropdown swallows the
-   row and the others get squeezed against it. */
+/* Page names run long; without a cap one dropdown swallows the row and the
+   others get squeezed against it. The floor is low enough that the filters
+   still share a line with the date pills on the Undeliverable and Returning
+   tabs, where a Reason dropdown joins them. */
 .rmo-toolbar .rmo-select {
-  min-width: 130px;
+  min-width: 118px;
   max-width: 175px;
+}
+
+.rmo-toolbar .rmo-toolbar-filters {
+  min-width: 0;
 }
 
 .rmo-toolbar-note {
