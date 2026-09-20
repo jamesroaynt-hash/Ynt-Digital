@@ -2663,6 +2663,11 @@ function csrRoutes(db) {
     if (filter === 'daily') {
       where += ` AND ${manilaDay} = ?`;
       params.push(ymd(manilaNow));
+    } else if (filter === 'yesterday') {
+      const day = new Date(manilaNow);
+      day.setUTCDate(day.getUTCDate() - 1);
+      where += ` AND ${manilaDay} = ?`;
+      params.push(ymd(day));
     } else if (filter === 'weekly') {
       const from = new Date(manilaNow);
       from.setUTCDate(from.getUTCDate() - 6);

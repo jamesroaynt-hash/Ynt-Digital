@@ -11253,7 +11253,8 @@ let csrConfirmedState = {
 };
 
 const CSR_CONFIRMED_PERIODS = [
-  ['daily', 'Today'], ['weekly', 'Last 7 days'], ['monthly', 'This month'], ['custom', 'Custom'],
+  ['daily', 'Today'], ['yesterday', 'Yesterday'], ['weekly', 'Last 7 days'],
+  ['monthly', 'This month'], ['custom', 'Custom'],
 ];
 const CSR_CONFIRMED_STATUSES = [
   'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled',
@@ -11313,7 +11314,7 @@ function renderCsrConfirmedPanel() {
     <div class="rmo-metrics" id="csr-confirmed-metrics">${renderCsrConfirmedMetrics()}</div>
 
     <div class="rmo-table-wrap">
-      <div class="rmo-toolbar">
+      <div class="rmo-toolbar csr-confirmed-toolbar">
         <div class="rmo-toolbar-periods">
           <div class="table-filters">
             ${CSR_CONFIRMED_PERIODS.map(([value, label]) => `
@@ -11327,7 +11328,7 @@ function renderCsrConfirmedPanel() {
           </div>
         </div>
         <div class="rmo-toolbar-filters">
-          <div class="rmo-search" style="flex:0 1 240px;">
+          <div class="rmo-search">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
             <input type="text" id="csr-confirmed-search" placeholder="Search order #, customer, tracking..."
               value="${escapeHtml(csrConfirmedState.search)}"

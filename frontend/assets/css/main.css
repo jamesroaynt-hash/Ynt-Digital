@@ -6860,3 +6860,39 @@ tfoot td {
   letter-spacing: 0.6px;
   font-size: 12px;
 }
+
+/* "My Confirmed Orders" toolbar. It carries a pill more than the RMO one and
+   the custom range widens it again, so the right-hand cluster shrinks to fit
+   instead of wrapping Export onto a line of its own. Below the breakpoint the
+   cluster moves under the pills as a block, still ranged right. */
+.csr-confirmed-toolbar .rmo-toolbar-filters {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.csr-confirmed-toolbar .rmo-search {
+  flex: 0 1 230px;
+  min-width: 120px;
+}
+
+.csr-confirmed-toolbar .rmo-select {
+  flex: 0 1 150px;
+  min-width: 108px;
+  max-width: 150px;
+}
+
+.csr-confirmed-toolbar .rmo-toolbar-filters .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The date inputs are the widest thing on the left; let them give way first. */
+.csr-confirmed-toolbar .custom-range .form-control {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .csr-confirmed-toolbar .rmo-toolbar-filters {
+    flex-wrap: wrap;
+  }
+}
