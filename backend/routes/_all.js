@@ -2613,9 +2613,7 @@ function csrRoutes(db) {
 
   async function linkedPosAccounts(uid) {
     return db.prepare(`
-      SELECT l.pos_external_key,
-             COALESCE(NULLIF(TRIM(pu.name), ''), l.pos_name) AS name,
-             pu.shop_id
+      SELECT l.pos_name AS name, l.pos_external_key, pu.shop_id
       FROM user_pos_links l
       LEFT JOIN pos_users pu ON pu.external_key = l.pos_external_key
       WHERE l.user_id = ?

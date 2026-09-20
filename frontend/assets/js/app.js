@@ -6536,16 +6536,16 @@ function renderManageUsers() {
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">POS Account</label>
+            <label class="form-label">POS Confirmer</label>
             <div class="field-help" style="margin-bottom:8px;">
-              Which Pancake login this member confirms orders under. It is what CSR Records
-              uses to show them their own confirmed orders — usually one account, more only
-              if they work under several.
+              The name this member confirms orders under in Pancake, listed by how many
+              orders each has confirmed. It is what CSR Records uses to show them their own
+              confirmed orders — usually one name, more only for an alias or a second login.
             </div>
-            <input type="text" class="form-control" id="manage-user-pos-search" placeholder="Search POS accounts..."
+            <input type="text" class="form-control" id="manage-user-pos-search" placeholder="Search confirmer names..."
               oninput="renderManageUserPosOptions()" style="margin-bottom:8px;">
             <div class="pos-link-list" id="manage-user-pos-list">
-              <div class="field-help">Loading POS accounts…</div>
+              <div class="field-help">Loading POS confirmers…</div>
             </div>
           </div>
           <div class="form-group">
@@ -11387,7 +11387,7 @@ function renderCsrConfirmedTable() {
     return;
   }
   if (!csrConfirmedState.linked) {
-    tbody.innerHTML = message('No POS account is linked to your dashboard account yet — ask an administrator to link it on the Users page.');
+    tbody.innerHTML = message('No POS confirmer name is linked to your dashboard account yet — ask an administrator to link it on the Users page.');
     return;
   }
 
@@ -19156,14 +19156,21 @@ function openManageUserCreator() {
 }
 
 // ─── POS ACCOUNT LINKS (Users page) ────────────────────────
-// Which Pancake account a member confirms under. pos_orders names its confirmer
-// and nothing else, so this link is what lets CSR Records show a member their
-// own confirmed orders. Usually one account per person — pos_users keys a row
-// per POS login, not per shop — but the picker allows several for anyone who
-// works under more than one.
+// Which POS confirmer a member is. pos_orders names its confirmer and nothing
+// else, so the link is on that name — the list is every name that has actually
+// confirmed an order, which is why somebody who never came through a POS user
+// sync still appears here. Usually one name per person; several only for an
+// alias or a second Pancake login.
 let managePosAccounts = [];
 let managePosAccountsLoaded = false;
 let managePosSelected = new Set();
+
+// Names are compared case-folded throughout: the picker, the selection and the
+// server all key on the same folded string, so one confirmer cannot be held
+// twice under two spellings.
+function posNameKey(name) {
+  return String(name || '').trim().toLowerCase();
+}
 
 async function loadManagePosAccounts(force = false) {
   if (managePosAccountsLoaded && !force) return managePosAccounts;
@@ -19175,17 +19182,17 @@ async function loadManagePosAccounts(force = false) {
 
 async function initManageUserPosPicker(userId) {
   const list = document.getElementById('manage-user-pos-list');
-  if (list) list.innerHTML = '<div class="field-help">Loading POS accounts…</div>';
+  if (list) list.innerHTML = '<div class="field-help">Loading POS confirmers…</div>';
   managePosSelected = new Set();
   try {
     await loadManagePosAccounts();
     if (userId) {
       const data = await authorizedJsonRequest(`/auth/users/${userId}/pos-links`);
-      managePosSelected = new Set((data?.links || []).map((link) => link.external_key));
+      managePosSelected = new Set((data?.links || []).map((link) => posNameKey(link.name)));
     }
     renderManageUserPosOptions();
   } catch (error) {
-    if (list) list.innerHTML = `<div class="field-help">${escapeHtml(error.message || 'Could not load POS accounts.')}</div>`;
+    if (list) list.innerHTML = `<div class="field-help">${escapeHtml(error.message || 'Could not load POS confirmers.')}</div>`;
   }
 }
 
@@ -19195,54 +19202,57 @@ function renderManageUserPosOptions() {
   const currentId = Number(document.getElementById('manage-user-id')?.value || 0);
   const search = (document.getElementById('manage-user-pos-search')?.value || '').trim().toLowerCase();
   const matches = managePosAccounts.filter((account) => !search
-    || [account.name, account.username, account.email, account.shop_id]
-      .some((field) => String(field || '').toLowerCase().includes(search)));
+    || String(account.name || '').toLowerCase().includes(search));
 
   if (!matches.length) {
     list.innerHTML = `<div class="field-help">${managePosAccounts.length
-      ? 'No POS account matches that search.'
-      : 'No POS accounts have synced yet — run a POS sync under Integrations first.'}</div>`;
+      ? 'No confirmer matches that search.'
+      : 'No confirmers found yet — nobody has confirmed an order in the synced POS data.'}</div>`;
     return;
   }
 
-  // An account already linked to somebody else is listed but locked: two
-  // dashboard accounts holding one POS login would both count its orders.
-  list.innerHTML = matches.slice(0, 200).map((account) => {
+  // A name already linked to somebody else is listed but locked: two dashboard
+  // accounts holding one confirmer name would both count its orders.
+  list.innerHTML = matches.slice(0, 300).map((account) => {
     const takenBy = account.owner_id && Number(account.owner_id) !== currentId
       ? (account.owner_name || `user ${account.owner_id}`)
       : '';
     const meta = [
-      account.username || account.email || '',
-      account.is_active ? '' : 'Inactive in POS',
+      account.orders ? `${Number(account.orders).toLocaleString()} confirmed` : 'No confirmed orders yet',
+      account.synced ? 'Synced POS user' : '',
       takenBy ? `Linked to ${takenBy}` : '',
     ].filter(Boolean).join(' · ');
     return `<label class="pos-link-row${takenBy ? ' is-taken' : ''}">
-      <input type="checkbox" data-pos-key="${escapeHtml(account.external_key)}"
-        ${managePosSelected.has(account.external_key) ? 'checked' : ''}
+      <input type="checkbox" data-pos-name="${escapeHtml(account.name)}"
+        ${managePosSelected.has(posNameKey(account.name)) ? 'checked' : ''}
         ${takenBy ? 'disabled' : ''}
         onchange="toggleManageUserPosAccount(this)">
       <span class="pos-link-text">
         <span class="pos-link-name">${escapeHtml(account.name)}</span>
-        ${meta ? `<span class="pos-link-meta">${escapeHtml(meta)}</span>` : ''}
+        <span class="pos-link-meta">${escapeHtml(meta)}</span>
       </span>
     </label>`;
   }).join('');
 }
 
 function toggleManageUserPosAccount(input) {
-  const key = input?.dataset?.posKey;
-  if (!key) return;
-  if (input.checked) managePosSelected.add(key);
-  else managePosSelected.delete(key);
+  const name = input?.dataset?.posName;
+  if (!name) return;
+  if (input.checked) managePosSelected.add(posNameKey(name));
+  else managePosSelected.delete(posNameKey(name));
 }
 
 // Saved after the account itself, so a rejected link (someone else already
-// holds that POS login) never costs the profile edit that came with it.
+// holds that confirmer name) never costs the profile edit that came with it.
 async function saveManageUserPosLinks(userId) {
   if (!userId) return;
+  // Send the names as the POS spells them, matched back from the folded keys.
+  const names = managePosAccounts
+    .filter((account) => managePosSelected.has(posNameKey(account.name)))
+    .map((account) => account.name);
   await authorizedJsonRequest(`/auth/users/${userId}/pos-links`, {
     method: 'PUT',
-    body: JSON.stringify({ keys: [...managePosSelected] }),
+    body: JSON.stringify({ names }),
   });
   managePosAccountsLoaded = false;
 }

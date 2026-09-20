@@ -65,6 +65,35 @@ function getSqliteIndexColumns(db, indexName) {
   return db.prepare(`PRAGMA index_info(${indexName})`).all().map((column) => column.name);
 }
 
+// The first cut of user_pos_links was keyed by the synced pos_users row, which
+// left every confirmer without a synced account unassignable. The name is the
+// real key. Rebuild a table still carrying the old shape, resolving each row's
+// name from its POS account on the way across.
+function migrateUserPosLinksByName(db) {
+  const columns = db.prepare('PRAGMA table_info(user_pos_links)').all();
+  const nameColumn = columns.find((column) => column.name === 'pos_name');
+  if (!nameColumn || Number(nameColumn.pk || 0) === 1) return;
+
+  db.exec('ALTER TABLE user_pos_links RENAME TO _user_pos_links_by_key');
+  db.exec(`
+    CREATE TABLE user_pos_links (
+      pos_name TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      pos_external_key TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`
+    INSERT OR IGNORE INTO user_pos_links (pos_name, user_id, pos_external_key, created_at)
+    SELECT TRIM(COALESCE(NULLIF(TRIM(pu.name), ''), old.pos_name)), old.user_id,
+           old.pos_external_key, old.created_at
+    FROM _user_pos_links_by_key old
+    LEFT JOIN pos_users pu ON pu.external_key = old.pos_external_key
+    WHERE TRIM(COALESCE(NULLIF(TRIM(pu.name), ''), old.pos_name, '')) <> ''
+  `);
+  db.exec('DROP TABLE _user_pos_links_by_key');
+}
+
 function migratePosOrdersCompositeIdentity(db) {
   const indexes = db.prepare('PRAGMA index_list(pos_orders)').all();
   const hasExternalOnlyUnique = indexes.some((index) => {
@@ -137,6 +166,45 @@ function migratePosOrdersCompositeIdentity(db) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_shop ON pos_orders(shop_id, updated_at_remote DESC)');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_orders_shop_external ON pos_orders(shop_id, external_id)');
   db.exec('PRAGMA foreign_keys = ON');
+}
+
+// Postgres twin of migrateUserPosLinksByName: re-key the table on the confirmer
+// name when it is still keyed on the synced POS account.
+async function migrateUserPosLinksByNameAsync(db) {
+  const keyedOnAccount = await db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu
+      ON kcu.constraint_name = tc.constraint_name
+     AND kcu.table_schema = tc.table_schema
+    WHERE tc.table_schema = 'public'
+      AND tc.table_name = 'user_pos_links'
+      AND tc.constraint_type = 'PRIMARY KEY'
+      AND kcu.column_name = 'pos_external_key'
+  `).get();
+  if (!Number(keyedOnAccount?.count || 0)) return;
+
+  await db.exec('ALTER TABLE user_pos_links RENAME TO _user_pos_links_by_key');
+  await db.exec(`
+    CREATE TABLE user_pos_links (
+      pos_name TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      pos_external_key TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec(`
+    INSERT INTO user_pos_links (pos_name, user_id, pos_external_key, created_at)
+    SELECT DISTINCT ON (name) name, user_id, pos_external_key, created_at
+    FROM (
+      SELECT TRIM(COALESCE(NULLIF(TRIM(pu.name), ''), old.pos_name)) AS name,
+             old.user_id, old.pos_external_key, old.created_at
+      FROM _user_pos_links_by_key old
+      LEFT JOIN pos_users pu ON pu.external_key = old.pos_external_key
+    ) resolved
+    WHERE COALESCE(TRIM(name), '') <> ''
+  `);
+  await db.exec('DROP TABLE _user_pos_links_by_key');
 }
 
 async function migratePosOrdersCompositeIdentityAsync(db) {
@@ -830,19 +898,23 @@ function runMigrations(db) {
     )
   `);
 
-  // Which POS accounts belong to a dashboard account. pos_orders records only
-  // the confirmer's name, so this is what lets a member see the orders they
-  // confirmed on the CSR Records page. Keyed by the POS account: one POS login
-  // answers to a single dashboard user, while a person can hold several —
-  // Pancake issues an account per shop.
+  // Which POS confirmer belongs to a dashboard account, so CSR Records can show
+  // a member the orders they confirmed. Keyed by the NAME, because that is what
+  // pos_orders carries (confirmed_by_name) and what the lookup matches on: a
+  // synced pos_users row is only one place a name can come from, and confirmers
+  // routinely appear in the orders before — or without — a user sync ever
+  // running. pos_external_key remembers the synced account when the pick came
+  // from one. One name answers to a single dashboard user; a person may hold
+  // several names (aliases, a second Pancake login).
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_pos_links (
-      pos_external_key TEXT PRIMARY KEY,
+      pos_name TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
-      pos_name TEXT,
+      pos_external_key TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  migrateUserPosLinksByName(db);
   db.exec('CREATE INDEX IF NOT EXISTS idx_user_pos_links_user ON user_pos_links(user_id)');
   // Order-tag aliases. The same tag is typed many ways in the POS — five
   // spellings of the second attempt, five of AUTO REJECT — so anything that
@@ -1367,16 +1439,18 @@ async function runPostgresMigrations(db) {
     )
   `);
 
-  // See runMigrations() above: the POS accounts a dashboard account owns, which
-  // is how CSR Records resolves "orders I confirmed" out of confirmed_by_name.
+  // See runMigrations() above: the POS confirmer names a dashboard account owns,
+  // which is how CSR Records resolves "orders I confirmed" out of
+  // confirmed_by_name. Keyed by the name, not by a synced pos_users row.
   await db.exec(`
     CREATE TABLE IF NOT EXISTS user_pos_links (
-      pos_external_key TEXT PRIMARY KEY,
+      pos_name TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
-      pos_name TEXT,
+      pos_external_key TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await migrateUserPosLinksByNameAsync(db);
   await db.exec('CREATE INDEX IF NOT EXISTS idx_user_pos_links_user ON user_pos_links(user_id)');
   // See the sync path above: order-tag aliases, for the spellings that folding
   // case and whitespace cannot reconcile.
