@@ -6860,3 +6860,58 @@ tfoot td {
   letter-spacing: 0.6px;
   font-size: 12px;
 }
+
+/* POS account picker in the Edit Account modal. A scrolling list rather than a
+   multi-select: each row has to carry who already holds that POS login, which
+   an <option> cannot show. */
+.pos-link-list {
+  max-height: 190px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 4px;
+}
+
+.pos-link-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pos-link-row:hover {
+  background: var(--surface-2);
+}
+
+.pos-link-row input {
+  margin-top: 2px;
+  flex: none;
+}
+
+.pos-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pos-link-name {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pos-link-meta {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* Already linked to somebody else: shown so it is clear the account exists and
+   where it went, but not selectable. */
+.pos-link-row.is-taken {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

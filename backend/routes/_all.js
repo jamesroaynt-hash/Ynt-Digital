@@ -2582,6 +2582,215 @@ function csrRoutes(db) {
     res.status(201).json({ imported, skipped });
   });
 
+  /* ─── CONFIRMED ORDERS (POS) ─────────────────────────────── */
+  // The orders this member confirmed in Pancake, reached through the POS
+  // accounts an admin linked to their dashboard account (user_pos_links).
+  //
+  // pos_orders records the confirmer by *name* only — confirmed_by_name, the
+  // editor of the order's move to Confirmed in Pancake's status_history — so
+  // the match is on the name of each linked POS account. The sync writes that
+  // column from pos_users.name, which is the same string resolved here, so it
+  // is a plain equality match (index-friendly) rather than a folded compare.
+  // staff_merge_map spellings that fold into the same canonical staff entry are
+  // matched too, or an order filed under an alias goes missing from its own
+  // author's list. 'wait_print' is excluded on the same basis as the Data
+  // Report's "By Confirmed By" card: awaiting print is not a confirmed sale.
+
+  const CONFIRMED_BASE = `COALESCE(status_name, '') <> 'wait_print'
+      AND confirmed_by_name IS NOT NULL AND TRIM(confirmed_by_name) <> ''`;
+
+  const POS_DISPLAY_STATUS = {
+    new: 'New', submitted: 'Confirmed', pending: 'Waiting for pickup',
+    waitting: 'Waiting for pickup', wait_print: 'Waiting for pickup',
+    shipped: 'Shipped', delivered: 'Delivered', returning: 'Returning',
+    returned: 'Returned', canceled: 'Canceled', removed: 'Canceled',
+  };
+  const POS_STATUS_FILTER = {
+    Confirmed: ['submitted'], 'Waiting for pickup': ['pending', 'waitting'],
+    Shipped: ['shipped'], Delivered: ['delivered'], Returning: ['returning'],
+    Returned: ['returned'], Canceled: ['canceled', 'removed'],
+  };
+
+  async function linkedPosAccounts(uid) {
+    return db.prepare(`
+      SELECT l.pos_external_key,
+             COALESCE(NULLIF(TRIM(pu.name), ''), l.pos_name) AS name,
+             pu.shop_id
+      FROM user_pos_links l
+      LEFT JOIN pos_users pu ON pu.external_key = l.pos_external_key
+      WHERE l.user_id = ?
+    `).all(uid);
+  }
+
+  // Every spelling of a linked account's name that pos_orders might carry.
+  async function confirmerNameSet(accounts) {
+    const names = accounts.map((a) => String(a.name || '').trim()).filter(Boolean);
+    if (!names.length) return [];
+    let merges = [];
+    try { merges = await db.prepare('SELECT alias, canonical FROM staff_merge_map').all(); }
+    catch { merges = []; }
+    const byAlias = new Map(merges.map((m) => [
+      String(m.alias || '').trim().toLowerCase(), String(m.canonical || '').trim(),
+    ]));
+    const canonical = (name) => {
+      let cur = String(name || '').trim();
+      const seen = new Set();
+      while (byAlias.get(cur.toLowerCase()) && !seen.has(cur.toLowerCase())) {
+        seen.add(cur.toLowerCase());
+        cur = byAlias.get(cur.toLowerCase());
+      }
+      return cur.toLowerCase();
+    };
+    const targets = new Set(names.map(canonical));
+    const out = new Set(names);
+    for (const merge of merges) {
+      for (const spelling of [merge.alias, merge.canonical]) {
+        const value = String(spelling || '').trim();
+        if (value && targets.has(canonical(value))) out.add(value);
+      }
+    }
+    return [...out];
+  }
+
+  function confirmedOrdersWhere(query, names) {
+    const effStatus = pancakePosSync.effectivePosStatusSql();
+    const manilaDay = pancakePosSync.posManilaDaySql(db.type);
+    const params = [...names];
+    let where = `WHERE ${CONFIRMED_BASE} AND confirmed_by_name IN (${names.map(() => '?').join(',')})`;
+
+    // Manila "now" computed in JS so the date filters stay DB-portable.
+    const manilaNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const ymd = (d) => d.toISOString().slice(0, 10);
+    const filter = String(query.filter || 'monthly');
+    if (filter === 'daily') {
+      where += ` AND ${manilaDay} = ?`;
+      params.push(ymd(manilaNow));
+    } else if (filter === 'weekly') {
+      const from = new Date(manilaNow);
+      from.setUTCDate(from.getUTCDate() - 6);
+      where += ` AND ${manilaDay} >= ?`;
+      params.push(ymd(from));
+    } else if (filter === 'monthly') {
+      where += ` AND ${manilaDay} >= ?`;
+      params.push(`${ymd(manilaNow).slice(0, 7)}-01`);
+    } else if (filter === 'custom') {
+      if (query.date_from) { where += ` AND ${manilaDay} >= ?`; params.push(String(query.date_from).slice(0, 10)); }
+      if (query.date_to) { where += ` AND ${manilaDay} <= ?`; params.push(String(query.date_to).slice(0, 10)); }
+    }
+
+    const statuses = POS_STATUS_FILTER[query.status];
+    if (statuses) {
+      where += ` AND ${effStatus} IN (${statuses.map(() => '?').join(',')})`;
+      params.push(...statuses);
+    }
+
+    const search = String(query.search || '').trim().toLowerCase();
+    if (search) {
+      where += ` AND (LOWER(COALESCE(external_id,'')) LIKE ? OR LOWER(COALESCE(customer_name,'')) LIKE ?
+        OR LOWER(COALESCE(customer_phone,'')) LIKE ? OR LOWER(COALESCE(tracking_no,'')) LIKE ?
+        OR LOWER(COALESCE(note_product,'')) LIKE ? OR LOWER(COALESCE(page_name,'')) LIKE ?)`;
+      const like = `%${search}%`;
+      params.push(like, like, like, like, like, like);
+    }
+    return { where, params, effStatus, manilaDay };
+  }
+
+  function provinceOf(shippingJson) {
+    try {
+      const shipping = JSON.parse(shippingJson || '{}') || {};
+      for (const key of ['province', 'province_name', 'state', 'region']) {
+        const value = shipping[key];
+        if (typeof value === 'string' && value.trim()) return value.trim();
+        if (value && typeof value === 'object' && typeof value.name === 'string') return value.name.trim();
+      }
+    } catch { /* malformed payload — no province to show */ }
+    return '';
+  }
+
+  r.get('/confirmed-orders', async (req, res) => {
+    try {
+      const accounts = await linkedPosAccounts(userId(req));
+      const accountLabels = accounts.map((a) => ({ name: a.name || '', shop_id: a.shop_id || '' }));
+      const names = await confirmerNameSet(accounts);
+      // No POS account linked yet (or one with no name on it): an unfiltered
+      // query here would hand this member somebody else's orders.
+      if (!names.length) {
+        return res.json({
+          linked: accounts.length > 0,
+          accounts: accountLabels,
+          data: [], total: 0, page: 1, per_page: 25,
+          summary: { total: 0, delivered: 0, shipped: 0, returning: 0, returned: 0, settled: 0, rtsRate: 0, cod: 0 },
+        });
+      }
+
+      const perPage = Math.max(1, Math.min(200, parseInt(req.query.per_page, 10) || 25));
+      const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names);
+
+      const totals = await db.prepare(`
+        SELECT COUNT(*) AS total,
+          SUM(CASE WHEN ${effStatus} = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN ${effStatus} = 'shipped'   THEN 1 ELSE 0 END) AS shipped,
+          SUM(CASE WHEN ${effStatus} = 'returning' THEN 1 ELSE 0 END) AS returning_count,
+          SUM(CASE WHEN ${effStatus} = 'returned'  THEN 1 ELSE 0 END) AS returned,
+          COALESCE(SUM(cod), 0) AS cod
+        FROM pos_orders ${where}
+      `).get(...params);
+
+      const delivered = Number(totals?.delivered || 0);
+      const returned = Number(totals?.returned || 0);
+      const returningCount = Number(totals?.returning_count || 0);
+      // Settled orders only, on effective status — the same base the Data
+      // Report's RTS rate uses, so the two never disagree for the same member.
+      const settled = delivered + returned + returningCount;
+
+      const rows = await db.prepare(`
+        SELECT external_id, shop_id, page_name, tracking_no, customer_name, customer_phone,
+               note_product, cod, attempts, status_name, confirmed_by_name, shipping_address_json,
+               ${effStatus} AS effective_status,
+               ${manilaDay} AS manila_day
+        FROM pos_orders ${where}
+        ORDER BY ${manilaDay} DESC, id DESC
+        LIMIT ? OFFSET ?
+      `).all(...params, perPage, (pageNum - 1) * perPage);
+
+      res.json({
+        linked: true,
+        accounts: accountLabels,
+        data: rows.map((row) => ({
+          external_id: row.external_id,
+          shop_id: row.shop_id || '',
+          page_name: row.page_name || '',
+          tracking_no: row.tracking_no || '',
+          customer_name: row.customer_name || '',
+          customer_phone: row.customer_phone || '',
+          product: row.note_product || '',
+          province: provinceOf(row.shipping_address_json),
+          cod: Number(row.cod || 0),
+          attempts: Number(row.attempts || 0),
+          status: POS_DISPLAY_STATUS[String(row.effective_status || '').toLowerCase()] || 'Confirmed',
+          status_name: row.effective_status || row.status_name || '',
+          date: row.manila_day || '',
+        })),
+        total: Number(totals?.total || 0),
+        page: pageNum,
+        per_page: perPage,
+        summary: {
+          total: Number(totals?.total || 0),
+          delivered,
+          shipped: Number(totals?.shipped || 0),
+          returning: returningCount,
+          returned,
+          settled,
+          rtsRate: settled ? ((returned + returningCount) / settled) * 100 : 0,
+          cod: Number(totals?.cod || 0),
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return r;
 }
 

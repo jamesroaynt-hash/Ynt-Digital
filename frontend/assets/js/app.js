@@ -6536,6 +6536,19 @@ function renderManageUsers() {
             </div>
           </div>
           <div class="form-group">
+            <label class="form-label">POS Account</label>
+            <div class="field-help" style="margin-bottom:8px;">
+              Which Pancake login this member confirms orders under. It is what CSR Records
+              uses to show them their own confirmed orders — usually one account, more only
+              if they work under several.
+            </div>
+            <input type="text" class="form-control" id="manage-user-pos-search" placeholder="Search POS accounts..."
+              oninput="renderManageUserPosOptions()" style="margin-bottom:8px;">
+            <div class="pos-link-list" id="manage-user-pos-list">
+              <div class="field-help">Loading POS accounts…</div>
+            </div>
+          </div>
+          <div class="form-group">
             <label class="form-label"><span id="manage-user-password-label">New Password</span></label>
             <input type="password" id="manage-user-password" class="form-control" placeholder="Leave blank to keep current password">
             <div class="field-help" id="manage-user-password-help">Only fill this in when the password needs to change.</div>
@@ -11177,6 +11190,13 @@ function renderCSR() {
     </div>
   </div>
 
+  <div class="tabs" style="margin-bottom:16px;">
+    <button class="tab-btn active" onclick="switchTab(this,'csr-tab-records')">Daily Records</button>
+    <button class="tab-btn" onclick="switchTab(this,'csr-tab-confirmed'); openCsrConfirmedTab()">My Confirmed Orders</button>
+  </div>
+
+  <!-- Tab: the records the member files by hand -->
+  <div class="tab-content active" id="csr-tab-records">
   <div class="split-layout" style="margin-bottom:20px;">
     ${inputPanel}
 
@@ -11220,7 +11240,277 @@ function renderCSR() {
       </table>
     </div>
     <div class="table-pagination" id="csr-pagination"></div>
+  </div>
+  </div>
+
+  <!-- Tab: what this member confirmed in the POS, attributed by their linked
+       POS account rather than by a name typed into a form. -->
+  <div class="tab-content" id="csr-tab-confirmed">
+    ${renderCsrConfirmedPanel()}
   </div>`;
+}
+
+// ─── CSR: MY CONFIRMED ORDERS ──────────────────────────────
+// The member's own POS-confirmed orders, served by /csr/confirmed-orders. The
+// server resolves whose they are from the POS accounts an admin linked to the
+// account, so nothing here decides ownership — an unlinked member simply gets
+// an empty list and the notice that says so.
+let csrConfirmedState = {
+  data: [], total: 0, page: 1, perPage: 25,
+  filter: 'monthly', dateFrom: '', dateTo: '', status: 'all', search: '',
+  summary: null, accounts: [], linked: true, loaded: false, loading: false, error: '',
+};
+
+const CSR_CONFIRMED_PERIODS = [
+  ['daily', 'Today'], ['weekly', 'Last 7 days'], ['monthly', 'This month'], ['custom', 'Custom'],
+];
+const CSR_CONFIRMED_STATUSES = [
+  'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled',
+];
+
+function csrConfirmedStatusTone(status) {
+  if (status === 'Delivered') return 'success';
+  if (status === 'Returning' || status === 'Returned') return 'danger';
+  if (status === 'Canceled') return 'warning';
+  if (status === 'Shipped' || status === 'Confirmed') return 'primary';
+  return 'info';
+}
+
+function csrConfirmedRangeLabel() {
+  const found = CSR_CONFIRMED_PERIODS.find(([value]) => value === csrConfirmedState.filter);
+  if (csrConfirmedState.filter !== 'custom') return found ? found[1] : '';
+  const { dateFrom, dateTo } = csrConfirmedState;
+  if (dateFrom && dateTo) return `${dateFrom} to ${dateTo}`;
+  return dateFrom ? `From ${dateFrom}` : dateTo ? `Until ${dateTo}` : 'Custom range';
+}
+
+// The five figures the desk reads first. Share lines are recomputed with the
+// figures they sit under, or a card keeps last refresh's percentage against
+// this refresh's count.
+function renderCsrConfirmedMetrics() {
+  const summary = csrConfirmedState.summary || {};
+  const total = Number(summary.total || 0);
+  const delivered = Number(summary.delivered || 0);
+  const shipped = Number(summary.shipped || 0);
+  const returning = Number(summary.returning || 0);
+  const returned = Number(summary.returned || 0);
+  const settled = Number(summary.settled || 0);
+  const rtsRate = Number(summary.rtsRate || 0);
+  const share = (value, base) => (base ? `${((value / base) * 100).toFixed(1)}% of ${base.toLocaleString()}` : 'No orders in range');
+  const card = (label, value, color, meta) => `
+    <div class="rts-metric-card ${color}">
+      <div class="stat-label">${escapeHtml(label)}</div>
+      <div class="rts-metric-value">${value}</div>
+      <div class="stat-meta">${escapeHtml(meta)}</div>
+    </div>`;
+
+  return [
+    card('Confirmed Orders', total.toLocaleString(), 'blue',
+      total ? `₱${Number(summary.cod || 0).toLocaleString()} COD · ${csrConfirmedRangeLabel()}` : csrConfirmedRangeLabel()),
+    card('Delivered', delivered.toLocaleString(), 'green', share(delivered, total)),
+    card('Shipping', shipped.toLocaleString(), 'amber', share(shipped, total)),
+    card('Returned', (returning + returned).toLocaleString(), 'red',
+      returning + returned ? `${returning.toLocaleString()} returning · ${returned.toLocaleString()} returned` : 'None in range'),
+    // Same formula as the Data Report: (returning + returned) / settled.
+    card('RTS Rate', `${rtsRate.toFixed(1)}%`, 'purple',
+      settled ? `of ${settled.toLocaleString()} settled` : 'No settled orders yet'),
+  ].join('');
+}
+
+function renderCsrConfirmedPanel() {
+  return `
+    <div class="rmo-metrics" id="csr-confirmed-metrics">${renderCsrConfirmedMetrics()}</div>
+
+    <div class="rmo-table-wrap">
+      <div class="rmo-toolbar">
+        <div class="rmo-toolbar-periods">
+          <div class="table-filters">
+            ${CSR_CONFIRMED_PERIODS.map(([value, label]) => `
+              <button class="filter-pill ${csrConfirmedState.filter === value ? 'active' : ''}"
+                data-csr-confirmed-period="${value}" onclick="setCsrConfirmedPeriod('${value}')">${label}</button>`).join('')}
+          </div>
+          <div class="custom-range ${csrConfirmedState.filter === 'custom' ? '' : 'hidden'}" id="csr-confirmed-custom-range">
+            <input type="date" class="form-control" id="csr-confirmed-date-from" value="${escapeHtml(csrConfirmedState.dateFrom)}">
+            <input type="date" class="form-control" id="csr-confirmed-date-to" value="${escapeHtml(csrConfirmedState.dateTo)}">
+            <button class="btn btn-secondary btn-sm" onclick="applyCsrConfirmedCustomRange()">Apply</button>
+          </div>
+        </div>
+        <div class="rmo-toolbar-filters">
+          <div class="rmo-search" style="flex:0 1 240px;">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+            <input type="text" id="csr-confirmed-search" placeholder="Search order #, customer, tracking..."
+              value="${escapeHtml(csrConfirmedState.search)}"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();applyCsrConfirmedFilters();}">
+          </div>
+          <select class="rmo-select" id="csr-confirmed-status" onchange="applyCsrConfirmedFilters()">
+            <option value="all">All Statuses</option>
+            ${CSR_CONFIRMED_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${csrConfirmedState.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-confirmed-table', 'my-confirmed-orders')">Export</button>
+        </div>
+      </div>
+
+      <div class="rmo-table-scroll">
+        <table class="rmo-table" id="csr-confirmed-table">
+          <thead><tr>
+            <th style="width:12%">Order #</th>
+            <th style="width:20%">Customer</th>
+            <th style="width:24%">Product</th>
+            <th style="width:12%">Province</th>
+            <th style="width:10%">COD</th>
+            <th style="width:12%">Status</th>
+            <th style="width:10%">Date</th>
+          </tr></thead>
+          <tbody id="csr-confirmed-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading your confirmed orders...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-pagination rmo-pagination" id="csr-confirmed-pagination"></div>
+    </div>`;
+}
+
+function renderCsrConfirmedTable() {
+  const metrics = document.getElementById('csr-confirmed-metrics');
+  if (metrics) metrics.innerHTML = renderCsrConfirmedMetrics();
+
+  const tbody = document.getElementById('csr-confirmed-tbody');
+  if (!tbody) return;
+
+  const message = (text) => `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(text)}</td></tr>`;
+  if (csrConfirmedState.loading || (!csrConfirmedState.loaded && !csrConfirmedState.error)) {
+    tbody.innerHTML = message('Loading your confirmed orders...');
+    return;
+  }
+  if (csrConfirmedState.error) {
+    tbody.innerHTML = message(csrConfirmedState.error);
+    return;
+  }
+  if (!csrConfirmedState.linked) {
+    tbody.innerHTML = message('No POS account is linked to your dashboard account yet — ask an administrator to link it on the Users page.');
+    return;
+  }
+
+  const dash = '<span style="color:var(--text-muted)">—</span>';
+  tbody.innerHTML = csrConfirmedState.data.map((order) => {
+    const attempts = Number(order.attempts || 0);
+    return `<tr>
+      <td>
+        <div class="rmo-item-main font-mono text-xs">${escapeHtml(order.external_id || '')}</div>
+        <div class="rmo-item-sub font-mono">${escapeHtml(order.tracking_no || '') || dash}</div>
+      </td>
+      <td>
+        <div class="rmo-item-main">${escapeHtml(order.customer_name || 'Unknown customer')}</div>
+        <div class="rmo-item-sub font-mono">${escapeHtml(order.customer_phone || 'No phone')}</div>
+      </td>
+      <td>
+        <div class="rmo-item-main">${escapeHtml(order.product || 'POS order')}</div>
+        <div class="rmo-item-sub">${escapeHtml(order.page_name || '') || dash}</div>
+      </td>
+      <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
+      <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
+      <td>
+        <span class="rmo-status ${csrConfirmedStatusTone(order.status)}">${escapeHtml(order.status || 'Unknown')}</span>
+        <div class="rmo-item-sub">${attempts > 1 ? `<span class="rmo-attempt">${attempts}</span> attempts` : `${attempts} attempt(s)`}</div>
+      </td>
+      <td><div class="rmo-item-main">${escapeHtml(order.date || '')}</div></td>
+    </tr>`;
+  }).join('') || message('No confirmed orders in this range.');
+
+  const pagination = document.getElementById('csr-confirmed-pagination');
+  if (pagination) {
+    const { total, page, perPage } = csrConfirmedState;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const start = total ? ((page - 1) * perPage) + 1 : 0;
+    const end = Math.min(page * perPage, total);
+    pagination.innerHTML = `
+      <span>${start}-${end} of ${total.toLocaleString()} confirmed orders</span>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="changeCsrConfirmedPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>‹</button>
+        ${renderPaginationButtons(page, pages, 'changeCsrConfirmedPage')}
+        <button class="page-btn" onclick="changeCsrConfirmedPage(${page + 1})" ${page >= pages ? 'disabled' : ''}>›</button>
+      </div>`;
+  }
+}
+
+async function loadCsrConfirmedOrders(page = csrConfirmedState.page) {
+  csrConfirmedState = { ...csrConfirmedState, page, loading: true, error: '' };
+  renderCsrConfirmedTable();
+  try {
+    const params = new URLSearchParams({
+      filter: csrConfirmedState.filter,
+      page: String(page),
+      per_page: String(csrConfirmedState.perPage),
+    });
+    if (csrConfirmedState.status && csrConfirmedState.status !== 'all') params.set('status', csrConfirmedState.status);
+    if (csrConfirmedState.search) params.set('search', csrConfirmedState.search);
+    if (csrConfirmedState.filter === 'custom') {
+      if (csrConfirmedState.dateFrom) params.set('date_from', csrConfirmedState.dateFrom);
+      if (csrConfirmedState.dateTo) params.set('date_to', csrConfirmedState.dateTo);
+    }
+    const data = await authorizedJsonRequest(`/csr/confirmed-orders?${params.toString()}`);
+    csrConfirmedState = {
+      ...csrConfirmedState,
+      data: Array.isArray(data?.data) ? data.data : [],
+      total: Number(data?.total || 0),
+      summary: data?.summary || null,
+      accounts: Array.isArray(data?.accounts) ? data.accounts : [],
+      linked: data?.linked !== false,
+      loaded: true,
+      loading: false,
+    };
+  } catch (error) {
+    csrConfirmedState = {
+      ...csrConfirmedState,
+      loading: false,
+      error: error.message || 'Could not load your confirmed orders.',
+    };
+  }
+  if (App.currentPage === 'csr') renderCsrConfirmedTable();
+}
+
+// Opened from the tab. The first look loads; after that the pills, the search
+// and the status filter each reload on their own, so re-opening keeps the view.
+function openCsrConfirmedTab() {
+  if (csrConfirmedState.loaded || csrConfirmedState.loading) return;
+  loadCsrConfirmedOrders(csrConfirmedState.page);
+}
+
+function setCsrConfirmedPeriod(period) {
+  csrConfirmedState = { ...csrConfirmedState, filter: period, page: 1 };
+  document.querySelectorAll('[data-csr-confirmed-period]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.csrConfirmedPeriod === period);
+  });
+  document.getElementById('csr-confirmed-custom-range')?.classList.toggle('hidden', period !== 'custom');
+  // Custom waits for Apply — without both ends it would query an open range.
+  if (period !== 'custom') loadCsrConfirmedOrders(1);
+}
+
+function applyCsrConfirmedCustomRange() {
+  csrConfirmedState = {
+    ...csrConfirmedState,
+    dateFrom: document.getElementById('csr-confirmed-date-from')?.value || '',
+    dateTo: document.getElementById('csr-confirmed-date-to')?.value || '',
+    filter: 'custom',
+    page: 1,
+  };
+  loadCsrConfirmedOrders(1);
+}
+
+function applyCsrConfirmedFilters() {
+  csrConfirmedState = {
+    ...csrConfirmedState,
+    status: document.getElementById('csr-confirmed-status')?.value || 'all',
+    search: document.getElementById('csr-confirmed-search')?.value.trim() || '',
+    page: 1,
+  };
+  loadCsrConfirmedOrders(1);
+}
+
+function changeCsrConfirmedPage(page) {
+  const pages = Math.max(1, Math.ceil(csrConfirmedState.total / csrConfirmedState.perPage));
+  if (page < 1 || page > pages) return;
+  loadCsrConfirmedOrders(page);
 }
 
 // ─── ODZ FINDER ────────────────────────────────────────────
@@ -16938,6 +17228,14 @@ function initPage(page) {
     loadCsrRecordsFromBackend({ force: true })
       .then(() => { if (App.currentPage === 'csr') renderCSRTable(); })
       .catch(() => {});
+    // The confirmed-orders tab loads when it is first opened; clear last
+    // visit's figures so its cards cannot show a stale range in the meantime.
+    csrConfirmedState = {
+      ...csrConfirmedState,
+      data: [], total: 0, summary: null, accounts: [],
+      page: 1, loaded: false, loading: false, error: '',
+    };
+    renderCsrConfirmedTable();
     // Google Orders power the Page Name dropdown and the Order ID auto-fill.
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') loadPage('csr'); }).catch(() => {});
@@ -18842,6 +19140,9 @@ function setManageUserModalState(mode, user = null) {
     passwordEl.value = '';
     passwordEl.placeholder = isCreateMode ? 'Enter password' : 'Leave blank to keep current password';
   }
+  const posSearchEl = document.getElementById('manage-user-pos-search');
+  if (posSearchEl) posSearchEl.value = '';
+  initManageUserPosPicker(isCreateMode ? null : user?.id || null);
 }
 
 function openManageUserCreator() {
@@ -18852,6 +19153,98 @@ function openManageUserCreator() {
 
   setManageUserModalState('create');
   openModal('manage-user-modal');
+}
+
+// ─── POS ACCOUNT LINKS (Users page) ────────────────────────
+// Which Pancake account a member confirms under. pos_orders names its confirmer
+// and nothing else, so this link is what lets CSR Records show a member their
+// own confirmed orders. Usually one account per person — pos_users keys a row
+// per POS login, not per shop — but the picker allows several for anyone who
+// works under more than one.
+let managePosAccounts = [];
+let managePosAccountsLoaded = false;
+let managePosSelected = new Set();
+
+async function loadManagePosAccounts(force = false) {
+  if (managePosAccountsLoaded && !force) return managePosAccounts;
+  const data = await authorizedJsonRequest('/auth/pos-accounts');
+  managePosAccounts = Array.isArray(data?.accounts) ? data.accounts : [];
+  managePosAccountsLoaded = true;
+  return managePosAccounts;
+}
+
+async function initManageUserPosPicker(userId) {
+  const list = document.getElementById('manage-user-pos-list');
+  if (list) list.innerHTML = '<div class="field-help">Loading POS accounts…</div>';
+  managePosSelected = new Set();
+  try {
+    await loadManagePosAccounts();
+    if (userId) {
+      const data = await authorizedJsonRequest(`/auth/users/${userId}/pos-links`);
+      managePosSelected = new Set((data?.links || []).map((link) => link.external_key));
+    }
+    renderManageUserPosOptions();
+  } catch (error) {
+    if (list) list.innerHTML = `<div class="field-help">${escapeHtml(error.message || 'Could not load POS accounts.')}</div>`;
+  }
+}
+
+function renderManageUserPosOptions() {
+  const list = document.getElementById('manage-user-pos-list');
+  if (!list) return;
+  const currentId = Number(document.getElementById('manage-user-id')?.value || 0);
+  const search = (document.getElementById('manage-user-pos-search')?.value || '').trim().toLowerCase();
+  const matches = managePosAccounts.filter((account) => !search
+    || [account.name, account.username, account.email, account.shop_id]
+      .some((field) => String(field || '').toLowerCase().includes(search)));
+
+  if (!matches.length) {
+    list.innerHTML = `<div class="field-help">${managePosAccounts.length
+      ? 'No POS account matches that search.'
+      : 'No POS accounts have synced yet — run a POS sync under Integrations first.'}</div>`;
+    return;
+  }
+
+  // An account already linked to somebody else is listed but locked: two
+  // dashboard accounts holding one POS login would both count its orders.
+  list.innerHTML = matches.slice(0, 200).map((account) => {
+    const takenBy = account.owner_id && Number(account.owner_id) !== currentId
+      ? (account.owner_name || `user ${account.owner_id}`)
+      : '';
+    const meta = [
+      account.username || account.email || '',
+      account.is_active ? '' : 'Inactive in POS',
+      takenBy ? `Linked to ${takenBy}` : '',
+    ].filter(Boolean).join(' · ');
+    return `<label class="pos-link-row${takenBy ? ' is-taken' : ''}">
+      <input type="checkbox" data-pos-key="${escapeHtml(account.external_key)}"
+        ${managePosSelected.has(account.external_key) ? 'checked' : ''}
+        ${takenBy ? 'disabled' : ''}
+        onchange="toggleManageUserPosAccount(this)">
+      <span class="pos-link-text">
+        <span class="pos-link-name">${escapeHtml(account.name)}</span>
+        ${meta ? `<span class="pos-link-meta">${escapeHtml(meta)}</span>` : ''}
+      </span>
+    </label>`;
+  }).join('');
+}
+
+function toggleManageUserPosAccount(input) {
+  const key = input?.dataset?.posKey;
+  if (!key) return;
+  if (input.checked) managePosSelected.add(key);
+  else managePosSelected.delete(key);
+}
+
+// Saved after the account itself, so a rejected link (someone else already
+// holds that POS login) never costs the profile edit that came with it.
+async function saveManageUserPosLinks(userId) {
+  if (!userId) return;
+  await authorizedJsonRequest(`/auth/users/${userId}/pos-links`, {
+    method: 'PUT',
+    body: JSON.stringify({ keys: [...managePosSelected] }),
+  });
+  managePosAccountsLoaded = false;
 }
 
 function syncCurrentUserFromManagedAccount(user) {
@@ -18969,6 +19362,7 @@ async function handleManageUserSave(event) {
         body: JSON.stringify(payload),
       });
       syncCurrentUserFromManagedAccount(data?.user);
+      await saveManageUserPosLinks(userId);
       showToast('success', 'Account updated', `${data?.user?.name || fullName} was updated.`);
     } else {
       if (!password) {
@@ -18980,6 +19374,7 @@ async function handleManageUserSave(event) {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      await saveManageUserPosLinks(data?.user?.id);
       showToast('success', 'Account created', `${data?.user?.name || fullName} was added.`);
     }
 

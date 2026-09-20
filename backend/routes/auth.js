@@ -394,6 +394,121 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     });
   });
 
+
+  // ─── POS ACCOUNT LINKS ───────────────────────────────────
+  // Which Pancake accounts a dashboard account owns. pos_orders names its
+  // confirmer and nothing else, so this mapping is what lets CSR Records show a
+  // member the orders they confirmed. Keyed by the POS account: one POS login
+  // answers to a single dashboard user, while a person can hold several, since
+  // Pancake issues an account per shop.
+
+  // The picker's list: every POS account, each carrying whoever already owns it
+  // so an admin can see a name is taken before trying to assign it.
+  router.get('/pos-accounts', requireAdmin, async (req, res) => {
+    const search = String(req.query?.search || '').trim().toLowerCase();
+    const params = [];
+    let where = '';
+    if (search) {
+      where = `WHERE LOWER(COALESCE(pu.name,'')) LIKE ? OR LOWER(COALESCE(pu.username,'')) LIKE ?
+        OR LOWER(COALESCE(pu.email,'')) LIKE ? OR LOWER(COALESCE(pu.shop_id,'')) LIKE ?`;
+      const like = `%${search}%`;
+      params.push(like, like, like, like);
+    }
+    const rows = await db.prepare(`
+      SELECT pu.external_key, pu.shop_id, pu.name, pu.username, pu.email, pu.role_name, pu.is_active,
+             l.user_id AS owner_id, u.full_name AS owner_name
+      FROM pos_users pu
+      LEFT JOIN user_pos_links l ON l.pos_external_key = pu.external_key
+      LEFT JOIN users u ON u.id = l.user_id
+      ${where}
+      ORDER BY COALESCE(NULLIF(pu.name,''), pu.username, pu.email, pu.external_key) COLLATE NOCASE ASC
+      LIMIT 1000
+    `).all(...params);
+    res.json({
+      accounts: rows.map((row) => ({
+        external_key: row.external_key,
+        shop_id: row.shop_id || '',
+        name: row.name || row.username || row.email || row.external_key,
+        username: row.username || '',
+        email: row.email || '',
+        role_name: row.role_name || '',
+        is_active: Boolean(row.is_active),
+        owner_id: row.owner_id || null,
+        owner_name: row.owner_name || '',
+      })),
+    });
+  });
+
+  router.get('/users/:id/pos-links', requireAdmin, async (req, res) => {
+    const targetId = Number(req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+    const rows = await db.prepare(`
+      SELECT l.pos_external_key, l.pos_name, pu.name, pu.shop_id, pu.is_active
+      FROM user_pos_links l
+      LEFT JOIN pos_users pu ON pu.external_key = l.pos_external_key
+      WHERE l.user_id = ?
+    `).all(targetId);
+    res.json({
+      links: rows.map((row) => ({
+        external_key: row.pos_external_key,
+        // The live POS name wins; the stored one keeps a deleted account
+        // readable instead of leaving a blank row in the picker.
+        name: row.name || row.pos_name || row.pos_external_key,
+        shop_id: row.shop_id || '',
+        missing: !row.name,
+      })),
+    });
+  });
+
+  // Replaces the whole set for this user. A POS account already claimed by
+  // somebody else is refused rather than moved: two dashboard accounts holding
+  // one POS login would both count the same confirmed orders as their own.
+  router.put('/users/:id/pos-links', requireAdmin, async (req, res) => {
+    const targetId = Number(req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+    const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(targetId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const keys = [...new Set(
+      (Array.isArray(req.body?.keys) ? req.body.keys : [])
+        .map((key) => String(key || '').trim())
+        .filter(Boolean)
+    )];
+
+    const accounts = [];
+    for (const key of keys) {
+      const account = await db.prepare(
+        'SELECT external_key, name, username, email FROM pos_users WHERE external_key = ?'
+      ).get(key);
+      if (!account) return res.status(400).json({ error: `Unknown POS account: ${key}` });
+      const owner = await db.prepare(`
+        SELECT l.user_id, u.full_name
+        FROM user_pos_links l
+        LEFT JOIN users u ON u.id = l.user_id
+        WHERE l.pos_external_key = ? AND l.user_id <> ?
+      `).get(key, targetId);
+      if (owner) {
+        return res.status(409).json({
+          error: `${account.name || key} is already linked to ${owner.full_name || `user ${owner.user_id}`}`,
+        });
+      }
+      accounts.push(account);
+    }
+
+    await db.prepare('DELETE FROM user_pos_links WHERE user_id = ?').run(targetId);
+    for (const account of accounts) {
+      await db.prepare(`
+        INSERT INTO user_pos_links (pos_external_key, user_id, pos_name)
+        VALUES (?, ?, ?)
+      `).run(account.external_key, targetId, account.name || account.username || account.email || null);
+    }
+
+    res.json({ success: true, linked: accounts.length });
+  });
   // Flip an account active or inactive. DELETE /users/:id already deactivates,
   // but it refuses to touch a row that is already inactive, so there was no way
   // back — a deactivated employee was stranded. requireAdmin covers

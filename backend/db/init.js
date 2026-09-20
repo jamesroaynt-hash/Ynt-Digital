@@ -542,6 +542,9 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'customer_succeed_count', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'customer_returned_count', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_customer_phone ON pos_orders(customer_phone)');
+
+  // CSR Records resolves a member's own confirmed orders by this name.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_confirmed_by ON pos_orders(confirmed_by_name)');
   ensureColumn(db, 'pos_shops', 'currency', 'TEXT');
   migratePosOrdersCompositeIdentity(db);
   migrateIntegrationSettingsMultiRow(db);
@@ -826,6 +829,21 @@ function runMigrations(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  // Which POS accounts belong to a dashboard account. pos_orders records only
+  // the confirmer's name, so this is what lets a member see the orders they
+  // confirmed on the CSR Records page. Keyed by the POS account: one POS login
+  // answers to a single dashboard user, while a person can hold several —
+  // Pancake issues an account per shop.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_pos_links (
+      pos_external_key TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      pos_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_user_pos_links_user ON user_pos_links(user_id)');
   // Order-tag aliases. The same tag is typed many ways in the POS — five
   // spellings of the second attempt, five of AUTO REJECT — so anything that
   // counts or filters by tag name splits across them. Case and stray whitespace
@@ -1060,6 +1078,9 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'customer_succeed_count', 'INTEGER');
   await ensureColumnAsync(db, 'pos_orders', 'customer_returned_count', 'INTEGER');
   await db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_customer_phone ON pos_orders(customer_phone)');
+
+  // CSR Records resolves a member's own confirmed orders by this name.
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_pos_orders_confirmed_by ON pos_orders(confirmed_by_name)');
   await ensureColumnAsync(db, 'pos_shops', 'currency', 'TEXT');
   await migratePosOrdersCompositeIdentityAsync(db);
   await migratePosOrdersCodNumericAsync(db);
@@ -1345,6 +1366,18 @@ async function runPostgresMigrations(db) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // See runMigrations() above: the POS accounts a dashboard account owns, which
+  // is how CSR Records resolves "orders I confirmed" out of confirmed_by_name.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS user_pos_links (
+      pos_external_key TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      pos_name TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.exec('CREATE INDEX IF NOT EXISTS idx_user_pos_links_user ON user_pos_links(user_id)');
   // See the sync path above: order-tag aliases, for the spellings that folding
   // case and whitespace cannot reconcile.
   await db.exec(`
