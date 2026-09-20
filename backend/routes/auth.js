@@ -395,16 +395,17 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
   });
 
 
-  // ─── POS ACCOUNT LINKS ───────────────────────────────────
-  // Which POS confirmer a dashboard account is, so CSR Records can show a
+  // ─── POS CONFIRMER LINKS ─────────────────────────────────
+  // Which dashboard account a POS confirmer is, so CSR Records can show a
   // member the orders they confirmed. The link is on the NAME, because that is
   // all pos_orders carries (confirmed_by_name) — a synced pos_users row is one
   // place a name can come from, not the source of truth. One name belongs to
   // one dashboard user; a person may hold several (an alias, a second login).
+  // Edited on the Integrations page's POS Users tab, a row at a time.
 
-  // The picker's list: every name that has actually confirmed an order, with
-  // how many, plus any synced POS account that has not confirmed anything yet,
-  // each carrying whoever already holds it.
+  // Every name that has actually confirmed an order, with how many, merged with
+  // the synced POS accounts (which carry the email/role/shop detail, and cover
+  // someone who has a login but has not confirmed anything yet).
   router.get('/pos-accounts', requireAdmin, async (req, res) => {
     const confirmers = await db.prepare(`
       SELECT TRIM(confirmed_by_name) AS name, COUNT(*) AS orders
@@ -414,12 +415,10 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
       GROUP BY TRIM(confirmed_by_name)
     `).all();
 
-    // A synced account is still worth offering: someone newly hired has a POS
-    // login before they have confirmed their first order.
     let posUsers = [];
     try {
       posUsers = await db.prepare(`
-        SELECT external_key, shop_id, name, username, email, role_name, is_active
+        SELECT external_key, shop_id, name, username, email, phone_number, role_name, is_active
         FROM pos_users
       `).all();
     } catch { posUsers = []; }
@@ -439,7 +438,10 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
       const name = String(rawName || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
-      const existing = byName.get(key) || { name, orders: 0, external_key: '', shop_id: '', is_active: true, synced: false };
+      const existing = byName.get(key) || {
+        name, orders: 0, external_key: '', shop_id: '', username: '',
+        email: '', phone_number: '', role_name: '', is_active: true, synced: false,
+      };
       byName.set(key, { ...existing, ...patch, name: existing.name || name });
     };
 
@@ -448,6 +450,10 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
       add(user.name || user.username || user.email, {
         external_key: user.external_key,
         shop_id: user.shop_id || '',
+        username: user.username || '',
+        email: user.email || '',
+        phone_number: user.phone_number || '',
+        role_name: user.role_name || '',
         is_active: Boolean(user.is_active),
         synced: true,
       });
@@ -465,71 +471,50 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     res.json({ accounts });
   });
 
-  router.get('/users/:id/pos-links', requireAdmin, async (req, res) => {
-    const targetId = Number(req.params.id);
-    if (!Number.isInteger(targetId) || targetId <= 0) {
-      return res.status(400).json({ error: 'Invalid user id' });
-    }
-    const rows = await db.prepare(
-      'SELECT pos_name, pos_external_key FROM user_pos_links WHERE user_id = ?'
-    ).all(targetId);
-    res.json({
-      links: rows.map((row) => ({
-        name: row.pos_name,
-        external_key: row.pos_external_key || '',
-      })),
-    });
-  });
+  // Assign one confirmer name to a dashboard user, or clear it with a null
+  // user_id. A name held by somebody else is refused rather than moved: two
+  // dashboard accounts on one name would both count its orders as their own.
+  router.put('/pos-links', requireAdmin, async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
 
-  // Replaces the whole set for this user. A name already claimed by somebody
-  // else is refused rather than moved: two dashboard accounts holding one
-  // confirmer name would both count the same orders as their own.
-  router.put('/users/:id/pos-links', requireAdmin, async (req, res) => {
-    const targetId = Number(req.params.id);
-    if (!Number.isInteger(targetId) || targetId <= 0) {
+    const rawUserId = req.body?.user_id;
+    if (rawUserId === null || rawUserId === '' || rawUserId === undefined) {
+      await db.prepare('DELETE FROM user_pos_links WHERE LOWER(pos_name) = ?').run(name.toLowerCase());
+      return res.json({ success: true, name, user_id: null });
+    }
+
+    const userId = Number(rawUserId);
+    if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });
     }
-    const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(targetId);
+    const user = await db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Names arrive as the picker listed them; fold case so the same confirmer
-    // cannot be added twice under two spellings of the same string.
-    const seen = new Set();
-    const names = [];
-    for (const raw of (Array.isArray(req.body?.names) ? req.body.names : [])) {
-      const name = String(raw || '').trim();
-      if (!name || seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
-      names.push(name);
+    const owner = await db.prepare(`
+      SELECT l.user_id, u.full_name
+      FROM user_pos_links l
+      LEFT JOIN users u ON u.id = l.user_id
+      WHERE LOWER(l.pos_name) = ? AND l.user_id <> ?
+    `).get(name.toLowerCase(), userId);
+    if (owner) {
+      return res.status(409).json({
+        error: `${name} is already assigned to ${owner.full_name || `user ${owner.user_id}`}`,
+      });
     }
 
-    for (const name of names) {
-      const owner = await db.prepare(`
-        SELECT l.user_id, u.full_name
-        FROM user_pos_links l
-        LEFT JOIN users u ON u.id = l.user_id
-        WHERE LOWER(l.pos_name) = ? AND l.user_id <> ?
-      `).get(name.toLowerCase(), targetId);
-      if (owner) {
-        return res.status(409).json({
-          error: `${name} is already linked to ${owner.full_name || `user ${owner.user_id}`}`,
-        });
-      }
-    }
+    // Keep the synced account alongside the name when there is one, so a later
+    // rename in Pancake can be traced back to the account it came from.
+    const account = await db.prepare(
+      'SELECT external_key FROM pos_users WHERE LOWER(TRIM(name)) = ? LIMIT 1'
+    ).get(name.toLowerCase());
 
-    await db.prepare('DELETE FROM user_pos_links WHERE user_id = ?').run(targetId);
-    for (const name of names) {
-      // Keep the synced account alongside the name when there is one, so a
-      // later rename in Pancake can be traced back to the account it came from.
-      const account = await db.prepare(
-        'SELECT external_key FROM pos_users WHERE LOWER(TRIM(name)) = ? LIMIT 1'
-      ).get(name.toLowerCase());
-      await db.prepare(
-        'INSERT INTO user_pos_links (pos_name, user_id, pos_external_key) VALUES (?, ?, ?)'
-      ).run(name, targetId, account?.external_key || null);
-    }
+    await db.prepare('DELETE FROM user_pos_links WHERE LOWER(pos_name) = ?').run(name.toLowerCase());
+    await db.prepare(
+      'INSERT INTO user_pos_links (pos_name, user_id, pos_external_key) VALUES (?, ?, ?)'
+    ).run(name, userId, account?.external_key || null);
 
-    res.json({ success: true, linked: names.length });
+    res.json({ success: true, name, user_id: userId, user_name: user.full_name });
   });
 
   // Flip an account active or inactive. DELETE /users/:id already deactivates,

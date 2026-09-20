@@ -44,7 +44,11 @@ NAV_ACCESS_BY_KEY.operations = NAV_ACCESS.Operation;
 let managedUsers = [];
 let hrState = { users: [], summary: [], attendance: [], advances: [], cashAdvances: [], status: 'active' };
 let attendanceState = { today: null, date: '', advances: [], leaves: [], activeTab: 'clock' };
-let posUsersState = { users: [], total: 0, page: 1, perPage: 50, search: '', loading: false };
+// The POS Users tab lists POS confirmers — every name that has confirmed an
+// order, merged with the synced pos_users rows — and is where each one is
+// assigned to the dashboard account that owns it. `assignees` holds the
+// dashboard users the dropdown offers.
+let posUsersState = { users: [], assignees: [], total: 0, page: 1, perPage: 50, search: '', loading: false };
 const INTEGRATION_STORAGE_KEY = 'ynt_integrations';
 const CSR_STORAGE_KEY = 'ynt_csr_daily_records';
 // Flag set once any legacy localStorage CSR records have been pushed to the
@@ -3214,7 +3218,7 @@ function renderApiConnections() {
       <div class="card-header">
         <div>
           <div class="card-title">POS Users</div>
-          <div class="card-subtitle">Users collected from Pancake POS user, staff, or employee endpoints.</div>
+          <div class="card-subtitle">Everyone who confirms orders in Pancake, and which dashboard account each one is. The assignment is what lets a member see their own confirmed orders in CSR Records.</div>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="collectPancakePosUsers()">Sync Users</button>
       </div>
@@ -3222,7 +3226,7 @@ function renderApiConnections() {
         <div class="table-toolbar">
           <div class="table-search">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-            <input type="text" id="pos-users-search" placeholder="Search POS users..." value="${escapeHtml(posUsersState.search)}" onkeydown="if(event.key==='Enter') searchPosUsers()">
+            <input type="text" id="pos-users-search" placeholder="Search POS users..." value="${escapeHtml(posUsersState.search)}" oninput="searchPosUsers()">
           </div>
           <button class="btn btn-secondary btn-sm" onclick="searchPosUsers()">Search</button>
           <button class="btn btn-secondary btn-sm" onclick="loadPosUsers()">Refresh</button>
@@ -3230,10 +3234,10 @@ function renderApiConnections() {
         <div class="table-container">
           <table>
             <thead><tr>
-              <th>Name</th><th>Username</th><th>Role</th><th>Shop ID</th><th>Email</th><th>Phone</th><th>Status</th>
+              <th>Name</th><th>Confirmed</th><th style="min-width:180px;">Assigned To</th><th>Username</th><th>Role</th><th>Shop ID</th><th>Email</th><th>Phone</th><th>Status</th>
             </tr></thead>
             <tbody id="pos-users-tbody">
-              <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS users...</td></tr>
+              <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS users...</td></tr>
             </tbody>
           </table>
         </div>
@@ -6533,19 +6537,6 @@ function renderManageUsers() {
             <div class="form-group">
               <label class="form-label">FB Account Name</label>
               <input type="text" id="manage-user-fb-account-name" class="form-control" placeholder="Facebook profile name">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">POS Confirmer</label>
-            <div class="field-help" style="margin-bottom:8px;">
-              The name this member confirms orders under in Pancake, listed by how many
-              orders each has confirmed. It is what CSR Records uses to show them their own
-              confirmed orders — usually one name, more only for an alias or a second login.
-            </div>
-            <input type="text" class="form-control" id="manage-user-pos-search" placeholder="Search confirmer names..."
-              oninput="renderManageUserPosOptions()" style="margin-bottom:8px;">
-            <div class="pos-link-list" id="manage-user-pos-list">
-              <div class="field-help">Loading POS confirmers…</div>
             </div>
           </div>
           <div class="form-group">
@@ -11387,7 +11378,7 @@ function renderCsrConfirmedTable() {
     return;
   }
   if (!csrConfirmedState.linked) {
-    tbody.innerHTML = message('No POS confirmer name is linked to your dashboard account yet — ask an administrator to link it on the Users page.');
+    tbody.innerHTML = message('No POS confirmer is assigned to your dashboard account yet — ask an administrator to assign it under Integrations → POS Users.');
     return;
   }
 
@@ -19140,9 +19131,6 @@ function setManageUserModalState(mode, user = null) {
     passwordEl.value = '';
     passwordEl.placeholder = isCreateMode ? 'Enter password' : 'Leave blank to keep current password';
   }
-  const posSearchEl = document.getElementById('manage-user-pos-search');
-  if (posSearchEl) posSearchEl.value = '';
-  initManageUserPosPicker(isCreateMode ? null : user?.id || null);
 }
 
 function openManageUserCreator() {
@@ -19153,108 +19141,6 @@ function openManageUserCreator() {
 
   setManageUserModalState('create');
   openModal('manage-user-modal');
-}
-
-// ─── POS ACCOUNT LINKS (Users page) ────────────────────────
-// Which POS confirmer a member is. pos_orders names its confirmer and nothing
-// else, so the link is on that name — the list is every name that has actually
-// confirmed an order, which is why somebody who never came through a POS user
-// sync still appears here. Usually one name per person; several only for an
-// alias or a second Pancake login.
-let managePosAccounts = [];
-let managePosAccountsLoaded = false;
-let managePosSelected = new Set();
-
-// Names are compared case-folded throughout: the picker, the selection and the
-// server all key on the same folded string, so one confirmer cannot be held
-// twice under two spellings.
-function posNameKey(name) {
-  return String(name || '').trim().toLowerCase();
-}
-
-async function loadManagePosAccounts(force = false) {
-  if (managePosAccountsLoaded && !force) return managePosAccounts;
-  const data = await authorizedJsonRequest('/auth/pos-accounts');
-  managePosAccounts = Array.isArray(data?.accounts) ? data.accounts : [];
-  managePosAccountsLoaded = true;
-  return managePosAccounts;
-}
-
-async function initManageUserPosPicker(userId) {
-  const list = document.getElementById('manage-user-pos-list');
-  if (list) list.innerHTML = '<div class="field-help">Loading POS confirmers…</div>';
-  managePosSelected = new Set();
-  try {
-    await loadManagePosAccounts();
-    if (userId) {
-      const data = await authorizedJsonRequest(`/auth/users/${userId}/pos-links`);
-      managePosSelected = new Set((data?.links || []).map((link) => posNameKey(link.name)));
-    }
-    renderManageUserPosOptions();
-  } catch (error) {
-    if (list) list.innerHTML = `<div class="field-help">${escapeHtml(error.message || 'Could not load POS confirmers.')}</div>`;
-  }
-}
-
-function renderManageUserPosOptions() {
-  const list = document.getElementById('manage-user-pos-list');
-  if (!list) return;
-  const currentId = Number(document.getElementById('manage-user-id')?.value || 0);
-  const search = (document.getElementById('manage-user-pos-search')?.value || '').trim().toLowerCase();
-  const matches = managePosAccounts.filter((account) => !search
-    || String(account.name || '').toLowerCase().includes(search));
-
-  if (!matches.length) {
-    list.innerHTML = `<div class="field-help">${managePosAccounts.length
-      ? 'No confirmer matches that search.'
-      : 'No confirmers found yet — nobody has confirmed an order in the synced POS data.'}</div>`;
-    return;
-  }
-
-  // A name already linked to somebody else is listed but locked: two dashboard
-  // accounts holding one confirmer name would both count its orders.
-  list.innerHTML = matches.slice(0, 300).map((account) => {
-    const takenBy = account.owner_id && Number(account.owner_id) !== currentId
-      ? (account.owner_name || `user ${account.owner_id}`)
-      : '';
-    const meta = [
-      account.orders ? `${Number(account.orders).toLocaleString()} confirmed` : 'No confirmed orders yet',
-      account.synced ? 'Synced POS user' : '',
-      takenBy ? `Linked to ${takenBy}` : '',
-    ].filter(Boolean).join(' · ');
-    return `<label class="pos-link-row${takenBy ? ' is-taken' : ''}">
-      <input type="checkbox" data-pos-name="${escapeHtml(account.name)}"
-        ${managePosSelected.has(posNameKey(account.name)) ? 'checked' : ''}
-        ${takenBy ? 'disabled' : ''}
-        onchange="toggleManageUserPosAccount(this)">
-      <span class="pos-link-text">
-        <span class="pos-link-name">${escapeHtml(account.name)}</span>
-        <span class="pos-link-meta">${escapeHtml(meta)}</span>
-      </span>
-    </label>`;
-  }).join('');
-}
-
-function toggleManageUserPosAccount(input) {
-  const name = input?.dataset?.posName;
-  if (!name) return;
-  if (input.checked) managePosSelected.add(posNameKey(name));
-  else managePosSelected.delete(posNameKey(name));
-}
-
-// Saved after the account itself, so a rejected link (someone else already
-// holds that confirmer name) never costs the profile edit that came with it.
-async function saveManageUserPosLinks(userId) {
-  if (!userId) return;
-  // Send the names as the POS spells them, matched back from the folded keys.
-  const names = managePosAccounts
-    .filter((account) => managePosSelected.has(posNameKey(account.name)))
-    .map((account) => account.name);
-  await authorizedJsonRequest(`/auth/users/${userId}/pos-links`, {
-    method: 'PUT',
-    body: JSON.stringify({ names }),
-  });
-  managePosAccountsLoaded = false;
 }
 
 function syncCurrentUserFromManagedAccount(user) {
@@ -19372,7 +19258,6 @@ async function handleManageUserSave(event) {
         body: JSON.stringify(payload),
       });
       syncCurrentUserFromManagedAccount(data?.user);
-      await saveManageUserPosLinks(userId);
       showToast('success', 'Account updated', `${data?.user?.name || fullName} was updated.`);
     } else {
       if (!password) {
@@ -19384,7 +19269,6 @@ async function handleManageUserSave(event) {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      await saveManageUserPosLinks(data?.user?.id);
       showToast('success', 'Account created', `${data?.user?.name || fullName} was added.`);
     }
 
@@ -23659,33 +23543,40 @@ async function fetchShopsForModal() {
   }
 }
 
+// The tab lists every POS confirmer, so it loads the merged list rather than
+// the synced pos_users table on its own: a name that has confirmed orders
+// without ever coming through a user sync still has to be assignable. The list
+// is small enough (one row per person, not per order) to filter and page in the
+// browser, which keeps typing in the search box instant.
 async function loadPosUsers(page = posUsersState.page || 1) {
   if (!canManageAccounts()) return;
   posUsersState = { ...posUsersState, page, loading: true };
   renderPosUsersTable();
 
   try {
-    const query = new URLSearchParams({
-      page: String(page),
-      per_page: String(posUsersState.perPage),
-      search: posUsersState.search || '',
-      _: String(Date.now()),
-    });
-    const data = await authorizedJsonRequest(`/integrations/pancake-pos/users?${query.toString()}`);
+    const [accounts, users] = await Promise.all([
+      authorizedJsonRequest('/auth/pos-accounts'),
+      authorizedJsonRequest('/auth/users'),
+    ]);
     posUsersState = {
       ...posUsersState,
-      users: Array.isArray(data?.data) ? data.data : [],
-      total: Number(data?.total || 0),
-      page: Number(data?.page || page),
-      perPage: Number(data?.per_page || posUsersState.perPage),
+      users: Array.isArray(accounts?.accounts) ? accounts.accounts : [],
+      assignees: Array.isArray(users?.users) ? users.users : [],
       loading: false,
     };
     renderPosUsersTable();
   } catch (error) {
     posUsersState = { ...posUsersState, loading: false };
     const tbody = document.getElementById('pos-users-tbody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--danger)">POS users load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--danger)">POS users load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
   }
+}
+
+function filteredPosUsers() {
+  const search = String(posUsersState.search || '').trim().toLowerCase();
+  if (!search) return posUsersState.users;
+  return posUsersState.users.filter((user) => [user.name, user.username, user.email, user.shop_id, user.owner_name]
+    .some((field) => String(field || '').toLowerCase().includes(search)));
 }
 
 function renderPosUsersTable() {
@@ -23694,40 +23585,100 @@ function renderPosUsersTable() {
   if (!tbody) return;
 
   if (posUsersState.loading) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS users...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">Loading POS users...</td></tr>';
     if (pagination) pagination.innerHTML = '<span>Loading users...</span>';
     return;
   }
 
-  tbody.innerHTML = posUsersState.users.map((user) => `
+  const matches = filteredPosUsers();
+  const totalPages = Math.max(1, Math.ceil(matches.length / posUsersState.perPage));
+  const page = Math.min(Math.max(1, posUsersState.page), totalPages);
+  posUsersState.page = page;
+  const rows = matches.slice((page - 1) * posUsersState.perPage, page * posUsersState.perPage);
+  const dash = '—';
+
+  tbody.innerHTML = rows.map((user) => {
+    // A name whose owner is no longer in the active user list still has to show
+    // that owner, or the row would read as unassigned and be silently reassigned.
+    const known = posUsersState.assignees.some((assignee) => Number(assignee.id) === Number(user.owner_id));
+    const options = [
+      `<option value="">— Unassigned —</option>`,
+      ...posUsersState.assignees.map((assignee) => `<option value="${assignee.id}" ${Number(user.owner_id) === Number(assignee.id) ? 'selected' : ''}>${escapeHtml(assignee.full_name || assignee.username)}</option>`),
+      ...(user.owner_id && !known ? [`<option value="${user.owner_id}" selected>${escapeHtml(user.owner_name || `user ${user.owner_id}`)} (inactive)</option>`] : []),
+    ].join('');
+    return `
     <tr>
-      <td>${escapeHtml(user.name || user.external_id || 'Unnamed user')}</td>
-      <td>${escapeHtml(user.username || '—')}</td>
-      <td>${escapeHtml(user.role_name || '—')}</td>
-      <td>${escapeHtml(user.shop_id || '—')}</td>
-      <td>${escapeHtml(user.email || '—')}</td>
-      <td>${escapeHtml(user.phone_number || '—')}</td>
+      <td>
+        <div style="font-weight:500;">${escapeHtml(user.name || 'Unnamed user')}</div>
+        <div class="text-xs text-muted">${user.synced ? 'Synced POS user' : 'From confirmed orders'}</div>
+      </td>
+      <td>${user.orders ? Number(user.orders).toLocaleString() : dash}</td>
+      <td>
+        <select class="form-control" data-pos-name="${escapeHtml(user.name || '')}" onchange="assignPosUser(this)">${options}</select>
+      </td>
+      <td>${escapeHtml(user.username || dash)}</td>
+      <td>${escapeHtml(user.role_name || dash)}</td>
+      <td>${escapeHtml(user.shop_id || dash)}</td>
+      <td>${escapeHtml(user.email || dash)}</td>
+      <td>${escapeHtml(user.phone_number || dash)}</td>
       <td><span class="badge ${user.is_active ? 'badge-success' : 'badge-warning'}">${user.is_active ? 'Active' : 'Disabled'}</span></td>
-    </tr>
-  `).join('') || '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No POS users synced yet. Click Sync Users.</td></tr>';
+    </tr>`;
+  }).join('') || `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">${posUsersState.users.length
+    ? 'No POS user matches that search.'
+    : 'Nobody has confirmed an order in the synced POS data yet. Click Sync Users to pull the staff list.'}</td></tr>`;
 
   if (pagination) {
-    const start = posUsersState.total ? ((posUsersState.page - 1) * posUsersState.perPage) + 1 : 0;
-    const end = Math.min(posUsersState.total, posUsersState.page * posUsersState.perPage);
-    const totalPages = Math.max(1, Math.ceil(posUsersState.total / posUsersState.perPage));
+    const start = matches.length ? ((page - 1) * posUsersState.perPage) + 1 : 0;
+    const end = Math.min(matches.length, page * posUsersState.perPage);
     pagination.innerHTML = `
-      <span>${start}-${end} of ${posUsersState.total.toLocaleString()} users</span>
+      <span>${start}-${end} of ${matches.length.toLocaleString()} users</span>
       <div>
-        <button class="btn btn-secondary btn-sm" ${posUsersState.page <= 1 ? 'disabled' : ''} onclick="loadPosUsers(${posUsersState.page - 1})">Prev</button>
-        <span style="padding:0 10px;color:var(--text-muted);font-size:12px;">${posUsersState.page} / ${totalPages}</span>
-        <button class="btn btn-secondary btn-sm" ${posUsersState.page >= totalPages ? 'disabled' : ''} onclick="loadPosUsers(${posUsersState.page + 1})">Next</button>
+        <button class="btn btn-secondary btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="changePosUsersPage(${page - 1})">Prev</button>
+        <span style="padding:0 10px;color:var(--text-muted);font-size:12px;">${page} / ${totalPages}</span>
+        <button class="btn btn-secondary btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="changePosUsersPage(${page + 1})">Next</button>
       </div>`;
   }
 }
 
+function changePosUsersPage(page) {
+  posUsersState = { ...posUsersState, page };
+  renderPosUsersTable();
+}
+
 function searchPosUsers() {
-  posUsersState.search = document.getElementById('pos-users-search')?.value || '';
-  loadPosUsers(1);
+  posUsersState = {
+    ...posUsersState,
+    search: document.getElementById('pos-users-search')?.value || '',
+    page: 1,
+  };
+  renderPosUsersTable();
+}
+
+// One row, one call. The select is put back to what the server holds when the
+// assignment is refused, so the table never shows an owner that was not saved.
+async function assignPosUser(select) {
+  const name = select?.dataset?.posName;
+  if (!name) return;
+  const previous = posUsersState.users.find((user) => user.name === name)?.owner_id || null;
+  const userId = select.value ? Number(select.value) : null;
+  select.disabled = true;
+  try {
+    const result = await authorizedJsonRequest('/auth/pos-links', {
+      method: 'PUT',
+      body: JSON.stringify({ name, user_id: userId }),
+    });
+    const assignee = posUsersState.assignees.find((entry) => Number(entry.id) === Number(userId));
+    posUsersState.users = posUsersState.users.map((user) => (user.name === name
+      ? { ...user, owner_id: userId, owner_name: userId ? (result?.user_name || assignee?.full_name || '') : '' }
+      : user));
+    showToast('success', userId ? 'POS user assigned' : 'Assignment cleared',
+      userId ? `${name} → ${result?.user_name || assignee?.full_name || 'that account'}.` : `${name} is no longer assigned.`);
+  } catch (error) {
+    select.value = previous ? String(previous) : '';
+    showToast('error', 'Assignment failed', error.message || 'Could not assign this POS user.');
+  } finally {
+    select.disabled = false;
+  }
 }
 
 async function collectPancakePosUsers() {
