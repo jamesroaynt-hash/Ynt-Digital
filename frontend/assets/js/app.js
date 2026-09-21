@@ -11171,7 +11171,9 @@ function renderCSR() {
 
   return `
   <div class="page-header">
-    <div class="page-title"><h1>CSR Records</h1><p>The orders you confirmed in the POS. Daily records are filed in their own window.</p></div>
+    <div class="page-title"><h1>CSR Records</h1><p>${canViewAllCSRRecords()
+      ? 'Orders confirmed in the POS, for any CSR or all of them at once. Daily records are filed in their own window.'
+      : 'The orders you confirmed in the POS. Daily records are filed in their own window.'}</p></div>
     <div class="page-actions">
       <button class="btn btn-primary btn-sm" onclick="openCSRRecordsModal()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.5h6M5 8h6M5 10.5h4"/></svg>
@@ -11254,9 +11256,15 @@ function renderCSR() {
 // server resolves whose they are from the POS accounts an admin linked to the
 // account, so nothing here decides ownership — an unlinked member simply gets
 // an empty list and the notice that says so.
+// viewUser: '' is the member's own orders (everyone's only option). An
+// oversight role may switch it to another user's id, or to 'all' for every
+// confirmer at once — the server refuses the widening for anyone else. null is
+// "not chosen yet", so the opening default is applied once and a later pick of
+// "My confirmed orders" survives the page being redrawn.
 let csrConfirmedState = {
   data: [], total: 0, page: 1, perPage: 25,
   filter: 'monthly', dateFrom: '', dateTo: '', status: 'all', search: '',
+  viewUser: null, users: [],
   summary: null, accounts: [], linked: true, loaded: false, loading: false, error: '',
 };
 
@@ -11304,9 +11312,12 @@ function renderCsrConfirmedMetrics() {
       <div class="stat-meta">${escapeHtml(meta)}</div>
     </div>`;
 
+  // Whose figures these are, once an oversight role can look past their own.
+  const viewerName = csrConfirmedState.viewUser ? csrConfirmedViewerName() : '';
+  const who = viewerName ? `${viewerName} · ` : '';
   return [
     card('Confirmed Orders', total.toLocaleString(), 'blue',
-      total ? `₱${Number(summary.cod || 0).toLocaleString()} COD · ${csrConfirmedRangeLabel()}` : csrConfirmedRangeLabel()),
+      total ? `${who}₱${Number(summary.cod || 0).toLocaleString()} COD · ${csrConfirmedRangeLabel()}` : `${who}${csrConfirmedRangeLabel()}`),
     card('Delivered', delivered.toLocaleString(), 'green', share(delivered, total)),
     card('Shipping', shipped.toLocaleString(), 'amber', share(shipped, total)),
     card('Returned', (returning + returned).toLocaleString(), 'red',
@@ -11315,6 +11326,54 @@ function renderCsrConfirmedMetrics() {
     card('RTS Rate', `${rtsRate.toFixed(1)}%`, 'purple',
       settled ? `of ${settled.toLocaleString()} settled` : 'No settled orders yet'),
   ].join('');
+}
+
+// Whose orders are on screen. 'all' shows every confirmer, so the table gains
+// a column naming them — without it the rows have no owner.
+function csrConfirmedViewingAll() {
+  return canViewAllCSRRecords() && csrConfirmedState.viewUser === 'all';
+}
+
+function csrConfirmedColumnCount() {
+  return csrConfirmedViewingAll() ? 8 : 7;
+}
+
+function csrConfirmedLoadingLabel() {
+  return csrConfirmedState.viewUser ? 'Loading confirmed orders...' : 'Loading your confirmed orders...';
+}
+
+function csrConfirmedViewerName() {
+  if (csrConfirmedViewingAll()) return 'All users';
+  const picked = csrConfirmedState.users.find((u) => String(u.id) === String(csrConfirmedState.viewUser));
+  return picked ? picked.name : '';
+}
+
+function renderCsrConfirmedUserOptions() {
+  const selected = String(csrConfirmedState.viewUser || '');
+  const option = (value, label) =>
+    `<option value="${escapeHtml(value)}"${selected === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  // Own orders stay available to an oversight role who also confirms; the
+  // named list is everyone with a POS confirmer assigned, self included.
+  return [
+    option('all', 'All users'),
+    option('', 'My confirmed orders'),
+    ...csrConfirmedState.users
+      .filter((user) => Number(user.id) !== Number(App.user?.id))
+      .map((user) => option(String(user.id), user.name)),
+  ].join('');
+}
+
+function renderCsrConfirmedHead() {
+  return `<tr>
+    <th style="width:12%">Order #</th>
+    <th style="width:${csrConfirmedViewingAll() ? '17%' : '20%'}">Customer</th>
+    <th style="width:${csrConfirmedViewingAll() ? '20%' : '24%'}">Product</th>
+    ${csrConfirmedViewingAll() ? '<th style="width:11%">Confirmed by</th>' : ''}
+    <th style="width:${csrConfirmedViewingAll() ? '10%' : '12%'}">Province</th>
+    <th style="width:10%">COD</th>
+    <th style="width:${csrConfirmedViewingAll() ? '10%' : '12%'}">Status</th>
+    <th style="width:10%">Date</th>
+  </tr>`;
 }
 
 function renderCsrConfirmedPanel() {
@@ -11342,27 +11401,22 @@ function renderCsrConfirmedPanel() {
               value="${escapeHtml(csrConfirmedState.search)}"
               onkeydown="if(event.key==='Enter'){event.preventDefault();applyCsrConfirmedFilters();}">
           </div>
+          ${canViewAllCSRRecords() ? `<select class="rmo-select" id="csr-confirmed-user" onchange="setCsrConfirmedUser(this.value)">
+            ${renderCsrConfirmedUserOptions()}
+          </select>` : ''}
           <select class="rmo-select" id="csr-confirmed-status" onchange="applyCsrConfirmedFilters()">
             <option value="all">All Statuses</option>
             ${CSR_CONFIRMED_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${csrConfirmedState.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}
           </select>
-          <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-confirmed-table', 'my-confirmed-orders')">Export</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-confirmed-table', 'confirmed-orders')">Export</button>
         </div>
       </div>
 
       <div class="rmo-table-scroll">
         <table class="rmo-table" id="csr-confirmed-table">
-          <thead><tr>
-            <th style="width:12%">Order #</th>
-            <th style="width:20%">Customer</th>
-            <th style="width:24%">Product</th>
-            <th style="width:12%">Province</th>
-            <th style="width:10%">COD</th>
-            <th style="width:12%">Status</th>
-            <th style="width:10%">Date</th>
-          </tr></thead>
+          <thead id="csr-confirmed-thead">${renderCsrConfirmedHead()}</thead>
           <tbody id="csr-confirmed-tbody">
-            <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading your confirmed orders...</td></tr>
+            <tr><td colspan="${csrConfirmedColumnCount()}" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(csrConfirmedLoadingLabel())}</td></tr>
           </tbody>
         </table>
       </div>
@@ -11374,12 +11428,22 @@ function renderCsrConfirmedTable() {
   const metrics = document.getElementById('csr-confirmed-metrics');
   if (metrics) metrics.innerHTML = renderCsrConfirmedMetrics();
 
+  // The confirmer column comes and goes with the picked user, so the header is
+  // repainted alongside the rows rather than left as the page drew it. The
+  // dropdown too: the panel is drawn before the page settles on a default.
+  const thead = document.getElementById('csr-confirmed-thead');
+  if (thead) thead.innerHTML = renderCsrConfirmedHead();
+  const userSelect = document.getElementById('csr-confirmed-user');
+  if (userSelect && userSelect.value !== String(csrConfirmedState.viewUser || '')) {
+    userSelect.innerHTML = renderCsrConfirmedUserOptions();
+  }
+
   const tbody = document.getElementById('csr-confirmed-tbody');
   if (!tbody) return;
 
-  const message = (text) => `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(text)}</td></tr>`;
+  const message = (text) => `<tr><td colspan="${csrConfirmedColumnCount()}" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(text)}</td></tr>`;
   if (csrConfirmedState.loading || (!csrConfirmedState.loaded && !csrConfirmedState.error)) {
-    tbody.innerHTML = message('Loading your confirmed orders...');
+    tbody.innerHTML = message(csrConfirmedLoadingLabel());
     return;
   }
   if (csrConfirmedState.error) {
@@ -11387,7 +11451,10 @@ function renderCsrConfirmedTable() {
     return;
   }
   if (!csrConfirmedState.linked) {
-    tbody.innerHTML = message('No POS confirmer is assigned to your dashboard account yet — ask an administrator to assign it under Integrations → POS Users.');
+    const who = csrConfirmedViewerName();
+    tbody.innerHTML = message(csrConfirmedState.viewUser
+      ? `No POS confirmer is assigned to ${who || 'this member'} yet — assign one under Integrations → POS Users.`
+      : 'No POS confirmer is assigned to your dashboard account yet — ask an administrator to assign it under Integrations → POS Users.');
     return;
   }
 
@@ -11407,6 +11474,7 @@ function renderCsrConfirmedTable() {
         <div class="rmo-item-main">${escapeHtml(order.product || 'POS order')}</div>
         <div class="rmo-item-sub">${escapeHtml(order.page_name || '') || dash}</div>
       </td>
+      ${csrConfirmedViewingAll() ? `<td><div class="rmo-item-main">${escapeHtml(order.confirmed_by || '') || dash}</div></td>` : ''}
       <td><div class="rmo-item-main">${escapeHtml(order.province || '') || dash}</div></td>
       <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
       <td>
@@ -11442,6 +11510,9 @@ async function loadCsrConfirmedOrders(page = csrConfirmedState.page) {
       page: String(page),
       per_page: String(csrConfirmedState.perPage),
     });
+    // Only an oversight role can widen the scope; for everyone else the
+    // parameter is left off and the server answers with their own orders.
+    if (csrConfirmedState.viewUser && canViewAllCSRRecords()) params.set('user_id', csrConfirmedState.viewUser);
     if (csrConfirmedState.status && csrConfirmedState.status !== 'all') params.set('status', csrConfirmedState.status);
     if (csrConfirmedState.search) params.set('search', csrConfirmedState.search);
     if (csrConfirmedState.filter === 'custom') {
@@ -11515,6 +11586,25 @@ function applyCsrConfirmedFilters() {
     page: 1,
   };
   loadCsrConfirmedOrders(1);
+}
+
+function setCsrConfirmedUser(value) {
+  if (!canViewAllCSRRecords()) return;
+  csrConfirmedState = { ...csrConfirmedState, viewUser: String(value || ''), page: 1 };
+  loadCsrConfirmedOrders(1);
+}
+
+// The members an oversight role can pick from. Failing quietly is deliberate:
+// the dropdown keeps All users / My confirmed orders, which is still a usable
+// page, rather than blocking the orders behind a list that would not load.
+async function loadCsrConfirmedUsers() {
+  if (!canViewAllCSRRecords()) return;
+  try {
+    const data = await authorizedJsonRequest('/csr/confirmed-users');
+    csrConfirmedState = { ...csrConfirmedState, users: Array.isArray(data?.users) ? data.users : [] };
+  } catch { return; }
+  const select = document.getElementById('csr-confirmed-user');
+  if (select && App.currentPage === 'csr') select.innerHTML = renderCsrConfirmedUserOptions();
 }
 
 function changeCsrConfirmedPage(page) {
@@ -17238,7 +17328,12 @@ function initPage(page) {
       ...csrConfirmedState,
       data: [], total: 0, summary: null, accounts: [],
       page: 1, loaded: false, loading: false, error: '',
+      // An oversight role opens on everyone — their own POS confirmer is
+      // usually unassigned, so "mine" would be an empty page to land on.
+      viewUser: csrConfirmedState.viewUser !== null ? csrConfirmedState.viewUser
+        : (canViewAllCSRRecords() ? 'all' : ''),
     };
+    loadCsrConfirmedUsers().catch(() => {});
     loadCsrConfirmedOrders(1).catch(() => {});
     // Google Orders power the Page Name dropdown and the Order ID auto-fill.
     if (!DB.sheetRecordsForReport.length) {

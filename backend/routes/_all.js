@@ -2650,11 +2650,14 @@ function csrRoutes(db) {
     return [...out];
   }
 
+  // `names` scopes the query to one member's confirmer spellings. null means
+  // every confirmer — the "All users" view an oversight role may ask for.
   function confirmedOrdersWhere(query, names) {
     const effStatus = pancakePosSync.effectivePosStatusSql();
     const manilaDay = pancakePosSync.posManilaDaySql(db.type);
-    const params = [...names];
-    let where = `WHERE ${CONFIRMED_BASE} AND confirmed_by_name IN (${names.map(() => '?').join(',')})`;
+    const params = names ? [...names] : [];
+    let where = `WHERE ${CONFIRMED_BASE}`;
+    if (names) where += ` AND confirmed_by_name IN (${names.map(() => '?').join(',')})`;
 
     // Manila "now" computed in JS so the date filters stay DB-portable.
     const manilaNow = new Date(Date.now() + 8 * 3600 * 1000);
@@ -2710,16 +2713,49 @@ function csrRoutes(db) {
     return '';
   }
 
+  // The dashboard accounts an oversight role can pick from in the Confirmed
+  // Orders dropdown: everyone who has a POS confirmer assigned to them, since
+  // only they have orders to show.
+  r.get('/confirmed-users', async (req, res) => {
+    if (!canViewAll(req)) return res.status(403).json({ error: 'Not allowed' });
+    const rows = await db.prepare(`
+      SELECT u.id AS id,
+             COALESCE(NULLIF(TRIM(u.full_name), ''), u.username) AS name,
+             COUNT(*) AS accounts
+      FROM user_pos_links l
+      JOIN users u ON u.id = l.user_id
+      GROUP BY u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.username)
+      ORDER BY name COLLATE NOCASE ASC
+    `).all();
+    res.json({ users: rows.map((row) => ({ id: row.id, name: row.name || `user ${row.id}`, accounts: Number(row.accounts || 0) })) });
+  });
+
+  // Whose orders this request is for. Everyone sees their own; an oversight
+  // role may ask for another member's (?user_id=<id>) or for every confirmer
+  // at once (?user_id=all). An unrecognised value falls back to the caller's
+  // own, so a hand-edited query string can never widen access.
+  function requestedScope(req) {
+    const asked = String(req.query.user_id || '').trim();
+    if (!asked || !canViewAll(req)) return { all: false, userId: userId(req) };
+    if (asked.toLowerCase() === 'all') return { all: true, userId: null };
+    if (/^\d+$/.test(asked) && Number(asked) > 0) return { all: false, userId: Number(asked) };
+    return { all: false, userId: userId(req) };
+  }
+
   r.get('/confirmed-orders', async (req, res) => {
     try {
-      const accounts = await linkedPosAccounts(userId(req));
+      const scope = requestedScope(req);
+      const accounts = scope.all ? [] : await linkedPosAccounts(scope.userId);
       const accountLabels = accounts.map((a) => ({ name: a.name || '', shop_id: a.shop_id || '' }));
-      const names = await confirmerNameSet(accounts);
-      // No POS account linked yet (or one with no name on it): an unfiltered
-      // query here would hand this member somebody else's orders.
-      if (!names.length) {
+      // null = every confirmer. Otherwise the linked account's spellings, and
+      // an empty set stays empty: an unfiltered query here would hand this
+      // member somebody else's orders.
+      const names = scope.all ? null : await confirmerNameSet(accounts);
+      if (names && !names.length) {
         return res.json({
           linked: accounts.length > 0,
+          scope: 'user',
+          user_id: scope.userId,
           accounts: accountLabels,
           data: [], total: 0, page: 1, per_page: 25,
           summary: { total: 0, delivered: 0, shipped: 0, returning: 0, returned: 0, settled: 0, rtsRate: 0, cod: 0 },
@@ -2759,9 +2795,12 @@ function csrRoutes(db) {
 
       res.json({
         linked: true,
+        scope: scope.all ? 'all' : 'user',
+        user_id: scope.userId,
         accounts: accountLabels,
         data: rows.map((row) => ({
           external_id: row.external_id,
+          confirmed_by: row.confirmed_by_name || '',
           shop_id: row.shop_id || '',
           page_name: row.page_name || '',
           tracking_no: row.tracking_no || '',
