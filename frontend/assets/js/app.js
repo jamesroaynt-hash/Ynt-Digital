@@ -11256,21 +11256,33 @@ function renderCSR() {
 // server resolves whose they are from the POS accounts an admin linked to the
 // account, so nothing here decides ownership — an unlinked member simply gets
 // an empty list and the notice that says so.
-// viewUser: '' is the member's own orders (everyone's only option). An
-// oversight role may switch it to another user's id, or to 'all' for every
-// confirmer at once — the server refuses the widening for anyone else. null is
-// "not chosen yet", so the opening default is applied once and a later pick of
-// "My confirmed orders" survives the page being redrawn.
+// viewConfirmer: '' is the member's own orders (everyone's only option). An
+// oversight role may switch it to any POS confirmer by name, or to 'all' for
+// every confirmer at once — the server refuses the widening for anyone else.
+// null is "not chosen yet", so the opening default is applied once and a later
+// pick of "My confirmed orders" survives the page being redrawn.
 let csrConfirmedState = {
   data: [], total: 0, page: 1, perPage: 25,
   filter: 'monthly', dateFrom: '', dateTo: '', status: 'all', search: '',
-  viewUser: null, users: [],
+  viewConfirmer: null, confirmers: [],
+  tab: 'orders',
   summary: null, accounts: [], linked: true, loaded: false, loading: false, error: '',
+};
+
+// Customers whose number ordered off more than one page, over whatever range,
+// status and confirmer the toolbar above is set to. Kept apart from the orders
+// list so switching tabs back and forth does not refetch either one.
+let csrDuplicatesState = {
+  data: [], total: 0, page: 1, perPage: 25,
+  summary: null, loaded: false, loading: false, error: '',
 };
 
 const CSR_CONFIRMED_PERIODS = [
   ['daily', 'Today'], ['yesterday', 'Yesterday'], ['weekly', 'Last 7 days'],
   ['monthly', 'This month'], ['custom', 'Custom'],
+];
+const CSR_CONFIRMED_TABS = [
+  ['orders', 'Confirmed Orders'], ['duplicates', 'Duplicate Customers'],
 ];
 const CSR_CONFIRMED_STATUSES = [
   'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled',
@@ -11295,7 +11307,28 @@ function csrConfirmedRangeLabel() {
 // The five figures the desk reads first. Share lines are recomputed with the
 // figures they sit under, or a card keeps last refresh's percentage against
 // this refresh's count.
+function renderCsrDuplicateMetrics() {
+  const summary = csrDuplicatesState.summary || {};
+  const customers = Number(summary.customers || 0);
+  const orders = Number(summary.orders || 0);
+  const card = (label, value, color, meta) => `
+    <div class="rts-metric-card ${color}">
+      <div class="stat-label">${escapeHtml(label)}</div>
+      <div class="rts-metric-value">${value}</div>
+      <div class="stat-meta">${escapeHtml(meta)}</div>
+    </div>`;
+  return [
+    card('Duplicate Customers', customers.toLocaleString(), 'purple',
+      `One number, two or more pages · ${csrConfirmedRangeLabel()}`),
+    card('Orders Involved', orders.toLocaleString(), 'blue',
+      customers ? `${(orders / customers).toFixed(1)} orders per customer` : 'None in range'),
+    card('COD at Stake', `₱${Number(summary.cod || 0).toLocaleString()}`, 'amber',
+      orders ? `Across ${orders.toLocaleString()} orders` : 'None in range'),
+  ].join('');
+}
+
 function renderCsrConfirmedMetrics() {
+  if (csrConfirmedState.tab === 'duplicates') return renderCsrDuplicateMetrics();
   const summary = csrConfirmedState.summary || {};
   const total = Number(summary.total || 0);
   const delivered = Number(summary.delivered || 0);
@@ -11313,7 +11346,7 @@ function renderCsrConfirmedMetrics() {
     </div>`;
 
   // Whose figures these are, once an oversight role can look past their own.
-  const viewerName = csrConfirmedState.viewUser ? csrConfirmedViewerName() : '';
+  const viewerName = csrConfirmedState.viewConfirmer ? csrConfirmedViewerName() : '';
   const who = viewerName ? `${viewerName} · ` : '';
   return [
     card('Confirmed Orders', total.toLocaleString(), 'blue',
@@ -11331,7 +11364,7 @@ function renderCsrConfirmedMetrics() {
 // Whose orders are on screen. 'all' shows every confirmer, so the table gains
 // a column naming them — without it the rows have no owner.
 function csrConfirmedViewingAll() {
-  return canViewAllCSRRecords() && csrConfirmedState.viewUser === 'all';
+  return canViewAllCSRRecords() && csrConfirmedState.viewConfirmer === 'all';
 }
 
 function csrConfirmedColumnCount() {
@@ -11339,27 +11372,27 @@ function csrConfirmedColumnCount() {
 }
 
 function csrConfirmedLoadingLabel() {
-  return csrConfirmedState.viewUser ? 'Loading confirmed orders...' : 'Loading your confirmed orders...';
+  return csrConfirmedState.viewConfirmer ? 'Loading confirmed orders...' : 'Loading your confirmed orders...';
 }
 
 function csrConfirmedViewerName() {
-  if (csrConfirmedViewingAll()) return 'All users';
-  const picked = csrConfirmedState.users.find((u) => String(u.id) === String(csrConfirmedState.viewUser));
-  return picked ? picked.name : '';
+  if (csrConfirmedViewingAll()) return 'All confirmers';
+  return csrConfirmedState.viewConfirmer || '';
 }
 
-function renderCsrConfirmedUserOptions() {
-  const selected = String(csrConfirmedState.viewUser || '');
+function renderCsrConfirmedConfirmerOptions() {
+  const selected = String(csrConfirmedState.viewConfirmer || '');
   const option = (value, label) =>
     `<option value="${escapeHtml(value)}"${selected === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-  // Own orders stay available to an oversight role who also confirms; the
-  // named list is everyone with a POS confirmer assigned, self included.
+  // The names that actually confirm orders in the POS, busiest first — not the
+  // dashboard accounts, since most confirmers have no login linked to them and
+  // picking from the links would hide them. Own orders stay on the list for an
+  // oversight role who confirms under a spelling of their own.
   return [
-    option('all', 'All users'),
+    option('all', 'All confirmers'),
     option('', 'My confirmed orders'),
-    ...csrConfirmedState.users
-      .filter((user) => Number(user.id) !== Number(App.user?.id))
-      .map((user) => option(String(user.id), user.name)),
+    ...csrConfirmedState.confirmers.map((confirmer) =>
+      option(confirmer.name, `${confirmer.name} (${Number(confirmer.orders || 0).toLocaleString()})`)),
   ].join('');
 }
 
@@ -11381,6 +11414,12 @@ function renderCsrConfirmedPanel() {
     <div class="rmo-metrics" id="csr-confirmed-metrics">${renderCsrConfirmedMetrics()}</div>
 
     <div class="rmo-table-wrap">
+      <div class="table-filters csr-confirmed-tabs">
+        ${CSR_CONFIRMED_TABS.map(([value, label]) => `
+          <button class="filter-pill ${csrConfirmedState.tab === value ? 'active' : ''}"
+            data-csr-confirmed-tab="${value}" onclick="setCsrConfirmedTab('${value}')">${label}</button>`).join('')}
+      </div>
+
       <div class="rmo-toolbar csr-confirmed-toolbar">
         <div class="rmo-toolbar-periods">
           <div class="table-filters">
@@ -11401,27 +11440,113 @@ function renderCsrConfirmedPanel() {
               value="${escapeHtml(csrConfirmedState.search)}"
               onkeydown="if(event.key==='Enter'){event.preventDefault();applyCsrConfirmedFilters();}">
           </div>
-          ${canViewAllCSRRecords() ? `<select class="rmo-select" id="csr-confirmed-user" onchange="setCsrConfirmedUser(this.value)">
-            ${renderCsrConfirmedUserOptions()}
+          ${canViewAllCSRRecords() ? `<select class="rmo-select" id="csr-confirmed-confirmer" onchange="setCsrConfirmedConfirmer(this.value)">
+            ${renderCsrConfirmedConfirmerOptions()}
           </select>` : ''}
           <select class="rmo-select" id="csr-confirmed-status" onchange="applyCsrConfirmedFilters()">
             <option value="all">All Statuses</option>
             ${CSR_CONFIRMED_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${csrConfirmedState.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}
           </select>
-          <button class="btn btn-secondary btn-sm" onclick="exportTableCSV('csr-confirmed-table', 'confirmed-orders')">Export</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCsrConfirmedTab()">Export</button>
         </div>
       </div>
 
-      <div class="rmo-table-scroll">
-        <table class="rmo-table" id="csr-confirmed-table">
-          <thead id="csr-confirmed-thead">${renderCsrConfirmedHead()}</thead>
-          <tbody id="csr-confirmed-tbody">
-            <tr><td colspan="${csrConfirmedColumnCount()}" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(csrConfirmedLoadingLabel())}</td></tr>
-          </tbody>
-        </table>
+      <div id="csr-confirmed-view" class="${csrConfirmedState.tab === 'orders' ? '' : 'hidden'}">
+        <div class="rmo-table-scroll">
+          <table class="rmo-table" id="csr-confirmed-table">
+            <thead id="csr-confirmed-thead">${renderCsrConfirmedHead()}</thead>
+            <tbody id="csr-confirmed-tbody">
+              <tr><td colspan="${csrConfirmedColumnCount()}" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(csrConfirmedLoadingLabel())}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-pagination rmo-pagination" id="csr-confirmed-pagination"></div>
       </div>
-      <div class="table-pagination rmo-pagination" id="csr-confirmed-pagination"></div>
+
+      <div id="csr-duplicates-view" class="${csrConfirmedState.tab === 'duplicates' ? '' : 'hidden'}">
+        <div class="rmo-table-scroll">
+          <table class="rmo-table" id="csr-duplicates-table">
+            <thead><tr>
+              <th style="width:16%">Customer</th>
+              <th style="width:12%">Order #</th>
+              <th style="width:14%">Page</th>
+              <th style="width:18%">Product</th>
+              <th style="width:10%">COD</th>
+              <th style="width:10%">Status</th>
+              <th style="width:12%">Confirmed by</th>
+              <th style="width:8%">Date</th>
+            </tr></thead>
+            <tbody id="csr-duplicates-tbody">
+              <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">Loading duplicate customers...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-pagination rmo-pagination" id="csr-duplicates-pagination"></div>
+      </div>
     </div>`;
+}
+
+// One block per customer: a banner naming the number and the pages it ordered
+// from, then that customer's orders under it. The pages are the point, so they
+// are on the banner rather than left to be spotted down the Page column.
+function renderCsrDuplicatesTable() {
+  const metrics = document.getElementById('csr-confirmed-metrics');
+  if (metrics && csrConfirmedState.tab === 'duplicates') metrics.innerHTML = renderCsrDuplicateMetrics();
+
+  const tbody = document.getElementById('csr-duplicates-tbody');
+  if (!tbody) return;
+
+  const message = (text) => `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">${escapeHtml(text)}</td></tr>`;
+  if (csrDuplicatesState.loading || (!csrDuplicatesState.loaded && !csrDuplicatesState.error)) {
+    tbody.innerHTML = message('Loading duplicate customers...');
+    return;
+  }
+  if (csrDuplicatesState.error) {
+    tbody.innerHTML = message(csrDuplicatesState.error);
+    return;
+  }
+
+  const dash = '<span style="color:var(--text-muted)">—</span>';
+  tbody.innerHTML = csrDuplicatesState.data.map((group) => {
+    const banner = `<tr class="csr-dupe-group">
+      <td colspan="8">
+        <span class="csr-dupe-phone font-mono">${escapeHtml(group.phone || '')}</span>
+        <span class="csr-dupe-name">${escapeHtml(group.customer_name || 'Unknown customer')}</span>
+        <span class="csr-dupe-meta">${Number(group.orders || 0).toLocaleString()} orders ·
+          ${escapeHtml((group.pages || []).join(' + '))} ·
+          &#8369;${Number(group.cod || 0).toLocaleString()}</span>
+      </td>
+    </tr>`;
+    const rows = (group.items || []).map((order) => `<tr class="csr-dupe-item">
+      <td><div class="rmo-item-sub font-mono">${escapeHtml(order.customer_phone || '')}</div></td>
+      <td>
+        <div class="rmo-item-main font-mono text-xs">${escapeHtml(order.external_id || '')}</div>
+        <div class="rmo-item-sub font-mono">${escapeHtml(order.tracking_no || '') || dash}</div>
+      </td>
+      <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
+      <td><div class="rmo-item-main">${escapeHtml(order.product || 'POS order')}</div></td>
+      <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
+      <td><span class="rmo-status ${csrConfirmedStatusTone(order.status)}">${escapeHtml(order.status || 'Unknown')}</span></td>
+      <td><div class="rmo-item-main">${escapeHtml(order.confirmed_by || '') || dash}</div></td>
+      <td><div class="rmo-item-main">${escapeHtml(order.date || '')}</div></td>
+    </tr>`).join('');
+    return banner + rows;
+  }).join('') || message('No customer ordered off more than one page in this range.');
+
+  const pagination = document.getElementById('csr-duplicates-pagination');
+  if (pagination) {
+    const { total, page, perPage } = csrDuplicatesState;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const start = total ? ((page - 1) * perPage) + 1 : 0;
+    const end = Math.min(page * perPage, total);
+    pagination.innerHTML = `
+      <span>${start}-${end} of ${total.toLocaleString()} duplicate customers</span>
+      <div class="pagination-buttons">
+        <button class="page-btn" onclick="changeCsrDuplicatesPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>‹</button>
+        ${renderPaginationButtons(page, pages, 'changeCsrDuplicatesPage')}
+        <button class="page-btn" onclick="changeCsrDuplicatesPage(${page + 1})" ${page >= pages ? 'disabled' : ''}>›</button>
+      </div>`;
+  }
 }
 
 function renderCsrConfirmedTable() {
@@ -11433,9 +11558,9 @@ function renderCsrConfirmedTable() {
   // dropdown too: the panel is drawn before the page settles on a default.
   const thead = document.getElementById('csr-confirmed-thead');
   if (thead) thead.innerHTML = renderCsrConfirmedHead();
-  const userSelect = document.getElementById('csr-confirmed-user');
-  if (userSelect && userSelect.value !== String(csrConfirmedState.viewUser || '')) {
-    userSelect.innerHTML = renderCsrConfirmedUserOptions();
+  const picker = document.getElementById('csr-confirmed-confirmer');
+  if (picker && picker.value !== String(csrConfirmedState.viewConfirmer || '')) {
+    picker.innerHTML = renderCsrConfirmedConfirmerOptions();
   }
 
   const tbody = document.getElementById('csr-confirmed-tbody');
@@ -11451,10 +11576,7 @@ function renderCsrConfirmedTable() {
     return;
   }
   if (!csrConfirmedState.linked) {
-    const who = csrConfirmedViewerName();
-    tbody.innerHTML = message(csrConfirmedState.viewUser
-      ? `No POS confirmer is assigned to ${who || 'this member'} yet — assign one under Integrations → POS Users.`
-      : 'No POS confirmer is assigned to your dashboard account yet — ask an administrator to assign it under Integrations → POS Users.');
+    tbody.innerHTML = message('No POS confirmer is assigned to your dashboard account yet — ask an administrator to assign it under Integrations → POS Users.');
     return;
   }
 
@@ -11501,24 +11623,31 @@ function renderCsrConfirmedTable() {
   }
 }
 
+// The toolbar settings both tabs are read through, so the duplicates a member
+// is shown are the ones inside the orders they are looking at.
+function csrConfirmedParams(page, perPage) {
+  const params = new URLSearchParams({
+    filter: csrConfirmedState.filter,
+    page: String(page),
+    per_page: String(perPage),
+  });
+  // Only an oversight role can widen the scope; for everyone else the
+  // parameter is left off and the server answers with their own orders.
+  if (csrConfirmedState.viewConfirmer && canViewAllCSRRecords()) params.set('confirmer', csrConfirmedState.viewConfirmer);
+  if (csrConfirmedState.status && csrConfirmedState.status !== 'all') params.set('status', csrConfirmedState.status);
+  if (csrConfirmedState.search) params.set('search', csrConfirmedState.search);
+  if (csrConfirmedState.filter === 'custom') {
+    if (csrConfirmedState.dateFrom) params.set('date_from', csrConfirmedState.dateFrom);
+    if (csrConfirmedState.dateTo) params.set('date_to', csrConfirmedState.dateTo);
+  }
+  return params;
+}
+
 async function loadCsrConfirmedOrders(page = csrConfirmedState.page) {
   csrConfirmedState = { ...csrConfirmedState, page, loading: true, error: '' };
   renderCsrConfirmedTable();
   try {
-    const params = new URLSearchParams({
-      filter: csrConfirmedState.filter,
-      page: String(page),
-      per_page: String(csrConfirmedState.perPage),
-    });
-    // Only an oversight role can widen the scope; for everyone else the
-    // parameter is left off and the server answers with their own orders.
-    if (csrConfirmedState.viewUser && canViewAllCSRRecords()) params.set('user_id', csrConfirmedState.viewUser);
-    if (csrConfirmedState.status && csrConfirmedState.status !== 'all') params.set('status', csrConfirmedState.status);
-    if (csrConfirmedState.search) params.set('search', csrConfirmedState.search);
-    if (csrConfirmedState.filter === 'custom') {
-      if (csrConfirmedState.dateFrom) params.set('date_from', csrConfirmedState.dateFrom);
-      if (csrConfirmedState.dateTo) params.set('date_to', csrConfirmedState.dateTo);
-    }
+    const params = csrConfirmedParams(page, csrConfirmedState.perPage);
     const data = await authorizedJsonRequest(`/csr/confirmed-orders?${params.toString()}`);
     csrConfirmedState = {
       ...csrConfirmedState,
@@ -11538,6 +11667,70 @@ async function loadCsrConfirmedOrders(page = csrConfirmedState.page) {
     };
   }
   if (App.currentPage === 'csr') renderCsrConfirmedTable();
+}
+
+async function loadCsrDuplicateCustomers(page = csrDuplicatesState.page) {
+  csrDuplicatesState = { ...csrDuplicatesState, page, loading: true, error: '' };
+  renderCsrDuplicatesTable();
+  try {
+    const params = csrConfirmedParams(page, csrDuplicatesState.perPage);
+    const data = await authorizedJsonRequest(`/csr/duplicate-customers?${params.toString()}`);
+    csrDuplicatesState = {
+      ...csrDuplicatesState,
+      data: Array.isArray(data?.data) ? data.data : [],
+      total: Number(data?.total || 0),
+      summary: data?.summary || null,
+      loaded: true,
+      loading: false,
+    };
+  } catch (error) {
+    csrDuplicatesState = {
+      ...csrDuplicatesState,
+      loading: false,
+      error: error.message || 'Could not load duplicate customers.',
+    };
+  }
+  if (App.currentPage === 'csr') renderCsrDuplicatesTable();
+}
+
+// Every toolbar control goes through here, so a range or confirmer picked on
+// one tab is the one the other tab answers with when it is opened.
+function reloadCsrConfirmedView() {
+  if (csrConfirmedState.tab === 'duplicates') {
+    csrDuplicatesState = { ...csrDuplicatesState, loaded: false };
+    loadCsrDuplicateCustomers(1);
+    return;
+  }
+  loadCsrConfirmedOrders(1);
+}
+
+function setCsrConfirmedTab(tab) {
+  csrConfirmedState = { ...csrConfirmedState, tab };
+  document.querySelectorAll('[data-csr-confirmed-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.csrConfirmedTab === tab);
+  });
+  document.getElementById('csr-confirmed-view')?.classList.toggle('hidden', tab !== 'orders');
+  document.getElementById('csr-duplicates-view')?.classList.toggle('hidden', tab !== 'duplicates');
+  const metrics = document.getElementById('csr-confirmed-metrics');
+  if (metrics) metrics.innerHTML = renderCsrConfirmedMetrics();
+  // Each tab is fetched once per set of filters; changing a filter is what
+  // marks it stale again.
+  if (tab === 'duplicates') {
+    if (!csrDuplicatesState.loaded) loadCsrDuplicateCustomers(1);
+    else renderCsrDuplicatesTable();
+  } else renderCsrConfirmedTable();
+}
+
+// Export what is on screen, not whichever table was built first.
+function exportCsrConfirmedTab() {
+  if (csrConfirmedState.tab === 'duplicates') exportTableCSV('csr-duplicates-table', 'duplicate-customers');
+  else exportTableCSV('csr-confirmed-table', 'confirmed-orders');
+}
+
+function changeCsrDuplicatesPage(page) {
+  const pages = Math.max(1, Math.ceil(csrDuplicatesState.total / csrDuplicatesState.perPage));
+  if (page < 1 || page > pages) return;
+  loadCsrDuplicateCustomers(page);
 }
 
 // The daily records live in a window off the confirmed-orders page. Their table
@@ -11564,7 +11757,7 @@ function setCsrConfirmedPeriod(period) {
   });
   document.getElementById('csr-confirmed-custom-range')?.classList.toggle('hidden', period !== 'custom');
   // Custom waits for Apply — without both ends it would query an open range.
-  if (period !== 'custom') loadCsrConfirmedOrders(1);
+  if (period !== 'custom') reloadCsrConfirmedView();
 }
 
 function applyCsrConfirmedCustomRange() {
@@ -11575,7 +11768,7 @@ function applyCsrConfirmedCustomRange() {
     filter: 'custom',
     page: 1,
   };
-  loadCsrConfirmedOrders(1);
+  reloadCsrConfirmedView();
 }
 
 function applyCsrConfirmedFilters() {
@@ -11585,26 +11778,30 @@ function applyCsrConfirmedFilters() {
     search: document.getElementById('csr-confirmed-search')?.value.trim() || '',
     page: 1,
   };
-  loadCsrConfirmedOrders(1);
+  reloadCsrConfirmedView();
 }
 
-function setCsrConfirmedUser(value) {
+function setCsrConfirmedConfirmer(value) {
   if (!canViewAllCSRRecords()) return;
-  csrConfirmedState = { ...csrConfirmedState, viewUser: String(value || ''), page: 1 };
-  loadCsrConfirmedOrders(1);
+  csrConfirmedState = { ...csrConfirmedState, viewConfirmer: String(value || ''), page: 1 };
+  reloadCsrConfirmedView();
 }
 
-// The members an oversight role can pick from. Failing quietly is deliberate:
-// the dropdown keeps All users / My confirmed orders, which is still a usable
-// page, rather than blocking the orders behind a list that would not load.
-async function loadCsrConfirmedUsers() {
+// The confirmers an oversight role can pick from. Failing quietly is
+// deliberate: the dropdown keeps All confirmers and My confirmed orders, which
+// is still a usable page, rather than blocking the orders behind a list that
+// would not load.
+async function loadCsrConfirmers() {
   if (!canViewAllCSRRecords()) return;
   try {
-    const data = await authorizedJsonRequest('/csr/confirmed-users');
-    csrConfirmedState = { ...csrConfirmedState, users: Array.isArray(data?.users) ? data.users : [] };
+    const data = await authorizedJsonRequest('/csr/confirmers');
+    csrConfirmedState = {
+      ...csrConfirmedState,
+      confirmers: Array.isArray(data?.confirmers) ? data.confirmers : [],
+    };
   } catch { return; }
-  const select = document.getElementById('csr-confirmed-user');
-  if (select && App.currentPage === 'csr') select.innerHTML = renderCsrConfirmedUserOptions();
+  const select = document.getElementById('csr-confirmed-confirmer');
+  if (select && App.currentPage === 'csr') select.innerHTML = renderCsrConfirmedConfirmerOptions();
 }
 
 function changeCsrConfirmedPage(page) {
@@ -17330,11 +17527,16 @@ function initPage(page) {
       page: 1, loaded: false, loading: false, error: '',
       // An oversight role opens on everyone — their own POS confirmer is
       // usually unassigned, so "mine" would be an empty page to land on.
-      viewUser: csrConfirmedState.viewUser !== null ? csrConfirmedState.viewUser
+      viewConfirmer: csrConfirmedState.viewConfirmer !== null ? csrConfirmedState.viewConfirmer
         : (canViewAllCSRRecords() ? 'all' : ''),
     };
-    loadCsrConfirmedUsers().catch(() => {});
-    loadCsrConfirmedOrders(1).catch(() => {});
+    csrDuplicatesState = {
+      ...csrDuplicatesState,
+      data: [], total: 0, summary: null, page: 1, loaded: false, loading: false, error: '',
+    };
+    loadCsrConfirmers().catch(() => {});
+    if (csrConfirmedState.tab === 'duplicates') loadCsrDuplicateCustomers(1).catch(() => {});
+    else loadCsrConfirmedOrders(1).catch(() => {});
     // Google Orders power the Page Name dropdown and the Order ID auto-fill.
     if (!DB.sheetRecordsForReport.length) {
       loadSheetRecordsForDataReport().then(() => { if (App.currentPage === 'csr') reloadCsrPage(); }).catch(() => {});

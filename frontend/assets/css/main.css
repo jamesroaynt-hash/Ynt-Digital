@@ -6932,7 +6932,49 @@ tfoot td {
    theme is a pale grey barely separable from the rule beneath them. Full
    strength instead, so the column names read at a glance. The token rather
    than a literal black: on the dark theme that same rule has to go light. */
-#csr-confirmed-table thead th {
+#csr-confirmed-table thead th,
+#csr-duplicates-table thead th {
   color: var(--text-primary);
   font-weight: 700;
+}
+
+/* Confirmed Orders / Duplicate Customers. The two read the same toolbar, so
+   they sit above it rather than between it and the table they filter. */
+.csr-confirmed-tabs {
+  margin-bottom: 14px;
+}
+
+/* One customer's banner: the number and the pages it ordered from, with their
+   orders listed underneath. Tinted and ruled above so a block reads as one
+   customer rather than a run of unrelated rows. */
+#csr-duplicates-table tr.csr-dupe-group td {
+  background: var(--surface-2);
+  border-top: 2px solid var(--border-strong);
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+#csr-duplicates-table tr.csr-dupe-group:first-child td {
+  border-top: 0;
+}
+
+.csr-dupe-phone {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.csr-dupe-name {
+  margin-left: 10px;
+  color: var(--text-primary);
+}
+
+.csr-dupe-meta {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The orders under a banner are detail, so they step back from it. */
+#csr-duplicates-table tr.csr-dupe-item td:first-child {
+  padding-left: 22px;
 }

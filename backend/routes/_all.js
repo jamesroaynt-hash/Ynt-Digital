@@ -2620,10 +2620,10 @@ function csrRoutes(db) {
     `).all(uid);
   }
 
-  // Every spelling of a linked account's name that pos_orders might carry.
-  async function confirmerNameSet(accounts) {
-    const names = accounts.map((a) => String(a.name || '').trim()).filter(Boolean);
-    if (!names.length) return [];
+  // The alias table, with the fold that resolves a spelling to the staff entry
+  // it belongs to. Shared by the confirmer list and the per-confirmer filter so
+  // the dropdown never offers a name the filter would then miss orders for.
+  async function staffMergeIndex() {
     let merges = [];
     try { merges = await db.prepare('SELECT alias, canonical FROM staff_merge_map').all(); }
     catch { merges = []; }
@@ -2637,21 +2637,30 @@ function csrRoutes(db) {
         seen.add(cur.toLowerCase());
         cur = byAlias.get(cur.toLowerCase());
       }
-      return cur.toLowerCase();
+      return cur;
     };
-    const targets = new Set(names.map(canonical));
+    return { merges, canonical };
+  }
+
+  // Every spelling of the given confirmer names that pos_orders might carry.
+  async function confirmerNameSet(rawNames) {
+    const names = rawNames.map((name) => String(name || '').trim()).filter(Boolean);
+    if (!names.length) return [];
+    const { merges, canonical } = await staffMergeIndex();
+    const fold = (name) => canonical(name).toLowerCase();
+    const targets = new Set(names.map(fold));
     const out = new Set(names);
     for (const merge of merges) {
       for (const spelling of [merge.alias, merge.canonical]) {
         const value = String(spelling || '').trim();
-        if (value && targets.has(canonical(value))) out.add(value);
+        if (value && targets.has(fold(value))) out.add(value);
       }
     }
     return [...out];
   }
 
-  // `names` scopes the query to one member's confirmer spellings. null means
-  // every confirmer — the "All users" view an oversight role may ask for.
+  // `names` scopes the query to one confirmer's spellings. null means every
+  // confirmer — the "All confirmers" view an oversight role may ask for.
   function confirmedOrdersWhere(query, names) {
     const effStatus = pancakePosSync.effectivePosStatusSql();
     const manilaDay = pancakePosSync.posManilaDaySql(db.type);
@@ -2713,49 +2722,65 @@ function csrRoutes(db) {
     return '';
   }
 
-  // The dashboard accounts an oversight role can pick from in the Confirmed
-  // Orders dropdown: everyone who has a POS confirmer assigned to them, since
-  // only they have orders to show.
-  r.get('/confirmed-users', async (req, res) => {
+  // What the Confirmed Orders dropdown offers an oversight role: the confirmers
+  // that actually appear on orders, not the dashboard accounts — most names in
+  // pos_orders have no login linked to them, and picking from the links would
+  // hide them. Aliases fold into the staff entry they belong to, so a person
+  // is one entry however many spellings their orders carry.
+  r.get('/confirmers', async (req, res) => {
     if (!canViewAll(req)) return res.status(403).json({ error: 'Not allowed' });
     const rows = await db.prepare(`
-      SELECT u.id AS id,
-             COALESCE(NULLIF(TRIM(u.full_name), ''), u.username) AS name,
-             COUNT(*) AS accounts
-      FROM user_pos_links l
-      JOIN users u ON u.id = l.user_id
-      GROUP BY u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.username)
-      ORDER BY name COLLATE NOCASE ASC
+      SELECT TRIM(confirmed_by_name) AS name, COUNT(*) AS orders
+      FROM pos_orders
+      WHERE ${CONFIRMED_BASE}
+      GROUP BY TRIM(confirmed_by_name)
     `).all();
-    res.json({ users: rows.map((row) => ({ id: row.id, name: row.name || `user ${row.id}`, accounts: Number(row.accounts || 0) })) });
+
+    const { canonical } = await staffMergeIndex();
+    const byStaff = new Map();
+    for (const row of rows) {
+      const name = canonical(row.name);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const existing = byStaff.get(key);
+      byStaff.set(key, { name, orders: (existing?.orders || 0) + Number(row.orders || 0) });
+    }
+    // Busiest first: the name being looked for is nearly always one of them,
+    // and a long tail of one-order names would bury it.
+    const confirmers = [...byStaff.values()]
+      .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name));
+    res.json({ confirmers });
   });
 
   // Whose orders this request is for. Everyone sees their own; an oversight
-  // role may ask for another member's (?user_id=<id>) or for every confirmer
-  // at once (?user_id=all). An unrecognised value falls back to the caller's
-  // own, so a hand-edited query string can never widen access.
+  // role may ask for one confirmer by name (?confirmer=<name>) or for all of
+  // them at once (?confirmer=all). Anyone else's query string is ignored, so
+  // it can never widen access.
   function requestedScope(req) {
-    const asked = String(req.query.user_id || '').trim();
-    if (!asked || !canViewAll(req)) return { all: false, userId: userId(req) };
-    if (asked.toLowerCase() === 'all') return { all: true, userId: null };
-    if (/^\d+$/.test(asked) && Number(asked) > 0) return { all: false, userId: Number(asked) };
-    return { all: false, userId: userId(req) };
+    const asked = String(req.query.confirmer || '').trim();
+    if (!asked || !canViewAll(req)) return { all: false, confirmer: '' };
+    if (asked.toLowerCase() === 'all') return { all: true, confirmer: '' };
+    return { all: false, confirmer: asked };
   }
 
   r.get('/confirmed-orders', async (req, res) => {
     try {
       const scope = requestedScope(req);
-      const accounts = scope.all ? [] : await linkedPosAccounts(scope.userId);
+      // A named confirmer needs no link to look up. Otherwise this is the
+      // caller's own page, reached through the POS accounts linked to them.
+      const accounts = (scope.all || scope.confirmer) ? [] : await linkedPosAccounts(userId(req));
       const accountLabels = accounts.map((a) => ({ name: a.name || '', shop_id: a.shop_id || '' }));
-      // null = every confirmer. Otherwise the linked account's spellings, and
-      // an empty set stays empty: an unfiltered query here would hand this
-      // member somebody else's orders.
-      const names = scope.all ? null : await confirmerNameSet(accounts);
+      // null = every confirmer. Otherwise the picked name's spellings, or the
+      // linked account's, and an empty set stays empty: an unfiltered query
+      // here would hand this member somebody else's orders.
+      const names = scope.all ? null : await confirmerNameSet(
+        scope.confirmer ? [scope.confirmer] : accounts.map((a) => a.name)
+      );
       if (names && !names.length) {
         return res.json({
           linked: accounts.length > 0,
-          scope: 'user',
-          user_id: scope.userId,
+          scope: 'own',
+          confirmer: '',
           accounts: accountLabels,
           data: [], total: 0, page: 1, per_page: 25,
           summary: { total: 0, delivered: 0, shipped: 0, returning: 0, returned: 0, settled: 0, rtsRate: 0, cod: 0 },
@@ -2795,8 +2820,8 @@ function csrRoutes(db) {
 
       res.json({
         linked: true,
-        scope: scope.all ? 'all' : 'user',
-        user_id: scope.userId,
+        scope: scope.all ? 'all' : (scope.confirmer ? 'confirmer' : 'own'),
+        confirmer: scope.confirmer,
         accounts: accountLabels,
         data: rows.map((row) => ({
           external_id: row.external_id,
@@ -2827,6 +2852,123 @@ function csrRoutes(db) {
           rtsRate: settled ? ((returned + returningCount) / settled) * 100 : 0,
           cod: Number(totals?.cod || 0),
         },
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /* ─── DUPLICATE CUSTOMERS ────────────────────────────────── */
+  // One phone number ordering off more than one page: either the same person
+  // buying from two of our pages, or the same lead worked twice. Matching is on
+  // the last 10 digits, so 09171234567, +639171234567 and 0917 123 4567 are one
+  // customer — the same shape normalizeCustomerPhone() folds to, done in SQL so
+  // the grouping stays on the database instead of pulling every order across.
+  const PHONE_DIGITS = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+    COALESCE(customer_phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), '.', '')`;
+  const PHONE_KEY = `SUBSTR(${PHONE_DIGITS}, CASE WHEN LENGTH(${PHONE_DIGITS}) > 10
+    THEN LENGTH(${PHONE_DIGITS}) - 9 ELSE 1 END)`;
+  // Blank page names are not a second page, so they never make a duplicate.
+  const PAGE_KEY = `NULLIF(LOWER(TRIM(COALESCE(page_name, ''))), '')`;
+
+  r.get('/duplicate-customers', async (req, res) => {
+    try {
+      const scope = requestedScope(req);
+      const accounts = (scope.all || scope.confirmer) ? [] : await linkedPosAccounts(userId(req));
+      const names = scope.all ? null : await confirmerNameSet(
+        scope.confirmer ? [scope.confirmer] : accounts.map((a) => a.name)
+      );
+      const empty = {
+        linked: accounts.length > 0,
+        scope: scope.all ? 'all' : (scope.confirmer ? 'confirmer' : 'own'),
+        confirmer: scope.confirmer,
+        data: [], total: 0, page: 1, per_page: 25,
+        summary: { customers: 0, orders: 0, cod: 0 },
+      };
+      if (names && !names.length) return res.json(empty);
+
+      const perPage = Math.max(1, Math.min(200, parseInt(req.query.per_page, 10) || 25));
+      const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names);
+      // A number too short to be a phone groups everything that is missing one.
+      const scoped = `${where} AND LENGTH(${PHONE_DIGITS}) >= 10`;
+      const grouped = `
+        SELECT ${PHONE_KEY} AS phone_key,
+               COUNT(*) AS orders,
+               COUNT(DISTINCT ${PAGE_KEY}) AS pages,
+               COALESCE(SUM(cod), 0) AS cod
+        FROM pos_orders ${scoped}
+        GROUP BY ${PHONE_KEY}
+        HAVING COUNT(DISTINCT ${PAGE_KEY}) > 1`;
+
+      const totals = await db.prepare(`
+        SELECT COUNT(*) AS customers, COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(cod), 0) AS cod
+        FROM (${grouped}) AS duplicates
+      `).get(...params);
+
+      const groups = await db.prepare(`
+        ${grouped}
+        ORDER BY orders DESC, phone_key ASC
+        LIMIT ? OFFSET ?
+      `).all(...params, perPage, (pageNum - 1) * perPage);
+
+      // The orders behind this page of customers, fetched in one round trip and
+      // filed under their number here rather than a query per group.
+      const keys = groups.map((group) => group.phone_key);
+      const rows = keys.length ? await db.prepare(`
+        SELECT external_id, shop_id, page_name, tracking_no, customer_name, customer_phone,
+               note_product, cod, attempts, confirmed_by_name,
+               ${effStatus} AS effective_status,
+               ${manilaDay} AS manila_day,
+               ${PHONE_KEY} AS phone_key
+        FROM pos_orders ${scoped} AND ${PHONE_KEY} IN (${keys.map(() => '?').join(',')})
+        ORDER BY ${manilaDay} DESC, id DESC
+      `).all(...params, ...keys) : [];
+
+      const byPhone = new Map(keys.map((key) => [key, []]));
+      for (const row of rows) (byPhone.get(row.phone_key) || []).push(row);
+
+      res.json({
+        ...empty,
+        linked: true,
+        page: pageNum,
+        per_page: perPage,
+        total: Number(totals?.customers || 0),
+        summary: {
+          customers: Number(totals?.customers || 0),
+          orders: Number(totals?.orders || 0),
+          cod: Number(totals?.cod || 0),
+        },
+        data: groups.map((group) => {
+          const items = byPhone.get(group.phone_key) || [];
+          return {
+            // One tidy 09XXXXXXXXX for the group, whatever spellings its
+            // orders carry; the rows below it keep what was actually typed.
+            phone: pancakePosSync.normalizeCustomerPhone(items[0]?.customer_phone)
+              || items[0]?.customer_phone || group.phone_key,
+            phone_key: group.phone_key,
+            // The most recent spelling of the name — an order is filed under
+            // whatever the last CSR typed, which is the one worth showing.
+            customer_name: items.find((item) => String(item.customer_name || '').trim())?.customer_name || '',
+            orders: Number(group.orders || 0),
+            pages: [...new Set(items.map((item) => String(item.page_name || '').trim()).filter(Boolean))],
+            cod: Number(group.cod || 0),
+            items: items.map((item) => ({
+              external_id: item.external_id,
+              shop_id: item.shop_id || '',
+              page_name: item.page_name || '',
+              tracking_no: item.tracking_no || '',
+              customer_name: item.customer_name || '',
+              customer_phone: item.customer_phone || '',
+              product: item.note_product || '',
+              cod: Number(item.cod || 0),
+              attempts: Number(item.attempts || 0),
+              confirmed_by: item.confirmed_by_name || '',
+              status: POS_DISPLAY_STATUS[String(item.effective_status || '').toLowerCase()] || 'Confirmed',
+              date: item.manila_day || '',
+            })),
+          };
+        }),
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
