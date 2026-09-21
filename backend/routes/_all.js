@@ -2596,8 +2596,19 @@ function csrRoutes(db) {
   // author's list. 'wait_print' is excluded on the same basis as the Data
   // Report's "By Confirmed By" card: awaiting print is not a confirmed sale.
 
+  // A person confirmed it: an editor's name came off the status-1 transition.
+  const CONFIRMED_BY_STAFF = `confirmed_by_name IS NOT NULL AND TRIM(confirmed_by_name) <> ''`;
+  // Nobody did: the order moved to Confirmed with no editor on the transition —
+  // an automation or an API push. confirmed_at is what separates those from an
+  // order that was simply never confirmed, which has neither a name nor a time;
+  // without it this would sweep in every New order on the books.
+  const CONFIRMED_BY_SYSTEM = `(confirmed_by_name IS NULL OR TRIM(confirmed_by_name) = '')
+      AND confirmed_at IS NOT NULL AND TRIM(confirmed_at) <> ''`;
   const CONFIRMED_BASE = `COALESCE(status_name, '') <> 'wait_print'
-      AND confirmed_by_name IS NOT NULL AND TRIM(confirmed_by_name) <> ''`;
+      AND ((${CONFIRMED_BY_STAFF}) OR (${CONFIRMED_BY_SYSTEM}))`;
+  // What the dropdown sends for them; no person can be named this.
+  const SYSTEM_CONFIRMER = '__system__';
+  const SYSTEM_CONFIRMER_LABEL = 'System';
 
   const POS_DISPLAY_STATUS = {
     new: 'New', submitted: 'Confirmed', pending: 'Waiting for pickup',
@@ -2661,12 +2672,14 @@ function csrRoutes(db) {
 
   // `names` scopes the query to one confirmer's spellings. null means every
   // confirmer — the "All confirmers" view an oversight role may ask for.
-  function confirmedOrdersWhere(query, names) {
+  // `systemOnly` narrows to the unnamed ones instead, which no name matches.
+  function confirmedOrdersWhere(query, names, systemOnly = false) {
     const effStatus = pancakePosSync.effectivePosStatusSql();
     const manilaDay = pancakePosSync.posManilaDaySql(db.type);
-    const params = names ? [...names] : [];
+    const params = (names && !systemOnly) ? [...names] : [];
     let where = `WHERE ${CONFIRMED_BASE}`;
-    if (names) where += ` AND confirmed_by_name IN (${names.map(() => '?').join(',')})`;
+    if (systemOnly) where += ` AND ${CONFIRMED_BY_SYSTEM}`;
+    else if (names) where += ` AND confirmed_by_name IN (${names.map(() => '?').join(',')})`;
 
     // Manila "now" computed in JS so the date filters stay DB-portable.
     const manilaNow = new Date(Date.now() + 8 * 3600 * 1000);
@@ -2732,7 +2745,7 @@ function csrRoutes(db) {
     const rows = await db.prepare(`
       SELECT TRIM(confirmed_by_name) AS name, COUNT(*) AS orders
       FROM pos_orders
-      WHERE ${CONFIRMED_BASE}
+      WHERE ${CONFIRMED_BASE} AND ${CONFIRMED_BY_STAFF}
       GROUP BY TRIM(confirmed_by_name)
     `).all();
 
@@ -2743,8 +2756,23 @@ function csrRoutes(db) {
       if (!name) continue;
       const key = name.toLowerCase();
       const existing = byStaff.get(key);
-      byStaff.set(key, { name, orders: (existing?.orders || 0) + Number(row.orders || 0) });
+      byStaff.set(key, { key: name, name, orders: (existing?.orders || 0) + Number(row.orders || 0) });
     }
+
+    // Orders Pancake confirmed with nobody's name on them. They are a confirmer
+    // on this list like any other, so they can be read on their own instead of
+    // only ever being folded into All confirmers.
+    const system = await db.prepare(`
+      SELECT COUNT(*) AS orders FROM pos_orders
+      WHERE ${CONFIRMED_BASE} AND ${CONFIRMED_BY_SYSTEM}
+    `).get();
+    const systemOrders = Number(system?.orders || 0);
+    if (systemOrders) {
+      byStaff.set(SYSTEM_CONFIRMER, {
+        key: SYSTEM_CONFIRMER, name: SYSTEM_CONFIRMER_LABEL, orders: systemOrders, system: true,
+      });
+    }
+
     // Busiest first: the name being looked for is nearly always one of them,
     // and a long tail of one-order names would bury it.
     const confirmers = [...byStaff.values()]
@@ -2758,9 +2786,12 @@ function csrRoutes(db) {
   // it can never widen access.
   function requestedScope(req) {
     const asked = String(req.query.confirmer || '').trim();
-    if (!asked || !canViewAll(req)) return { all: false, confirmer: '' };
-    if (asked.toLowerCase() === 'all') return { all: true, confirmer: '' };
-    return { all: false, confirmer: asked };
+    if (!asked || !canViewAll(req)) return { all: false, confirmer: '', system: false };
+    if (asked.toLowerCase() === 'all') return { all: true, confirmer: '', system: false };
+    if (asked === SYSTEM_CONFIRMER) {
+      return { all: false, confirmer: SYSTEM_CONFIRMER, system: true };
+    }
+    return { all: false, confirmer: asked, system: false };
   }
 
   r.get('/confirmed-orders', async (req, res) => {
@@ -2770,10 +2801,11 @@ function csrRoutes(db) {
       // caller's own page, reached through the POS accounts linked to them.
       const accounts = (scope.all || scope.confirmer) ? [] : await linkedPosAccounts(userId(req));
       const accountLabels = accounts.map((a) => ({ name: a.name || '', shop_id: a.shop_id || '' }));
-      // null = every confirmer. Otherwise the picked name's spellings, or the
-      // linked account's, and an empty set stays empty: an unfiltered query
+      // null = every confirmer, and the system bucket is matched by its own
+      // clause rather than by name. Otherwise the picked name's spellings, or
+      // the linked account's, and an empty set stays empty: an unfiltered query
       // here would hand this member somebody else's orders.
-      const names = scope.all ? null : await confirmerNameSet(
+      const names = (scope.all || scope.system) ? null : await confirmerNameSet(
         scope.confirmer ? [scope.confirmer] : accounts.map((a) => a.name)
       );
       if (names && !names.length) {
@@ -2789,7 +2821,7 @@ function csrRoutes(db) {
 
       const perPage = Math.max(1, Math.min(200, parseInt(req.query.per_page, 10) || 25));
       const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names);
+      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names, scope.system);
 
       const totals = await db.prepare(`
         SELECT COUNT(*) AS total,
@@ -2825,7 +2857,9 @@ function csrRoutes(db) {
         accounts: accountLabels,
         data: rows.map((row) => ({
           external_id: row.external_id,
-          confirmed_by: row.confirmed_by_name || '',
+          // Past CONFIRMED_BASE an unnamed confirmer is the system, never an
+          // order nobody confirmed, so it is labelled rather than left blank.
+          confirmed_by: String(row.confirmed_by_name || '').trim() || SYSTEM_CONFIRMER_LABEL,
           shop_id: row.shop_id || '',
           page_name: row.page_name || '',
           tracking_no: row.tracking_no || '',
@@ -2875,7 +2909,7 @@ function csrRoutes(db) {
     try {
       const scope = requestedScope(req);
       const accounts = (scope.all || scope.confirmer) ? [] : await linkedPosAccounts(userId(req));
-      const names = scope.all ? null : await confirmerNameSet(
+      const names = (scope.all || scope.system) ? null : await confirmerNameSet(
         scope.confirmer ? [scope.confirmer] : accounts.map((a) => a.name)
       );
       const empty = {
@@ -2889,7 +2923,7 @@ function csrRoutes(db) {
 
       const perPage = Math.max(1, Math.min(200, parseInt(req.query.per_page, 10) || 25));
       const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names);
+      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names, scope.system);
       // A number too short to be a phone groups everything that is missing one.
       const scoped = `${where} AND LENGTH(${PHONE_DIGITS}) >= 10`;
       const grouped = `
@@ -2963,7 +2997,7 @@ function csrRoutes(db) {
               product: item.note_product || '',
               cod: Number(item.cod || 0),
               attempts: Number(item.attempts || 0),
-              confirmed_by: item.confirmed_by_name || '',
+              confirmed_by: String(item.confirmed_by_name || '').trim() || SYSTEM_CONFIRMER_LABEL,
               status: POS_DISPLAY_STATUS[String(item.effective_status || '').toLowerCase()] || 'Confirmed',
               date: item.manila_day || '',
             })),

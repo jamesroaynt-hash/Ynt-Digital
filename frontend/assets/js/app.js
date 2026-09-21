@@ -11281,6 +11281,10 @@ const CSR_CONFIRMED_PERIODS = [
   ['daily', 'Today'], ['yesterday', 'Yesterday'], ['weekly', 'Last 7 days'],
   ['monthly', 'This month'], ['custom', 'Custom'],
 ];
+// What the server answers to for orders Pancake confirmed with no staff name
+// on them; no person can be called this.
+const CSR_SYSTEM_CONFIRMER = '__system__';
+
 const CSR_CONFIRMED_TABS = [
   ['orders', 'Confirmed Orders'], ['duplicates', 'Duplicate Customers'],
 ];
@@ -11377,7 +11381,8 @@ function csrConfirmedLoadingLabel() {
 
 function csrConfirmedViewerName() {
   if (csrConfirmedViewingAll()) return 'All confirmers';
-  return csrConfirmedState.viewConfirmer || '';
+  const picked = csrConfirmedState.confirmers.find((c) => c.key === csrConfirmedState.viewConfirmer);
+  return picked ? picked.name : (csrConfirmedState.viewConfirmer || '');
 }
 
 function renderCsrConfirmedConfirmerOptions() {
@@ -11391,9 +11396,35 @@ function renderCsrConfirmedConfirmerOptions() {
   return [
     option('all', 'All confirmers'),
     option('', 'My confirmed orders'),
+    // key, not name: the system bucket answers to a sentinel no person shares.
     ...csrConfirmedState.confirmers.map((confirmer) =>
-      option(confirmer.name, `${confirmer.name} (${Number(confirmer.orders || 0).toLocaleString()})`)),
+      option(confirmer.key || confirmer.name, `${confirmer.name} (${Number(confirmer.orders || 0).toLocaleString()})`)),
   ].join('');
+}
+
+// A one-click way to the orders nobody's name is on. They sit in the dropdown
+// like any other confirmer, but "which ones did no one confirm" is a question
+// the desk asks on its own, not while scrolling a list of people — so it also
+// gets a button. Absent entirely when the range holds none of them.
+function renderCsrSystemConfirmButton() {
+  const entry = csrConfirmedState.confirmers.find((c) => c.key === CSR_SYSTEM_CONFIRMER);
+  if (!entry) return '';
+  const active = csrConfirmedState.viewConfirmer === CSR_SYSTEM_CONFIRMER;
+  return `<button class="btn ${active ? 'btn-primary' : 'btn-secondary'} btn-sm"
+    onclick="toggleCsrSystemConfirmed()"
+    title="Orders Pancake moved to Confirmed with no staff name on the change">
+    System (${Number(entry.orders || 0).toLocaleString()})</button>`;
+}
+
+// The confirmer picker and the System button both follow the current selection,
+// and the panel is drawn before the page has settled on one.
+function paintCsrConfirmedToolbar() {
+  const picker = document.getElementById('csr-confirmed-confirmer');
+  if (picker && picker.value !== String(csrConfirmedState.viewConfirmer || '')) {
+    picker.innerHTML = renderCsrConfirmedConfirmerOptions();
+  }
+  const slot = document.getElementById('csr-confirmed-system-slot');
+  if (slot) slot.innerHTML = renderCsrSystemConfirmButton();
 }
 
 function renderCsrConfirmedHead() {
@@ -11442,7 +11473,8 @@ function renderCsrConfirmedPanel() {
           </div>
           ${canViewAllCSRRecords() ? `<select class="rmo-select" id="csr-confirmed-confirmer" onchange="setCsrConfirmedConfirmer(this.value)">
             ${renderCsrConfirmedConfirmerOptions()}
-          </select>` : ''}
+          </select>
+          <span id="csr-confirmed-system-slot">${renderCsrSystemConfirmButton()}</span>` : ''}
           <select class="rmo-select" id="csr-confirmed-status" onchange="applyCsrConfirmedFilters()">
             <option value="all">All Statuses</option>
             ${CSR_CONFIRMED_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${csrConfirmedState.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}
@@ -11492,6 +11524,7 @@ function renderCsrConfirmedPanel() {
 function renderCsrDuplicatesTable() {
   const metrics = document.getElementById('csr-confirmed-metrics');
   if (metrics && csrConfirmedState.tab === 'duplicates') metrics.innerHTML = renderCsrDuplicateMetrics();
+  paintCsrConfirmedToolbar();
 
   const tbody = document.getElementById('csr-duplicates-tbody');
   if (!tbody) return;
@@ -11553,15 +11586,11 @@ function renderCsrConfirmedTable() {
   const metrics = document.getElementById('csr-confirmed-metrics');
   if (metrics) metrics.innerHTML = renderCsrConfirmedMetrics();
 
-  // The confirmer column comes and goes with the picked user, so the header is
-  // repainted alongside the rows rather than left as the page drew it. The
-  // dropdown too: the panel is drawn before the page settles on a default.
+  // The confirmer column comes and goes with the picked confirmer, so the
+  // header is repainted alongside the rows rather than left as the page drew it.
   const thead = document.getElementById('csr-confirmed-thead');
   if (thead) thead.innerHTML = renderCsrConfirmedHead();
-  const picker = document.getElementById('csr-confirmed-confirmer');
-  if (picker && picker.value !== String(csrConfirmedState.viewConfirmer || '')) {
-    picker.innerHTML = renderCsrConfirmedConfirmerOptions();
-  }
+  paintCsrConfirmedToolbar();
 
   const tbody = document.getElementById('csr-confirmed-tbody');
   if (!tbody) return;
@@ -11781,6 +11810,15 @@ function applyCsrConfirmedFilters() {
   reloadCsrConfirmedView();
 }
 
+// Off sends the view back to everyone rather than to the member's own orders:
+// the button is a way of narrowing All confirmers, so releasing it undoes that.
+function toggleCsrSystemConfirmed() {
+  if (!canViewAllCSRRecords()) return;
+  setCsrConfirmedConfirmer(
+    csrConfirmedState.viewConfirmer === CSR_SYSTEM_CONFIRMER ? 'all' : CSR_SYSTEM_CONFIRMER
+  );
+}
+
 function setCsrConfirmedConfirmer(value) {
   if (!canViewAllCSRRecords()) return;
   csrConfirmedState = { ...csrConfirmedState, viewConfirmer: String(value || ''), page: 1 };
@@ -11800,8 +11838,11 @@ async function loadCsrConfirmers() {
       confirmers: Array.isArray(data?.confirmers) ? data.confirmers : [],
     };
   } catch { return; }
+  if (App.currentPage !== 'csr') return;
   const select = document.getElementById('csr-confirmed-confirmer');
-  if (select && App.currentPage === 'csr') select.innerHTML = renderCsrConfirmedConfirmerOptions();
+  if (select) select.innerHTML = renderCsrConfirmedConfirmerOptions();
+  const slot = document.getElementById('csr-confirmed-system-slot');
+  if (slot) slot.innerHTML = renderCsrSystemConfirmButton();
 }
 
 function changeCsrConfirmedPage(page) {
