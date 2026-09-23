@@ -17699,10 +17699,12 @@ function initPage(page) {
       ...csrConfirmedState,
       data: [], total: 0, summary: null, accounts: [],
       page: 1, loaded: false, loading: false, error: '',
-      // An oversight role opens on everyone — their own POS confirmer is
-      // usually unassigned, so "mine" would be an empty page to land on.
+      // Anyone who may read the whole desk opens on it: a duplicate is one
+      // number two confirmers worked, and an oversight role's own POS name is
+      // usually unassigned, so "mine" would be the wrong page to land on
+      // either way. My confirmed orders stays a pick in the dropdown.
       viewConfirmer: csrConfirmedState.viewConfirmer !== null ? csrConfirmedState.viewConfirmer
-        : (canViewAllCSRRecords() ? 'all' : ''),
+        : (canViewAllCsrConfirmed() ? 'all' : ''),
     };
     csrDuplicatesState = {
       ...csrDuplicatesState,
