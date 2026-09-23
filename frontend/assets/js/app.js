@@ -4985,19 +4985,6 @@ function renderEvaluationKpi() {
     </div>
   </div>
 
-  <!-- HR/Administrator only. Hidden until the queue says this viewer may see
-       scores, so a peer is never shown the card at all — an empty "scores are
-       HR only" panel was just a locked door with a sign on it. -->
-  <div class="card" id="evaluation-record-card" style="display:none;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Per-Employee Evaluation Record</div>
-        <div class="card-subtitle">Open a row above to see that employee's record.</div>
-      </div>
-    </div>
-    <div class="card-body" id="evaluation-record-wrap"></div>
-  </div>
-
   ${renderEvaluationModal()}
   ${renderEvaluationResponsesModal()}`;
 }
@@ -5093,7 +5080,6 @@ async function initEvaluationKpi() {
   renderEvaluationSetup();
   renderEvaluationMine();
   renderEvaluationQueue();
-  renderEvaluationRecord();
   loadEvaluationSummary();
   loadMyEvaluation();
 }
@@ -5504,59 +5490,6 @@ function renderEvaluationScoreCell(row) {
       ${evaluationPassBadge(result)}</div>`;
 }
 
-function renderEvaluationRecord() {
-  const wrap = document.getElementById('evaluation-record-wrap');
-  const card = document.getElementById('evaluation-record-card');
-  if (!wrap || !card) return;
-  // A peer never sees this card. The server withholds the scores either way;
-  // this keeps the page from showing them a panel they can do nothing with.
-  if (!evaluationState.canSeeScores) {
-    card.style.display = 'none';
-    wrap.innerHTML = '';
-    return;
-  }
-  card.style.display = '';
-
-  const row = evaluationState.rows.find((r) => r.id === evaluationState.selectedId);
-  const subtitle = card.querySelector('.card-subtitle');
-  if (subtitle) subtitle.textContent = row ? (row.name || 'User') : 'Open a row above to see that employee’s record.';
-
-  if (!row) {
-    wrap.innerHTML = '<div class="empty-state"><h3>No employee selected</h3><p>Open a row in the queue above.</p></div>';
-    return;
-  }
-
-  const result = row.result || { score: 0, covered_weight: 0, per_criteria: {}, responses: 0 };
-  const level = evaluationLevelFor(result.score);
-  wrap.innerHTML = `
-    <div class="stats-grid" style="margin-bottom:16px;">
-      <div class="stat-card">
-        <div class="stat-label">Over All Percentage</div>
-        <div class="stat-value">${result.responses ? evaluationPercentText(result.score) : '—'}</div>
-        <div class="stat-meta">${result.responses ? `${result.covered_weight}% of the matrix rated` : 'No ratings yet'}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Performance Level</div>
-        <div class="stat-value" style="font-size:20px;">${result.responses ? escapeHtml(level.label) : '—'}</div>
-        <div class="stat-meta">${evaluationPassBadge(result)
-          || escapeHtml(evaluationPeriodLabel(evaluationState.period))}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Responses</div>
-        <div class="stat-value">${result.responses}</div>
-        <div class="stat-meta">evaluators submitted</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Position</div>
-        <div class="stat-value" style="font-size:20px;">${escapeHtml(employeeDepartment(row))}</div>
-        <div class="stat-meta">${escapeHtml(row.role || 'No role set')}</div>
-      </div>
-    </div>
-    ${renderEvaluationResultMatrix(result)}
-    <div id="evaluation-record-notes"></div>`;
-  renderEvaluationRecordNotes();
-}
-
 // The same matrix, read-only, holding the average of every evaluator's sheet.
 function renderEvaluationResultMatrix(result) {
   return `
@@ -5591,43 +5524,8 @@ function renderEvaluationResultMatrix(result) {
   </div>`;
 }
 
-// Everything the evaluators wrote about this employee: the development notes
-// and the recommendation, one block per submitted sheet. HR and Operation get
-// the sheets without their authors — the server sends them a numbered label
-// instead of a name, so there is no identity here to leak.
-function renderEvaluationRecordNotes() {
-  const wrap = document.getElementById('evaluation-record-notes');
-  if (!wrap) return;
-  const responses = evaluationState.summary?.responses || [];
-  if (!responses.length) {
-    wrap.innerHTML = '';
-    return;
-  }
-  wrap.innerHTML = `
-    <div class="ev-notes">
-      <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish</div>
-      ${evaluationState.summary?.anonymous
-        ? '<div class="ev-muted" style="margin:-2px 0 12px;font-size:12px;">Submissions are anonymous — evaluators are not named.</div>'
-        : ''}
-      ${responses.map((response) => `
-        <div class="ev-note">
-          <div class="ev-note-head">
-            <strong>${escapeHtml(response.evaluator_name || response.evaluator_label || 'Evaluator')}</strong>
-            <span class="ev-muted">${escapeHtml(response.date_evaluated || '')}</span>
-          </div>
-          <div class="ev-note-body">${response.development_areas
-            ? escapeHtml(response.development_areas).replace(/\n/g, '<br>')
-            : '<span class="ev-muted">No notes written.</span>'}</div>
-          <div class="ev-note-foot">
-            <span>Proceed to Final Evaluation: <strong>${escapeHtml(response.proceed_to_final || '—')}</strong></span>
-            <span>Passed or not passed: <strong>${escapeHtml(response.passed || '—')}</strong></span>
-          </div>
-        </div>`).join('')}
-    </div>`;
-}
-
 // The queue carries the scores but not the written notes; those are one more
-// request, made only when HR opens an employee's record.
+// request, made only when HR opens an employee's sheets.
 async function loadEvaluationSummary() {
   const subjectId = evaluationState.selectedId;
   if (!evaluationState.canSeeScores || !subjectId) { evaluationState.summary = null; return; }
@@ -5639,7 +5537,6 @@ async function loadEvaluationSummary() {
     evaluationState.summary = null;
   }
   if (App.currentPage !== 'evaluation-kpi') return;
-  renderEvaluationRecordNotes();
   renderEvaluationResponses();
 }
 
@@ -5648,8 +5545,7 @@ function selectEvaluationEmployee(userId) {
   evaluationState.summary = null;
   evaluationState.openResponse = null;
   renderEvaluationQueue();
-  renderEvaluationRecord();
-  // The card below holds the average; the modal holds the sheets it is made
+  // The queue row carries the average; the modal carries the sheets it is made
   // of, so HR can read any one evaluator's ratings on their own.
   openModal('evaluation-responses-modal');
   renderEvaluationResponses();
