@@ -7037,6 +7037,25 @@ tfoot td {
   color: var(--danger-text);
 }
 
+.csr-dupe-tag.open-order {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+/* Six figures on this tab, not the five the orders tab shows, so the row is
+   three and three rather than five and a gap. */
+.rmo-metrics.csr-dupe-metrics {
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .rmo-metrics.csr-dupe-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .rmo-metrics.csr-dupe-metrics { grid-template-columns: 1fr; }
+}
+
 /* The orders under a banner are detail, so they step back from it. */
 #csr-duplicates-table tr.csr-dupe-item td:first-child {
   padding-left: 22px;

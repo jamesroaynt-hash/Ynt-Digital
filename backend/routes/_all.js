@@ -2893,9 +2893,11 @@ function csrRoutes(db) {
   });
 
   /* ─── DUPLICATE CUSTOMERS ────────────────────────────────── */
-  // One phone number worked twice, in either of the shapes the desk cares
-  // about: it ordered off more than one page, or one page booked it more than
-  // once on the same Manila day. Matching is on the last 10 digits, so
+  // One phone number worked twice, in any of the shapes the desk cares about:
+  // it ordered off more than one page, one page booked it more than once on
+  // the same Manila day, or a page booked it again while an earlier order was
+  // still Confirmed, Waiting for pickup or Shipped — a second parcel going out
+  // before the first one landed. Matching is on the last 10 digits, so
   // 09171234567, +639171234567 and 0917 123 4567 are one customer — the same
   // shape normalizeCustomerPhone() folds to, done in SQL so the grouping stays
   // on the database instead of pulling every order across.
@@ -2905,6 +2907,11 @@ function csrRoutes(db) {
     THEN LENGTH(${PHONE_DIGITS}) - 9 ELSE 1 END)`;
   // Blank page names are not a second page, so they never make a duplicate.
   const PAGE_KEY = `NULLIF(LOWER(TRIM(COALESCE(page_name, ''))), '')`;
+  // An order still in flight: confirmed, waiting for pickup, or shipped and not
+  // yet landed. New orders never reach this view — CONFIRMED_BASE keeps them
+  // out — and a delivered, returned or canceled order is finished, so neither
+  // is something a later order was placed "on top of".
+  const POS_OPEN_STATUSES = ['submitted', 'pending', 'waitting', 'shipped'];
 
   r.get('/duplicate-customers', async (req, res) => {
     try {
@@ -2918,7 +2925,7 @@ function csrRoutes(db) {
         scope: scope.all ? 'all' : (scope.confirmer ? 'confirmer' : 'own'),
         confirmer: scope.confirmer,
         data: [], total: 0, page: 1, per_page: 25,
-        summary: { customers: 0, orders: 0, cod: 0, crossPage: 0, sameDay: 0 },
+        summary: { customers: 0, orders: 0, cod: 0, crossPage: 0, sameDay: 0, openOrder: 0 },
       };
       if (names && !names.length) return res.json(empty);
 
@@ -2933,29 +2940,52 @@ function csrRoutes(db) {
       // number twice in a day.
       const DAY_PAGE_KEY = `CASE WHEN ${PAGE_KEY} IS NULL OR ${manilaDay} IS NULL
         THEN NULL ELSE ${PAGE_KEY} || '|' || ${manilaDay} END`;
-      const grouped = `
+
+      // One row per page a number ordered from, which is the grain all three
+      // rules are decided at. The open-order test is the two dates: a page
+      // whose earliest unfinished order predates its latest order booked that
+      // later one while the first was still running.
+      const openRepeat = `page_key IS NOT NULL AND first_open_day IS NOT NULL AND first_open_day < last_day`;
+      const byPage = `
         SELECT ${PHONE_KEY} AS phone_key,
+               ${PAGE_KEY} AS page_key,
                COUNT(*) AS orders,
-               COUNT(DISTINCT ${PAGE_KEY}) AS pages,
                COUNT(${DAY_PAGE_KEY}) - COUNT(DISTINCT ${DAY_PAGE_KEY}) AS same_day_repeats,
+               MIN(CASE WHEN ${effStatus} IN (${POS_OPEN_STATUSES.map(() => '?').join(',')})
+                        THEN ${manilaDay} END) AS first_open_day,
+               MAX(${manilaDay}) AS last_day,
                COALESCE(SUM(cod), 0) AS cod
         FROM pos_orders ${scoped}
-        GROUP BY ${PHONE_KEY}
-        HAVING COUNT(DISTINCT ${PAGE_KEY}) > 1
-            OR COUNT(${DAY_PAGE_KEY}) > COUNT(DISTINCT ${DAY_PAGE_KEY})`;
+        GROUP BY ${PHONE_KEY}, ${PAGE_KEY}`;
+      const grouped = `
+        SELECT phone_key,
+               SUM(orders) AS orders,
+               COUNT(page_key) AS pages,
+               SUM(same_day_repeats) AS same_day_repeats,
+               SUM(CASE WHEN ${openRepeat} THEN 1 ELSE 0 END) AS open_repeats,
+               COALESCE(SUM(cod), 0) AS cod
+        FROM (${byPage}) AS per_page
+        GROUP BY phone_key
+        HAVING COUNT(page_key) > 1
+            OR SUM(same_day_repeats) > 0
+            OR SUM(CASE WHEN ${openRepeat} THEN 1 ELSE 0 END) > 0`;
+      // The status list sits inside the inner SELECT, so it is bound ahead of
+      // everything the WHERE clause carries.
+      const groupParams = [...POS_OPEN_STATUSES, ...params];
 
       const totals = await db.prepare(`
         SELECT COUNT(*) AS customers, COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(cod), 0) AS cod,
                COALESCE(SUM(CASE WHEN pages > 1 THEN 1 ELSE 0 END), 0) AS cross_page,
-               COALESCE(SUM(CASE WHEN same_day_repeats > 0 THEN 1 ELSE 0 END), 0) AS same_day
+               COALESCE(SUM(CASE WHEN same_day_repeats > 0 THEN 1 ELSE 0 END), 0) AS same_day,
+               COALESCE(SUM(CASE WHEN open_repeats > 0 THEN 1 ELSE 0 END), 0) AS open_order
         FROM (${grouped}) AS duplicates
-      `).get(...params);
+      `).get(...groupParams);
 
       const groups = await db.prepare(`
         ${grouped}
         ORDER BY orders DESC, phone_key ASC
         LIMIT ? OFFSET ?
-      `).all(...params, perPage, (pageNum - 1) * perPage);
+      `).all(...groupParams, perPage, (pageNum - 1) * perPage);
 
       // The orders behind this page of customers, fetched in one round trip and
       // filed under their number here rather than a query per group.
@@ -2985,6 +3015,7 @@ function csrRoutes(db) {
           cod: Number(totals?.cod || 0),
           crossPage: Number(totals?.cross_page || 0),
           sameDay: Number(totals?.same_day || 0),
+          openOrder: Number(totals?.open_order || 0),
         },
         data: groups.map((group) => {
           const items = byPhone.get(group.phone_key) || [];
@@ -3000,8 +3031,25 @@ function csrRoutes(db) {
             const key = dayKey(item);
             if (key) perDay.set(key, (perDay.get(key) || 0) + 1);
           }
+          // The day each page's oldest unfinished order was booked. Anything
+          // that page booked after it went out while that one was still
+          // running, which is the row worth looking at.
+          const openFrom = new Map();
+          for (const item of items) {
+            const page = String(item.page_name || '').trim().toLowerCase();
+            if (!page || !item.manila_day) continue;
+            if (!POS_OPEN_STATUSES.includes(String(item.effective_status || '').toLowerCase())) continue;
+            const first = openFrom.get(page);
+            if (!first || item.manila_day < first) openFrom.set(page, item.manila_day);
+          }
+          const afterOpen = (item) => {
+            const page = String(item.page_name || '').trim().toLowerCase();
+            const first = page ? openFrom.get(page) : null;
+            return !!first && !!item.manila_day && item.manila_day > first;
+          };
           const pageCount = Number(group.pages || 0);
           const sameDayRepeats = Number(group.same_day_repeats || 0);
+          const openRepeats = Number(group.open_repeats || 0);
           return {
             // One tidy 09XXXXXXXXX for the group, whatever spellings its
             // orders carry; the rows below it keep what was actually typed.
@@ -3015,10 +3063,12 @@ function csrRoutes(db) {
             pages: [...new Set(items.map((item) => String(item.page_name || '').trim()).filter(Boolean))],
             page_count: pageCount,
             same_day_repeats: sameDayRepeats,
-            // Why this number is listed; a customer can be here for both.
+            open_repeats: openRepeats,
+            // Why this number is listed; a customer can be here for all three.
             reasons: [
               ...(pageCount > 1 ? ['pages'] : []),
               ...(sameDayRepeats > 0 ? ['same_day'] : []),
+              ...(openRepeats > 0 ? ['open_order'] : []),
             ],
             cod: Number(group.cod || 0),
             items: items.map((item) => ({
@@ -3035,6 +3085,7 @@ function csrRoutes(db) {
               status: POS_DISPLAY_STATUS[String(item.effective_status || '').toLowerCase()] || 'Confirmed',
               date: item.manila_day || '',
               same_day: (perDay.get(dayKey(item)) || 0) > 1,
+              after_open: afterOpen(item),
             })),
           };
         }),

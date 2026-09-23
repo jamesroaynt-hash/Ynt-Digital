@@ -11346,8 +11346,9 @@ let csrConfirmedState = {
 };
 
 // Customers a number was worked twice for — it ordered off more than one page,
-// or one page booked it more than once on the same day — over whatever range,
-// status and confirmer the toolbar above is set to. Kept apart from the orders
+// one page booked it more than once on the same day, or a page booked it again
+// while an earlier order was still open — over whatever range, status and
+// confirmer the toolbar above is set to. Kept apart from the orders
 // list so switching tabs back and forth does not refetch either one.
 let csrDuplicatesState = {
   data: [], total: 0, page: 1, perPage: 25,
@@ -11394,6 +11395,7 @@ function renderCsrDuplicateMetrics() {
   const orders = Number(summary.orders || 0);
   const crossPage = Number(summary.crossPage || 0);
   const sameDay = Number(summary.sameDay || 0);
+  const openOrder = Number(summary.openOrder || 0);
   // A customer can be listed for both reasons, so the two shares are each
   // measured against the whole and never expected to add up to it.
   const share = (value) => (customers ? `${((value / customers) * 100).toFixed(1)}% of duplicates` : 'None in range');
@@ -11405,14 +11407,21 @@ function renderCsrDuplicateMetrics() {
     </div>`;
   return [
     card('Duplicate Customers', customers.toLocaleString(), 'purple',
-      `Two pages, or one page twice in a day · ${csrConfirmedRangeLabel()}`),
+      `Two pages, twice in a day, or on top of an open order · ${csrConfirmedRangeLabel()}`),
     card('Two or More Pages', crossPage.toLocaleString(), 'yellow', share(crossPage)),
     card('Same Page, Same Day', sameDay.toLocaleString(), 'red', share(sameDay)),
+    card('Ordered Again While Open', openOrder.toLocaleString(), 'amber', share(openOrder)),
     card('Orders Involved', orders.toLocaleString(), 'blue',
       customers ? `${(orders / customers).toFixed(1)} orders per customer` : 'None in range'),
-    card('COD at Stake', `₱${Number(summary.cod || 0).toLocaleString()}`, 'amber',
+    card('COD at Stake', `₱${Number(summary.cod || 0).toLocaleString()}`, 'green',
       orders ? `Across ${orders.toLocaleString()} orders` : 'None in range'),
   ].join('');
+}
+
+// The duplicates tab shows six figures and the orders tab five, so the grid
+// each is drawn into is named rather than left to wrap whatever it is handed.
+function csrMetricsClass() {
+  return `rmo-metrics${csrConfirmedState.tab === 'duplicates' ? ' csr-dupe-metrics' : ''}`;
 }
 
 function renderCsrConfirmedMetrics() {
@@ -11526,7 +11535,7 @@ function renderCsrConfirmedHead() {
 
 function renderCsrConfirmedPanel() {
   return `
-    <div class="rmo-metrics" id="csr-confirmed-metrics">${renderCsrConfirmedMetrics()}</div>
+    <div class="${csrMetricsClass()}" id="csr-confirmed-metrics">${renderCsrConfirmedMetrics()}</div>
 
     <div class="rmo-table-wrap">
       <div class="table-filters csr-confirmed-tabs">
@@ -11608,7 +11617,10 @@ function renderCsrConfirmedPanel() {
 // be spotted down the Page and Date columns.
 function renderCsrDuplicatesTable() {
   const metrics = document.getElementById('csr-confirmed-metrics');
-  if (metrics && csrConfirmedState.tab === 'duplicates') metrics.innerHTML = renderCsrDuplicateMetrics();
+  if (metrics && csrConfirmedState.tab === 'duplicates') {
+    metrics.className = csrMetricsClass();
+    metrics.innerHTML = renderCsrDuplicateMetrics();
+  }
   paintCsrConfirmedToolbar();
 
   const tbody = document.getElementById('csr-duplicates-tbody');
@@ -11628,12 +11640,16 @@ function renderCsrDuplicatesTable() {
   tbody.innerHTML = csrDuplicatesState.data.map((group) => {
     const reasons = group.reasons || [];
     const repeats = Number(group.same_day_repeats || 0);
+    const openPages = Number(group.open_repeats || 0);
     const tags = [
       reasons.includes('pages')
         ? `<span class="csr-dupe-tag pages">${Number(group.page_count || (group.pages || []).length).toLocaleString()} pages</span>`
         : '',
       reasons.includes('same_day')
         ? `<span class="csr-dupe-tag same-day">Same page, same day${repeats > 1 ? ` ×${repeats}` : ''}</span>`
+        : '',
+      reasons.includes('open_order')
+        ? `<span class="csr-dupe-tag open-order">Ordered again while open${openPages > 1 ? ` · ${openPages} pages` : ''}</span>`
         : '',
     ].join('');
     const banner = `<tr class="csr-dupe-group">
@@ -11646,7 +11662,7 @@ function renderCsrDuplicatesTable() {
           &#8369;${Number(group.cod || 0).toLocaleString()}</span>
       </td>
     </tr>`;
-    const rows = (group.items || []).map((order) => `<tr class="csr-dupe-item${order.same_day ? ' csr-dupe-repeat' : ''}">
+    const rows = (group.items || []).map((order) => `<tr class="csr-dupe-item${order.same_day || order.after_open ? ' csr-dupe-repeat' : ''}">
       <td><div class="rmo-item-sub font-mono">${escapeHtml(order.customer_phone || '')}</div></td>
       <td>
         <div class="rmo-item-main font-mono text-xs">${escapeHtml(order.external_id || '')}</div>
@@ -11655,6 +11671,7 @@ function renderCsrDuplicatesTable() {
       <td>
         <div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div>
         ${order.same_day ? '<div class="rmo-item-sub csr-dupe-flag">Repeat this day</div>' : ''}
+        ${order.after_open ? '<div class="rmo-item-sub csr-dupe-flag">Booked while one was open</div>' : ''}
       </td>
       <td><div class="rmo-item-main">${escapeHtml(order.product || 'POS order')}</div></td>
       <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
@@ -11663,7 +11680,7 @@ function renderCsrDuplicatesTable() {
       <td><div class="rmo-item-main">${escapeHtml(order.date || '')}</div></td>
     </tr>`).join('');
     return banner + rows;
-  }).join('') || message('No number ordered off a second page, or twice off one page in a day, in this range.');
+  }).join('') || message('No number ordered off a second page, twice off one page in a day, or again on top of an open order, in this range.');
 
   const pagination = document.getElementById('csr-duplicates-pagination');
   if (pagination) {
@@ -11683,7 +11700,10 @@ function renderCsrDuplicatesTable() {
 
 function renderCsrConfirmedTable() {
   const metrics = document.getElementById('csr-confirmed-metrics');
-  if (metrics) metrics.innerHTML = renderCsrConfirmedMetrics();
+  if (metrics) {
+    metrics.className = csrMetricsClass();
+    metrics.innerHTML = renderCsrConfirmedMetrics();
+  }
 
   // The confirmer column comes and goes with the picked confirmer, so the
   // header is repainted alongside the rows rather than left as the page drew it.
@@ -11840,7 +11860,10 @@ function setCsrConfirmedTab(tab) {
   document.getElementById('csr-confirmed-view')?.classList.toggle('hidden', tab !== 'orders');
   document.getElementById('csr-duplicates-view')?.classList.toggle('hidden', tab !== 'duplicates');
   const metrics = document.getElementById('csr-confirmed-metrics');
-  if (metrics) metrics.innerHTML = renderCsrConfirmedMetrics();
+  if (metrics) {
+    metrics.className = csrMetricsClass();
+    metrics.innerHTML = renderCsrConfirmedMetrics();
+  }
   // Each tab is fetched once per set of filters; changing a filter is what
   // marks it stale again.
   if (tab === 'duplicates') {
