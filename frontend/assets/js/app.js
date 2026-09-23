@@ -11251,6 +11251,7 @@ function renderCSR() {
       ? 'Orders confirmed in the POS, for any CSR or all of them at once. Daily records are filed in their own window.'
       : 'The orders you confirmed in the POS. Daily records are filed in their own window.'}</p></div>
     <div class="page-actions">
+      ${renderCsrConfirmedTabs()}
       <button class="btn btn-primary btn-sm" onclick="openCSRRecordsModal()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.5h6M5 8h6M5 10.5h4"/></svg>
         Daily Records
@@ -11384,6 +11385,14 @@ function csrConfirmedRangeLabel() {
   const { dateFrom, dateTo } = csrConfirmedState;
   if (dateFrom && dateTo) return `${dateFrom} to ${dateTo}`;
   return dateFrom ? `From ${dateFrom}` : dateTo ? `Until ${dateTo}` : 'Custom range';
+}
+
+function renderCsrConfirmedTabs() {
+  return `<div class="table-filters csr-confirmed-tabs">
+    ${CSR_CONFIRMED_TABS.map(([value, label]) => `
+      <button class="filter-pill ${csrConfirmedState.tab === value ? 'active' : ''}"
+        data-csr-confirmed-tab="${value}" onclick="setCsrConfirmedTab('${value}')">${label}</button>`).join('')}
+  </div>`;
 }
 
 // The five figures the desk reads first. Share lines are recomputed with the
@@ -11538,12 +11547,6 @@ function renderCsrConfirmedPanel() {
     <div class="${csrMetricsClass()}" id="csr-confirmed-metrics">${renderCsrConfirmedMetrics()}</div>
 
     <div class="rmo-table-wrap">
-      <div class="table-filters csr-confirmed-tabs">
-        ${CSR_CONFIRMED_TABS.map(([value, label]) => `
-          <button class="filter-pill ${csrConfirmedState.tab === value ? 'active' : ''}"
-            data-csr-confirmed-tab="${value}" onclick="setCsrConfirmedTab('${value}')">${label}</button>`).join('')}
-      </div>
-
       <div class="rmo-toolbar csr-confirmed-toolbar">
         <div class="rmo-toolbar-periods">
           <div class="table-filters">

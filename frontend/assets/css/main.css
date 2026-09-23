@@ -6980,10 +6980,11 @@ tfoot td {
   font-weight: 700;
 }
 
-/* Confirmed Orders / Duplicate Customers. The two read the same toolbar, so
-   they sit above it rather than between it and the table they filter. */
+/* Confirmed Orders / Duplicate Customers. The two read the same toolbar and
+   the same metric row, so they sit up in the page header with the title rather
+   than inside the card they switch. */
 .csr-confirmed-tabs {
-  margin-bottom: 14px;
+  margin: 0;
 }
 
 /* One customer's banner: the number and the pages it ordered from, with their
