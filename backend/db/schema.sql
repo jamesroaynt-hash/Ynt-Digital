@@ -679,10 +679,26 @@ CREATE TABLE IF NOT EXISTS evaluation_weights (
   attitude_weight REAL NOT NULL DEFAULT 25,
   skills_weight REAL NOT NULL DEFAULT 25,
   technical_weight REAL NOT NULL DEFAULT 25,
+  passing_score REAL NOT NULL DEFAULT 75,
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 INSERT OR IGNORE INTO evaluation_weights (id) VALUES (1);
+
+-- The matrix's item rows, editable by HR/Administrator. The scores on every
+-- sheet are filed under item_key, so a key is written once and never changed:
+-- a row that is dropped from the sheet is deactivated, not deleted.
+CREATE TABLE IF NOT EXISTS evaluation_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  criterion_id TEXT NOT NULL,
+  item_key TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluation_items_criterion
+  ON evaluation_items(criterion_id, position);
 
 COMMIT;

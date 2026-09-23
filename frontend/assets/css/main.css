@@ -6597,6 +6597,48 @@ tfoot td {
 .eval-weight-total.bad { color: var(--danger-text);  background: var(--danger-soft); }
 @media (max-width: 900px) { .eval-weight-grid { grid-template-columns: repeat(2, 1fr); } }
 
+/* The item rows HR rates everyone on, one column per criteria so the four
+   lists are compared side by side rather than scrolled through in turn. */
+.eval-items-editor {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.eval-items-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.eval-items-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+}
+/* The name takes the room; the three controls stay the same size down the
+   list, so the inputs line up however long the wording gets. */
+.eval-items-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 4px;
+  align-items: center;
+}
+.eval-items-row .form-control { padding: 6px 8px; font-size: 12.5px; }
+.eval-items-row .btn {
+  padding: 4px 7px;
+  line-height: 1;
+  min-width: 26px;
+}
+.eval-items-add { align-self: flex-start; margin-top: 2px; }
+
+@media (max-width: 1200px) { .eval-items-editor { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px)  { .eval-items-editor { grid-template-columns: 1fr; } }
+
 /* ── Evaluation: rating form ────────────────────────────────────────────── */
 /* The sheet header sticks while the 21 item rows scroll under it, so the
    over-all percentage stays in view as the cells are filled. */

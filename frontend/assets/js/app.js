@@ -4785,9 +4785,13 @@ function employeeTrackerThisWeek() {
 // A criterion's AVERAGE is the mean of its items, its OVERALL is that average
 // against the criterion's total percentage, and the over-all percentage is the
 // sum of the four. Every active account rates every other one — never
-// themselves — during the last three days of the month, and only
-// HR/Administrator sees the resulting scores.
-const EVALUATION_CRITERIA = [
+// themselves — over the five days that close each fifteen-day period. HR and
+// the Administrator fill theirs in whenever they need to, edit the item rows
+// below, and are the only ones who see the scores at all.
+//
+// These rows are only what to draw before the server answers: HR edits the
+// matrix from this page, so the sheet is whatever came back with the queue.
+const EVALUATION_DEFAULT_CRITERIA = [
   {
     id: 'communication',
     label: 'Communication Skills',
@@ -4835,8 +4839,18 @@ const EVALUATION_CRITERIA = [
   },
 ];
 
+// The matrix the server is serving, or the printed sheet until it answers.
+function evaluationCriteria() {
+  const criteria = evaluationState.criteria;
+  return Array.isArray(criteria) && criteria.length ? criteria : EVALUATION_DEFAULT_CRITERIA;
+}
+
 // The development box on the sheet is capped at a thousand words.
 const EVALUATION_WORD_LIMIT = 1000;
+
+// The score an evaluation has to reach to count as passed. HR sets it; this is
+// only what to assume until the page has heard back.
+const EVALUATION_DEFAULT_PASSING = 75;
 
 const EVALUATION_LEVELS = [
   { min: 95, label: 'Exceptional', tone: 'success' },
@@ -4854,9 +4868,32 @@ function evaluationLevelFor(score) {
 }
 
 function evaluationPeriodLabel(period) {
-  const [year, month] = String(period || '').split('-').map(Number);
-  if (!year || !month) return String(period || '');
-  return `${new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' })} ${year}`;
+  const text = String(period || '');
+  const [year, month] = text.split('-').map(Number);
+  if (!year || !month) return text;
+  const name = `${new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' })} ${year}`;
+  // Periods run every fifteen days. The sheets filed before the split carry a
+  // whole month, and are still labelled as the month they were.
+  if (text.endsWith('-H1')) return `${name} · 1st–15th`;
+  if (text.endsWith('-H2')) return `${name} · 16th–end`;
+  return name;
+}
+
+function evaluationPassingScore(result) {
+  const fromResult = Number(result?.passing_score);
+  if (Number.isFinite(fromResult)) return fromResult;
+  const stored = Number(evaluationState.passingScore);
+  return Number.isFinite(stored) ? stored : EVALUATION_DEFAULT_PASSING;
+}
+
+// Passed is the score against the one HR set, so it moves when they move it.
+// An employee nobody has rated has nothing to pass or fail.
+function evaluationPassBadge(result) {
+  if (!result || !result.responses) return '';
+  const passing = evaluationPassingScore(result);
+  return (Number(result.score) || 0) >= passing
+    ? `<span class="badge badge-success">Passed · ${passing}%</span>`
+    : `<span class="badge badge-danger">Not passed · ${passing}%</span>`;
 }
 
 // A cell on the sheet is a percentage or it is blank — anything outside 0-100
@@ -4877,12 +4914,20 @@ let evaluationState = {
   period: '',
   window: null,
   weights: null,
+  // The matrix as HR has it, and the score that passes — both come back with
+  // the queue rather than being fixed in this file.
+  criteria: null,
+  passingScore: null,
+  // The item rows as the setup card has them mid-edit, before Save.
+  setupItems: null,
   canSeeScores: false,
-  // Writing a sheet is HR's and the Administrator's. Everyone else opens this
-  // page to read the evaluation written about them, and nothing else.
+  // HR and the Administrator are not held to the five-day window.
+  canFillAnytime: false,
+  // Everyone writes sheets about everyone else; this only falls to false on a
+  // page that loaded without an account behind it.
   canEvaluate: false,
-  // That read-only record, and the periods before it, for a viewer who is not
-  // an evaluator.
+  // HR's own record, and the periods before it. Nobody outside HR reads a
+  // score on this page — not even their own.
   mine: null,
   mineHistory: [],
   rows: [],
@@ -4905,7 +4950,7 @@ function renderEvaluationKpi() {
   <div class="page-header">
     <div class="page-title">
       <h1>Monthly Evaluation / KPI</h1>
-      <p id="evaluation-page-sub">Evaluation Matrix — General Evaluation, filled every month.</p>
+      <p id="evaluation-page-sub">Evaluation Matrix — General Evaluation, filled every fifteen days.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
@@ -4922,7 +4967,7 @@ function renderEvaluationKpi() {
     <div class="card-header">
       <div>
         <div class="card-title">My Evaluation</div>
-        <div class="card-subtitle">The evaluation HR filled in for you this period.</div>
+        <div class="card-subtitle">The sheets written about you this period.</div>
       </div>
     </div>
     <div class="card-body" id="evaluation-mine-wrap"></div>
@@ -4932,7 +4977,7 @@ function renderEvaluationKpi() {
     <div class="card-header">
       <div>
         <div class="card-title">Evaluation Queue</div>
-        <div class="card-subtitle">One row per employee per evaluation period. You are not on this list — nobody rates themselves.</div>
+        <div class="card-subtitle">Everyone you rate this period. You are not on this list — nobody rates themselves.</div>
       </div>
     </div>
     <div class="card-body" id="evaluation-queue-wrap">
@@ -5025,8 +5070,14 @@ async function initEvaluationKpi() {
     evaluationState.period = result.period;
     evaluationState.window = result.window;
     evaluationState.weights = result.weights;
+    evaluationState.criteria = Array.isArray(result.criteria) ? result.criteria : null;
+    evaluationState.passingScore = result.passing_score;
+    // The setup card is rebuilt from what came back, so a Refresh drops an
+    // edit in progress rather than saving half of it later.
+    evaluationState.setupItems = null;
     evaluationState.canSeeScores = !!result.can_see_scores;
     evaluationState.canEvaluate = !!result.can_evaluate;
+    evaluationState.canFillAnytime = !!result.can_fill_anytime;
     evaluationState.rows = Array.isArray(result.data) ? result.data : [];
   } catch (error) {
     evaluationState.rows = [];
@@ -5039,7 +5090,7 @@ async function initEvaluationKpi() {
   }
   if (App.currentPage !== 'evaluation-kpi') return;
   renderEvaluationWindowNotice();
-  renderEvaluationWeights();
+  renderEvaluationSetup();
   renderEvaluationMine();
   renderEvaluationQueue();
   renderEvaluationRecord();
@@ -5047,50 +5098,58 @@ async function initEvaluationKpi() {
   loadMyEvaluation();
 }
 
+// Periods run every fifteen days and are filled in over the five days that
+// close each one. HR and the Administrator are not held to that, so they are
+// told whose deadline it is rather than given one.
 function renderEvaluationWindowNotice() {
   const wrap = document.getElementById('evaluation-window-wrap');
   const win = evaluationState.window;
   if (!wrap || !win) return;
   const period = evaluationPeriodLabel(win.period);
-  // An employee does not fill anything in, so telling them to would be a
-  // deadline they cannot act on — they are told when HR's window runs instead.
-  const evaluator = evaluationState.canEvaluate;
-  const openLine = evaluator
-    ? `Fill it in by ${escapeHtml(win.closes_on)} — the form closes after that and cannot be reopened.`
-    : `HR is filling in the sheets until ${escapeHtml(win.closes_on)}. Yours appears below once it is submitted.`;
-  const shutLine = evaluator
-    ? `It stays open for three days, until ${escapeHtml(win.closes_on)}.`
-    : `HR fills the sheets in over the three days to ${escapeHtml(win.closes_on)}.`;
+  const days = Number(win.fill_days || 5);
+  if (evaluationState.canFillAnytime) {
+    wrap.innerHTML = `<div class="alert alert-info" style="margin-bottom:16px;">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
+        <div><strong>${escapeHtml(period)}.</strong> HR and the Administrator write sheets at any time.
+          Everybody else fills theirs in over the ${days} days from
+          ${escapeHtml(win.opens_on)} to ${escapeHtml(win.closes_on)}${win.open ? ' — open now' : ''}.</div>
+      </div>`;
+    return;
+  }
   wrap.innerHTML = win.open
     ? `<div class="alert alert-success" style="margin-bottom:16px;">
          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 5L6 12l-3-3"/></svg>
-         <div><strong>${escapeHtml(period)} evaluation is open.</strong> ${openLine}</div>
+         <div><strong>${escapeHtml(period)} evaluation is open.</strong>
+           Rate everyone on the list by ${escapeHtml(win.closes_on)} — the form closes after that.</div>
        </div>`
     : `<div class="alert alert-info" style="margin-bottom:16px;">
          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
-         <div><strong>${escapeHtml(period)} evaluation opens ${escapeHtml(win.opens_on)}.</strong> ${shutLine}</div>
+         <div><strong>${escapeHtml(period)} evaluation opens ${escapeHtml(win.opens_on)}.</strong>
+           It stays open ${days} days, until ${escapeHtml(win.closes_on)}.</div>
        </div>`;
 }
 
-// HR/Administrator can retune the TOTAL PERCENTAGE column. It has to total 100
-// or every score would silently be capped below it, so the server rejects
+// The matrix itself, HR's to set: what each criteria is worth, the score that
+// passes, and the item rows everyone is rated on. The totals have to reach 100
+// or every score would silently be capped below them, so the server rejects
 // anything else.
-function renderEvaluationWeights() {
+function renderEvaluationSetup() {
   const wrap = document.getElementById('evaluation-weights-wrap');
   if (!wrap) return;
   if (!evaluationState.canSeeScores || !evaluationState.weights) { wrap.innerHTML = ''; return; }
+  const items = evaluationSetupItems();
   wrap.innerHTML = `
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header">
         <div>
-          <div class="card-title">Total Percentage per Criteria</div>
-          <div class="card-subtitle">What each criteria is worth on the matrix. Must total 100%.</div>
+          <div class="card-title">Evaluation Matrix Setup</div>
+          <div class="card-subtitle">What each criteria is worth, the score that passes, and the items rated under each.</div>
         </div>
         <div class="eval-weight-total" id="evaluation-weight-total"></div>
       </div>
       <div class="card-body">
         <div class="eval-weight-grid">
-          ${EVALUATION_CRITERIA.map((criterion) => `
+          ${evaluationCriteria().map((criterion) => `
             <div class="eval-weight-field">
               <label class="form-label">${escapeHtml(criterion.label)}</label>
               <div class="eval-weight-input">
@@ -5100,18 +5159,111 @@ function renderEvaluationWeights() {
                 <span>%</span>
               </div>
             </div>`).join('')}
+          <div class="eval-weight-field">
+            <label class="form-label">Passing score</label>
+            <div class="eval-weight-input">
+              <input type="number" min="0" max="100" step="0.5" class="form-control"
+                id="evaluation-passing-score" value="${evaluationPassingScore()}">
+              <span>%</span>
+            </div>
+          </div>
         </div>
-        <div style="margin-top:14px;">
-          <button class="btn btn-primary btn-sm" onclick="saveEvaluationWeights()">Save Total Percentages</button>
+
+        <div class="eval-items-editor">
+          ${evaluationCriteria().map((criterion) => renderEvaluationItemEditor(criterion, items[criterion.id] || [])).join('')}
+        </div>
+
+        <div style="margin-top:14px;display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" onclick="saveEvaluationSetup()">Save Matrix</button>
+          <button class="btn btn-secondary btn-sm" onclick="resetEvaluationSetup()">Undo changes</button>
+        </div>
+        <div class="ev-muted" style="margin-top:10px;font-size:12px;">
+          Renaming an item keeps the ratings already filed under it. Removing one takes it off the
+          sheet and out of every score, including the periods already filled in.
         </div>
       </div>
     </div>`;
   refreshEvaluationWeightTotal();
 }
 
+// One criterion's item rows, in the order they are rated in.
+function renderEvaluationItemEditor(criterion, rows) {
+  return `
+    <div class="eval-items-group">
+      <div class="eval-items-head">
+        <strong>${escapeHtml(criterion.label)}</strong>
+        <span class="ev-muted">${rows.length} item${rows.length === 1 ? '' : 's'}</span>
+      </div>
+      ${rows.map((item, index) => `
+        <div class="eval-items-row">
+          <input type="text" class="form-control" maxlength="120" value="${escapeHtml(item.label || '')}"
+            placeholder="Item name" data-eval-item="${escapeHtml(criterion.id)}"
+            aria-label="Item ${index + 1} under ${escapeHtml(criterion.label)}"
+            oninput="setEvaluationSetupLabel('${criterion.id}', ${index}, this.value)">
+          <button type="button" class="btn btn-secondary btn-sm" title="Move up"
+            onclick="moveEvaluationSetupItem('${criterion.id}', ${index}, -1)" ${index === 0 ? 'disabled' : ''}>&uarr;</button>
+          <button type="button" class="btn btn-secondary btn-sm" title="Move down"
+            onclick="moveEvaluationSetupItem('${criterion.id}', ${index}, 1)" ${index === rows.length - 1 ? 'disabled' : ''}>&darr;</button>
+          <button type="button" class="btn btn-danger btn-sm" title="Remove this item"
+            onclick="removeEvaluationSetupItem('${criterion.id}', ${index})" ${rows.length <= 1 ? 'disabled' : ''}>&times;</button>
+        </div>`).join('')}
+      <button type="button" class="btn btn-secondary btn-sm eval-items-add"
+        onclick="addEvaluationSetupItem('${criterion.id}')">+ Add item</button>
+    </div>`;
+}
+
+// The rows as the card has them mid-edit. Taken from the served matrix the
+// first time, then held until they are saved or the page is refreshed, so
+// adding a row does not cost the ones already typed.
+function evaluationSetupItems() {
+  if (!evaluationState.setupItems) {
+    evaluationState.setupItems = Object.fromEntries(evaluationCriteria().map((criterion) => [
+      criterion.id,
+      (criterion.items || []).map((item) => ({ key: item.key, label: item.label })),
+    ]));
+  }
+  return evaluationState.setupItems;
+}
+
+// A new row carries no key: the server makes one from its wording when it is
+// saved, and every rating from then on is filed under that.
+function addEvaluationSetupItem(criterionId) {
+  const items = evaluationSetupItems();
+  (items[criterionId] = items[criterionId] || []).push({ key: '', label: '' });
+  renderEvaluationSetup();
+  const typed = document.querySelectorAll(`[data-eval-item="${criterionId}"]`);
+  typed[typed.length - 1]?.focus();
+}
+
+function removeEvaluationSetupItem(criterionId, index) {
+  const rows = evaluationSetupItems()[criterionId] || [];
+  if (rows.length <= 1) return;
+  rows.splice(Number(index), 1);
+  renderEvaluationSetup();
+}
+
+function moveEvaluationSetupItem(criterionId, index, delta) {
+  const rows = evaluationSetupItems()[criterionId] || [];
+  const from = Number(index);
+  const to = from + Number(delta);
+  if (to < 0 || to >= rows.length) return;
+  [rows[from], rows[to]] = [rows[to], rows[from]];
+  renderEvaluationSetup();
+}
+
+function setEvaluationSetupLabel(criterionId, index, value) {
+  const row = (evaluationSetupItems()[criterionId] || [])[Number(index)];
+  if (row) row.label = value;
+}
+
+function resetEvaluationSetup() {
+  evaluationState.setupItems = null;
+  renderEvaluationSetup();
+}
+
 function readEvaluationWeightInputs() {
   const weights = {};
-  EVALUATION_CRITERIA.forEach((criterion) => {
+  evaluationCriteria().forEach((criterion) => {
     weights[criterion.id] = Number(document.getElementById(`evaluation-weight-${criterion.id}`)?.value || 0);
   });
   return weights;
@@ -5121,32 +5273,51 @@ function refreshEvaluationWeightTotal() {
   const el = document.getElementById('evaluation-weight-total');
   if (!el) return;
   const weights = readEvaluationWeightInputs();
-  const total = Math.round(EVALUATION_CRITERIA.reduce((sum, c) => sum + weights[c.id], 0) * 10) / 10;
+  const total = Math.round(evaluationCriteria().reduce((sum, c) => sum + weights[c.id], 0) * 10) / 10;
   const ok = Math.abs(total - 100) < 0.01;
   el.className = `eval-weight-total ${ok ? 'ok' : 'bad'}`;
   el.textContent = `Total ${total}%`;
 }
 
-async function saveEvaluationWeights() {
+async function saveEvaluationSetup() {
+  const items = {};
+  for (const criterion of evaluationCriteria()) {
+    const rows = (evaluationSetupItems()[criterion.id] || [])
+      .map((row) => ({ key: row.key || '', label: String(row.label || '').trim() }));
+    if (!rows.length) {
+      showToast('warning', 'Empty criteria', `${criterion.label} needs at least one item.`);
+      return;
+    }
+    if (rows.some((row) => !row.label)) {
+      showToast('warning', 'Unnamed item', `Every item under ${criterion.label} needs a name.`);
+      return;
+    }
+    items[criterion.id] = rows;
+  }
+  const passing = Number(document.getElementById('evaluation-passing-score')?.value);
+  if (!Number.isFinite(passing) || passing < 0 || passing > 100) {
+    showToast('warning', 'Check the passing score', 'The passing score is a percentage from 0 to 100.');
+    return;
+  }
   try {
-    const result = await authorizedJsonRequest('/evaluations/config', {
+    await authorizedJsonRequest('/evaluations/config', {
       method: 'PUT',
-      body: JSON.stringify(readEvaluationWeightInputs()),
+      body: JSON.stringify({ weights: readEvaluationWeightInputs(), passing_score: passing, items }),
     });
-    evaluationState.weights = result.weights;
-    showToast('success', 'Saved', 'The new total percentages apply to every score.');
+    evaluationState.setupItems = null;
+    showToast('success', 'Saved', 'The matrix applies to every score from here.');
     await initEvaluationKpi();
   } catch (error) {
     showToast('error', 'Could not save', error.message || 'Check that the criteria total 100%.');
   }
 }
 
-// ─── The employee's own evaluation ─────────────────────────
-// Everyone outside HR reads exactly one record here: the sheets written about
-// them. The evaluators are not named — the server sends numbered labels — so
-// the ratings can be read without reading who gave them.
+// ─── The viewer's own evaluation ─────────────────────────
+// The sheets written about the signed-in user. Scores are HR's and the
+// Administrator's to read — an employee's own included — so this card is only
+// built for them, and the evaluators are not named to anybody.
 async function loadMyEvaluation() {
-  if (evaluationState.canEvaluate) { evaluationState.mine = null; return; }
+  if (!evaluationState.canSeeScores) { evaluationState.mine = null; return; }
   try {
     const result = await authorizedJsonRequest(`/evaluations/me?_=${Date.now()}`);
     evaluationState.mine = result;
@@ -5165,18 +5336,18 @@ function renderEvaluationMine() {
   const card = document.getElementById('evaluation-mine-card');
   if (!wrap || !card) return;
   const pageSub = document.getElementById('evaluation-page-sub');
-  if (evaluationState.canEvaluate) {
-    if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation, filled every month.';
+  if (!evaluationState.canSeeScores) {
+    if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation. Rate everyone on the list; the scores are HR\'s.';
     card.style.display = 'none';
     wrap.innerHTML = '';
     return;
   }
-  if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation. HR evaluates; this is your record.';
+  if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation, filled every fifteen days.';
   card.style.display = '';
 
   const periodLabel = evaluationPeriodLabel(evaluationState.mine?.period || evaluationState.period);
   const subtitle = card.querySelector('.card-subtitle');
-  if (subtitle) subtitle.textContent = `${periodLabel} — filled in by HR.`;
+  if (subtitle) subtitle.textContent = `${periodLabel} — what your colleagues submitted.`;
 
   if (!evaluationState.mine) {
     wrap.innerHTML = '<div class="empty-state"><h3>Loading your evaluation</h3><p>Pulling the sheets written about you.</p></div>';
@@ -5187,7 +5358,7 @@ function renderEvaluationMine() {
   const responses = evaluationState.mine.responses || [];
   if (!result.responses) {
     wrap.innerHTML = `<div class="empty-state"><h3>No evaluation yet</h3>
-      <p>HR has not submitted your ${escapeHtml(periodLabel)} evaluation. It appears here once they do.</p></div>
+      <p>Nobody has submitted a sheet about you for ${escapeHtml(periodLabel)}. Your record appears here once they do.</p></div>
       <div id="evaluation-mine-history"></div>`;
     renderEvaluationMineHistory();
     return;
@@ -5204,12 +5375,12 @@ function renderEvaluationMine() {
       <div class="stat-card">
         <div class="stat-label">Performance Level</div>
         <div class="stat-value" style="font-size:20px;">${escapeHtml(level.label)}</div>
-        <div class="stat-meta">${escapeHtml(periodLabel)}</div>
+        <div class="stat-meta">${evaluationPassBadge(result) || escapeHtml(periodLabel)}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Evaluations</div>
         <div class="stat-value">${result.responses}</div>
-        <div class="stat-meta">submitted by HR</div>
+        <div class="stat-meta">sheets submitted</div>
       </div>
     </div>
     ${renderEvaluationResultMatrix(result)}
@@ -5266,9 +5437,8 @@ function renderEvaluationQueue() {
   const wrap = document.getElementById('evaluation-queue-wrap');
   const card = document.getElementById('evaluation-queue-card');
   if (!wrap || !card) return;
-  // Only HR and the Administrator write evaluations, so for anyone else the
-  // queue is not emptied, it is not there — there is nothing on it they could
-  // act on.
+  // Everybody rates everybody, so the queue is everyone's. It only disappears
+  // for a page with no account behind it, which has nothing to act on.
   if (!evaluationState.canEvaluate) {
     card.style.display = 'none';
     wrap.innerHTML = '';
@@ -5280,7 +5450,9 @@ function renderEvaluationQueue() {
     return;
   }
   const period = evaluationPeriodLabel(evaluationState.period);
-  const open = !!evaluationState.window?.open;
+  // HR and the Administrator are not held to the five-day window, so the form
+  // stays available to them whether or not it is open for everybody else.
+  const open = !!evaluationState.window?.open || !!evaluationState.canFillAnytime;
   // The score column and the row's record are HR/Administrator only, so for a
   // peer the column is not rendered at all rather than repeating "HR only"
   // down the table, and a row is not clickable — there is nothing to open.
@@ -5328,7 +5500,8 @@ function renderEvaluationScoreCell(row) {
   const partial = result.covered_weight < 99.99
     ? ` <span class="ev-muted">of ${result.covered_weight}% rated</span>` : '';
   return `<strong>${evaluationPercentText(result.score)}</strong>${partial}
-    <div><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span></div>`;
+    <div><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span>
+      ${evaluationPassBadge(result)}</div>`;
 }
 
 function renderEvaluationRecord() {
@@ -5365,7 +5538,8 @@ function renderEvaluationRecord() {
       <div class="stat-card">
         <div class="stat-label">Performance Level</div>
         <div class="stat-value" style="font-size:20px;">${result.responses ? escapeHtml(level.label) : '—'}</div>
-        <div class="stat-meta">${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</div>
+        <div class="stat-meta">${evaluationPassBadge(result)
+          || escapeHtml(evaluationPeriodLabel(evaluationState.period))}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Responses</div>
@@ -5395,7 +5569,7 @@ function renderEvaluationResultMatrix(result) {
         </tr>
       </thead>
       <tbody>
-        ${EVALUATION_CRITERIA.map((criterion) => {
+        ${evaluationCriteria().map((criterion) => {
           const scored = result.per_criteria?.[criterion.id] || {};
           const span = criterion.items.length;
           return criterion.items.map((item, index) => {
@@ -5484,9 +5658,9 @@ function selectEvaluationEmployee(userId) {
 
 /* ─── The evaluations written about one employee ───────────
    Opened by clicking a name in the queue: every submitted sheet for the
-   selected period, each openable on its own. Who wrote which sheet comes from
-   the server — a name for the Administrator, "Evaluator 1, 2, 3…" for HR and
-   Operation, who read the sheets anonymously. */
+   selected period, each openable on its own. Who wrote which sheet is nobody's
+   to read — the server sends "Evaluator 1, 2, 3…" to everyone, the
+   Administrator included, so the ratings are read without their authors. */
 
 function renderEvaluationResponsesModal() {
   return `
@@ -5550,7 +5724,8 @@ function renderEvaluationResponsesList(responses, row) {
               <td><strong>${evaluationPercentText(result.score)}</strong>${
                 result.covered_weight !== undefined && result.covered_weight < 99.99
                   ? ` <span class="ev-muted">of ${result.covered_weight}% rated</span>` : ''}</td>
-              <td><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span></td>
+              <td><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span>
+                ${evaluationPassBadge(result)}</td>
               <td><button class="btn btn-secondary btn-sm" type="button" onclick="viewEvaluationResponse(${index})">View sheet</button></td>
             </tr>`;
           }).join('')}
@@ -5603,6 +5778,7 @@ function renderEvaluationResponseDetail(responses, index, row) {
         <span>Proceed to Final Evaluation: <strong>${escapeHtml(response.proceed_to_final || '—')}</strong></span>
         <span>Passed or not passed: <strong>${escapeHtml(response.passed || '—')}</strong></span>
         <span>Performance Level: <strong>${escapeHtml(level.label)}</strong></span>
+        <span>Against the ${evaluationPassingScore(result)}% passing score: ${evaluationPassBadge(result) || '—'}</span>
       </div>
     </div>`;
 }
@@ -5619,16 +5795,19 @@ function backToEvaluationResponses() {
 
 // ─── The matrix form ───────────────────────────────────────
 function openEvaluationForm(userId) {
-  // The server refuses a sheet from anyone but HR and the Administrator; this
+  // The server refuses a sheet from a page with no account behind it; this
   // keeps a stale page from offering the form in the first place.
   if (!evaluationState.canEvaluate) {
-    showToast('warning', 'HR fills this in', 'Only HR and the Administrator write evaluations.');
+    showToast('warning', 'Sign in first', 'Your session has expired — sign in again to evaluate.');
     return;
   }
   const row = evaluationState.rows.find((r) => r.id === Number(userId));
   if (!row) return;
-  if (!evaluationState.window?.open) {
-    showToast('warning', 'Evaluation is closed', `It opens ${evaluationState.window?.opens_on} for three days.`);
+  // The window is everybody else's; HR and the Administrator write any time.
+  if (!evaluationState.window?.open && !evaluationState.canFillAnytime) {
+    const win = evaluationState.window || {};
+    showToast('warning', 'Evaluation is closed',
+      `It opens ${win.opens_on} and runs ${win.fill_days || 5} days, to ${win.closes_on}.`);
     return;
   }
   evaluationState.selectedId = row.id;
@@ -5684,7 +5863,7 @@ function renderEvaluationMatrix() {
         </tr>
       </thead>
       <tbody>
-        ${EVALUATION_CRITERIA.map((criterion) => {
+        ${evaluationCriteria().map((criterion) => {
           const span = criterion.items.length;
           return criterion.items.map((item, index) => {
             const value = items[item.key];
@@ -5726,7 +5905,7 @@ function evaluationDraftTotals() {
   const perCriteria = {};
   let overall = 0;
   let complete = true;
-  EVALUATION_CRITERIA.forEach((criterion) => {
+  evaluationCriteria().forEach((criterion) => {
     const rated = criterion.items
       .map((item) => evaluationPercentValue(items[item.key]))
       .filter((value) => value !== null);
@@ -5746,7 +5925,7 @@ function evaluationDraftTotals() {
 
 function refreshEvaluationMatrixTotals() {
   const totals = evaluationDraftTotals();
-  EVALUATION_CRITERIA.forEach((criterion) => {
+  evaluationCriteria().forEach((criterion) => {
     const scored = totals.perCriteria[criterion.id];
     const averageEl = document.getElementById(`evaluation-average-${criterion.id}`);
     const overallEl = document.getElementById(`evaluation-overall-${criterion.id}`);
@@ -5773,7 +5952,7 @@ async function submitEvaluation() {
   const draft = evaluationState.draft;
   if (!draft) return;
   const items = {};
-  for (const criterion of EVALUATION_CRITERIA) {
+  for (const criterion of evaluationCriteria()) {
     for (const item of criterion.items) {
       const percent = evaluationPercentValue(draft.items[item.key]);
       if (percent === null) {
@@ -5810,7 +5989,7 @@ async function submitEvaluation() {
   }
 }
 
-// The topbar shortcut. It carries a dot while the window is open and this user
+// The topbar shortcut. It carries a dot while this user can fill sheets in and
 // still has somebody left to rate, so an open window is visible from any page.
 let _evalTopbarCheckedAt = 0;
 const EVAL_TOPBAR_TTL_MS = 5 * 60 * 1000;
@@ -5827,17 +6006,18 @@ async function refreshEvaluationTopbarButton({ force = false } = {}) {
   _evalTopbarCheckedAt = Date.now();
   try {
     const result = await authorizedJsonRequest(`/evaluations/queue?_=${Date.now()}`);
-    // Nothing is pending for someone who does not write sheets — the dot marks
-    // work to do, and reading your own evaluation is not work to do.
+    // Nothing is pending for a session with no account behind it — the dot
+    // marks work to do, and there is none to do.
     if (!result.can_evaluate) {
       button.classList.remove('has-dot');
-      button.title = 'My evaluation';
+      button.title = 'Evaluation';
       return;
     }
     const pending = (result.data || []).filter((row) => !row.submitted).length;
-    button.classList.toggle('has-dot', !!result.window?.open && pending > 0);
-    button.title = result.window?.open
-      ? `${pending} left to evaluate — closes ${result.window.closes_on}`
+    const canFill = !!result.window?.open || !!result.can_fill_anytime;
+    button.classList.toggle('has-dot', canFill && pending > 0);
+    button.title = canFill
+      ? `${pending} left to evaluate — period closes ${result.window?.closes_on}`
       : `Evaluation opens ${result.window?.opens_on}`;
   } catch {
     button.classList.remove('has-dot');
