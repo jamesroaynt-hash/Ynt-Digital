@@ -2893,11 +2893,12 @@ function csrRoutes(db) {
   });
 
   /* ─── DUPLICATE CUSTOMERS ────────────────────────────────── */
-  // One phone number ordering off more than one page: either the same person
-  // buying from two of our pages, or the same lead worked twice. Matching is on
-  // the last 10 digits, so 09171234567, +639171234567 and 0917 123 4567 are one
-  // customer — the same shape normalizeCustomerPhone() folds to, done in SQL so
-  // the grouping stays on the database instead of pulling every order across.
+  // One phone number worked twice, in either of the shapes the desk cares
+  // about: it ordered off more than one page, or one page booked it more than
+  // once on the same Manila day. Matching is on the last 10 digits, so
+  // 09171234567, +639171234567 and 0917 123 4567 are one customer — the same
+  // shape normalizeCustomerPhone() folds to, done in SQL so the grouping stays
+  // on the database instead of pulling every order across.
   const PHONE_DIGITS = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
     COALESCE(customer_phone, ''), ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), '.', '')`;
   const PHONE_KEY = `SUBSTR(${PHONE_DIGITS}, CASE WHEN LENGTH(${PHONE_DIGITS}) > 10
@@ -2917,7 +2918,7 @@ function csrRoutes(db) {
         scope: scope.all ? 'all' : (scope.confirmer ? 'confirmer' : 'own'),
         confirmer: scope.confirmer,
         data: [], total: 0, page: 1, per_page: 25,
-        summary: { customers: 0, orders: 0, cod: 0 },
+        summary: { customers: 0, orders: 0, cod: 0, crossPage: 0, sameDay: 0 },
       };
       if (names && !names.length) return res.json(empty);
 
@@ -2926,17 +2927,27 @@ function csrRoutes(db) {
       const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names, scope.system);
       // A number too short to be a phone groups everything that is missing one.
       const scoped = `${where} AND LENGTH(${PHONE_DIGITS}) >= 10`;
+      // One page's orders for a number on one Manila day. Blank pages and rows
+      // with no date key to NULL, which COUNT() skips, so neither can look like
+      // a repeat. More orders than distinct keys means a page booked the same
+      // number twice in a day.
+      const DAY_PAGE_KEY = `CASE WHEN ${PAGE_KEY} IS NULL OR ${manilaDay} IS NULL
+        THEN NULL ELSE ${PAGE_KEY} || '|' || ${manilaDay} END`;
       const grouped = `
         SELECT ${PHONE_KEY} AS phone_key,
                COUNT(*) AS orders,
                COUNT(DISTINCT ${PAGE_KEY}) AS pages,
+               COUNT(${DAY_PAGE_KEY}) - COUNT(DISTINCT ${DAY_PAGE_KEY}) AS same_day_repeats,
                COALESCE(SUM(cod), 0) AS cod
         FROM pos_orders ${scoped}
         GROUP BY ${PHONE_KEY}
-        HAVING COUNT(DISTINCT ${PAGE_KEY}) > 1`;
+        HAVING COUNT(DISTINCT ${PAGE_KEY}) > 1
+            OR COUNT(${DAY_PAGE_KEY}) > COUNT(DISTINCT ${DAY_PAGE_KEY})`;
 
       const totals = await db.prepare(`
-        SELECT COUNT(*) AS customers, COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(cod), 0) AS cod
+        SELECT COUNT(*) AS customers, COALESCE(SUM(orders), 0) AS orders, COALESCE(SUM(cod), 0) AS cod,
+               COALESCE(SUM(CASE WHEN pages > 1 THEN 1 ELSE 0 END), 0) AS cross_page,
+               COALESCE(SUM(CASE WHEN same_day_repeats > 0 THEN 1 ELSE 0 END), 0) AS same_day
         FROM (${grouped}) AS duplicates
       `).get(...params);
 
@@ -2972,9 +2983,25 @@ function csrRoutes(db) {
           customers: Number(totals?.customers || 0),
           orders: Number(totals?.orders || 0),
           cod: Number(totals?.cod || 0),
+          crossPage: Number(totals?.cross_page || 0),
+          sameDay: Number(totals?.same_day || 0),
         },
         data: groups.map((group) => {
           const items = byPhone.get(group.phone_key) || [];
+          // Which page/day this customer's orders landed on, so the rows that
+          // share one with another order can be marked here rather than left
+          // for the table to work out again.
+          const dayKey = (item) => {
+            const page = String(item.page_name || '').trim().toLowerCase();
+            return page && item.manila_day ? `${page}|${item.manila_day}` : '';
+          };
+          const perDay = new Map();
+          for (const item of items) {
+            const key = dayKey(item);
+            if (key) perDay.set(key, (perDay.get(key) || 0) + 1);
+          }
+          const pageCount = Number(group.pages || 0);
+          const sameDayRepeats = Number(group.same_day_repeats || 0);
           return {
             // One tidy 09XXXXXXXXX for the group, whatever spellings its
             // orders carry; the rows below it keep what was actually typed.
@@ -2986,6 +3013,13 @@ function csrRoutes(db) {
             customer_name: items.find((item) => String(item.customer_name || '').trim())?.customer_name || '',
             orders: Number(group.orders || 0),
             pages: [...new Set(items.map((item) => String(item.page_name || '').trim()).filter(Boolean))],
+            page_count: pageCount,
+            same_day_repeats: sameDayRepeats,
+            // Why this number is listed; a customer can be here for both.
+            reasons: [
+              ...(pageCount > 1 ? ['pages'] : []),
+              ...(sameDayRepeats > 0 ? ['same_day'] : []),
+            ],
             cod: Number(group.cod || 0),
             items: items.map((item) => ({
               external_id: item.external_id,
@@ -3000,6 +3034,7 @@ function csrRoutes(db) {
               confirmed_by: String(item.confirmed_by_name || '').trim() || SYSTEM_CONFIRMER_LABEL,
               status: POS_DISPLAY_STATUS[String(item.effective_status || '').toLowerCase()] || 'Confirmed',
               date: item.manila_day || '',
+              same_day: (perDay.get(dayKey(item)) || 0) > 1,
             })),
           };
         }),

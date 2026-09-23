@@ -11269,7 +11269,8 @@ let csrConfirmedState = {
   summary: null, accounts: [], linked: true, loaded: false, loading: false, error: '',
 };
 
-// Customers whose number ordered off more than one page, over whatever range,
+// Customers a number was worked twice for — it ordered off more than one page,
+// or one page booked it more than once on the same day — over whatever range,
 // status and confirmer the toolbar above is set to. Kept apart from the orders
 // list so switching tabs back and forth does not refetch either one.
 let csrDuplicatesState = {
@@ -11315,6 +11316,11 @@ function renderCsrDuplicateMetrics() {
   const summary = csrDuplicatesState.summary || {};
   const customers = Number(summary.customers || 0);
   const orders = Number(summary.orders || 0);
+  const crossPage = Number(summary.crossPage || 0);
+  const sameDay = Number(summary.sameDay || 0);
+  // A customer can be listed for both reasons, so the two shares are each
+  // measured against the whole and never expected to add up to it.
+  const share = (value) => (customers ? `${((value / customers) * 100).toFixed(1)}% of duplicates` : 'None in range');
   const card = (label, value, color, meta) => `
     <div class="rts-metric-card ${color}">
       <div class="stat-label">${escapeHtml(label)}</div>
@@ -11323,7 +11329,9 @@ function renderCsrDuplicateMetrics() {
     </div>`;
   return [
     card('Duplicate Customers', customers.toLocaleString(), 'purple',
-      `One number, two or more pages · ${csrConfirmedRangeLabel()}`),
+      `Two pages, or one page twice in a day · ${csrConfirmedRangeLabel()}`),
+    card('Two or More Pages', crossPage.toLocaleString(), 'yellow', share(crossPage)),
+    card('Same Page, Same Day', sameDay.toLocaleString(), 'red', share(sameDay)),
     card('Orders Involved', orders.toLocaleString(), 'blue',
       customers ? `${(orders / customers).toFixed(1)} orders per customer` : 'None in range'),
     card('COD at Stake', `₱${Number(summary.cod || 0).toLocaleString()}`, 'amber',
@@ -11518,9 +11526,10 @@ function renderCsrConfirmedPanel() {
     </div>`;
 }
 
-// One block per customer: a banner naming the number and the pages it ordered
-// from, then that customer's orders under it. The pages are the point, so they
-// are on the banner rather than left to be spotted down the Page column.
+// One block per customer: a banner naming the number, the pages it ordered
+// from and why it is listed, then that customer's orders under it. The pages
+// and the repeat are the point, so they are on the banner rather than left to
+// be spotted down the Page and Date columns.
 function renderCsrDuplicatesTable() {
   const metrics = document.getElementById('csr-confirmed-metrics');
   if (metrics && csrConfirmedState.tab === 'duplicates') metrics.innerHTML = renderCsrDuplicateMetrics();
@@ -11541,22 +11550,36 @@ function renderCsrDuplicatesTable() {
 
   const dash = '<span style="color:var(--text-muted)">—</span>';
   tbody.innerHTML = csrDuplicatesState.data.map((group) => {
+    const reasons = group.reasons || [];
+    const repeats = Number(group.same_day_repeats || 0);
+    const tags = [
+      reasons.includes('pages')
+        ? `<span class="csr-dupe-tag pages">${Number(group.page_count || (group.pages || []).length).toLocaleString()} pages</span>`
+        : '',
+      reasons.includes('same_day')
+        ? `<span class="csr-dupe-tag same-day">Same page, same day${repeats > 1 ? ` ×${repeats}` : ''}</span>`
+        : '',
+    ].join('');
     const banner = `<tr class="csr-dupe-group">
       <td colspan="8">
         <span class="csr-dupe-phone font-mono">${escapeHtml(group.phone || '')}</span>
         <span class="csr-dupe-name">${escapeHtml(group.customer_name || 'Unknown customer')}</span>
+        ${tags}
         <span class="csr-dupe-meta">${Number(group.orders || 0).toLocaleString()} orders ·
           ${escapeHtml((group.pages || []).join(' + '))} ·
           &#8369;${Number(group.cod || 0).toLocaleString()}</span>
       </td>
     </tr>`;
-    const rows = (group.items || []).map((order) => `<tr class="csr-dupe-item">
+    const rows = (group.items || []).map((order) => `<tr class="csr-dupe-item${order.same_day ? ' csr-dupe-repeat' : ''}">
       <td><div class="rmo-item-sub font-mono">${escapeHtml(order.customer_phone || '')}</div></td>
       <td>
         <div class="rmo-item-main font-mono text-xs">${escapeHtml(order.external_id || '')}</div>
         <div class="rmo-item-sub font-mono">${escapeHtml(order.tracking_no || '') || dash}</div>
       </td>
-      <td><div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div></td>
+      <td>
+        <div class="rmo-item-main">${escapeHtml(order.page_name || '') || dash}</div>
+        ${order.same_day ? '<div class="rmo-item-sub csr-dupe-flag">Repeat this day</div>' : ''}
+      </td>
       <td><div class="rmo-item-main">${escapeHtml(order.product || 'POS order')}</div></td>
       <td class="rmo-money">${Number(order.cod || 0) ? `&#8369;${Number(order.cod || 0).toLocaleString()}` : dash}</td>
       <td><span class="rmo-status ${csrConfirmedStatusTone(order.status)}">${escapeHtml(order.status || 'Unknown')}</span></td>
@@ -11564,7 +11587,7 @@ function renderCsrDuplicatesTable() {
       <td><div class="rmo-item-main">${escapeHtml(order.date || '')}</div></td>
     </tr>`).join('');
     return banner + rows;
-  }).join('') || message('No customer ordered off more than one page in this range.');
+  }).join('') || message('No number ordered off a second page, or twice off one page in a day, in this range.');
 
   const pagination = document.getElementById('csr-duplicates-pagination');
   if (pagination) {

@@ -6974,7 +6974,39 @@ tfoot td {
   color: var(--text-muted);
 }
 
+/* Why the number is listed: a second page, a page used twice in one day, or
+   both. Read before the counts, so they sit ahead of the meta line. */
+.csr-dupe-tag {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.csr-dupe-tag.pages {
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.csr-dupe-tag.same-day {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
 /* The orders under a banner are detail, so they step back from it. */
 #csr-duplicates-table tr.csr-dupe-item td:first-child {
   padding-left: 22px;
+}
+
+/* The orders that share a page and a day with another of this customer's:
+   ruled rather than filled, so the row still reads as one of the block. */
+#csr-duplicates-table tr.csr-dupe-repeat td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.csr-dupe-flag {
+  color: var(--danger);
+  font-weight: 600;
 }
