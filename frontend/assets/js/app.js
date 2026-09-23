@@ -11247,7 +11247,7 @@ function renderCSR() {
 
   return `
   <div class="page-header">
-    <div class="page-title"><h1>CSR Records</h1><p>${canViewAllCSRRecords()
+    <div class="page-title"><h1>CSR Records</h1><p>${canViewAllCsrConfirmed()
       ? 'Orders confirmed in the POS, for any CSR or all of them at once. Daily records are filed in their own window.'
       : 'The orders you confirmed in the POS. Daily records are filed in their own window.'}</p></div>
     <div class="page-actions">
@@ -11470,7 +11470,7 @@ function renderCsrConfirmedMetrics() {
 // Whose orders are on screen. 'all' shows every confirmer, so the table gains
 // a column naming them — without it the rows have no owner.
 function csrConfirmedViewingAll() {
-  return canViewAllCSRRecords() && csrConfirmedState.viewConfirmer === 'all';
+  return canViewAllCsrConfirmed() && csrConfirmedState.viewConfirmer === 'all';
 }
 
 function csrConfirmedColumnCount() {
@@ -11567,7 +11567,7 @@ function renderCsrConfirmedPanel() {
               value="${escapeHtml(csrConfirmedState.search)}"
               onkeydown="if(event.key==='Enter'){event.preventDefault();applyCsrConfirmedFilters();}">
           </div>
-          ${canViewAllCSRRecords() ? `<select class="rmo-select" id="csr-confirmed-confirmer" onchange="setCsrConfirmedConfirmer(this.value)">
+          ${canViewAllCsrConfirmed() ? `<select class="rmo-select" id="csr-confirmed-confirmer" onchange="setCsrConfirmedConfirmer(this.value)">
             ${renderCsrConfirmedConfirmerOptions()}
           </select>
           <span id="csr-confirmed-system-slot">${renderCsrSystemConfirmButton()}</span>` : ''}
@@ -11784,7 +11784,7 @@ function csrConfirmedParams(page, perPage) {
   });
   // Only an oversight role can widen the scope; for everyone else the
   // parameter is left off and the server answers with their own orders.
-  if (csrConfirmedState.viewConfirmer && canViewAllCSRRecords()) params.set('confirmer', csrConfirmedState.viewConfirmer);
+  if (csrConfirmedState.viewConfirmer && canViewAllCsrConfirmed()) params.set('confirmer', csrConfirmedState.viewConfirmer);
   if (csrConfirmedState.status && csrConfirmedState.status !== 'all') params.set('status', csrConfirmedState.status);
   if (csrConfirmedState.search) params.set('search', csrConfirmedState.search);
   if (csrConfirmedState.filter === 'custom') {
@@ -11938,24 +11938,24 @@ function applyCsrConfirmedFilters() {
 // Off sends the view back to everyone rather than to the member's own orders:
 // the button is a way of narrowing All confirmers, so releasing it undoes that.
 function toggleCsrSystemConfirmed() {
-  if (!canViewAllCSRRecords()) return;
+  if (!canViewAllCsrConfirmed()) return;
   setCsrConfirmedConfirmer(
     csrConfirmedState.viewConfirmer === CSR_SYSTEM_CONFIRMER ? 'all' : CSR_SYSTEM_CONFIRMER
   );
 }
 
 function setCsrConfirmedConfirmer(value) {
-  if (!canViewAllCSRRecords()) return;
+  if (!canViewAllCsrConfirmed()) return;
   csrConfirmedState = { ...csrConfirmedState, viewConfirmer: String(value || ''), page: 1 };
   reloadCsrConfirmedView();
 }
 
-// The confirmers an oversight role can pick from. Failing quietly is
+// The confirmers the picker offers. Failing quietly is
 // deliberate: the dropdown keeps All confirmers and My confirmed orders, which
 // is still a usable page, rather than blocking the orders behind a list that
 // would not load.
 async function loadCsrConfirmers() {
-  if (!canViewAllCSRRecords()) return;
+  if (!canViewAllCsrConfirmed()) return;
   try {
     const data = await authorizedJsonRequest('/csr/confirmers');
     csrConfirmedState = {
@@ -15375,6 +15375,14 @@ function isCSROversightUser() {
 
 function canViewAllCSRRecords() {
   return isAdminUser() || isCSROversightUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
+}
+
+// The POS tabs — Confirmed Orders and Duplicate Customers — are read wider
+// than the daily records: a CSR picks any confirmer there, or all of them, the
+// same as the oversight roles. They still open on their own orders; it is the
+// picker they gain, not a new landing page.
+function canViewAllCsrConfirmed() {
+  return canViewAllCSRRecords() || normalizeRoleName(App.user?.role) === 'CSR';
 }
 
 function getCSRPrimaryButtonLabel() {

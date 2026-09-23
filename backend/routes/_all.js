@@ -2430,8 +2430,14 @@ function csrRoutes(db) {
   const VIEW_ALL_ROLES = new Set([
     'Administrator', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL',
   ]);
+  // The POS tabs are read wider than the daily records above: every CSR reads
+  // any confirmer's confirmed orders and the duplicate customers behind them.
+  // A duplicate is one number two desks worked, so a CSR held to their own
+  // orders only ever sees the half of it they wrote themselves.
+  const VIEW_ALL_POS_ROLES = new Set([...VIEW_ALL_ROLES, 'CSR']);
   const role = (req) => String(req.user?.role || '').trim();
   const canViewAll = (req) => VIEW_ALL_ROLES.has(role(req));
+  const canViewAllPos = (req) => VIEW_ALL_POS_ROLES.has(role(req));
   const isAdmin = (req) => role(req) === 'Administrator';
   const userId = (req) => req.user?.id || 0;
 
@@ -2735,13 +2741,13 @@ function csrRoutes(db) {
     return '';
   }
 
-  // What the Confirmed Orders dropdown offers an oversight role: the confirmers
-  // that actually appear on orders, not the dashboard accounts — most names in
+  // What the Confirmed Orders dropdown offers: the confirmers that actually
+  // appear on orders, not the dashboard accounts — most names in
   // pos_orders have no login linked to them, and picking from the links would
   // hide them. Aliases fold into the staff entry they belong to, so a person
   // is one entry however many spellings their orders carry.
   r.get('/confirmers', async (req, res) => {
-    if (!canViewAll(req)) return res.status(403).json({ error: 'Not allowed' });
+    if (!canViewAllPos(req)) return res.status(403).json({ error: 'Not allowed' });
     const rows = await db.prepare(`
       SELECT TRIM(confirmed_by_name) AS name, COUNT(*) AS orders
       FROM pos_orders
@@ -2780,13 +2786,13 @@ function csrRoutes(db) {
     res.json({ confirmers });
   });
 
-  // Whose orders this request is for. Everyone sees their own; an oversight
-  // role may ask for one confirmer by name (?confirmer=<name>) or for all of
-  // them at once (?confirmer=all). Anyone else's query string is ignored, so
-  // it can never widen access.
+  // Whose orders this request is for. Everyone sees their own; a CSR or an
+  // oversight role may ask for one confirmer by name (?confirmer=<name>) or
+  // for all of them at once (?confirmer=all). Anyone else's query string is
+  // ignored, so it can never widen access.
   function requestedScope(req) {
     const asked = String(req.query.confirmer || '').trim();
-    if (!asked || !canViewAll(req)) return { all: false, confirmer: '', system: false };
+    if (!asked || !canViewAllPos(req)) return { all: false, confirmer: '', system: false };
     if (asked.toLowerCase() === 'all') return { all: true, confirmer: '', system: false };
     if (asked === SYSTEM_CONFIRMER) {
       return { all: false, confirmer: SYSTEM_CONFIRMER, system: true };
