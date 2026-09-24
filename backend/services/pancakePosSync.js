@@ -1435,12 +1435,22 @@ function courierUpdatesNewestFirst(partner) {
 // Prefer the note, newest entry first — the newest update may carry only a
 // status ("Package is Delivering") and the note sits on the latest failure
 // entry below it.
+// Not every note is a failure reason. J&T stamps "退件签收" ("return signed
+// for") on the final "Package is returned to Seller" scan of every returned
+// parcel; read newest-first, that note would stand in for the real reason on
+// each of them. Skip notes on the return-to-seller scan and notes with no
+// Latin letters at all — every real reason we hold is English.
+function isCourierReasonNote(update, note) {
+  if (!note || !/[a-z]/i.test(note)) return false;
+  return !/returned to seller/i.test(String(update?.status || ''));
+}
+
 function getPosUndeliverableReason(partner) {
   if (!partner || typeof partner !== 'object') return null;
   const updates = courierUpdatesNewestFirst(partner);
   for (const update of updates) {
     const note = stringOrNull(update?.note);
-    if (!note) continue;
+    if (!isCourierReasonNote(update, note)) continue;
     // Some notes are themselves the wrapped form — "Problematic register by
     // 【CP_QC2_PAYATAS 1】,reason【Customer Goods are not Available】" — so unwrap
     // when there is something to unwrap and keep the plain note otherwise.

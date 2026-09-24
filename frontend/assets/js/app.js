@@ -15419,6 +15419,16 @@ function rmoCourierUpdatesNewestFirst(partner) {
     .map((item) => item.entry);
 }
 
+// Not every note is a failure reason: J&T stamps "退件签收" ("return signed
+// for") on the final "Package is returned to Seller" scan of every returned
+// parcel, and read newest-first it would replace the real reason. Skip notes on
+// that scan and notes with no Latin letters. Mirrors isCourierReasonNote in
+// pancakePosSync.
+function isRmoReasonNote(update, note) {
+  if (!note || !/[a-z]/i.test(note)) return false;
+  return !/returned to seller/i.test(String(update?.status || ''));
+}
+
 // Undeliverable reason, read straight from the order's partner_json
 // (returned as order.partner) so it works for already-stored orders without
 // waiting for a re-sync. Falls back to the stored partner_reason column.
@@ -15433,7 +15443,7 @@ function getRmoUndeliverableReason(order) {
     for (const update of updates) {
       const note = String(update?.note || '').trim();
       // A note can itself be the wrapped "…,reason【…】" form; unwrap when so.
-      if (note) return deepFindCourierReason(note) || note;
+      if (isRmoReasonNote(update, note)) return deepFindCourierReason(note) || note;
     }
     for (const update of updates) {
       const embedded = deepFindCourierReason(update);
@@ -15566,7 +15576,7 @@ function getRmoCourierNote(order) {
   if (updates.length) {
     for (const entry of updates) {
       const note = entry && typeof entry === 'object' && typeof entry.note === 'string' ? entry.note.trim() : '';
-      if (note) return note;
+      if (isRmoReasonNote(entry, note)) return note;
     }
   }
   return typeof partner.note === 'string' ? partner.note.trim() : '';
