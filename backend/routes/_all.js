@@ -1106,7 +1106,11 @@ function ordersRoutes(db, { dispatch } = {}) {
 
     const [statusRows, reasonRows, attemptRows, optionRows] = await Promise.all([
       db.prepare(`SELECT status, COUNT(*) AS c FROM (${filtered}) f GROUP BY status`).all(...fParams),
-      db.prepare(`SELECT courier, reason, COUNT(*) AS c FROM (${filtered}) f WHERE reason != '' GROUP BY courier, reason`).all(...fParams),
+      // Returned counts returning too, as the Data Report's Returned column does.
+      db.prepare(`SELECT courier, reason, COUNT(*) AS c,
+          SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END) AS returned
+        FROM (${filtered}) f WHERE reason != '' GROUP BY courier, reason`).all(...fParams),
       db.prepare(`SELECT attempt_bucket, COUNT(*) AS c, SUM(attempts) AS total_attempts FROM (${filtered}) f WHERE status IN ${DISPATCHED} GROUP BY attempt_bucket`).all(...fParams),
       db.prepare(`
         SELECT 'courier' AS k, courier AS v FROM (${derived}) d GROUP BY courier
@@ -1121,7 +1125,13 @@ function ordersRoutes(db, { dispatch } = {}) {
     const statusCount = (label) => byStatus.find((row) => row.label === label)?.count || 0;
     const total = byStatus.reduce((sum, row) => sum + row.count, 0);
 
-    const byReason = reasonRows.map((row) => ({ courier: row.courier, reason: row.reason, count: Number(row.c || 0) }))
+    const byReason = reasonRows.map((row) => ({
+      courier: row.courier,
+      reason: row.reason,
+      count: Number(row.c || 0),
+      delivered: Number(row.delivered || 0),
+      returned: Number(row.returned || 0),
+    }))
       .sort((a, b) => b.count - a.count);
 
     const ATTEMPT_LABELS = { 1: '1st Attempt', 2: '2nd Attempt', 3: '3rd Attempt', '4plus': '4th+ Attempt' };

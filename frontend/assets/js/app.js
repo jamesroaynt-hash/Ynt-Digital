@@ -12200,12 +12200,14 @@ function renderRmoSummaryBody() {
       ${reasonRows.length ? `
         <div class="data-report-chart-wrap" style="height:${Math.max(220, Math.min(reasonRows.length, 12) * 34 + 60)}px;"><canvas id="rmo-summary-reason-chart"></canvas></div>
         <div class="table-wrapper"><table class="data-report-table">
-          <thead><tr><th>Courier</th><th>Delivery Reason</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Percentage of Total</th></tr></thead>
+          <thead><tr><th>Courier</th><th>Delivery Reason</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Delivered</th><th style="text-align:right" title="Includes orders still returning">Returned</th><th style="text-align:right">Percentage of Total</th></tr></thead>
           <tbody>
             ${reasonRows.map((row) => `<tr>
               <td>${escapeHtml(row.courier)}</td>
               <td>${escapeHtml(row.reason)}</td>
               <td style="text-align:right;font-weight:600;">${row.count.toLocaleString()}</td>
+              <td style="text-align:right;" class="text-success">${Number(row.delivered || 0).toLocaleString()}</td>
+              <td style="text-align:right;" class="text-danger">${Number(row.returned || 0).toLocaleString()}</td>
               <td style="text-align:right;color:var(--text-muted);">${rmoPct(row.count, reasonTotal)}</td>
             </tr>`).join('')}
           </tbody>
