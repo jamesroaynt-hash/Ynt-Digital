@@ -12393,20 +12393,22 @@ async function loadCsrDailyReport() {
     const data = await authorizedJsonRequest(`/csr/daily-report?date=${encodeURIComponent(s.date)}&_=${Date.now()}`);
     s.data = data;
     s.cards = (data.cards || []).map((card) => ({ ...card }));
-    // Each table lists the usual products plus anything already entered today.
+    // One product list shared by the three columns of the Products card: the
+    // usual products plus anything entered today in any column. Every section
+    // keeps its rows in that same order, so a row index means one product.
+    const products = [...CSR_DAILY_PRODUCTS];
+    CSR_DAILY_SECTIONS.forEach(([section]) => {
+      (data.team?.[section] || []).forEach((item) => {
+        if (!products.some((p) => p.toLowerCase() === item.product.toLowerCase())) products.push(item.product);
+      });
+    });
     s.team = {};
     CSR_DAILY_SECTIONS.forEach(([section]) => {
       const saved = data.team?.[section] || [];
-      const rows = CSR_DAILY_PRODUCTS.map((product) => {
+      s.team[section] = products.map((product) => {
         const hit = saved.find((item) => item.product.toLowerCase() === product.toLowerCase());
         return { product, qty: hit ? String(hit.qty) : '' };
       });
-      saved.forEach((item) => {
-        if (!rows.some((row) => row.product.toLowerCase() === item.product.toLowerCase())) {
-          rows.push({ product: item.product, qty: String(item.qty) });
-        }
-      });
-      s.team[section] = rows;
     });
   } catch (error) {
     s.error = error.message || 'Could not load the daily report.';
@@ -12474,8 +12476,8 @@ function renderCsrDailyBody() {
   const users = DB.assignableUsers || [];
   const addable = users.filter((u) => !s.cards.some((card) => Number(card.user_id) === Number(u.id)));
 
-  // The summary with every CSR card stacked under it on the left; the confirm
-  // breakdown on the right with the two pending tables side by side beneath it.
+  // The summary with every CSR card stacked under it on the left; the Products
+  // card (confirmed, pending new, awaiting print per product) on the right.
   wrap.innerHTML = `
     <div class="csr-daily-paper" style="${s.loading ? 'opacity:.6;' : ''}">
       <div class="csr-daily-left">
@@ -12496,11 +12498,7 @@ function renderCsrDailyBody() {
         </div>
       </div>
       <div class="csr-daily-right">
-        <div class="csr-daily-breakdown">${renderCsrDailyTeamTable('confirm_breakdown')}</div>
-        <div class="csr-daily-pair">
-          ${renderCsrDailyTeamTable('pending_new')}
-          ${renderCsrDailyTeamTable('awaiting_print')}
-        </div>
+        ${renderCsrDailyProductsCard()}
       </div>
     </div>`;
   renderCsrDailySummary();
@@ -12539,35 +12537,58 @@ function renderCsrDailySummary() {
     </section>`;
 }
 
-function renderCsrDailyTeamTable(section) {
-  const title = CSR_DAILY_SECTIONS.find(([key]) => key === section)?.[1] || section;
-  const rows = csrDailyState.team[section] || [];
-  const total = rows.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+// The three per-product counts in one card: a row per product, a column per
+// count, one Save for all three.
+const CSR_DAILY_PRODUCT_COLUMNS = [
+  ['confirm_breakdown', 'Confirmed'],
+  ['pending_new', 'Pending New'],
+  ['awaiting_print', 'Awaiting Print'],
+];
+
+function csrDailyTeamTotal(section) {
+  return (csrDailyState.team[section] || []).reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+}
+
+function renderCsrDailyProductsCard() {
+  const s = csrDailyState;
+  const products = (s.team.confirm_breakdown || []).map((row) => row.product);
   return `
-    <section class="csr-daily-panel" id="csr-daily-team-${section}">
+    <section class="csr-daily-panel" id="csr-daily-products">
       <header class="csr-daily-panel-head">
         <div>
-          <div class="csr-daily-panel-title">${escapeHtml(title)}</div>
-          <div class="csr-daily-panel-sub">${escapeHtml(csrDailyDateLabel(csrDailyState.date))}</div>
+          <div class="csr-daily-panel-title">Products</div>
+          <div class="csr-daily-panel-sub">${escapeHtml(csrDailyDateLabel(s.date))} · Confirmed is the Team Overall Sales</div>
         </div>
-        <button class="csr-daily-btn primary" onclick="saveCsrDailyTeam('${section}')">Save</button>
+        <button class="csr-daily-btn primary" onclick="saveCsrDailyTeam()">Save</button>
       </header>
       <table class="csr-daily-product-table">
+        <thead>
+          <tr>
+            <th scope="col">Product</th>
+            ${CSR_DAILY_PRODUCT_COLUMNS.map(([, label]) => `<th scope="col">${label}</th>`).join('')}
+          </tr>
+        </thead>
         <tbody>
-          ${rows.map((row, index) => `<tr>
-            <th scope="row">${escapeHtml(row.product)}</th>
-            <td><input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${escapeHtml(row.qty)}" placeholder="—"
-              aria-label="${escapeHtml(`${title} — ${row.product}`)}"
-              oninput="setCsrDailyTeamQty('${section}', ${index}, this.value)"></td>
+          ${products.map((product, index) => `<tr>
+            <th scope="row">${escapeHtml(product)}</th>
+            ${CSR_DAILY_PRODUCT_COLUMNS.map(([section, label]) => `<td><input type="number" min="0" inputmode="numeric" class="csr-daily-input"
+              value="${escapeHtml(s.team[section]?.[index]?.qty ?? '')}" placeholder="—"
+              aria-label="${escapeHtml(`${label} — ${product}`)}"
+              oninput="setCsrDailyTeamQty('${section}', ${index}, this.value)"></td>`).join('')}
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><th scope="row">${section === 'confirm_breakdown' ? 'Overall Total' : 'Total'}</th><td data-team-total="${section}">${total.toLocaleString()}</td></tr></tfoot>
+        <tfoot>
+          <tr>
+            <th scope="row">Total</th>
+            ${CSR_DAILY_PRODUCT_COLUMNS.map(([section]) => `<td data-team-total="${section}">${csrDailyTeamTotal(section).toLocaleString()}</td>`).join('')}
+          </tr>
+        </tfoot>
       </table>
       <div class="csr-daily-panel-foot">
-        <input type="text" class="csr-daily-text" placeholder="Add a product…" id="csr-daily-new-${section}"
-          aria-label="Add a product to ${escapeHtml(title)}"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();addCsrDailyProduct('${section}');}">
-        <button class="csr-daily-btn" onclick="addCsrDailyProduct('${section}')">Add</button>
+        <input type="text" class="csr-daily-text" placeholder="Add a product…" id="csr-daily-new-product"
+          aria-label="Add a product"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addCsrDailyProduct();}">
+        <button class="csr-daily-btn" onclick="addCsrDailyProduct()">Add</button>
       </div>
     </section>`;
 }
@@ -12576,33 +12597,38 @@ function setCsrDailyTeamQty(section, index, value) {
   const row = csrDailyState.team[section]?.[index];
   if (!row) return;
   row.qty = value;
-  const total = csrDailyState.team[section].reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
   const cell = document.querySelector(`[data-team-total="${section}"]`);
-  if (cell) cell.textContent = total.toLocaleString();
+  if (cell) cell.textContent = csrDailyTeamTotal(section).toLocaleString();
   if (section === 'confirm_breakdown') renderCsrDailySummary();
 }
 
-function addCsrDailyProduct(section) {
-  const input = document.getElementById(`csr-daily-new-${section}`);
+function addCsrDailyProduct() {
+  const input = document.getElementById('csr-daily-new-product');
   const name = String(input?.value || '').trim();
   if (!name) return;
-  const rows = csrDailyState.team[section] || (csrDailyState.team[section] = []);
-  if (!rows.some((row) => row.product.toLowerCase() === name.toLowerCase())) rows.push({ product: name, qty: '' });
-  const box = document.getElementById(`csr-daily-team-${section}`);
-  if (box) box.outerHTML = renderCsrDailyTeamTable(section);
+  const exists = (csrDailyState.team.confirm_breakdown || []).some((row) => row.product.toLowerCase() === name.toLowerCase());
+  if (!exists) {
+    CSR_DAILY_PRODUCT_COLUMNS.forEach(([section]) => {
+      (csrDailyState.team[section] || (csrDailyState.team[section] = [])).push({ product: name, qty: '' });
+    });
+  }
+  const box = document.getElementById('csr-daily-products');
+  if (box) box.outerHTML = renderCsrDailyProductsCard();
 }
 
-async function saveCsrDailyTeam(section) {
+async function saveCsrDailyTeam() {
   // Blank means "not entered" and is left out; a typed 0 is kept.
-  const items = (csrDailyState.team[section] || [])
-    .filter((row) => String(row.qty).trim() !== '')
-    .map((row) => ({ product: row.product, qty: Number(row.qty) || 0 }));
   try {
-    await authorizedJsonRequest('/csr/daily-report/team', {
-      method: 'PUT',
-      body: JSON.stringify({ date: csrDailyState.date, section, items }),
-    });
-    showToast('success', 'Saved', `${CSR_DAILY_SECTIONS.find(([k]) => k === section)?.[1] || 'Table'} saved.`);
+    for (const [section] of CSR_DAILY_PRODUCT_COLUMNS) {
+      const items = (csrDailyState.team[section] || [])
+        .filter((row) => String(row.qty).trim() !== '')
+        .map((row) => ({ product: row.product, qty: Number(row.qty) || 0 }));
+      await authorizedJsonRequest('/csr/daily-report/team', {
+        method: 'PUT',
+        body: JSON.stringify({ date: csrDailyState.date, section, items }),
+      });
+    }
+    showToast('success', 'Saved', 'Products saved.');
   } catch (error) {
     showToast('error', 'Save failed', error.message || 'Could not save.');
   }

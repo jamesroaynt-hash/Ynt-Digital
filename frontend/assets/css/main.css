@@ -5081,8 +5081,8 @@ tfoot td {
 
 /* Daily CSR Report — panel bodies follow the app theme; only each panel's
    header strip is white with black text. Summary and CSR cards on the left;
-   the confirm breakdown on the right with the two pending tables side by side
-   under it. */
+   the Products card (confirmed / pending new / awaiting print per product) on
+   the right. */
 .csr-daily-paper {
   --daily-bg: var(--surface);
   --daily-soft: var(--surface-3);
@@ -5105,13 +5105,6 @@ tfoot td {
 
 .csr-daily-left,
 .csr-daily-right { display: grid; gap: 16px; min-width: 0; }
-
-.csr-daily-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
-}
 
 .csr-daily-panel {
   background: var(--daily-bg);
@@ -5230,6 +5223,21 @@ tfoot td {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.csr-daily-product-table thead th {
+  height: 32px;
+  padding: 4px 14px;
+  background: var(--daily-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-align: right;
+  text-transform: uppercase;
+  color: var(--daily-muted);
+}
+
+.csr-daily-product-table thead th:first-child { text-align: left; }
+.csr-daily-product-table td { width: 104px; padding-left: 6px; }
 
 .csr-daily-product-table tbody tr:hover th,
 .csr-daily-product-table tbody tr:hover td { background: var(--daily-soft); }
@@ -5435,7 +5443,6 @@ tfoot td {
 }
 
 @media (max-width: 720px) {
-  .csr-daily-pair,
   .csr-daily-cards,
   .csr-daily-card-cols { grid-template-columns: 1fr; }
   .csr-daily-card-cols > table + table { border-left: none; border-top: 1px solid var(--daily-line); }
