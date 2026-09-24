@@ -5048,6 +5048,37 @@ tfoot td {
   .data-report-table td { padding: 10px 8px; }
 }
 
+/* RMO Summary */
+.rmo-summary-page .rts-filter-bar { margin-bottom: 14px; }
+.rmo-summary-page .rts-sheet-filter .form-control { min-width: 170px; }
+
+.rmo-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin: 8px 0 18px;
+  transition: opacity .15s;
+}
+
+.rmo-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.rmo-summary-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@media (max-width: 1180px) {
+  .rmo-summary-grid { grid-template-columns: 1fr; }
+}
+
 .home-chart-filters {
   display: flex;
   align-items: center;

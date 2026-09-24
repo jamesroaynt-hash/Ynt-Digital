@@ -1055,6 +1055,107 @@ function ordersRoutes(db, { dispatch } = {}) {
     });
   });
 
+  // RMO Summary page: counts per courier delivery reason, per status and per
+  // delivery attempt, plus the headline cards — all aggregated here so the page
+  // never pulls order rows. Statuses use the effective status (an abandoned
+  // undeliverable reads as Returned), matching the RMO list and Data Report.
+  r.get('/pos-orders/rmo-summary', async (req, res) => {
+    const q = req.query;
+    const { manilaDay } = posManilaExprs();
+    const pg = db.type === 'postgres';
+    const courierExpr = pg
+      ? "COALESCE(NULLIF(NULLIF(partner_json, '')::jsonb ->> 'partner_name', ''), 'No courier yet')"
+      : "COALESCE(NULLIF(json_extract(CASE WHEN json_valid(partner_json) THEN partner_json ELSE '{}' END, '$.partner_name'), ''), 'No courier yet')";
+    const provinceExpr = pg
+      ? "COALESCE(NULLIF(NULLIF(shipping_address_json, '')::jsonb ->> 'province_name', ''), 'Unknown')"
+      : "COALESCE(NULLIF(json_extract(CASE WHEN json_valid(shipping_address_json) THEN shipping_address_json ELSE '{}' END, '$.province_name'), ''), 'Unknown')";
+    // J&T sends the same reason with one, two or no trailing dots
+    // ("Wrong Address Information." / "..") — fold them into one row.
+    const reasonExpr = "TRIM(RTRIM(TRIM(COALESCE(partner_reason, '')), '.'))";
+    const statusExpr = `CASE WHEN status_name IN ('canceled','removed') THEN 'Canceled' ELSE ${POS_STATUS_CASE} END`;
+    const attemptExpr = `CASE WHEN COALESCE(attempts, 0) <= 1 THEN '1' WHEN attempts = 2 THEN '2' WHEN attempts = 3 THEN '3' ELSE '4plus' END`;
+    const DISPATCHED = "('Shipped','Delivered','Returning','Returned')";
+
+    const vis = await posVisibilityFilter();
+    const base = [`customer_phone IS NOT NULL AND customer_phone != ''`, vis.clause];
+    const baseParams = [...vis.params];
+    const day = (v) => String(v).slice(0, 10);
+    if (q.date_from) { base.push(`${manilaDay} >= ?`); baseParams.push(day(q.date_from)); }
+    if (q.date_to) { base.push(`${manilaDay} <= ?`); baseParams.push(day(q.date_to)); }
+
+    // Dropdown options come from the date range alone, so picking one filter
+    // never empties the others.
+    const derived = `SELECT ${courierExpr} AS courier, page_name, ${provinceExpr} AS province,
+        ${reasonExpr} AS reason, ${statusExpr} AS status, ${attemptExpr} AS attempt_bucket,
+        COALESCE(attempts, 1) AS attempts
+      FROM pos_orders WHERE ${base.join(' AND ')}`;
+
+    const filters = [];
+    const filterParams = [];
+    const addFilter = (value, column) => {
+      if (value && value !== 'all') { filters.push(`${column} = ?`); filterParams.push(String(value)); }
+    };
+    addFilter(q.courier, 'courier');
+    addFilter(q.page, 'page_name');
+    addFilter(q.province, 'province');
+    addFilter(q.status, 'status');
+    addFilter(q.reason, 'reason');
+    addFilter(q.attempts, 'attempt_bucket');
+    const filtered = `SELECT * FROM (${derived}) d${filters.length ? ` WHERE ${filters.join(' AND ')}` : ''}`;
+    const fParams = [...baseParams, ...filterParams];
+
+    const [statusRows, reasonRows, attemptRows, optionRows] = await Promise.all([
+      db.prepare(`SELECT status, COUNT(*) AS c FROM (${filtered}) f GROUP BY status`).all(...fParams),
+      db.prepare(`SELECT courier, reason, COUNT(*) AS c FROM (${filtered}) f WHERE reason != '' GROUP BY courier, reason`).all(...fParams),
+      db.prepare(`SELECT attempt_bucket, COUNT(*) AS c, SUM(attempts) AS total_attempts FROM (${filtered}) f WHERE status IN ${DISPATCHED} GROUP BY attempt_bucket`).all(...fParams),
+      db.prepare(`
+        SELECT 'courier' AS k, courier AS v FROM (${derived}) d GROUP BY courier
+        UNION ALL SELECT 'page', page_name FROM (${derived}) d WHERE COALESCE(page_name, '') != '' GROUP BY page_name
+        UNION ALL SELECT 'province', province FROM (${derived}) d GROUP BY province
+        UNION ALL SELECT 'reason', reason FROM (${derived}) d WHERE reason != '' GROUP BY reason
+      `).all(...baseParams, ...baseParams, ...baseParams, ...baseParams),
+    ]);
+
+    const byStatus = statusRows.map((row) => ({ label: row.status, count: Number(row.c || 0) }))
+      .sort((a, b) => b.count - a.count);
+    const statusCount = (label) => byStatus.find((row) => row.label === label)?.count || 0;
+    const total = byStatus.reduce((sum, row) => sum + row.count, 0);
+
+    const byReason = reasonRows.map((row) => ({ courier: row.courier, reason: row.reason, count: Number(row.c || 0) }))
+      .sort((a, b) => b.count - a.count);
+
+    const ATTEMPT_LABELS = { 1: '1st Attempt', 2: '2nd Attempt', 3: '3rd Attempt', '4plus': '4th+ Attempt' };
+    const byAttempt = ['1', '2', '3', '4plus'].map((key) => {
+      const row = attemptRows.find((r) => String(r.attempt_bucket) === key);
+      return { key, label: ATTEMPT_LABELS[key], count: Number(row?.c || 0) };
+    });
+    const totalAttempts = attemptRows.reduce((sum, row) => sum + Number(row.total_attempts || 0), 0);
+
+    const options = { couriers: [], pages: [], provinces: [], reasons: [] };
+    const optionKey = { courier: 'couriers', page: 'pages', province: 'provinces', reason: 'reasons' };
+    optionRows.forEach((row) => { if (row.v) options[optionKey[row.k]].push(row.v); });
+    Object.values(options).forEach((list) => list.sort((a, b) => String(a).localeCompare(String(b))));
+
+    res.json({
+      total,
+      cards: {
+        total,
+        delivered: statusCount('Delivered'),
+        returned: statusCount('Returned'),
+        returning: statusCount('Returning'),
+        in_transit: statusCount('Shipped'),
+        pending: statusCount('New') + statusCount('Confirmed') + statusCount('Waiting for pickup'),
+        total_attempts: totalAttempts,
+      },
+      by_status: byStatus,
+      by_reason: byReason,
+      reason_total: byReason.reduce((sum, row) => sum + row.count, 0),
+      by_attempt: byAttempt,
+      dispatched_total: byAttempt.reduce((sum, row) => sum + row.count, 0),
+      options,
+    });
+  });
+
   r.get('/pos-orders', async (req, res) => {
     const {
       page = 1, per_page = 50,

@@ -9,19 +9,19 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'odz-finder', 'csr', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -175,6 +175,7 @@ function loadPage(page) {
     'marketing-center': renderMarketingCenter,
     pages: renderOrderPages,
     'rmo-management': renderRmoManagement,
+    'rmo-summary': renderRmoSummary,
     'sms-automations': renderSmsAutomations,
     'odz-finder': renderOdzFinder,
     creatives: renderCreatives,
@@ -216,6 +217,7 @@ const pageNames = {
   'marketing-center': 'Marketing',
   pages: 'Pages',
   'rmo-management': 'RMO Management',
+  'rmo-summary': 'RMO Summary',
   'sms-automations': 'SMS Automations',
   'odz-finder': 'ODZ Finder',
   creatives: 'Ad Creatives',
@@ -11976,6 +11978,350 @@ function changeCsrConfirmedPage(page) {
   loadCsrConfirmedOrders(page);
 }
 
+// ─── RMO SUMMARY ───────────────────────────────────────────
+// Counts per courier delivery reason, per status and per delivery attempt over
+// the synced POS orders. Aggregated server-side (/orders/pos-orders/rmo-summary)
+// so the page never loads order rows.
+const RMO_SUMMARY_PRESETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This Week'], ['month', 'This Month'], ['custom', 'Custom Date Range']];
+const RMO_SUMMARY_STATUSES = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
+const RMO_SUMMARY_ATTEMPTS = [['1', '1st Attempt'], ['2', '2nd Attempt'], ['3', '3rd Attempt'], ['4plus', '4th+ Attempt']];
+// Each status keeps one color across the donut and its table, so the legend
+// is never the only way to tell them apart.
+const RMO_SUMMARY_STATUS_COLORS = {
+  New: '#64748b',
+  Confirmed: '#8b5cf6',
+  'Waiting for pickup': '#f59e0b',
+  Shipped: '#3b82f6',
+  Delivered: '#059669',
+  Returning: '#f97316',
+  Returned: '#ef4444',
+  Canceled: '#94a3b8',
+};
+let rmoSummaryState = {
+  preset: 'month', dateFrom: '', dateTo: '',
+  courier: 'all', page: 'all', province: 'all', status: 'all', reason: 'all', attempts: 'all',
+  data: null, loading: false, error: '',
+};
+let rmoSummaryCharts = { reason: null, status: null, attempt: null };
+
+// The business day is Manila's, whatever the browser's clock says.
+function rmoManilaToday() {
+  return new Date(Date.now() + 8 * 3600 * 1000);
+}
+
+function rmoSummaryDateRange() {
+  const ymd = (d) => d.toISOString().slice(0, 10);
+  const today = rmoManilaToday();
+  const s = rmoSummaryState;
+  if (s.preset === 'today') return [ymd(today), ymd(today)];
+  if (s.preset === 'yesterday') {
+    const y = new Date(today); y.setUTCDate(y.getUTCDate() - 1);
+    return [ymd(y), ymd(y)];
+  }
+  if (s.preset === 'week') {
+    // Monday-start week.
+    const start = new Date(today);
+    start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+    return [ymd(start), ymd(today)];
+  }
+  if (s.preset === 'month') return [`${ymd(today).slice(0, 7)}-01`, ymd(today)];
+  return [s.dateFrom, s.dateTo];
+}
+
+async function loadRmoSummary() {
+  if (!hasActiveSession()) return;
+  const s = rmoSummaryState;
+  const [from, to] = rmoSummaryDateRange();
+  const params = new URLSearchParams();
+  if (from) params.set('date_from', from);
+  if (to) params.set('date_to', to);
+  ['courier', 'page', 'province', 'status', 'reason', 'attempts'].forEach((key) => {
+    if (s[key] && s[key] !== 'all') params.set(key, s[key]);
+  });
+  s.loading = true;
+  s.error = '';
+  renderRmoSummaryBody();
+  try {
+    s.data = await authorizedJsonRequest(`/orders/pos-orders/rmo-summary?${params}`);
+  } catch (error) {
+    s.error = error.message || 'Could not load the RMO summary.';
+  } finally {
+    s.loading = false;
+  }
+  if (App.currentPage === 'rmo-summary') {
+    renderRmoSummaryFilters();
+    renderRmoSummaryBody();
+  }
+}
+
+function setRmoSummaryPreset(preset) {
+  rmoSummaryState.preset = preset;
+  if (preset === 'custom') {
+    renderRmoSummaryFilters();
+    return;
+  }
+  loadRmoSummary();
+}
+
+function applyRmoSummaryCustomRange() {
+  const from = document.getElementById('rmo-summary-date-from')?.value || '';
+  const to = document.getElementById('rmo-summary-date-to')?.value || '';
+  if (!from && !to) {
+    showToast('warning', 'Pick a date', 'Choose a start or end date first.');
+    return;
+  }
+  rmoSummaryState.dateFrom = from;
+  rmoSummaryState.dateTo = to;
+  rmoSummaryState.preset = 'custom';
+  loadRmoSummary();
+}
+
+function setRmoSummaryFilter(key, value) {
+  rmoSummaryState[key] = value || 'all';
+  loadRmoSummary();
+}
+
+function resetRmoSummaryFilters() {
+  Object.assign(rmoSummaryState, { courier: 'all', page: 'all', province: 'all', status: 'all', reason: 'all', attempts: 'all' });
+  loadRmoSummary();
+}
+
+function renderRmoSummary() {
+  return `
+  <div class="rmo-summary-page">
+    <div class="page-header">
+      <div class="page-title"><h1>RMO Summary</h1><p>Delivery reasons, order statuses and delivery attempts across POS orders.</p></div>
+      <div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="loadRmoSummary()">Refresh</button></div>
+    </div>
+    <div id="rmo-summary-filters"></div>
+    <div id="rmo-summary-body"></div>
+  </div>`;
+}
+
+function rmoSummarySelect(key, label, allLabel, options) {
+  const current = rmoSummaryState[key];
+  // Keep a selected value listed even when the new date range no longer has it.
+  const values = options.map((o) => (Array.isArray(o) ? o : [o, o]));
+  if (current !== 'all' && !values.some(([v]) => v === current)) values.unshift([current, current]);
+  return `
+    <div class="rts-filter-group rts-sheet-filter">
+      <label class="rts-filter-label" for="rmo-summary-${key}">${label}</label>
+      <select class="form-control" id="rmo-summary-${key}" onchange="setRmoSummaryFilter('${key}', this.value)">
+        <option value="all">${allLabel}</option>
+        ${values.map(([v, l]) => `<option value="${escapeHtml(v)}"${current === v ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+function renderRmoSummaryFilters() {
+  const wrap = document.getElementById('rmo-summary-filters');
+  if (!wrap) return;
+  const s = rmoSummaryState;
+  const opts = s.data?.options || { couriers: [], pages: [], provinces: [], reasons: [] };
+  const anyFilter = ['courier', 'page', 'province', 'status', 'reason', 'attempts'].some((k) => s[k] !== 'all');
+  wrap.innerHTML = `
+    <div class="rts-filter-bar">
+      <div class="rts-filter-group">
+        <div class="rts-filter-label">Date Range</div>
+        <div class="table-filters">
+          ${RMO_SUMMARY_PRESETS.map(([v, l]) => `<button class="filter-pill ${s.preset === v ? 'active' : ''}" onclick="setRmoSummaryPreset('${v}')">${l}</button>`).join('')}
+        </div>
+      </div>
+      <div class="rts-custom-range ${s.preset === 'custom' ? '' : 'hidden'}">
+        <input type="date" class="form-control" id="rmo-summary-date-from" value="${escapeHtml(s.dateFrom)}">
+        <input type="date" class="form-control" id="rmo-summary-date-to" value="${escapeHtml(s.dateTo)}">
+        <button class="btn btn-secondary btn-sm" onclick="applyRmoSummaryCustomRange()">Apply</button>
+      </div>
+    </div>
+    <div class="rts-filter-bar">
+      ${rmoSummarySelect('courier', 'Courier', 'All Couriers', opts.couriers)}
+      ${rmoSummarySelect('page', 'Shop/Page', 'All Pages', opts.pages)}
+      ${rmoSummarySelect('province', 'Province', 'All Provinces', opts.provinces)}
+      ${rmoSummarySelect('status', 'Status', 'All Statuses', RMO_SUMMARY_STATUSES)}
+      ${rmoSummarySelect('reason', 'Delivery Reason', 'All Reasons', opts.reasons)}
+      ${rmoSummarySelect('attempts', 'Attempt Number', 'All Attempts', RMO_SUMMARY_ATTEMPTS)}
+      ${anyFilter ? '<button class="btn btn-ghost btn-sm" onclick="resetRmoSummaryFilters()">Clear filters</button>' : ''}
+    </div>`;
+}
+
+function rmoPct(count, total) {
+  return total ? formatPercent((count / total) * 100) : '—';
+}
+
+function renderRmoSummaryBody() {
+  const wrap = document.getElementById('rmo-summary-body');
+  if (!wrap) return;
+  const s = rmoSummaryState;
+  if (s.loading && !s.data) {
+    wrap.innerHTML = '<div class="loading-spinner" style="margin:48px auto;"></div>';
+    return;
+  }
+  if (s.error) {
+    wrap.innerHTML = `<div class="empty-state"><h3>Could not load the summary</h3><p>${escapeHtml(s.error)}</p></div>`;
+    return;
+  }
+  if (!s.data) return;
+
+  const d = s.data;
+  const c = d.cards || {};
+  const card = (color, label, value, meta) => `
+      <div class="stat-card ${color}">
+        <div class="stat-card-accent"></div>
+        <div class="stat-label">${label}</div>
+        <div class="stat-value">${Number(value || 0).toLocaleString()}</div>
+        <div class="stat-meta">${meta}</div>
+      </div>`;
+  const total = Number(c.total || 0);
+
+  const reasonRows = d.by_reason || [];
+  const reasonTotal = Number(d.reason_total || 0);
+  const statusRows = d.by_status || [];
+  const attemptRows = d.by_attempt || [];
+  const dispatched = Number(d.dispatched_total || 0);
+
+  wrap.innerHTML = `
+    <div class="rmo-summary-cards" style="${s.loading ? 'opacity:.6;' : ''}">
+      ${card('blue', 'Total Orders', total, 'in this range and filter')}
+      ${card('green', 'Delivered', c.delivered, `${rmoPct(Number(c.delivered || 0), total)} of orders`)}
+      ${card('red', 'Returned', c.returned, `${rmoPct(Number(c.returned || 0), total)} of orders`)}
+      ${card('amber', 'Returning', c.returning, 'on the way back')}
+      ${card('navy', 'In Transit', c.in_transit, 'shipped, not yet settled')}
+      ${card('purple', 'Pending', c.pending, 'new, confirmed or awaiting pickup')}
+      ${card('blue', 'Total Delivery Attempts', c.total_attempts, `across ${dispatched.toLocaleString()} shipped orders`)}
+    </div>
+
+    <section class="data-report-section">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Courier Delivery Reason Summary</div>
+          <div class="card-subtitle">Orders per reason the courier reported — ${reasonTotal.toLocaleString()} order${reasonTotal === 1 ? '' : 's'} with a reason</div>
+        </div>
+      </div>
+      ${reasonRows.length ? `
+        <div class="data-report-chart-wrap" style="height:${Math.max(220, Math.min(reasonRows.length, 12) * 34 + 60)}px;"><canvas id="rmo-summary-reason-chart"></canvas></div>
+        <div class="table-wrapper"><table class="data-report-table">
+          <thead><tr><th>Courier</th><th>Delivery Reason</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Percentage of Total</th></tr></thead>
+          <tbody>
+            ${reasonRows.map((row) => `<tr>
+              <td>${escapeHtml(row.courier)}</td>
+              <td>${escapeHtml(row.reason)}</td>
+              <td style="text-align:right;font-weight:600;">${row.count.toLocaleString()}</td>
+              <td style="text-align:right;color:var(--text-muted);">${rmoPct(row.count, reasonTotal)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`
+        : '<div class="dr-rank-empty">No courier delivery reasons in this range.</div>'}
+    </section>
+
+    <div class="rmo-summary-grid">
+      <section class="data-report-section">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Order Status Summary</div>
+            <div class="card-subtitle">Orders per status — ${total.toLocaleString()} total</div>
+          </div>
+        </div>
+        ${statusRows.length ? `
+          <div class="data-report-chart-wrap"><canvas id="rmo-summary-status-chart"></canvas></div>
+          <div class="table-wrapper"><table class="data-report-table">
+            <thead><tr><th>Status</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Percentage of Total</th></tr></thead>
+            <tbody>
+              ${statusRows.map((row) => `<tr>
+                <td><span class="rmo-summary-dot" style="background:${RMO_SUMMARY_STATUS_COLORS[row.label] || '#94a3b8'}"></span>${escapeHtml(row.label)}</td>
+                <td style="text-align:right;font-weight:600;">${row.count.toLocaleString()}</td>
+                <td style="text-align:right;color:var(--text-muted);">${rmoPct(row.count, total)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table></div>`
+          : '<div class="dr-rank-empty">No orders in this range.</div>'}
+      </section>
+
+      <section class="data-report-section">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Delivery Attempt Summary</div>
+            <div class="card-subtitle">Shipped orders by delivery attempt — ${dispatched.toLocaleString()} total (not-yet-shipped orders excluded)</div>
+          </div>
+        </div>
+        ${dispatched ? `
+          <div class="data-report-chart-wrap"><canvas id="rmo-summary-attempt-chart"></canvas></div>
+          <div class="table-wrapper"><table class="data-report-table">
+            <thead><tr><th>Attempt</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Percentage of Total</th></tr></thead>
+            <tbody>
+              ${attemptRows.map((row) => `<tr>
+                <td>${escapeHtml(row.label)}</td>
+                <td style="text-align:right;font-weight:600;">${row.count.toLocaleString()}</td>
+                <td style="text-align:right;color:var(--text-muted);">${rmoPct(row.count, dispatched)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table></div>`
+          : '<div class="dr-rank-empty">No shipped orders in this range.</div>'}
+      </section>
+    </div>`;
+
+  renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, dispatched);
+}
+
+function renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, dispatched) {
+  const grid = { color: 'rgba(148,163,184,0.18)' };
+  const countTooltip = (base) => ({
+    callbacks: { label: (ctx) => `${Number(ctx.raw || 0).toLocaleString()} orders (${rmoPct(Number(ctx.raw || 0), base)})` },
+  });
+
+  // Same reason from two couriers is one bar: the chart answers "why", the
+  // table below it answers "which courier".
+  const reasonMap = new Map();
+  reasonRows.forEach((row) => reasonMap.set(row.reason, (reasonMap.get(row.reason) || 0) + row.count));
+  const reasons = [...reasonMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  rmoSummaryCharts.reason = upsertChart(rmoSummaryCharts.reason, document.getElementById('rmo-summary-reason-chart'), reasons.length > 0, {
+    type: 'bar',
+    data: {
+      labels: reasons.map(([label]) => label),
+      datasets: [{ label: 'Orders', data: reasons.map(([, n]) => n), backgroundColor: '#3b82f6', borderRadius: 4, maxBarThickness: 26 }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { beginAtZero: true, grid, ticks: { precision: 0 } }, y: { grid: { display: false } } },
+      plugins: { legend: { display: false }, tooltip: countTooltip(reasonTotal) },
+    },
+  });
+
+  rmoSummaryCharts.status = upsertChart(rmoSummaryCharts.status, document.getElementById('rmo-summary-status-chart'), statusRows.length > 0, {
+    type: 'doughnut',
+    plugins: [doughnutPctPlugin],
+    data: {
+      labels: statusRows.map((row) => row.label),
+      datasets: [{
+        data: statusRows.map((row) => row.count),
+        backgroundColor: statusRows.map((row) => RMO_SUMMARY_STATUS_COLORS[row.label] || '#94a3b8'),
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '58%',
+      plugins: { legend: { position: 'right' }, tooltip: countTooltip(total) },
+    },
+  });
+
+  rmoSummaryCharts.attempt = upsertChart(rmoSummaryCharts.attempt, document.getElementById('rmo-summary-attempt-chart'), dispatched > 0, {
+    type: 'bar',
+    data: {
+      labels: attemptRows.map((row) => row.label),
+      datasets: [{ label: 'Orders', data: attemptRows.map((row) => row.count), backgroundColor: '#3b82f6', borderRadius: 4, maxBarThickness: 64 }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, grid, ticks: { precision: 0 } }, x: { grid: { display: false } } },
+      plugins: { legend: { display: false }, tooltip: countTooltip(dispatched) },
+    },
+  });
+}
+
 // ─── ODZ FINDER ────────────────────────────────────────────
 // Reference lookup of delivery areas flagged as ODZ (out of delivery zone) or
 // a Settlement pick-up area. Server-backed (odz_areas) with search-driven,
@@ -17742,6 +18088,11 @@ function initPage(page) {
         const tbody = document.getElementById('rec-pos-orders-tbody');
         if (tbody) tbody.innerHTML = `<tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
+  }
+
+  if (page === 'rmo-summary') {
+    renderRmoSummaryFilters();
+    loadRmoSummary();
   }
 
   if (page === 'odz-finder') {
