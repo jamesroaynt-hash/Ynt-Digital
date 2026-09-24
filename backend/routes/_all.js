@@ -3215,6 +3215,134 @@ function csrRoutes(db) {
     }
   });
 
+  // ─── DAILY CSR PERFORMANCE REPORT ─────────────────────────
+  // Hand-entered, not derived from POS: each CSR keeps their own card for the
+  // day (confirms on the left, pending on the right) and any CSR can fill the
+  // team's per-product tables. Leads can correct anyone's card.
+  const DAILY_CARD_FIELDS = [
+    'upsell_confirm', 'new_confirm', 'broadcast', 'pending', 'cancelled',
+    'upsell_pending_confirm', 'pending_confirm', 'pending_out', 'awaiting_print', 'pending_cancelled',
+  ];
+  const DAILY_TEAM_SECTIONS = new Set(['pending_new', 'awaiting_print', 'confirm_breakdown']);
+  const DAILY_EDIT_ALL_ROLES = new Set(['Administrator', 'CSR TL', 'Operation']);
+  const canEditAllDaily = (req) => DAILY_EDIT_ALL_ROLES.has(role(req));
+  const reportDate = (value) => {
+    const date = String(value || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+  };
+  const count = (value) => Math.max(0, Math.min(1000000, Math.round(Number(value) || 0)));
+
+  r.get('/daily-report', async (req, res) => {
+    const date = reportDate(req.query.date);
+    if (!date) return res.status(400).json({ error: 'A valid date is required.' });
+    try {
+      const cards = await db.prepare(`
+        SELECT d.*, COALESCE(NULLIF(u.full_name, ''), u.username) AS csr_name
+        FROM csr_daily_reports d
+        LEFT JOIN users u ON u.id = d.user_id
+        WHERE d.report_date = ?
+        ORDER BY d.shift ASC, csr_name ASC
+      `).all(date);
+      const teamRows = await db.prepare(
+        'SELECT section, product, qty FROM csr_daily_team WHERE report_date = ? ORDER BY id ASC'
+      ).all(date);
+      const team = { pending_new: [], awaiting_print: [], confirm_breakdown: [] };
+      teamRows.forEach((row) => {
+        if (team[row.section]) team[row.section].push({ product: row.product, qty: Number(row.qty || 0) });
+      });
+      const editAll = canEditAllDaily(req);
+      res.json({
+        date,
+        me: userId(req),
+        can_edit_all: editAll,
+        cards: cards.map((row) => ({
+          user_id: Number(row.user_id),
+          name: row.csr_name || `User ${row.user_id}`,
+          shift: row.shift || 'AM',
+          ...Object.fromEntries(DAILY_CARD_FIELDS.map((f) => [f, Number(row[f] || 0)])),
+          editable: editAll || Number(row.user_id) === Number(userId(req)),
+        })),
+        team,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  r.put('/daily-report/card', async (req, res) => {
+    const body = req.body || {};
+    const date = reportDate(body.date);
+    if (!date) return res.status(400).json({ error: 'A valid date is required.' });
+    const targetId = Number(body.user_id || userId(req));
+    if (!targetId) return res.status(400).json({ error: 'Missing user.' });
+    if (targetId !== Number(userId(req)) && !canEditAllDaily(req)) {
+      return res.status(403).json({ error: 'You can only edit your own card.' });
+    }
+    const shift = String(body.shift || '').toUpperCase() === 'PM' ? 'PM' : 'AM';
+    const values = DAILY_CARD_FIELDS.map((f) => count(body[f]));
+    try {
+      await db.prepare(`
+        INSERT INTO csr_daily_reports (report_date, user_id, shift, ${DAILY_CARD_FIELDS.join(', ')}, updated_by, updated_at)
+        VALUES (?, ?, ?, ${DAILY_CARD_FIELDS.map(() => '?').join(', ')}, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(report_date, user_id) DO UPDATE SET
+          shift = excluded.shift,
+          ${DAILY_CARD_FIELDS.map((f) => `${f} = excluded.${f}`).join(',\n          ')},
+          updated_by = excluded.updated_by,
+          updated_at = CURRENT_TIMESTAMP
+      `).run(date, targetId, shift, ...values, userId(req));
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  r.delete('/daily-report/card', async (req, res) => {
+    const date = reportDate(req.query.date);
+    const targetId = Number(req.query.user_id || userId(req));
+    if (!date || !targetId) return res.status(400).json({ error: 'Date and user are required.' });
+    if (targetId !== Number(userId(req)) && !canEditAllDaily(req)) {
+      return res.status(403).json({ error: 'You can only remove your own card.' });
+    }
+    try {
+      await db.prepare('DELETE FROM csr_daily_reports WHERE report_date = ? AND user_id = ?').run(date, targetId);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Replaces one team table for the day: products left out are removed.
+  r.put('/daily-report/team', async (req, res) => {
+    const body = req.body || {};
+    const date = reportDate(body.date);
+    const section = String(body.section || '');
+    if (!date || !DAILY_TEAM_SECTIONS.has(section)) {
+      return res.status(400).json({ error: 'A valid date and section are required.' });
+    }
+    const seen = new Set();
+    const items = (Array.isArray(body.items) ? body.items : [])
+      .map((item) => ({ product: String(item?.product || '').trim().slice(0, 80), qty: count(item?.qty) }))
+      .filter((item) => {
+        const key = item.product.toLowerCase();
+        if (!item.product || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 100);
+    try {
+      await db.prepare('DELETE FROM csr_daily_team WHERE report_date = ? AND section = ?').run(date, section);
+      for (const item of items) {
+        await db.prepare(`
+          INSERT INTO csr_daily_team (report_date, section, product, qty, updated_by, updated_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).run(date, section, item.product, item.qty, userId(req));
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return r;
 }
 

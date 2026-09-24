@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/Images/yntlogo.png?v=20260603">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=20260924-rmo-summary-2">
+<link rel="stylesheet" href="assets/css/main.css?v=20260924-csr-daily">
 <link rel="stylesheet" href="assets/css/ads-manager.css?v=20260916-billing-spend">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -203,6 +203,13 @@
               <circle cx="5" cy="5" r="2.25"/><path d="M1.75 12.5c.7-1.9 2.1-3 3.25-3s2.55 1.1 3.25 3M11.5 5.25h2.75M11.5 8h2.75M10.75 10.75h3.5"/>
             </svg>
             CSR Records
+          </a>
+
+          <a class="nav-item" data-page="csr-daily-report" onclick="navigateTo('csr-daily-report')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2.5" y="2" width="11" height="12.5" rx="1.5"/><path d="M5.5 1v2M10.5 1v2M5 7h6M5 9.5h6M5 12h3.5"/>
+            </svg>
+            Daily CSR Report
           </a>
 
           <a class="nav-item" data-page="view-records" onclick="navigateTo('view-records')">
@@ -425,6 +432,6 @@
   <!-- Loaded before app.js: it only declares functions, and app.js's page
        router references renderAdsManager when any page loads. -->
   <script src="assets/js/ads-manager.js?v=20260916-billing-spend"></script>
-  <script src="assets/js/app.js?v=20260924-rmo-summary-2"></script>
+  <script src="assets/js/app.js?v=20260924-csr-daily"></script>
 </body>
 </html>

@@ -9,19 +9,19 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'calculators', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -182,6 +182,7 @@ function loadPage(page) {
     'adspend-roas': renderAdspendRoas,
     'ads-manager': renderAdsManager,
     csr: renderCSR,
+    'csr-daily-report': renderCsrDailyReport,
     'sales-marketing-tracker': renderSalesMarketingTracker,
     inventory: renderInventory,
     expenses: renderExpenses,
@@ -224,6 +225,7 @@ const pageNames = {
   'adspend-roas': 'ROAS Summary',
   'ads-manager': 'Ads Manager',
   csr: 'CSR Records',
+  'csr-daily-report': 'Daily CSR Report',
   'sales-marketing-tracker': 'Sales Marketing Tracker',
   inventory: 'Stock',
   expenses: 'Expenses',
@@ -12324,6 +12326,355 @@ function renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal
   });
 }
 
+// ─── DAILY CSR REPORT ──────────────────────────────────────
+// The team's daily performance sheet, entered by hand: each CSR keeps their own
+// card (confirms left, pending right) and anyone on the desk fills the three
+// per-product tables. Totals are summed here, never typed.
+const CSR_DAILY_PRODUCTS = [
+  'Gout Ease', 'Toenail', 'Dental Health Tips', 'Doc Alipion', 'Tooth Restore', 'Lipomax',
+  'Herba Baby', 'Korean', 'Vein Guard', 'Sambacur', 'Machofit', 'Dental Armor',
+];
+const CSR_DAILY_LEFT = [
+  ['upsell_confirm', 'Upsell Confirm'], ['new_confirm', 'New Confirm'], ['broadcast', 'Broadcast'],
+  ['pending', 'Pending'], ['cancelled', 'Cancelled'],
+];
+const CSR_DAILY_RIGHT = [
+  ['upsell_pending_confirm', 'Upsell Pending Confirm'], ['pending_confirm', 'Pending Confirm'],
+  ['pending_out', 'Pending Out'], ['awaiting_print', 'Awaiting for Print'], ['pending_cancelled', 'Cancelled'],
+];
+const CSR_DAILY_SECTIONS = [
+  ['pending_new', 'Pending New Total'],
+  ['awaiting_print', 'Awaiting for Print Record'],
+  ['confirm_breakdown', 'Confirm Products Breakdown'],
+];
+let csrDailyState = { date: '', data: null, loading: false, error: '', cards: [], team: {}, addUserId: '' };
+
+function csrDailyToday() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function csrDailyLeftTotal(card) {
+  return CSR_DAILY_LEFT.reduce((sum, [f]) => sum + Number(card[f] || 0), 0);
+}
+
+function csrDailyRightTotal(card) {
+  return CSR_DAILY_RIGHT.reduce((sum, [f]) => sum + Number(card[f] || 0), 0);
+}
+
+function csrDailyBlankCard(userId, name) {
+  return {
+    user_id: userId, name, shift: 'AM', editable: true, isNew: true,
+    ...Object.fromEntries([...CSR_DAILY_LEFT, ...CSR_DAILY_RIGHT].map(([f]) => [f, 0])),
+  };
+}
+
+async function loadCsrDailyReport() {
+  if (!hasActiveSession()) return;
+  const s = csrDailyState;
+  if (!s.date) s.date = csrDailyToday();
+  s.loading = true;
+  s.error = '';
+  renderCsrDailyBody();
+  try {
+    const data = await authorizedJsonRequest(`/csr/daily-report?date=${encodeURIComponent(s.date)}&_=${Date.now()}`);
+    s.data = data;
+    s.cards = (data.cards || []).map((card) => ({ ...card }));
+    // Each table lists the usual products plus anything already entered today.
+    s.team = {};
+    CSR_DAILY_SECTIONS.forEach(([section]) => {
+      const saved = data.team?.[section] || [];
+      const rows = CSR_DAILY_PRODUCTS.map((product) => {
+        const hit = saved.find((item) => item.product.toLowerCase() === product.toLowerCase());
+        return { product, qty: hit ? String(hit.qty) : '' };
+      });
+      saved.forEach((item) => {
+        if (!rows.some((row) => row.product.toLowerCase() === item.product.toLowerCase())) {
+          rows.push({ product: item.product, qty: String(item.qty) });
+        }
+      });
+      s.team[section] = rows;
+    });
+  } catch (error) {
+    s.error = error.message || 'Could not load the daily report.';
+  } finally {
+    s.loading = false;
+  }
+  if (App.currentPage === 'csr-daily-report') renderCsrDailyBody();
+}
+
+function setCsrDailyDate(value) {
+  if (!value) return;
+  csrDailyState.date = value;
+  loadCsrDailyReport();
+}
+
+function shiftCsrDailyDate(days) {
+  const d = new Date(`${csrDailyState.date || csrDailyToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  csrDailyState.date = d.toISOString().slice(0, 10);
+  const input = document.getElementById('csr-daily-date');
+  if (input) input.value = csrDailyState.date;
+  loadCsrDailyReport();
+}
+
+function renderCsrDailyReport() {
+  if (!csrDailyState.date) csrDailyState.date = csrDailyToday();
+  return `
+  <div class="csr-daily-page">
+    <div class="page-header">
+      <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — each CSR fills in their own card; anyone can fill the product tables.</p></div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(-1)" aria-label="Previous day">‹</button>
+        <input type="date" class="form-control" id="csr-daily-date" value="${escapeHtml(csrDailyState.date)}" onchange="setCsrDailyDate(this.value)" style="height:34px;width:auto;">
+        <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(1)" aria-label="Next day">›</button>
+        <button class="btn btn-secondary btn-sm" onclick="loadCsrDailyReport()">Refresh</button>
+      </div>
+    </div>
+    <div id="csr-daily-body"></div>
+  </div>`;
+}
+
+function csrDailyDateLabel(date) {
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return date;
+  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
+}
+
+function renderCsrDailyBody() {
+  const wrap = document.getElementById('csr-daily-body');
+  if (!wrap) return;
+  const s = csrDailyState;
+  if (s.loading && !s.data) {
+    wrap.innerHTML = '<div class="loading-spinner" style="margin:48px auto;"></div>';
+    return;
+  }
+  if (s.error) {
+    wrap.innerHTML = `<div class="empty-state"><h3>Could not load the daily report</h3><p>${escapeHtml(s.error)}</p></div>`;
+    return;
+  }
+  if (!s.data) return;
+
+  const me = Number(s.data.me);
+  const hasMine = s.cards.some((card) => Number(card.user_id) === me);
+  const canEditAll = Boolean(s.data.can_edit_all);
+  const users = DB.assignableUsers || [];
+  const addable = users.filter((u) => !s.cards.some((card) => Number(card.user_id) === Number(u.id)));
+
+  wrap.innerHTML = `
+    <div class="csr-daily-top" style="${s.loading ? 'opacity:.6;' : ''}">
+      <div id="csr-daily-summary"></div>
+      ${renderCsrDailyTeamTable('pending_new')}
+      ${renderCsrDailyTeamTable('awaiting_print')}
+    </div>
+
+    <div class="csr-daily-lower">
+      <div>
+        <div class="csr-daily-actions">
+          ${hasMine ? '' : `<button class="btn btn-primary btn-sm" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
+          ${canEditAll && addable.length ? `
+            <select class="form-control" id="csr-daily-add-user" style="height:32px;width:auto;min-width:180px;">
+              <option value="">Add a card for…</option>
+              ${addable.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="addCsrDailyCard(document.getElementById('csr-daily-add-user').value)">Add</button>` : ''}
+        </div>
+        <div class="csr-daily-cards">
+          ${s.cards.length
+            ? s.cards.map((card, index) => renderCsrDailyCard(card, index)).join('')
+            : '<div class="empty-state"><h3>No CSR cards yet for this day</h3><p>Use “Add my card” to enter your numbers.</p></div>'}
+        </div>
+      </div>
+      ${renderCsrDailyTeamTable('confirm_breakdown')}
+    </div>`;
+  renderCsrDailySummary();
+}
+
+function renderCsrDailySummary() {
+  const box = document.getElementById('csr-daily-summary');
+  if (!box) return;
+  const s = csrDailyState;
+  const cards = s.cards.filter((card) => !card.isNew);
+  const sum = (f) => cards.reduce((total, card) => total + Number(card[f] || 0), 0);
+  const breakdown = (s.team.confirm_breakdown || []).reduce((total, row) => total + (Number(row.qty) || 0), 0);
+  const row = (label, value, strong = false) => `
+    <tr class="${strong ? 'csr-daily-strong' : ''}"><th>${label}</th><td>${value ? Number(value).toLocaleString() : ''}</td></tr>`;
+  box.innerHTML = `
+    <div class="csr-daily-sheet">
+      <div class="csr-daily-sheet-title">Daily CSR Performance Report</div>
+      <div class="csr-daily-sheet-date">DATE : ${escapeHtml(csrDailyDateLabel(s.date))}</div>
+      <table class="csr-daily-summary-table">
+        ${row('Team Overall Sales', breakdown, true)}
+        ${row('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0))}
+        ${row('Team Cancel', sum('cancelled'))}
+        ${row('Pending', sum('pending'))}
+        ${row('Awaiting for Print', sum('awaiting_print'))}
+      </table>
+      <div class="csr-daily-footnote">Team Overall Sales is the Confirm Products Breakdown total; the rest add up the saved CSR cards.</div>
+    </div>`;
+}
+
+function renderCsrDailyTeamTable(section) {
+  const title = CSR_DAILY_SECTIONS.find(([key]) => key === section)?.[1] || section;
+  const rows = csrDailyState.team[section] || [];
+  const total = rows.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+  return `
+    <div class="csr-daily-sheet" id="csr-daily-team-${section}">
+      <div class="csr-daily-sheet-title ${section === 'awaiting_print' ? 'orange' : section === 'pending_new' ? 'yellow' : ''}">${escapeHtml(title)}</div>
+      <div class="csr-daily-sheet-date">DATE : ${escapeHtml(csrDailyDateLabel(csrDailyState.date))}</div>
+      <table class="csr-daily-product-table">
+        <tbody>
+          ${rows.map((row, index) => `<tr>
+            <th>${escapeHtml(row.product)}</th>
+            <td><input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${escapeHtml(row.qty)}"
+              aria-label="${escapeHtml(`${title} — ${row.product}`)}"
+              oninput="setCsrDailyTeamQty('${section}', ${index}, this.value)"></td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr><th>${section === 'confirm_breakdown' ? 'Overall Total' : 'Total'}</th><td data-team-total="${section}">${total.toLocaleString()}</td></tr></tfoot>
+      </table>
+      <div class="csr-daily-sheet-foot">
+        <input type="text" class="form-control" placeholder="Add product…" id="csr-daily-new-${section}"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addCsrDailyProduct('${section}');}">
+        <button class="btn btn-ghost btn-sm" onclick="addCsrDailyProduct('${section}')">Add</button>
+        <button class="btn btn-primary btn-sm" onclick="saveCsrDailyTeam('${section}')">Save</button>
+      </div>
+    </div>`;
+}
+
+function setCsrDailyTeamQty(section, index, value) {
+  const row = csrDailyState.team[section]?.[index];
+  if (!row) return;
+  row.qty = value;
+  const total = csrDailyState.team[section].reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
+  const cell = document.querySelector(`[data-team-total="${section}"]`);
+  if (cell) cell.textContent = total.toLocaleString();
+  if (section === 'confirm_breakdown') renderCsrDailySummary();
+}
+
+function addCsrDailyProduct(section) {
+  const input = document.getElementById(`csr-daily-new-${section}`);
+  const name = String(input?.value || '').trim();
+  if (!name) return;
+  const rows = csrDailyState.team[section] || (csrDailyState.team[section] = []);
+  if (!rows.some((row) => row.product.toLowerCase() === name.toLowerCase())) rows.push({ product: name, qty: '' });
+  const box = document.getElementById(`csr-daily-team-${section}`);
+  if (box) box.outerHTML = renderCsrDailyTeamTable(section);
+}
+
+async function saveCsrDailyTeam(section) {
+  // Blank means "not entered" and is left out; a typed 0 is kept.
+  const items = (csrDailyState.team[section] || [])
+    .filter((row) => String(row.qty).trim() !== '')
+    .map((row) => ({ product: row.product, qty: Number(row.qty) || 0 }));
+  try {
+    await authorizedJsonRequest('/csr/daily-report/team', {
+      method: 'PUT',
+      body: JSON.stringify({ date: csrDailyState.date, section, items }),
+    });
+    showToast('success', 'Saved', `${CSR_DAILY_SECTIONS.find(([k]) => k === section)?.[1] || 'Table'} saved.`);
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save.');
+  }
+}
+
+function renderCsrDailyCard(card, index) {
+  const cell = (field) => card.editable
+    ? `<input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${Number(card[field] || 0) || ''}"
+        oninput="setCsrDailyCardValue(${index}, '${field}', this.value)">`
+    : (Number(card[field] || 0) ? Number(card[field]).toLocaleString() : '');
+  const lines = CSR_DAILY_LEFT.map(([lf, ll], i) => {
+    const [rf, rl] = CSR_DAILY_RIGHT[i];
+    return `<tr class="${lf === 'cancelled' ? 'csr-daily-cancel' : ''}">
+      <th>${ll}</th><td>${cell(lf)}</td><th class="csr-daily-pending-label">${rl}</th><td>${cell(rf)}</td>
+    </tr>`;
+  }).join('');
+  const shiftCell = card.editable
+    ? `<select class="csr-daily-shift" onchange="setCsrDailyCardValue(${index}, 'shift', this.value)">
+        <option value="AM"${card.shift === 'AM' ? ' selected' : ''}>AM SHIFT</option>
+        <option value="PM"${card.shift === 'PM' ? ' selected' : ''}>PM SHIFT</option>
+      </select>`
+    : `${card.shift} SHIFT`;
+  return `
+    <div class="csr-daily-card ${card.isNew ? 'is-new' : ''}">
+      <table>
+        <thead>
+          <tr class="csr-daily-card-head">
+            <th class="csr-daily-card-total" data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</th>
+            <th class="csr-daily-card-shift">${shiftCell}</th>
+            <th class="csr-daily-card-pending" colspan="2">${card.shift} PENDING</th>
+          </tr>
+          <tr class="csr-daily-card-sub">
+            <th>${escapeHtml(card.name)}</th><th>QTY</th><th></th><th>QTY</th>
+          </tr>
+        </thead>
+        <tbody>${lines}</tbody>
+        <tfoot>
+          <tr><th>Total</th><td data-card-left-foot="${index}">${csrDailyLeftTotal(card).toLocaleString()}</td>
+              <th>Total</th><td data-card-right="${index}">${csrDailyRightTotal(card).toLocaleString()}</td></tr>
+        </tfoot>
+      </table>
+      ${card.editable ? `<div class="csr-daily-card-actions">
+        ${card.isNew ? '' : `<button class="btn btn-ghost btn-sm" onclick="removeCsrDailyCard(${index})">Remove</button>`}
+        <button class="btn btn-primary btn-sm" onclick="saveCsrDailyCard(${index})">${card.isNew ? 'Save card' : 'Save'}</button>
+      </div>` : ''}
+    </div>`;
+}
+
+function setCsrDailyCardValue(index, field, value) {
+  const card = csrDailyState.cards[index];
+  if (!card) return;
+  if (field === 'shift') {
+    card.shift = value === 'PM' ? 'PM' : 'AM';
+    const head = document.querySelectorAll('.csr-daily-card')[index]?.querySelector('.csr-daily-card-pending');
+    if (head) head.textContent = `${card.shift} PENDING`;
+    return;
+  }
+  card[field] = Math.max(0, Math.round(Number(value) || 0));
+  const left = csrDailyLeftTotal(card).toLocaleString();
+  document.querySelectorAll(`[data-card-left="${index}"], [data-card-left-foot="${index}"]`).forEach((el) => { el.textContent = left; });
+  const right = document.querySelector(`[data-card-right="${index}"]`);
+  if (right) right.textContent = csrDailyRightTotal(card).toLocaleString();
+}
+
+function addCsrDailyCard(userId) {
+  const id = Number(userId);
+  if (!id) return;
+  if (csrDailyState.cards.some((card) => Number(card.user_id) === id)) return;
+  const user = (DB.assignableUsers || []).find((u) => Number(u.id) === id);
+  const name = user?.name || (id === Number(csrDailyState.data?.me) ? (App.user?.full_name || App.user?.username || 'Me') : `User ${id}`);
+  csrDailyState.cards.unshift(csrDailyBlankCard(id, name));
+  renderCsrDailyBody();
+}
+
+async function saveCsrDailyCard(index) {
+  const card = csrDailyState.cards[index];
+  if (!card) return;
+  try {
+    await authorizedJsonRequest('/csr/daily-report/card', {
+      method: 'PUT',
+      body: JSON.stringify({ date: csrDailyState.date, ...card }),
+    });
+    card.isNew = false;
+    showToast('success', 'Saved', `${card.name}'s card saved.`);
+    renderCsrDailyBody();
+  } catch (error) {
+    showToast('error', 'Save failed', error.message || 'Could not save the card.');
+  }
+}
+
+async function removeCsrDailyCard(index) {
+  const card = csrDailyState.cards[index];
+  if (!card) return;
+  if (!confirm(`Remove ${card.name}'s card for ${csrDailyDateLabel(csrDailyState.date)}?`)) return;
+  try {
+    await authorizedJsonRequest(`/csr/daily-report/card?date=${encodeURIComponent(csrDailyState.date)}&user_id=${card.user_id}`, { method: 'DELETE' });
+    csrDailyState.cards.splice(index, 1);
+    renderCsrDailyBody();
+  } catch (error) {
+    showToast('error', 'Remove failed', error.message || 'Could not remove the card.');
+  }
+}
+
 // ─── ODZ FINDER ────────────────────────────────────────────
 // Reference lookup of delivery areas flagged as ODZ (out of delivery zone) or
 // a Settlement pick-up area. Server-backed (odz_areas) with search-driven,
@@ -18090,6 +18441,12 @@ function initPage(page) {
         const tbody = document.getElementById('rec-pos-orders-tbody');
         if (tbody) tbody.innerHTML = `<tr><td colspan="${RMO_TABLE_COLSPAN}" style="text-align:center;padding:32px;color:var(--danger)">POS Orders load failed: ${escapeHtml(error.message || 'Request failed')}</td></tr>`;
       });
+  }
+
+  if (page === 'csr-daily-report') {
+    loadCsrDailyReport();
+    // Leads can add a card for anyone; the dropdown needs the user list.
+    loadAssignableUsers().then(() => { if (App.currentPage === 'csr-daily-report') renderCsrDailyBody(); }).catch(() => {});
   }
 
   if (page === 'rmo-summary') {
