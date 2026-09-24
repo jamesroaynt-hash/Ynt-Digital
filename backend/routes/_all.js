@@ -2548,7 +2548,9 @@ function csrRoutes(db) {
   // any confirmer's confirmed orders and the duplicate customers behind them.
   // A duplicate is one number two desks worked, so a CSR held to their own
   // orders only ever sees the half of it they wrote themselves.
-  const VIEW_ALL_POS_ROLES = new Set([...VIEW_ALL_ROLES, 'CSR']);
+  // RMO works the same confirmed orders after the CSR desk, so it reads them
+  // the same way.
+  const VIEW_ALL_POS_ROLES = new Set([...VIEW_ALL_ROLES, 'CSR', 'RMO', 'RMO TL']);
   const role = (req) => String(req.user?.role || '').trim();
   const canViewAll = (req) => VIEW_ALL_ROLES.has(role(req));
   const canViewAllPos = (req) => VIEW_ALL_POS_ROLES.has(role(req));

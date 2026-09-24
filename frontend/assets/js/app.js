@@ -16219,11 +16219,12 @@ function canViewAllCSRRecords() {
 }
 
 // The POS tabs — Confirmed Orders and Duplicate Customers — are read wider
-// than the daily records: a CSR picks any confirmer there, or all of them, the
-// same as the oversight roles. They still open on their own orders; it is the
-// picker they gain, not a new landing page.
+// than the daily records: a CSR, and the RMO desk that works the same orders
+// after them, picks any confirmer there, or all of them, the same as the
+// oversight roles. It is the picker they gain, not a new landing page.
+const CSR_POS_VIEW_ALL_ROLES = ['CSR', 'RMO', 'RMO TL'];
 function canViewAllCsrConfirmed() {
-  return canViewAllCSRRecords() || normalizeRoleName(App.user?.role) === 'CSR';
+  return canViewAllCSRRecords() || CSR_POS_VIEW_ALL_ROLES.includes(normalizeRoleName(App.user?.role));
 }
 
 function getCSRPrimaryButtonLabel() {
