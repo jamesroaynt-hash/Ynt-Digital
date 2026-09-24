@@ -765,6 +765,10 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
   const partnerReason = COURIER_FAILURE_STATES.has(partnerState)
     ? getPosUndeliverableReason(partner)
     : null;
+  // The same reason read from the history regardless of the current state, so an
+  // order that failed an attempt and was delivered later still carries it. Only
+  // the RMO Summary reads this; the RMO tabs keep partner_reason.
+  const deliveryReason = getPosUndeliverableReason(partner);
   // Only meaningful while the courier says undeliverable; kept on the row so the
   // RMO tab can age them without re-parsing partner_json for every query.
   const undeliverableSince = partnerState === 'undeliverable'
@@ -868,10 +872,10 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
       customer_email, page_id, shipping_fee, cod, cash, total_discount, note, attempts, tracking_no,
       note_product, page_name, assigned_user_id, assigning_seller_name, confirmed_by_name, confirmed_at, sprinter_name, sprinter_tel,
       undeliverable_since,
-      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, ad_id, ads_source,
+      items_json, tags_json, partner_json, shipping_address_json, psid, botcake_page_id, partner_status, courier_note, partner_reason, delivery_reason, ad_id, ads_source,
       customer_order_count, customer_succeed_count, customer_returned_count, raw_payload
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(shop_id, external_id) DO UPDATE SET
       shop_id = excluded.shop_id,
       inserted_at_remote = COALESCE(excluded.inserted_at_remote, pos_orders.inserted_at_remote),
@@ -906,6 +910,7 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
       partner_status = excluded.partner_status,
       courier_note = excluded.courier_note,
       partner_reason = excluded.partner_reason,
+      delivery_reason = excluded.delivery_reason,
       undeliverable_since = excluded.undeliverable_since,
       ad_id = COALESCE(excluded.ad_id, pos_orders.ad_id),
       ads_source = COALESCE(excluded.ads_source, pos_orders.ads_source),
@@ -953,6 +958,7 @@ async function upsertOrder(db, shopId, item, connectionName = null, options = {}
     partnerStatus,
     courierNote,
     partnerReason,
+    deliveryReason,
     adId,
     adsSource,
     customerCounts.orders,

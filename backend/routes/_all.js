@@ -1069,9 +1069,12 @@ function ordersRoutes(db, { dispatch } = {}) {
     const provinceExpr = pg
       ? "COALESCE(NULLIF(NULLIF(shipping_address_json, '')::jsonb ->> 'province_name', ''), 'Unknown')"
       : "COALESCE(NULLIF(json_extract(CASE WHEN json_valid(shipping_address_json) THEN shipping_address_json ELSE '{}' END, '$.province_name'), ''), 'Unknown')";
+    // delivery_reason is the courier's failed-attempt reason from the tracking
+    // history whatever the order's state now, so a reason that ended in a later
+    // delivery still counts; partner_reason covers rows synced before it existed.
     // J&T sends the same reason with one, two or no trailing dots
     // ("Wrong Address Information." / "..") — fold them into one row.
-    const reasonExpr = "TRIM(RTRIM(TRIM(COALESCE(partner_reason, '')), '.'))";
+    const reasonExpr = "TRIM(RTRIM(TRIM(COALESCE(NULLIF(delivery_reason, ''), partner_reason, '')), '.'))";
     const statusExpr = `CASE WHEN status_name IN ('canceled','removed') THEN 'Canceled' ELSE ${POS_STATUS_CASE} END`;
     const attemptExpr = `CASE WHEN COALESCE(attempts, 0) <= 1 THEN '1' WHEN attempts = 2 THEN '2' WHEN attempts = 3 THEN '3' ELSE '4plus' END`;
     const DISPATCHED = "('Shipped','Delivered','Returning','Returned')";

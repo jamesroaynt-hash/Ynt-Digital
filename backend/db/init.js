@@ -606,6 +606,9 @@ function runMigrations(db) {
   ensureColumn(db, 'pos_orders', 'assigned_to_user_id', 'INTEGER');
   ensureColumn(db, 'pos_orders', 'assigned_to_name', 'TEXT');
   ensureColumn(db, 'pos_orders', 'partner_reason', 'TEXT');
+  // Latest failed-attempt reason from the courier history, kept whatever the
+  // courier says now (partner_reason is cleared once delivered). RMO Summary only.
+  ensureColumn(db, 'pos_orders', 'delivery_reason', 'TEXT');
   // When the courier first said undeliverable — lets the RMO tab age them.
   ensureColumn(db, 'pos_orders', 'undeliverable_since', 'TEXT');
   // Which shop a sync run was for, so each shop keeps its own watermark.
@@ -1165,6 +1168,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'pos_orders', 'partner_status', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'courier_note', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'partner_reason', 'TEXT');
+  await ensureColumnAsync(db, 'pos_orders', 'delivery_reason', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'undeliverable_since', 'TEXT');
   await ensureColumnAsync(db, 'integration_sync_runs', 'shop_id', 'TEXT');
   await ensureColumnAsync(db, 'pos_orders', 'reconciled_at', 'TEXT');
