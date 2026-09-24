@@ -12334,17 +12334,19 @@ const CSR_DAILY_PRODUCTS = [
   'Gout Ease', 'Toenail', 'Dental Health Tips', 'Doc Alipion', 'Tooth Restore', 'Lipomax',
   'Herba Baby', 'Korean', 'Vein Guard', 'Sambacur', 'Machofit', 'Dental Armor',
 ];
-// Pending sits with the pending rows and counts toward their total. Cancelled
-// rows stay on each side but count toward neither total — they add up on
-// their own.
+// Rows as laid out on the card. Pending is typed on the Confirms side but
+// counts toward the Pending total; Cancelled rows count toward neither total
+// and add up on their own.
 const CSR_DAILY_LEFT = [
   ['upsell_confirm', 'Upsell Confirm'], ['new_confirm', 'New Confirm'], ['broadcast', 'Broadcast'],
-  ['cancelled', 'Cancelled'],
+  ['pending', 'Pending'], ['cancelled', 'Cancelled'],
 ];
 const CSR_DAILY_RIGHT = [
-  ['pending', 'Pending'], ['upsell_pending_confirm', 'Upsell Pending Confirm'], ['pending_confirm', 'Pending Confirm'],
+  ['upsell_pending_confirm', 'Upsell Pending Confirm'], ['pending_confirm', 'Pending Confirm'],
   ['pending_out', 'Pending Out'], ['awaiting_print', 'Awaiting for Print'], ['pending_cancelled', 'Cancelled'],
 ];
+const CSR_DAILY_CONFIRM_FIELDS = ['upsell_confirm', 'new_confirm', 'broadcast'];
+const CSR_DAILY_PENDING_FIELDS = ['pending', 'upsell_pending_confirm', 'pending_confirm', 'pending_out', 'awaiting_print'];
 const CSR_DAILY_CANCELLED = ['cancelled', 'pending_cancelled'];
 const CSR_DAILY_SECTIONS = [
   ['pending_new', 'Pending New Total'],
@@ -12357,18 +12359,18 @@ function csrDailyToday() {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-function csrDailySum(card, rows) {
-  return rows.reduce((sum, [f]) => (CSR_DAILY_CANCELLED.includes(f) ? sum : sum + Number(card[f] || 0)), 0);
+function csrDailySum(card, fields) {
+  return fields.reduce((sum, f) => sum + Number(card[f] || 0), 0);
 }
 
 // Confirmed orders: upsell + new + broadcast.
 function csrDailyLeftTotal(card) {
-  return csrDailySum(card, CSR_DAILY_LEFT);
+  return csrDailySum(card, CSR_DAILY_CONFIRM_FIELDS);
 }
 
 // Still open: pending, pending confirms, pending out and awaiting print.
 function csrDailyRightTotal(card) {
-  return csrDailySum(card, CSR_DAILY_RIGHT);
+  return csrDailySum(card, CSR_DAILY_PENDING_FIELDS);
 }
 
 function csrDailyCancelledTotal(card) {
@@ -12394,9 +12396,10 @@ async function loadCsrDailyReport() {
     s.data = data;
     s.cards = (data.cards || []).map((card) => ({ ...card }));
     // One product list shared by the three columns of the Products card: the
-    // usual products plus anything entered today in any column. Every section
-    // keeps its rows in that same order, so a row index means one product.
-    const products = [...CSR_DAILY_PRODUCTS];
+    // saved list (the built-in one until somebody edits it) plus anything
+    // entered on this day in any column. Every section keeps its rows in that
+    // same order, so a row index means one product.
+    const products = [...(Array.isArray(data.products) ? data.products : CSR_DAILY_PRODUCTS)];
     CSR_DAILY_SECTIONS.forEach(([section]) => {
       (data.team?.[section] || []).forEach((item) => {
         if (!products.some((p) => p.toLowerCase() === item.product.toLowerCase())) products.push(item.product);
@@ -12566,21 +12569,28 @@ function renderCsrDailyProductsCard() {
           <tr>
             <th scope="col">Product</th>
             ${CSR_DAILY_PRODUCT_COLUMNS.map(([, label]) => `<th scope="col">${label}</th>`).join('')}
+            <th scope="col" class="csr-daily-del-col" aria-label="Delete"></th>
           </tr>
         </thead>
         <tbody>
           ${products.map((product, index) => `<tr>
-            <th scope="row">${escapeHtml(product)}</th>
+            <th scope="row"><input type="text" class="csr-daily-name" value="${escapeHtml(product)}" maxlength="80"
+              aria-label="Product name" title="Click to rename"
+              onchange="renameCsrDailyProduct(${index}, this)"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"></th>
             ${CSR_DAILY_PRODUCT_COLUMNS.map(([section, label]) => `<td><input type="number" min="0" inputmode="numeric" class="csr-daily-input"
               value="${escapeHtml(s.team[section]?.[index]?.qty ?? '')}" placeholder="—"
               aria-label="${escapeHtml(`${label} — ${product}`)}"
               oninput="setCsrDailyTeamQty('${section}', ${index}, this.value)"></td>`).join('')}
+            <td class="csr-daily-del-col"><button class="csr-daily-row-del" onclick="removeCsrDailyProduct(${index})"
+              aria-label="${escapeHtml(`Delete ${product}`)}" title="Delete row">×</button></td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
           <tr>
             <th scope="row">Total</th>
             ${CSR_DAILY_PRODUCT_COLUMNS.map(([section]) => `<td data-team-total="${section}">${csrDailyTeamTotal(section).toLocaleString()}</td>`).join('')}
+            <td class="csr-daily-del-col"></td>
           </tr>
         </tfoot>
       </table>
@@ -12616,9 +12626,44 @@ function addCsrDailyProduct() {
   if (box) box.outerHTML = renderCsrDailyProductsCard();
 }
 
+// Rename a row in all three columns. The list itself is saved with the card.
+function renameCsrDailyProduct(index, input) {
+  const rows = csrDailyState.team.confirm_breakdown || [];
+  const current = rows[index]?.product || '';
+  const name = String(input?.value || '').trim().slice(0, 80);
+  const clash = rows.some((row, i) => i !== index && row.product.toLowerCase() === name.toLowerCase());
+  if (!name || clash) {
+    if (clash) showToast('warning', 'Already listed', `"${name}" is already a product row.`);
+    if (input) input.value = current;
+    return;
+  }
+  CSR_DAILY_PRODUCT_COLUMNS.forEach(([section]) => {
+    const row = csrDailyState.team[section]?.[index];
+    if (row) row.product = name;
+  });
+}
+
+function removeCsrDailyProduct(index) {
+  const rows = csrDailyState.team.confirm_breakdown || [];
+  const product = rows[index]?.product;
+  if (!product) return;
+  const hasNumbers = CSR_DAILY_PRODUCT_COLUMNS.some(([section]) => String(csrDailyState.team[section]?.[index]?.qty ?? '').trim() !== '');
+  if (hasNumbers && !confirm(`Delete "${product}" and its numbers for this day?`)) return;
+  CSR_DAILY_PRODUCT_COLUMNS.forEach(([section]) => { csrDailyState.team[section]?.splice(index, 1); });
+  const box = document.getElementById('csr-daily-products');
+  if (box) box.outerHTML = renderCsrDailyProductsCard();
+  renderCsrDailySummary();
+  showToast('info', 'Row removed', 'Press Save to keep the change.');
+}
+
 async function saveCsrDailyTeam() {
   // Blank means "not entered" and is left out; a typed 0 is kept.
   try {
+    // The list first — renames, deletions and added rows apply to every day.
+    await authorizedJsonRequest('/csr/daily-report/products', {
+      method: 'PUT',
+      body: JSON.stringify({ products: (csrDailyState.team.confirm_breakdown || []).map((row) => row.product) }),
+    });
     for (const [section] of CSR_DAILY_PRODUCT_COLUMNS) {
       const items = (csrDailyState.team[section] || [])
         .filter((row) => String(row.qty).trim() !== '')
@@ -12643,7 +12688,7 @@ function renderCsrDailyCard(card, index) {
     <table class="csr-daily-card-table">
       <thead><tr><th scope="col">${title}</th><th scope="col">Qty</th></tr></thead>
       <tbody>
-        ${fields.map(([field, label]) => `<tr class="${field.endsWith('cancelled') ? 'is-cancel' : ''}"><th scope="row">${label}</th><td>${cell(field)}</td></tr>`).join('')}
+        ${fields.map(([field, label]) => `<tr class="${field.endsWith('cancelled') ? 'is-cancel' : ''}"><th scope="row"${field === 'pending' ? ' title="Counts toward the Pending total"' : ''}>${label}</th><td>${cell(field)}</td></tr>`).join('')}
       </tbody>
       <tfoot><tr><th scope="row">Total</th><td ${totalAttr}>${total.toLocaleString()}</td></tr></tfoot>
     </table>`;

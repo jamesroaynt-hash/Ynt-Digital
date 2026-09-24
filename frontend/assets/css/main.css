@@ -5231,13 +5231,70 @@ tfoot td {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .3px;
-  text-align: right;
+  text-align: center;
   text-transform: uppercase;
   color: var(--daily-muted);
 }
 
-.csr-daily-product-table thead th:first-child { text-align: left; }
-.csr-daily-product-table td { width: 104px; padding-left: 6px; }
+/* Fixed layout: the product name gets a third, the three counts split the rest
+   evenly and sit centred under their headings, so nothing drifts to the far
+   edge on a wide screen. */
+.csr-daily-product-table { table-layout: fixed; }
+.csr-daily-product-table thead th:first-child { width: 34%; text-align: left; }
+.csr-daily-paper .csr-daily-product-table td { width: auto; padding: 4px 8px; text-align: center; }
+.csr-daily-product-table .csr-daily-input { width: 100%; max-width: 96px; text-align: center; }
+/* Product names read as text until clicked, then edit in place. */
+.csr-daily-name {
+  width: 100%;
+  height: 28px;
+  padding: 2px 6px;
+  margin-left: -7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--daily-ink);
+  font: inherit;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.csr-daily-name:hover { border-color: var(--daily-line); }
+
+.csr-daily-name:focus {
+  outline: none;
+  border-color: var(--daily-accent);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .2);
+}
+
+.csr-daily-paper .csr-daily-product-table .csr-daily-del-col { width: 40px; padding: 4px 8px 4px 0; }
+
+.csr-daily-row-del {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--daily-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.csr-daily-row-del:hover,
+.csr-daily-row-del:focus-visible {
+  border-color: var(--daily-line);
+  background: var(--daily-soft);
+  color: var(--danger-text);
+  outline: none;
+}
+
+.csr-daily-product-table tbody th,
+.csr-daily-product-table tfoot th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .csr-daily-product-table tbody tr:hover th,
 .csr-daily-product-table tbody tr:hover td { background: var(--daily-soft); }

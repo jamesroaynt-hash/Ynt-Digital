@@ -3246,6 +3246,9 @@ function csrRoutes(db) {
       const teamRows = await db.prepare(
         'SELECT section, product, qty FROM csr_daily_team WHERE report_date = ? ORDER BY id ASC'
       ).all(date);
+      const productRows = await db.prepare(
+        'SELECT name FROM csr_daily_products ORDER BY sort_order ASC, id ASC'
+      ).all();
       const team = { pending_new: [], awaiting_print: [], confirm_breakdown: [] };
       teamRows.forEach((row) => {
         if (team[row.section]) team[row.section].push({ product: row.product, qty: Number(row.qty || 0) });
@@ -3263,6 +3266,8 @@ function csrRoutes(db) {
           editable: editAll || Number(row.user_id) === Number(userId(req)),
         })),
         team,
+        // null until someone edits the list — the page then uses its defaults.
+        products: productRows.length ? productRows.map((row) => row.name) : null,
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -3306,6 +3311,31 @@ function csrRoutes(db) {
     try {
       await db.prepare('DELETE FROM csr_daily_reports WHERE report_date = ? AND user_id = ?').run(date, targetId);
       res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Replaces the product list the report shows (every day), in the given order.
+  r.put('/daily-report/products', async (req, res) => {
+    const seen = new Set();
+    const names = (Array.isArray(req.body?.products) ? req.body.products : [])
+      .map((name) => String(name || '').trim().slice(0, 80))
+      .filter((name) => {
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 100);
+    try {
+      await db.prepare('DELETE FROM csr_daily_products').run();
+      for (let i = 0; i < names.length; i += 1) {
+        await db.prepare(
+          'INSERT INTO csr_daily_products (name, sort_order, updated_by, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)'
+        ).run(names[i], i, userId(req));
+      }
+      res.json({ ok: true, products: names });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
