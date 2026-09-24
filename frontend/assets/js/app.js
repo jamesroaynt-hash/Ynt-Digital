@@ -12334,14 +12334,18 @@ const CSR_DAILY_PRODUCTS = [
   'Gout Ease', 'Toenail', 'Dental Health Tips', 'Doc Alipion', 'Tooth Restore', 'Lipomax',
   'Herba Baby', 'Korean', 'Vein Guard', 'Sambacur', 'Machofit', 'Dental Armor',
 ];
+// Pending sits with the pending rows and counts toward their total. Cancelled
+// rows stay on each side but count toward neither total — they add up on
+// their own.
 const CSR_DAILY_LEFT = [
   ['upsell_confirm', 'Upsell Confirm'], ['new_confirm', 'New Confirm'], ['broadcast', 'Broadcast'],
-  ['pending', 'Pending'], ['cancelled', 'Cancelled'],
+  ['cancelled', 'Cancelled'],
 ];
 const CSR_DAILY_RIGHT = [
-  ['upsell_pending_confirm', 'Upsell Pending Confirm'], ['pending_confirm', 'Pending Confirm'],
+  ['pending', 'Pending'], ['upsell_pending_confirm', 'Upsell Pending Confirm'], ['pending_confirm', 'Pending Confirm'],
   ['pending_out', 'Pending Out'], ['awaiting_print', 'Awaiting for Print'], ['pending_cancelled', 'Cancelled'],
 ];
+const CSR_DAILY_CANCELLED = ['cancelled', 'pending_cancelled'];
 const CSR_DAILY_SECTIONS = [
   ['pending_new', 'Pending New Total'],
   ['awaiting_print', 'Awaiting for Print Record'],
@@ -12353,12 +12357,22 @@ function csrDailyToday() {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-function csrDailyLeftTotal(card) {
-  return CSR_DAILY_LEFT.reduce((sum, [f]) => sum + Number(card[f] || 0), 0);
+function csrDailySum(card, rows) {
+  return rows.reduce((sum, [f]) => (CSR_DAILY_CANCELLED.includes(f) ? sum : sum + Number(card[f] || 0)), 0);
 }
 
+// Confirmed orders: upsell + new + broadcast.
+function csrDailyLeftTotal(card) {
+  return csrDailySum(card, CSR_DAILY_LEFT);
+}
+
+// Still open: pending, pending confirms, pending out and awaiting print.
 function csrDailyRightTotal(card) {
-  return CSR_DAILY_RIGHT.reduce((sum, [f]) => sum + Number(card[f] || 0), 0);
+  return csrDailySum(card, CSR_DAILY_RIGHT);
+}
+
+function csrDailyCancelledTotal(card) {
+  return CSR_DAILY_CANCELLED.reduce((sum, f) => sum + Number(card[f] || 0), 0);
 }
 
 function csrDailyBlankCard(userId, name) {
@@ -12460,9 +12474,8 @@ function renderCsrDailyBody() {
   const users = DB.assignableUsers || [];
   const addable = users.filter((u) => !s.cards.some((card) => Number(card.user_id) === Number(u.id)));
 
-  // Same arrangement as the team's sheet: the summary with every CSR card
-  // stacked under it on the left; the two pending tables side by side on the
-  // right with the confirm breakdown beneath them.
+  // The summary with every CSR card stacked under it on the left; the confirm
+  // breakdown on the right with the two pending tables side by side beneath it.
   wrap.innerHTML = `
     <div class="csr-daily-paper" style="${s.loading ? 'opacity:.6;' : ''}">
       <div class="csr-daily-left">
@@ -12483,11 +12496,11 @@ function renderCsrDailyBody() {
         </div>
       </div>
       <div class="csr-daily-right">
+        <div class="csr-daily-breakdown">${renderCsrDailyTeamTable('confirm_breakdown')}</div>
         <div class="csr-daily-pair">
           ${renderCsrDailyTeamTable('pending_new')}
           ${renderCsrDailyTeamTable('awaiting_print')}
         </div>
-        <div class="csr-daily-breakdown">${renderCsrDailyTeamTable('confirm_breakdown')}</div>
       </div>
     </div>`;
   renderCsrDailySummary();
@@ -12497,7 +12510,9 @@ function renderCsrDailySummary() {
   const box = document.getElementById('csr-daily-summary');
   if (!box) return;
   const s = csrDailyState;
-  const cards = s.cards.filter((card) => !card.isNew);
+  // Every card on screen, saved or still being typed, so the tiles move as
+  // the numbers go in.
+  const cards = s.cards;
   const sum = (f) => cards.reduce((total, card) => total + Number(card[f] || 0), 0);
   const breakdown = (s.team.confirm_breakdown || []).reduce((total, row) => total + (Number(row.qty) || 0), 0);
   const tile = (label, value, hint, lead = false) => `
@@ -12516,9 +12531,9 @@ function renderCsrDailySummary() {
       </header>
       <div class="csr-daily-kpis">
         ${tile('Team Overall Sales', breakdown, 'Confirm products total', true)}
-        ${tile('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0), 'Sum of card totals')}
-        ${tile('Team Cancel', sum('cancelled'), 'Cancelled on cards')}
-        ${tile('Pending', sum('pending'), 'Pending on cards')}
+        ${tile('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0), 'Upsell + new + broadcast')}
+        ${tile('Team Cancel', cards.reduce((t, c) => t + csrDailyCancelledTotal(c), 0), 'Cancelled on cards')}
+        ${tile('Pending', cards.reduce((t, c) => t + csrDailyRightTotal(c), 0), 'Pending totals on cards')}
         ${tile('Awaiting for Print', sum('awaiting_print'), 'Awaiting on cards')}
       </div>
     </section>`;
@@ -12619,8 +12634,13 @@ function renderCsrDailyCard(card, index) {
           <div class="csr-daily-panel-title">${escapeHtml(card.name)}</div>
           ${shift}
         </div>
-        <div class="csr-daily-card-total" title="Total of the five confirm rows">
-          <span>Total</span><strong data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</strong>
+        <div class="csr-daily-card-totals">
+          <div class="csr-daily-card-total cancel" title="Both Cancelled rows — not counted in either total">
+            <span>Cancelled</span><strong data-card-cancel="${index}">${csrDailyCancelledTotal(card).toLocaleString()}</strong>
+          </div>
+          <div class="csr-daily-card-total" title="Confirmed orders: upsell + new + broadcast">
+            <span>Total</span><strong data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</strong>
+          </div>
         </div>
       </header>
       <div class="csr-daily-card-cols">
@@ -12646,6 +12666,9 @@ function setCsrDailyCardValue(index, field, value) {
   document.querySelectorAll(`[data-card-left="${index}"], [data-card-left-foot="${index}"]`).forEach((el) => { el.textContent = left; });
   const right = document.querySelector(`[data-card-right="${index}"]`);
   if (right) right.textContent = csrDailyRightTotal(card).toLocaleString();
+  const cancel = document.querySelector(`[data-card-cancel="${index}"]`);
+  if (cancel) cancel.textContent = csrDailyCancelledTotal(card).toLocaleString();
+  renderCsrDailySummary();
 }
 
 function addCsrDailyCard(userId) {

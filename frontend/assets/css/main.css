@@ -5081,8 +5081,8 @@ tfoot td {
 
 /* Daily CSR Report — panel bodies follow the app theme; only each panel's
    header strip is white with black text. Summary and CSR cards on the left;
-   the two pending tables side by side with the confirm breakdown under them
-   on the right. */
+   the confirm breakdown on the right with the two pending tables side by side
+   under it. */
 .csr-daily-paper {
   --daily-bg: var(--surface);
   --daily-soft: var(--surface-3);
@@ -5174,11 +5174,11 @@ tfoot td {
 .csr-daily-kpi.lead { background: var(--daily-soft); }
 
 .csr-daily-kpi-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: .3px;
   text-transform: uppercase;
-  color: var(--daily-muted);
+  color: var(--daily-ink);
 }
 
 .csr-daily-kpi-value {
@@ -5195,7 +5195,7 @@ tfoot td {
 .csr-daily-kpi-hint {
   margin-top: 2px;
   font-size: 11px;
-  color: var(--daily-muted);
+  color: var(--text-secondary, var(--daily-muted));
 }
 
 /* Product tables and card columns */
@@ -5377,6 +5377,15 @@ tfoot td {
 
 .csr-daily-shift.static { display: inline-flex; align-items: center; cursor: default; }
 
+.csr-daily-card-totals {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-shrink: 0;
+}
+
+.csr-daily-card-total.cancel strong { color: #b91c1c; }
+
 .csr-daily-card-total {
   display: flex;
   align-items: baseline;
@@ -5401,6 +5410,7 @@ tfoot td {
 .csr-daily-card-cols {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
 }
 
 .csr-daily-card-cols > table + table { border-left: 1px solid var(--daily-line); }
