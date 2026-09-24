@@ -5319,7 +5319,7 @@ tfoot td {
   padding: 2px 8px;
   border: 1px solid var(--daily-line);
   border-radius: 6px;
-  background: var(--surface-2);
+  background: transparent;
   color: var(--daily-ink);
   font-size: 13px;
   font-weight: 600;
@@ -5484,6 +5484,9 @@ tfoot td {
    Confirms row level with its Pending neighbour. */
 .csr-daily-card-cols .csr-daily-card-table { table-layout: fixed; }
 .csr-daily-card-cols .csr-daily-card-table thead th:last-child { width: 92px; }
+.csr-daily-card-cols .csr-daily-card-table thead th:last-child,
+.csr-daily-card-cols .csr-daily-card-table td,
+.csr-daily-card-cols .csr-daily-input { text-align: center; }
 .csr-daily-card-cols .csr-daily-card-table th {
   white-space: nowrap;
   overflow: hidden;
