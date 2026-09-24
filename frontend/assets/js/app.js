@@ -15286,7 +15286,6 @@ function getRmoUndeliverableCount() {
 // larger status string, e.g.
 //   "...register by [F-DVO Libungan DH] , reason [No Reason to Reject without Opening the Box]"
 // Pull the text after `reason [` (supports [] and full-width 【】 brackets).
-// Recurse newest-entry-first since extend_update is ordered oldest→newest.
 const COURIER_REASON_RE = /reason\s*[\[【]\s*([^\]】]+?)\s*[\]】]/gi;
 function collectCourierReasons(node, out) {
   if (node == null) return;
@@ -15302,12 +15301,28 @@ function collectCourierReasons(node, out) {
     for (const key of Object.keys(node)) collectCourierReasons(node[key], out);
   }
 }
-// Return only the latest reason: extend_update history is chronological, so the
-// last `reason [..]` we encounter is the most recent.
+// The last `reason [..]` found inside one node (a note or a single entry).
 function deepFindCourierReason(node) {
   const out = [];
   collectCourierReasons(node, out);
   return out.length ? out[out.length - 1] : '';
+}
+
+// The courier history, newest update first. Pancake sends extend_update
+// NEWEST-first (index 0 is the latest scan), not chronologically — reading it
+// from the end showed the reason from the FIRST failed attempt, so an order that
+// failed again today kept its days-old reason. Sorted on update_at so a feed
+// that ever flips order still reads right. Mirrors courierUpdatesNewestFirst in
+// pancakePosSync.
+function rmoCourierUpdatesNewestFirst(partner) {
+  const updates = Array.isArray(partner?.extend_update) ? partner.extend_update : [];
+  return updates
+    .map((entry, index) => ({ entry, index, at: Date.parse(String(entry?.update_at || '')) }))
+    .sort((a, b) => {
+      if (Number.isFinite(a.at) && Number.isFinite(b.at) && a.at !== b.at) return b.at - a.at;
+      return a.index - b.index;
+    })
+    .map((item) => item.entry);
 }
 
 // Undeliverable reason, read straight from the order's partner_json
@@ -15319,52 +15334,64 @@ function getRmoUndeliverableReason(order) {
   if (partner && typeof partner === 'object') {
     // The reason usually arrives as a plain `note` on a failure entry ("The
     // call is Turned Off."); the newest entry often carries only a status, so
-    // walk back until one has a note. `reason [..]` is the older embedded form.
-    const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
-    for (let i = updates.length - 1; i >= 0; i--) {
-      const note = String(updates[i]?.note || '').trim();
+    // take the newest entry that has a note. `reason [..]` is the older embedded form.
+    const updates = rmoCourierUpdatesNewestFirst(partner);
+    for (const update of updates) {
+      const note = String(update?.note || '').trim();
       // A note can itself be the wrapped "…,reason【…】" form; unwrap when so.
       if (note) return deepFindCourierReason(note) || note;
     }
-    const reason = deepFindCourierReason(partner.extend_update) || deepFindCourierReason(partner);
+    for (const update of updates) {
+      const embedded = deepFindCourierReason(update);
+      if (embedded) return embedded;
+    }
+    const reason = deepFindCourierReason(partner);
     if (reason) return reason;
   }
   return order?.partner_reason || '';
 }
 
-// How long the courier has had this order sitting undeliverable. The server
-// sends the count; fall back to the partner payload so rows stored before the
-// column existed still age correctly.
-function getRmoUndeliverableDays(order) {
-  const fromServer = Number(order?.days_undeliverable);
-  if (Number.isFinite(fromServer)) return fromServer;
+// When the courier last moved this order — the newest extend_update entry,
+// falling back to the order's last remote update. The chip counts from here,
+// not from the first failure: an order that failed again today reads "today",
+// and one nobody has touched in a week reads a week. Pancake sends these
+// timestamps in UTC without a zone.
+function getRmoLastCourierUpdate(order) {
   const partner = order?.partner;
-  if (!partner || typeof partner !== 'object') return null;
-  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
-  let since = partner.first_undeliverable_at;
-  if (!since) {
-    for (let i = updates.length - 1; i >= 0; i--) {
-      if (String(updates[i]?.note || '').trim() && updates[i]?.update_at) { since = updates[i].update_at; break; }
-    }
-  }
-  if (!since) since = partner.updated_at;
-  // Calendar days, matching the server — see daysSince in routes/_all.js.
-  const day = String(since || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-  const then = Date.parse(`${day}T00:00:00Z`);
-  if (Number.isNaN(then)) return null;
-  const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
-  return Math.max(0, Math.round((today - then) / 86400000));
+  const newest = partner && typeof partner === 'object'
+    ? rmoCourierUpdatesNewestFirst(partner).find((entry) => entry?.update_at)
+    : null;
+  const raw = String(newest?.update_at || order?.updated_at || '').trim();
+  if (!raw) return null;
+  const iso = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? null : at;
 }
 
-// An age chip for the Undeliverable queue. Anything past a week is a problem;
-// past a month it is money nobody is chasing.
+// Calendar days (Manila) since the last courier update.
+function getRmoUndeliverableDays(order) {
+  const at = getRmoLastCourierUpdate(order);
+  if (at == null) {
+    const fromServer = Number(order?.days_undeliverable);
+    return Number.isFinite(fromServer) ? fromServer : null;
+  }
+  const manilaDay = (ms) => Date.parse(`${new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10)}T00:00:00Z`);
+  return Math.max(0, Math.round((manilaDay(Date.now()) - manilaDay(at)) / 86400000));
+}
+
+// The last-update chip for the Undeliverable queue: the date of the courier's
+// latest status and how long ago that was. Anything past a week without a
+// courier update is a problem; past a month it is money nobody is chasing.
 function rmoStuckChip(order) {
   const days = getRmoUndeliverableDays(order);
   if (days == null) return '';
+  const at = getRmoLastCourierUpdate(order);
   const tone = days >= 30 ? 'bad' : days >= 7 ? 'warn' : 'ok';
-  const label = days === 0 ? 'today' : days === 1 ? '1 day' : `${days} days`;
-  return `<span class="rmo-stuck ${tone}" title="Undeliverable for ${label} — the courier has not moved it since">${label}</span>`;
+  const ago = days === 0 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`;
+  const date = at == null ? '' : new Date(at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' });
+  const full = at == null ? '' : new Date(at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' });
+  const label = date ? `${date} · ${ago}` : ago;
+  return `<span class="rmo-stuck ${tone}" title="${escapeHtml(full ? `Last courier update: ${full}` : `Last courier update ${ago}`)}">${escapeHtml(label)}</span>`;
 }
 
 // How many of this customer's orders arrived and how many came back, plus the
@@ -15435,16 +15462,15 @@ function getRmoRider(order) {
   return { name, tel };
 }
 
-// Latest courier `note` from partner_json.extend_update (chronological, newest
-// last), falling back to a partner-level note. Used to surface Bigate J&T's
-// call-attempt detail under the reason.
+// Latest courier `note` from partner_json.extend_update (newest first — see
+// rmoCourierUpdatesNewestFirst), falling back to a partner-level note. Used to
+// surface Bigate J&T's call-attempt detail under the reason.
 function getRmoCourierNote(order) {
   const partner = order?.partner;
   if (!partner || typeof partner !== 'object') return '';
-  const updates = partner.extend_update;
-  if (Array.isArray(updates)) {
-    for (let i = updates.length - 1; i >= 0; i--) {
-      const entry = updates[i];
+  const updates = rmoCourierUpdatesNewestFirst(partner);
+  if (updates.length) {
+    for (const entry of updates) {
       const note = entry && typeof entry === 'object' && typeof entry.note === 'string' ? entry.note.trim() : '';
       if (note) return note;
     }
