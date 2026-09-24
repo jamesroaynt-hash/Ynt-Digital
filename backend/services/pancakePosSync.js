@@ -1388,7 +1388,6 @@ function normalizePosTagValue(value) {
 // larger status string, e.g.
 //   "...register by [F-DVO Libungan DH] , reason [No Reason to Reject without Opening the Box]"
 // Pull the text after `reason [` (supports [] and full-width 【】 brackets).
-// Recurse newest-entry-first since extend_update is ordered oldest→newest.
 const COURIER_REASON_RE = /reason\s*[\[【]\s*([^\]】]+?)\s*[\]】]/gi;
 function collectCourierReasons(node, out) {
   if (node == null) return;
@@ -1404,12 +1403,28 @@ function collectCourierReasons(node, out) {
     for (const key of Object.keys(node)) collectCourierReasons(node[key], out);
   }
 }
-// Return only the latest reason: extend_update history is chronological, so the
-// last `reason [..]` we encounter is the most recent.
+// The last `reason [..]` found inside one node (a note or a single entry).
 function deepFindCourierReason(node) {
   const out = [];
   collectCourierReasons(node, out);
   return out.length ? out[out.length - 1] : null;
+}
+
+// The courier history, newest update first. Pancake sends extend_update
+// NEWEST-first (index 0 is the latest scan — every stored order checked
+// 2026-09-24), not chronologically; reading it from the end returned the
+// OLDEST failure, so an order that failed again today still showed the reason
+// from its first failed attempt days ago. Sort on update_at when present so a
+// feed that ever flips order is still read right; ties keep the sent order.
+function courierUpdatesNewestFirst(partner) {
+  const updates = Array.isArray(partner?.extend_update) ? partner.extend_update : [];
+  return updates
+    .map((entry, index) => ({ entry, index, at: Date.parse(String(entry?.update_at || '')) }))
+    .sort((a, b) => {
+      if (Number.isFinite(a.at) && Number.isFinite(b.at) && a.at !== b.at) return b.at - a.at;
+      return a.index - b.index;
+    })
+    .map((item) => item.entry);
 }
 
 // The courier's reason for a failed delivery. Two shapes reach us and only the
@@ -1417,21 +1432,25 @@ function deepFindCourierReason(node) {
 //   1. a dedicated `note` on an extend_update entry — "The call is Turned Off."
 //      This is what J&T sends, and it is every undeliverable order we hold.
 //   2. `reason [<text>]` embedded in a longer status string.
-// Prefer the note, newest entry first — the newest update usually carries only a
-// status ("Package is Delivery Failed") and the note sits on the failure entry
-// that precedes it, so reading only the last entry finds nothing.
+// Prefer the note, newest entry first — the newest update may carry only a
+// status ("Package is Delivering") and the note sits on the latest failure
+// entry below it.
 function getPosUndeliverableReason(partner) {
   if (!partner || typeof partner !== 'object') return null;
-  const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
-  for (let i = updates.length - 1; i >= 0; i--) {
-    const note = stringOrNull(updates[i]?.note);
+  const updates = courierUpdatesNewestFirst(partner);
+  for (const update of updates) {
+    const note = stringOrNull(update?.note);
     if (!note) continue;
     // Some notes are themselves the wrapped form — "Problematic register by
     // 【CP_QC2_PAYATAS 1】,reason【Customer Goods are not Available】" — so unwrap
     // when there is something to unwrap and keep the plain note otherwise.
     return deepFindCourierReason(note) || note;
   }
-  return deepFindCourierReason(partner.extend_update) || deepFindCourierReason(partner) || null;
+  for (const update of updates) {
+    const embedded = deepFindCourierReason(update);
+    if (embedded) return embedded;
+  }
+  return deepFindCourierReason(partner) || null;
 }
 
 // A courier note only describes the CURRENT state while the courier is still
