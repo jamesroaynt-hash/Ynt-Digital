@@ -12460,31 +12460,35 @@ function renderCsrDailyBody() {
   const users = DB.assignableUsers || [];
   const addable = users.filter((u) => !s.cards.some((card) => Number(card.user_id) === Number(u.id)));
 
+  // Same arrangement as the team's sheet: the summary with every CSR card
+  // stacked under it on the left; the two pending tables side by side on the
+  // right with the confirm breakdown beneath them.
   wrap.innerHTML = `
-    <div class="csr-daily-top" style="${s.loading ? 'opacity:.6;' : ''}">
-      <div id="csr-daily-summary"></div>
-      ${renderCsrDailyTeamTable('pending_new')}
-      ${renderCsrDailyTeamTable('awaiting_print')}
-    </div>
-
-    <div class="csr-daily-lower">
-      <div>
+    <div class="csr-daily-paper" style="${s.loading ? 'opacity:.6;' : ''}">
+      <div class="csr-daily-left">
+        <div id="csr-daily-summary"></div>
         <div class="csr-daily-actions">
-          ${hasMine ? '' : `<button class="btn btn-primary btn-sm" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
+          ${hasMine ? '' : `<button class="csr-daily-btn primary" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
           ${canEditAll && addable.length ? `
-            <select class="form-control" id="csr-daily-add-user" style="height:32px;width:auto;min-width:180px;">
+            <select class="csr-daily-select" id="csr-daily-add-user" aria-label="Add a card for a CSR">
               <option value="">Add a card for…</option>
               ${addable.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
             </select>
-            <button class="btn btn-secondary btn-sm" onclick="addCsrDailyCard(document.getElementById('csr-daily-add-user').value)">Add</button>` : ''}
+            <button class="csr-daily-btn" onclick="addCsrDailyCard(document.getElementById('csr-daily-add-user').value)">Add</button>` : ''}
         </div>
         <div class="csr-daily-cards">
           ${s.cards.length
             ? s.cards.map((card, index) => renderCsrDailyCard(card, index)).join('')
-            : '<div class="empty-state"><h3>No CSR cards yet for this day</h3><p>Use “Add my card” to enter your numbers.</p></div>'}
+            : '<div class="csr-daily-empty"><strong>No CSR cards yet for this day</strong><span>Use “+ Add my card” to enter your numbers.</span></div>'}
         </div>
       </div>
-      ${renderCsrDailyTeamTable('confirm_breakdown')}
+      <div class="csr-daily-right">
+        <div class="csr-daily-pair">
+          ${renderCsrDailyTeamTable('pending_new')}
+          ${renderCsrDailyTeamTable('awaiting_print')}
+        </div>
+        <div class="csr-daily-breakdown">${renderCsrDailyTeamTable('confirm_breakdown')}</div>
+      </div>
     </div>`;
   renderCsrDailySummary();
 }
@@ -12496,21 +12500,28 @@ function renderCsrDailySummary() {
   const cards = s.cards.filter((card) => !card.isNew);
   const sum = (f) => cards.reduce((total, card) => total + Number(card[f] || 0), 0);
   const breakdown = (s.team.confirm_breakdown || []).reduce((total, row) => total + (Number(row.qty) || 0), 0);
-  const row = (label, value, strong = false) => `
-    <tr class="${strong ? 'csr-daily-strong' : ''}"><th>${label}</th><td>${value ? Number(value).toLocaleString() : ''}</td></tr>`;
-  box.innerHTML = `
-    <div class="csr-daily-sheet">
-      <div class="csr-daily-sheet-title">Daily CSR Performance Report</div>
-      <div class="csr-daily-sheet-date">DATE : ${escapeHtml(csrDailyDateLabel(s.date))}</div>
-      <table class="csr-daily-summary-table">
-        ${row('Team Overall Sales', breakdown, true)}
-        ${row('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0))}
-        ${row('Team Cancel', sum('cancelled'))}
-        ${row('Pending', sum('pending'))}
-        ${row('Awaiting for Print', sum('awaiting_print'))}
-      </table>
-      <div class="csr-daily-footnote">Team Overall Sales is the Confirm Products Breakdown total; the rest add up the saved CSR cards.</div>
+  const tile = (label, value, hint, lead = false) => `
+    <div class="csr-daily-kpi ${lead ? 'lead' : ''}">
+      <div class="csr-daily-kpi-label">${label}</div>
+      <div class="csr-daily-kpi-value">${Number(value || 0).toLocaleString()}</div>
+      <div class="csr-daily-kpi-hint">${hint}</div>
     </div>`;
+  box.innerHTML = `
+    <section class="csr-daily-panel">
+      <header class="csr-daily-panel-head">
+        <div>
+          <div class="csr-daily-panel-title">Daily CSR Performance Report</div>
+          <div class="csr-daily-panel-sub">${escapeHtml(csrDailyDateLabel(s.date))} · ${cards.length} CSR card${cards.length === 1 ? '' : 's'}</div>
+        </div>
+      </header>
+      <div class="csr-daily-kpis">
+        ${tile('Team Overall Sales', breakdown, 'Confirm products total', true)}
+        ${tile('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0), 'Sum of card totals')}
+        ${tile('Team Cancel', sum('cancelled'), 'Cancelled on cards')}
+        ${tile('Pending', sum('pending'), 'Pending on cards')}
+        ${tile('Awaiting for Print', sum('awaiting_print'), 'Awaiting on cards')}
+      </div>
+    </section>`;
 }
 
 function renderCsrDailyTeamTable(section) {
@@ -12518,27 +12529,32 @@ function renderCsrDailyTeamTable(section) {
   const rows = csrDailyState.team[section] || [];
   const total = rows.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
   return `
-    <div class="csr-daily-sheet" id="csr-daily-team-${section}">
-      <div class="csr-daily-sheet-title ${section === 'awaiting_print' ? 'orange' : section === 'pending_new' ? 'yellow' : ''}">${escapeHtml(title)}</div>
-      <div class="csr-daily-sheet-date">DATE : ${escapeHtml(csrDailyDateLabel(csrDailyState.date))}</div>
+    <section class="csr-daily-panel" id="csr-daily-team-${section}">
+      <header class="csr-daily-panel-head">
+        <div>
+          <div class="csr-daily-panel-title">${escapeHtml(title)}</div>
+          <div class="csr-daily-panel-sub">${escapeHtml(csrDailyDateLabel(csrDailyState.date))}</div>
+        </div>
+        <button class="csr-daily-btn primary" onclick="saveCsrDailyTeam('${section}')">Save</button>
+      </header>
       <table class="csr-daily-product-table">
         <tbody>
           ${rows.map((row, index) => `<tr>
-            <th>${escapeHtml(row.product)}</th>
-            <td><input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${escapeHtml(row.qty)}"
+            <th scope="row">${escapeHtml(row.product)}</th>
+            <td><input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${escapeHtml(row.qty)}" placeholder="—"
               aria-label="${escapeHtml(`${title} — ${row.product}`)}"
               oninput="setCsrDailyTeamQty('${section}', ${index}, this.value)"></td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><th>${section === 'confirm_breakdown' ? 'Overall Total' : 'Total'}</th><td data-team-total="${section}">${total.toLocaleString()}</td></tr></tfoot>
+        <tfoot><tr><th scope="row">${section === 'confirm_breakdown' ? 'Overall Total' : 'Total'}</th><td data-team-total="${section}">${total.toLocaleString()}</td></tr></tfoot>
       </table>
-      <div class="csr-daily-sheet-foot">
-        <input type="text" class="form-control" placeholder="Add product…" id="csr-daily-new-${section}"
+      <div class="csr-daily-panel-foot">
+        <input type="text" class="csr-daily-text" placeholder="Add a product…" id="csr-daily-new-${section}"
+          aria-label="Add a product to ${escapeHtml(title)}"
           onkeydown="if(event.key==='Enter'){event.preventDefault();addCsrDailyProduct('${section}');}">
-        <button class="btn btn-ghost btn-sm" onclick="addCsrDailyProduct('${section}')">Add</button>
-        <button class="btn btn-primary btn-sm" onclick="saveCsrDailyTeam('${section}')">Save</button>
+        <button class="csr-daily-btn" onclick="addCsrDailyProduct('${section}')">Add</button>
       </div>
-    </div>`;
+    </section>`;
 }
 
 function setCsrDailyTeamQty(section, index, value) {
@@ -12579,45 +12595,43 @@ async function saveCsrDailyTeam(section) {
 
 function renderCsrDailyCard(card, index) {
   const cell = (field) => card.editable
-    ? `<input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${Number(card[field] || 0) || ''}"
+    ? `<input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${Number(card[field] || 0) || ''}" placeholder="0"
         oninput="setCsrDailyCardValue(${index}, '${field}', this.value)">`
-    : (Number(card[field] || 0) ? Number(card[field]).toLocaleString() : '');
-  const lines = CSR_DAILY_LEFT.map(([lf, ll], i) => {
-    const [rf, rl] = CSR_DAILY_RIGHT[i];
-    return `<tr class="${lf === 'cancelled' ? 'csr-daily-cancel' : ''}">
-      <th>${ll}</th><td>${cell(lf)}</td><th class="csr-daily-pending-label">${rl}</th><td>${cell(rf)}</td>
-    </tr>`;
-  }).join('');
-  const shiftCell = card.editable
-    ? `<select class="csr-daily-shift" onchange="setCsrDailyCardValue(${index}, 'shift', this.value)">
-        <option value="AM"${card.shift === 'AM' ? ' selected' : ''}>AM SHIFT</option>
-        <option value="PM"${card.shift === 'PM' ? ' selected' : ''}>PM SHIFT</option>
+    : `<span class="csr-daily-num">${Number(card[field] || 0).toLocaleString()}</span>`;
+  const column = (title, fields, totalAttr, total) => `
+    <table class="csr-daily-card-table">
+      <thead><tr><th scope="col">${title}</th><th scope="col">Qty</th></tr></thead>
+      <tbody>
+        ${fields.map(([field, label]) => `<tr class="${field.endsWith('cancelled') ? 'is-cancel' : ''}"><th scope="row">${label}</th><td>${cell(field)}</td></tr>`).join('')}
+      </tbody>
+      <tfoot><tr><th scope="row">Total</th><td ${totalAttr}>${total.toLocaleString()}</td></tr></tfoot>
+    </table>`;
+  const shift = card.editable
+    ? `<select class="csr-daily-shift" aria-label="Shift" onchange="setCsrDailyCardValue(${index}, 'shift', this.value)">
+        <option value="AM"${card.shift === 'AM' ? ' selected' : ''}>AM shift</option>
+        <option value="PM"${card.shift === 'PM' ? ' selected' : ''}>PM shift</option>
       </select>`
-    : `${card.shift} SHIFT`;
+    : `<span class="csr-daily-shift static">${card.shift} shift</span>`;
   return `
-    <div class="csr-daily-card ${card.isNew ? 'is-new' : ''}">
-      <table>
-        <thead>
-          <tr class="csr-daily-card-head">
-            <th class="csr-daily-card-total" data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</th>
-            <th class="csr-daily-card-shift">${shiftCell}</th>
-            <th class="csr-daily-card-pending" colspan="2">${card.shift} PENDING</th>
-          </tr>
-          <tr class="csr-daily-card-sub">
-            <th>${escapeHtml(card.name)}</th><th>QTY</th><th></th><th>QTY</th>
-          </tr>
-        </thead>
-        <tbody>${lines}</tbody>
-        <tfoot>
-          <tr><th>Total</th><td data-card-left-foot="${index}">${csrDailyLeftTotal(card).toLocaleString()}</td>
-              <th>Total</th><td data-card-right="${index}">${csrDailyRightTotal(card).toLocaleString()}</td></tr>
-        </tfoot>
-      </table>
-      ${card.editable ? `<div class="csr-daily-card-actions">
-        ${card.isNew ? '' : `<button class="btn btn-ghost btn-sm" onclick="removeCsrDailyCard(${index})">Remove</button>`}
-        <button class="btn btn-primary btn-sm" onclick="saveCsrDailyCard(${index})">${card.isNew ? 'Save card' : 'Save'}</button>
+    <section class="csr-daily-panel csr-daily-card ${card.isNew ? 'is-new' : ''}">
+      <header class="csr-daily-panel-head">
+        <div class="csr-daily-card-who">
+          <div class="csr-daily-panel-title">${escapeHtml(card.name)}</div>
+          ${shift}
+        </div>
+        <div class="csr-daily-card-total" title="Total of the five confirm rows">
+          <span>Total</span><strong data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</strong>
+        </div>
+      </header>
+      <div class="csr-daily-card-cols">
+        ${column('Confirms', CSR_DAILY_LEFT, `data-card-left-foot="${index}"`, csrDailyLeftTotal(card))}
+        ${column('Pending', CSR_DAILY_RIGHT, `data-card-right="${index}"`, csrDailyRightTotal(card))}
+      </div>
+      ${card.editable ? `<div class="csr-daily-panel-foot end">
+        ${card.isNew ? '' : `<button class="csr-daily-btn" onclick="removeCsrDailyCard(${index})">Remove</button>`}
+        <button class="csr-daily-btn primary" onclick="saveCsrDailyCard(${index})">${card.isNew ? 'Save card' : 'Save'}</button>
       </div>` : ''}
-    </div>`;
+    </section>`;
 }
 
 function setCsrDailyCardValue(index, field, value) {
@@ -12625,8 +12639,6 @@ function setCsrDailyCardValue(index, field, value) {
   if (!card) return;
   if (field === 'shift') {
     card.shift = value === 'PM' ? 'PM' : 'AM';
-    const head = document.querySelectorAll('.csr-daily-card')[index]?.querySelector('.csr-daily-card-pending');
-    if (head) head.textContent = `${card.shift} PENDING`;
     return;
   }
   card[field] = Math.max(0, Math.round(Number(value) || 0));
