@@ -5079,29 +5079,32 @@ tfoot td {
   .rmo-summary-grid { grid-template-columns: 1fr; }
 }
 
-/* Daily CSR Report — white panels with white headers and black text in both
-   themes, one navy accent for totals and primary buttons. Summary and CSR cards
-   on the left; the two pending tables side by side with the confirm breakdown
-   under them on the right. */
+/* Daily CSR Report — panel bodies follow the app theme; only each panel's
+   header strip is white with black text. Summary and CSR cards on the left;
+   the two pending tables side by side with the confirm breakdown under them
+   on the right. */
 .csr-daily-paper {
-  --daily-bg: #ffffff;
-  --daily-soft: #f8fafc;
-  --daily-ink: #111827;
-  --daily-muted: #6b7280;
-  --daily-line: #e5e7eb;
-  --daily-accent: #1f3864;
-  --daily-accent-soft: #eef2f9;
-  --daily-danger: #b91c1c;
+  --daily-bg: var(--surface);
+  --daily-soft: var(--surface-3);
+  --daily-ink: var(--text-primary);
+  --daily-muted: var(--text-muted);
+  --daily-line: var(--border);
+  --daily-accent: var(--accent);
+  --daily-head-bg: #ffffff;
+  --daily-head-ink: #111827;
+  --daily-head-muted: #6b7280;
+  --daily-head-line: #e5e7eb;
+  --daily-navy: #1f3864;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: 16px;
   align-items: start;
   color: var(--daily-ink);
   transition: opacity .15s;
 }
 
 .csr-daily-left,
-.csr-daily-right { display: grid; gap: 18px; min-width: 0; }
+.csr-daily-right { display: grid; gap: 16px; min-width: 0; }
 
 .csr-daily-pair {
   display: grid;
@@ -5115,37 +5118,40 @@ tfoot td {
   color: var(--daily-ink);
   border: 1px solid var(--daily-line);
   border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .08), 0 4px 14px rgba(15, 23, 42, .06);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
+/* The white strip */
 .csr-daily-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
-  background: var(--daily-bg);
-  border-bottom: 1px solid var(--daily-line);
+  min-height: 52px;
+  padding: 8px 14px;
+  background: var(--daily-head-bg);
+  border-bottom: 1px solid var(--daily-head-line);
 }
 
 .csr-daily-panel-title {
   font-size: 14px;
   font-weight: 700;
-  color: var(--daily-ink);
+  line-height: 1.25;
+  color: var(--daily-head-ink);
 }
 
 .csr-daily-panel-sub {
-  margin-top: 2px;
+  margin-top: 1px;
   font-size: 12px;
-  color: var(--daily-muted);
+  color: var(--daily-head-muted);
 }
 
 .csr-daily-panel-foot {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--daily-line);
   background: var(--daily-soft);
 }
@@ -5155,17 +5161,17 @@ tfoot td {
 /* Summary tiles */
 .csr-daily-kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 1px;
   background: var(--daily-line);
 }
 
 .csr-daily-kpi {
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: var(--daily-bg);
 }
 
-.csr-daily-kpi.lead { background: var(--daily-accent-soft); }
+.csr-daily-kpi.lead { background: var(--daily-soft); }
 
 .csr-daily-kpi-label {
   font-size: 11px;
@@ -5176,10 +5182,10 @@ tfoot td {
 }
 
 .csr-daily-kpi-value {
-  margin-top: 6px;
-  font-size: 24px;
+  margin-top: 4px;
+  font-size: 22px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.15;
   color: var(--daily-ink);
   font-variant-numeric: tabular-nums;
 }
@@ -5187,12 +5193,12 @@ tfoot td {
 .csr-daily-kpi.lead .csr-daily-kpi-value { color: var(--daily-accent); }
 
 .csr-daily-kpi-hint {
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 11px;
   color: var(--daily-muted);
 }
 
-/* Product tables */
+/* Product tables and card columns */
 .csr-daily-product-table,
 .csr-daily-card-table {
   width: 100%;
@@ -5205,10 +5211,11 @@ tfoot td {
 .csr-daily-product-table td,
 .csr-daily-card-table th,
 .csr-daily-card-table td {
-  padding: 6px 16px;
+  height: 36px;
+  padding: 4px 14px;
   border-bottom: 1px solid var(--daily-line);
   color: var(--daily-ink);
-  background: var(--daily-bg);
+  background: transparent;
 }
 
 .csr-daily-product-table tbody th,
@@ -5219,7 +5226,7 @@ tfoot td {
 
 .csr-daily-product-table td,
 .csr-daily-card-table td {
-  width: 96px;
+  width: 92px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -5240,42 +5247,40 @@ tfoot td {
 .csr-daily-product-table tfoot td,
 .csr-daily-card-table tfoot td { text-align: right; color: var(--daily-accent); }
 
-/* Inputs read as plain numbers until touched */
+/* Inputs */
 .csr-daily-input {
-  width: 72px;
-  height: 28px;
+  width: 68px;
+  height: 26px;
   padding: 2px 8px;
   border: 1px solid var(--daily-line);
   border-radius: 6px;
-  background: var(--daily-bg);
+  background: var(--surface-2);
   color: var(--daily-ink);
   font-size: 13px;
   font-weight: 600;
   text-align: right;
-  color-scheme: light;
 }
 
-.csr-daily-input::placeholder { color: #9ca3af; font-weight: 400; }
+.csr-daily-input::placeholder { color: var(--daily-muted); font-weight: 400; }
 
 .csr-daily-input:focus {
   outline: none;
   border-color: var(--daily-accent);
-  box-shadow: 0 0 0 3px rgba(31, 56, 100, .15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .2);
 }
 
 .csr-daily-num { font-weight: 600; }
 
 .csr-daily-text,
 .csr-daily-select {
-  height: 32px;
+  height: 30px;
   min-width: 0;
   padding: 4px 10px;
   border: 1px solid var(--daily-line);
   border-radius: 8px;
-  background: var(--daily-bg);
+  background: var(--surface-2);
   color: var(--daily-ink);
   font-size: 13px;
-  color-scheme: light;
 }
 
 .csr-daily-text { flex: 1; }
@@ -5285,11 +5290,11 @@ tfoot td {
 .csr-daily-select:focus {
   outline: none;
   border-color: var(--daily-accent);
-  box-shadow: 0 0 0 3px rgba(31, 56, 100, .15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .2);
 }
 
 .csr-daily-btn {
-  height: 32px;
+  height: 30px;
   padding: 0 14px;
   border: 1px solid var(--daily-line);
   border-radius: 8px;
@@ -5304,8 +5309,8 @@ tfoot td {
 .csr-daily-btn:hover { background: var(--daily-soft); }
 
 .csr-daily-btn.primary {
-  border-color: var(--daily-accent);
-  background: var(--daily-accent);
+  border-color: var(--daily-navy);
+  background: var(--daily-navy);
   color: #fff;
 }
 
@@ -5330,8 +5335,8 @@ tfoot td {
 .csr-daily-empty {
   display: grid;
   gap: 4px;
-  padding: 28px;
-  border: 1px dashed #cbd5e1;
+  padding: 24px;
+  border: 1px dashed var(--daily-line);
   border-radius: 12px;
   background: var(--daily-bg);
   text-align: center;
@@ -5341,7 +5346,7 @@ tfoot td {
 
 .csr-daily-empty strong { color: var(--daily-ink); }
 
-.csr-daily-card.is-new { border-color: var(--daily-accent); box-shadow: 0 0 0 3px rgba(31, 56, 100, .15); }
+.csr-daily-card.is-new { border-color: var(--daily-accent); box-shadow: 0 0 0 3px rgba(59, 130, 246, .2); }
 
 .csr-daily-card-who {
   display: flex;
@@ -5356,13 +5361,14 @@ tfoot td {
   white-space: nowrap;
 }
 
+/* Lives in the white strip, so it keeps the strip's light colors. */
 .csr-daily-shift {
   height: 26px;
   padding: 0 8px;
-  border: 1px solid var(--daily-line);
+  border: 1px solid var(--daily-head-line);
   border-radius: 999px;
-  background: var(--daily-soft);
-  color: var(--daily-ink);
+  background: #f3f4f6;
+  color: var(--daily-head-ink);
   font-size: 12px;
   font-weight: 600;
   color-scheme: light;
@@ -5382,13 +5388,13 @@ tfoot td {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--daily-muted);
+  color: var(--daily-head-muted);
 }
 
 .csr-daily-card-total strong {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
-  color: var(--daily-accent);
+  color: var(--daily-navy);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5400,7 +5406,8 @@ tfoot td {
 .csr-daily-card-cols > table + table { border-left: 1px solid var(--daily-line); }
 
 .csr-daily-card-table thead th {
-  padding: 8px 16px;
+  height: 32px;
+  padding: 4px 14px;
   background: var(--daily-soft);
   font-size: 11px;
   font-weight: 700;
@@ -5411,8 +5418,7 @@ tfoot td {
 }
 
 .csr-daily-card-table thead th:last-child { text-align: right; }
-.csr-daily-card-table td { width: 88px; }
-.csr-daily-card-table .is-cancel th { color: var(--daily-danger); }
+.csr-daily-card-table .is-cancel th { color: var(--danger-text); }
 
 @media (max-width: 1280px) {
   .csr-daily-paper { grid-template-columns: 1fr; }
@@ -5422,7 +5428,6 @@ tfoot td {
   .csr-daily-pair,
   .csr-daily-cards,
   .csr-daily-card-cols { grid-template-columns: 1fr; }
-  .csr-daily-cards { grid-template-columns: 1fr; }
   .csr-daily-card-cols > table + table { border-left: none; border-top: 1px solid var(--daily-line); }
 }
 
