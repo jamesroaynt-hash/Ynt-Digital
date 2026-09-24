@@ -5480,6 +5480,16 @@ tfoot td {
 
 .csr-daily-card-cols > table + table { border-left: 1px solid var(--daily-line); }
 
+/* Both columns have the same row count, so single-line labels keep every
+   Confirms row level with its Pending neighbour. */
+.csr-daily-card-cols .csr-daily-card-table { table-layout: fixed; }
+.csr-daily-card-cols .csr-daily-card-table thead th:last-child { width: 92px; }
+.csr-daily-card-cols .csr-daily-card-table th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .csr-daily-card-table thead th {
   height: 32px;
   padding: 4px 14px;
