@@ -12334,8 +12334,10 @@ const CSR_DAILY_PRODUCTS = [
   'Gout Ease', 'Toenail', 'Dental Health Tips', 'Doc Alipion', 'Tooth Restore', 'Lipomax',
   'Herba Baby', 'Korean', 'Vein Guard', 'Sambacur', 'Machofit', 'Dental Armor',
 ];
-// Rows as laid out on the card. Pending is typed on the Confirms side but
-// counts toward the Pending total; Cancelled rows count toward neither total
+// Rows as laid out on the card. Totals do not follow the columns: Pending is
+// typed on the Confirms side but counts toward the Pending total, and the two
+// pending-confirm rows and Pending Out sit on the Pending side but are
+// confirmed orders, so they count toward the Confirms total. Cancelled rows count toward neither
 // and add up on their own.
 const CSR_DAILY_LEFT = [
   ['upsell_confirm', 'Upsell Confirm'], ['new_confirm', 'New Confirm'], ['broadcast', 'Broadcast'],
@@ -12345,8 +12347,8 @@ const CSR_DAILY_RIGHT = [
   ['upsell_pending_confirm', 'Upsell Pending Confirm'], ['pending_confirm', 'Pending Confirm'],
   ['pending_out', 'Pending Out'], ['awaiting_print', 'Awaiting for Print'], ['pending_cancelled', 'Cancelled'],
 ];
-const CSR_DAILY_CONFIRM_FIELDS = ['upsell_confirm', 'new_confirm', 'broadcast'];
-const CSR_DAILY_PENDING_FIELDS = ['pending', 'upsell_pending_confirm', 'pending_confirm', 'pending_out', 'awaiting_print'];
+const CSR_DAILY_CONFIRM_FIELDS = ['upsell_confirm', 'new_confirm', 'broadcast', 'upsell_pending_confirm', 'pending_confirm', 'pending_out'];
+const CSR_DAILY_PENDING_FIELDS = ['pending', 'awaiting_print'];
 const CSR_DAILY_CANCELLED = ['cancelled', 'pending_cancelled'];
 const CSR_DAILY_SECTIONS = [
   ['pending_new', 'Pending New Total'],
@@ -12363,12 +12365,12 @@ function csrDailySum(card, fields) {
   return fields.reduce((sum, f) => sum + Number(card[f] || 0), 0);
 }
 
-// Confirmed orders: upsell + new + broadcast.
+// Confirmed orders: upsell, new, broadcast, both pending confirms and pending out.
 function csrDailyLeftTotal(card) {
   return csrDailySum(card, CSR_DAILY_CONFIRM_FIELDS);
 }
 
-// Still open: pending, pending confirms, pending out and awaiting print.
+// Still open: pending and awaiting print.
 function csrDailyRightTotal(card) {
   return csrDailySum(card, CSR_DAILY_PENDING_FIELDS);
 }
@@ -12532,7 +12534,7 @@ function renderCsrDailySummary() {
       </header>
       <div class="csr-daily-kpis">
         ${tile('Team Overall Sales', breakdown, 'Confirm products total', true)}
-        ${tile('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0), 'Upsell + new + broadcast')}
+        ${tile('CSR Confirmed Order', cards.reduce((t, c) => t + csrDailyLeftTotal(c), 0), 'Confirms incl. pending confirms')}
         ${tile('Team Cancel', cards.reduce((t, c) => t + csrDailyCancelledTotal(c), 0), 'Cancelled on cards')}
         ${tile('Pending', cards.reduce((t, c) => t + csrDailyRightTotal(c), 0), 'Pending totals on cards')}
         ${tile('Awaiting for Print', sum('awaiting_print'), 'Awaiting on cards')}
@@ -12684,13 +12686,19 @@ function renderCsrDailyCard(card, index) {
     ? `<input type="number" min="0" inputmode="numeric" class="csr-daily-input" value="${Number(card[field] || 0) || ''}" placeholder="0"
         oninput="setCsrDailyCardValue(${index}, '${field}', this.value)">`
     : `<span class="csr-daily-num">${Number(card[field] || 0).toLocaleString()}</span>`;
-  const column = (title, fields, totalAttr, total) => `
+  // Rows whose count lands in the other column's total say so on hover.
+  const rowHint = (field) => {
+    if (field === 'pending') return ' title="Counts toward the Pending total"';
+    if (field === 'upsell_pending_confirm' || field === 'pending_confirm' || field === 'pending_out') return ' title="Counts toward the Confirmed total"';
+    return '';
+  };
+  const column = (title, fields, totalAttr, total, totalLabel) => `
     <table class="csr-daily-card-table">
       <thead><tr><th scope="col">${title}</th><th scope="col">Qty</th></tr></thead>
       <tbody>
-        ${fields.map(([field, label]) => `<tr class="${field.endsWith('cancelled') ? 'is-cancel' : ''}"><th scope="row"${field === 'pending' ? ' title="Counts toward the Pending total"' : ''}>${label}</th><td>${cell(field)}</td></tr>`).join('')}
+        ${fields.map(([field, label]) => `<tr class="${field.endsWith('cancelled') ? 'is-cancel' : ''}"><th scope="row"${rowHint(field)}>${label}</th><td>${cell(field)}</td></tr>`).join('')}
       </tbody>
-      <tfoot><tr><th scope="row">Total</th><td ${totalAttr}>${total.toLocaleString()}</td></tr></tfoot>
+      <tfoot><tr><th scope="row">${totalLabel}</th><td ${totalAttr}>${total.toLocaleString()}</td></tr></tfoot>
     </table>`;
   const shift = card.editable
     ? `<select class="csr-daily-shift" aria-label="Shift" onchange="setCsrDailyCardValue(${index}, 'shift', this.value)">
@@ -12709,14 +12717,14 @@ function renderCsrDailyCard(card, index) {
           <div class="csr-daily-card-total cancel" title="Both Cancelled rows — not counted in either total">
             <span>Cancelled</span><strong data-card-cancel="${index}">${csrDailyCancelledTotal(card).toLocaleString()}</strong>
           </div>
-          <div class="csr-daily-card-total" title="Confirmed orders: upsell + new + broadcast">
+          <div class="csr-daily-card-total" title="Confirmed orders: upsell, new, broadcast, upsell pending confirm, pending confirm and pending out">
             <span>Total</span><strong data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</strong>
           </div>
         </div>
       </header>
       <div class="csr-daily-card-cols">
-        ${column('Confirms', CSR_DAILY_LEFT, `data-card-left-foot="${index}"`, csrDailyLeftTotal(card))}
-        ${column('Pending', CSR_DAILY_RIGHT, `data-card-right="${index}"`, csrDailyRightTotal(card))}
+        ${column('Confirms', CSR_DAILY_LEFT, `data-card-left-foot="${index}"`, csrDailyLeftTotal(card), 'Confirmed total')}
+        ${column('Pending', CSR_DAILY_RIGHT, `data-card-right="${index}"`, csrDailyRightTotal(card), 'Pending total')}
       </div>
       ${card.editable ? `<div class="csr-daily-panel-foot end">
         ${card.isNew ? '' : `<button class="csr-daily-btn" onclick="removeCsrDailyCard(${index})">Remove</button>`}
