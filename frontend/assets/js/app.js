@@ -12361,6 +12361,15 @@ function csrDailyToday() {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
+// Each CSR's card header gets its own color, keyed on the user so it stays
+// the same from day to day.
+const CSR_DAILY_USER_COLORS = ['#A6EFE7', '#FFA69F', '#DBEDCE', '#76B8CE', '#FFE9B9'];
+
+function csrDailyUserColor(userId) {
+  const n = Math.abs(Number(userId) || 0);
+  return CSR_DAILY_USER_COLORS[n % CSR_DAILY_USER_COLORS.length];
+}
+
 function csrDailySum(card, fields) {
   return fields.reduce((sum, f) => sum + Number(card[f] || 0), 0);
 }
@@ -12445,6 +12454,7 @@ function renderCsrDailyReport() {
     <div class="page-header">
       <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — each CSR fills in their own card; anyone can fill the product tables.</p></div>
       <div class="page-actions">
+        <div class="csr-daily-actions" id="csr-daily-actions"></div>
         <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(-1)" aria-label="Previous day">‹</button>
         <input type="date" class="form-control" id="csr-daily-date" value="${escapeHtml(csrDailyState.date)}" onchange="setCsrDailyDate(this.value)" style="height:34px;width:auto;">
         <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(1)" aria-label="Next day">›</button>
@@ -12465,6 +12475,8 @@ function renderCsrDailyBody() {
   const wrap = document.getElementById('csr-daily-body');
   if (!wrap) return;
   const s = csrDailyState;
+  const actions = document.getElementById('csr-daily-actions');
+  if (actions) actions.innerHTML = '';
   if (s.loading && !s.data) {
     wrap.innerHTML = '<div class="loading-spinner" style="margin:48px auto;"></div>';
     return;
@@ -12481,21 +12493,24 @@ function renderCsrDailyBody() {
   const users = DB.assignableUsers || [];
   const addable = users.filter((u) => !s.cards.some((card) => Number(card.user_id) === Number(u.id)));
 
+  // Adding a card sits in the page header, next to the date it adds to.
+  if (actions) {
+    actions.innerHTML = `
+      ${hasMine ? '' : `<button class="csr-daily-btn primary" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
+      ${canEditAll && addable.length ? `
+        <select class="csr-daily-select" id="csr-daily-add-user" aria-label="Add a card for a CSR">
+          <option value="">Add a card for…</option>
+          ${addable.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+        </select>
+        <button class="csr-daily-btn" onclick="addCsrDailyCard(document.getElementById('csr-daily-add-user').value)">Add</button>` : ''}`.trim();
+  }
+
   // The summary with every CSR card stacked under it on the left; the Products
   // card (confirmed, pending new, awaiting print per product) on the right.
   wrap.innerHTML = `
     <div class="csr-daily-paper" style="${s.loading ? 'opacity:.6;' : ''}">
       <div class="csr-daily-left">
         <div id="csr-daily-summary"></div>
-        <div class="csr-daily-actions">
-          ${hasMine ? '' : `<button class="csr-daily-btn primary" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
-          ${canEditAll && addable.length ? `
-            <select class="csr-daily-select" id="csr-daily-add-user" aria-label="Add a card for a CSR">
-              <option value="">Add a card for…</option>
-              ${addable.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
-            </select>
-            <button class="csr-daily-btn" onclick="addCsrDailyCard(document.getElementById('csr-daily-add-user').value)">Add</button>` : ''}
-        </div>
         <div class="csr-daily-cards">
           ${s.cards.length
             ? s.cards.map((card, index) => renderCsrDailyCard(card, index)).join('')
@@ -12526,11 +12541,8 @@ function renderCsrDailySummary() {
     </div>`;
   box.innerHTML = `
     <section class="csr-daily-panel">
-      <header class="csr-daily-panel-head">
-        <div>
-          <div class="csr-daily-panel-title">Daily CSR Performance Report</div>
-          <div class="csr-daily-panel-sub">${escapeHtml(csrDailyDateLabel(s.date))} · ${cards.length} CSR card${cards.length === 1 ? '' : 's'}</div>
-        </div>
+      <header class="csr-daily-panel-head centered">
+        <div class="csr-daily-panel-title">CSR DAILY RECORDS <span class="csr-daily-panel-date">${escapeHtml(csrDailyDateLabel(s.date))}</span></div>
       </header>
       <div class="csr-daily-kpis">
         ${tile('Team Overall Sales', breakdown, 'Confirm products total', true)}
@@ -12559,11 +12571,8 @@ function renderCsrDailyProductsCard() {
   const products = (s.team.confirm_breakdown || []).map((row) => row.product);
   return `
     <section class="csr-daily-panel" id="csr-daily-products">
-      <header class="csr-daily-panel-head">
-        <div>
-          <div class="csr-daily-panel-title">Products</div>
-          <div class="csr-daily-panel-sub">${escapeHtml(csrDailyDateLabel(s.date))} · Confirmed is the Team Overall Sales</div>
-        </div>
+      <header class="csr-daily-panel-head centered">
+        <div class="csr-daily-panel-title">TOTAL POS CONFIRM</div>
         <button class="csr-daily-btn primary" onclick="saveCsrDailyTeam()">Save</button>
       </header>
       <table class="csr-daily-product-table">
@@ -12708,7 +12717,7 @@ function renderCsrDailyCard(card, index) {
     : `<span class="csr-daily-shift static">${card.shift} shift</span>`;
   return `
     <section class="csr-daily-panel csr-daily-card ${card.isNew ? 'is-new' : ''}">
-      <header class="csr-daily-panel-head">
+      <header class="csr-daily-panel-head tinted" style="--daily-head-bg:${csrDailyUserColor(card.user_id)}">
         <div class="csr-daily-card-who">
           <div class="csr-daily-panel-title">${escapeHtml(card.name)}</div>
           ${shift}

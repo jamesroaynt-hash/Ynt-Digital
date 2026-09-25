@@ -5083,6 +5083,8 @@ tfoot td {
    header strip is white with black text. Summary and CSR cards on the left;
    the Products card (confirmed / pending new / awaiting print per product) on
    the right. */
+/* Tokens sit on the page too: the card actions live in the page header. */
+.csr-daily-page,
 .csr-daily-paper {
   --daily-bg: var(--surface);
   --daily-soft: var(--surface-3);
@@ -5095,6 +5097,9 @@ tfoot td {
   --daily-head-muted: #6b7280;
   --daily-head-line: #e5e7eb;
   --daily-navy: #1f3864;
+}
+
+.csr-daily-paper {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
@@ -5132,6 +5137,28 @@ tfoot td {
   font-weight: 700;
   line-height: 1.25;
   color: var(--daily-head-ink);
+}
+
+/* Title in the middle; an action (Save) stays pinned right. */
+.csr-daily-panel-head.centered {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.csr-daily-panel-head.centered > .csr-daily-panel-title { grid-column: 2; text-align: center; }
+.csr-daily-panel-head.centered > .csr-daily-btn { grid-column: 3; justify-self: end; }
+
+.csr-daily-panel-date {
+  margin-left: 8px;
+  font-weight: 600;
+  color: var(--daily-head-muted);
+}
+
+/* Card headers carry the CSR's pastel color; darker secondary text keeps the
+   labels readable on every swatch. */
+.csr-daily-panel-head.tinted {
+  --daily-head-muted: #374151;
+  --daily-head-line: rgba(17, 24, 39, .12);
 }
 
 .csr-daily-panel-sub {
@@ -5389,6 +5416,10 @@ tfoot td {
 }
 
 .csr-daily-actions:empty { display: none; }
+
+/* In the page header the actions match the date picker's height. */
+.page-actions .csr-daily-btn,
+.page-actions .csr-daily-select { height: 34px; }
 
 /* CSR cards */
 .csr-daily-cards {
