@@ -5480,7 +5480,19 @@ tfoot td {
   flex-shrink: 0;
 }
 
-.csr-daily-card-total.cancel strong { color: #b91c1c; }
+/* Name on the left, the Total in the middle of the card header. */
+.csr-daily-panel-head.card-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.csr-daily-panel-head.card-head .csr-daily-card-totals { grid-column: 2; }
+
+.csr-daily-panel-head.card-head .csr-daily-card-total span {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--daily-head-ink);
+}
 
 .csr-daily-card-total {
   display: flex;

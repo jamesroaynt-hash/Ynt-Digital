@@ -12717,15 +12717,12 @@ function renderCsrDailyCard(card, index) {
     : `<span class="csr-daily-shift static">${card.shift} shift</span>`;
   return `
     <section class="csr-daily-panel csr-daily-card ${card.isNew ? 'is-new' : ''}">
-      <header class="csr-daily-panel-head tinted" style="--daily-head-bg:${csrDailyUserColor(card.user_id)}">
+      <header class="csr-daily-panel-head tinted card-head" style="--daily-head-bg:${csrDailyUserColor(card.user_id)}">
         <div class="csr-daily-card-who">
           <div class="csr-daily-panel-title">${escapeHtml(card.name)}</div>
           ${shift}
         </div>
         <div class="csr-daily-card-totals">
-          <div class="csr-daily-card-total cancel" title="Both Cancelled rows — not counted in either total">
-            <span>Cancelled</span><strong data-card-cancel="${index}">${csrDailyCancelledTotal(card).toLocaleString()}</strong>
-          </div>
           <div class="csr-daily-card-total" title="Confirmed orders: upsell, new, broadcast, upsell pending confirm, pending confirm and pending out">
             <span>Total</span><strong data-card-left="${index}">${csrDailyLeftTotal(card).toLocaleString()}</strong>
           </div>
@@ -12754,8 +12751,6 @@ function setCsrDailyCardValue(index, field, value) {
   document.querySelectorAll(`[data-card-left="${index}"], [data-card-left-foot="${index}"]`).forEach((el) => { el.textContent = left; });
   const right = document.querySelector(`[data-card-right="${index}"]`);
   if (right) right.textContent = csrDailyRightTotal(card).toLocaleString();
-  const cancel = document.querySelector(`[data-card-cancel="${index}"]`);
-  if (cancel) cancel.textContent = csrDailyCancelledTotal(card).toLocaleString();
   renderCsrDailySummary();
 }
 
