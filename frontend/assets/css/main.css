@@ -5270,6 +5270,21 @@ tfoot td {
 .csr-daily-product-table thead th:first-child { width: 34%; text-align: left; }
 .csr-daily-paper .csr-daily-product-table td { width: auto; padding: 4px 8px; text-align: center; }
 .csr-daily-product-table .csr-daily-input { width: 100%; max-width: 96px; text-align: center; }
+/* The products card is the narrow column, so its text runs smaller to keep
+   product names and headings whole; long headings wrap instead of colliding. */
+.csr-daily-product-table { font-size: 11px; }
+.csr-daily-product-table thead th {
+  padding: 4px 6px;
+  font-size: 10px;
+  letter-spacing: .2px;
+  line-height: 1.2;
+  white-space: normal;
+}
+.csr-daily-product-table thead th:first-child { width: 40%; padding-left: 12px; }
+.csr-daily-product-table tbody th,
+.csr-daily-product-table tfoot th { padding-left: 12px; padding-right: 4px; }
+.csr-daily-paper .csr-daily-product-table td { padding: 4px 4px; }
+.csr-daily-product-table .csr-daily-input { height: 24px; font-size: 12px; }
 /* Product names read as text until clicked, then edit in place. */
 .csr-daily-name {
   width: 100%;
