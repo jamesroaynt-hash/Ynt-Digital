@@ -5101,7 +5101,7 @@ tfoot td {
 
 .csr-daily-paper {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 5fr) minmax(0, 2fr);
   gap: 16px;
   align-items: start;
   color: var(--daily-ink);
@@ -5424,9 +5424,13 @@ tfoot td {
 /* CSR cards */
 .csr-daily-cards {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 16px;
 }
+
+/* AM cards stack in the left column, PM in the right. */
+.csr-daily-shift-col { display: grid; gap: 16px; min-width: 0; }
 
 .csr-daily-empty {
   display: grid;
@@ -5488,11 +5492,15 @@ tfoot td {
 
 .csr-daily-panel-head.card-head .csr-daily-card-totals { grid-column: 2; }
 
-.csr-daily-panel-head.card-head .csr-daily-card-total span {
-  font-size: 20px;
+/* "TOTAL 21" matches the CSR name beside it (.csr-daily-panel-title). */
+.csr-daily-panel-head.card-head .csr-daily-card-total span,
+.csr-daily-panel-head.card-head .csr-daily-card-total strong {
+  font-size: 14px;
   font-weight: 700;
-  color: var(--daily-head-ink);
+  line-height: 1.25;
 }
+
+.csr-daily-panel-head.card-head .csr-daily-card-total span { color: var(--daily-head-ink); }
 
 .csr-daily-card-total {
   display: flex;
@@ -5526,7 +5534,12 @@ tfoot td {
 /* Both columns have the same row count, so single-line labels keep every
    Confirms row level with its Pending neighbour. */
 .csr-daily-card-cols .csr-daily-card-table { table-layout: fixed; }
-.csr-daily-card-cols .csr-daily-card-table thead th:last-child { width: 92px; }
+/* Cards are half-width (AM | PM), so the Qty column and padding are compact. */
+.csr-daily-card-cols .csr-daily-card-table thead th:last-child { width: 72px; }
+.csr-daily-card-cols .csr-daily-card-table th,
+.csr-daily-card-cols .csr-daily-card-table td { padding: 4px 10px; }
+.csr-daily-card-cols .csr-daily-card-table tbody th { font-size: 12px; }
+.csr-daily-card-cols .csr-daily-input { width: 52px; padding: 2px 4px; }
 .csr-daily-card-cols .csr-daily-card-table thead th:last-child,
 .csr-daily-card-cols .csr-daily-card-table td,
 .csr-daily-card-cols .csr-daily-input { text-align: center; }

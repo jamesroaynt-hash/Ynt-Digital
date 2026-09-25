@@ -12511,11 +12511,14 @@ function renderCsrDailyBody() {
     <div class="csr-daily-paper" style="${s.loading ? 'opacity:.6;' : ''}">
       <div class="csr-daily-left">
         <div id="csr-daily-summary"></div>
-        <div class="csr-daily-cards">
-          ${s.cards.length
-            ? s.cards.map((card, index) => renderCsrDailyCard(card, index)).join('')
-            : '<div class="csr-daily-empty"><strong>No CSR cards yet for this day</strong><span>Use “+ Add my card” to enter your numbers.</span></div>'}
-        </div>
+        ${s.cards.length ? `
+          <div class="csr-daily-cards">
+            ${['AM', 'PM'].map((shift) => `
+              <div class="csr-daily-shift-col">
+                ${s.cards.map((card, index) => ((card.shift === 'PM' ? 'PM' : 'AM') === shift ? renderCsrDailyCard(card, index) : '')).join('')}
+              </div>`).join('')}
+          </div>`
+          : '<div class="csr-daily-empty"><strong>No CSR cards yet for this day</strong><span>Use “+ Add my card” to enter your numbers.</span></div>'}
       </div>
       <div class="csr-daily-right">
         ${renderCsrDailyProductsCard()}
@@ -12744,6 +12747,8 @@ function setCsrDailyCardValue(index, field, value) {
   if (!card) return;
   if (field === 'shift') {
     card.shift = value === 'PM' ? 'PM' : 'AM';
+    // AM cards sit in the left column, PM in the right; move it across.
+    renderCsrDailyBody();
     return;
   }
   card[field] = Math.max(0, Math.round(Number(value) || 0));
