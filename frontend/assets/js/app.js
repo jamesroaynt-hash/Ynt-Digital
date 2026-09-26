@@ -8052,7 +8052,7 @@ const ADSPEND_GRID_SIZE = 3;
 let adspendGridStart = 0;          // index of the leftmost page card on screen
 let adspendGridStatus = 'active';  // active | all | orders | spend
 let adspendGridSearch = '';
-let adspendGridSort = 'name';      // name | sales | spend | roas | orders
+let adspendGridSort = 'name';      // name | custom | sales | spend | roas | orders
 let adspendGridCancelled = 'exclude'; // exclude | include | only
 let adspendGridShowCpp = false;
 let adspendGridFocusId = '';       // element to put the caret back on after a re-render
@@ -8713,6 +8713,74 @@ function paintPageHeader(head, color) {
 
 // Repainted in place rather than through a re-render: the cards are full of
 // spend boxes, and one of them may be mid-edit.
+// The All Pages cards can be dragged into any order. The arrangement is kept
+// per browser, like the header colours, and drives the "My order" sort.
+const ADSPEND_GRID_ORDER_KEY = 'ynt_adspend_grid_order';
+
+function getAdspendGridOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ADSPEND_GRID_ORDER_KEY) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+let adspendGridDragCol = -1;
+
+function adspendGridDragStart(event, col) {
+  adspendGridDragCol = col;
+  try { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(col)); } catch {}
+  const card = document.getElementById(`apg-card-${col}`);
+  if (card) setTimeout(() => { card.style.opacity = '0.45'; }, 0);
+}
+
+function adspendGridDragEnd(col) {
+  const card = document.getElementById(`apg-card-${col}`);
+  if (card) card.style.opacity = '';
+  document.querySelectorAll('.apg-drop-target').forEach((el) => el.classList.remove('apg-drop-target'));
+  adspendGridDragCol = -1;
+}
+
+function adspendGridDragOver(event, el) {
+  if (adspendGridDragCol < 0) return;
+  event.preventDefault();
+  try { event.dataTransfer.dropEffect = 'move'; } catch {}
+  el.classList.add('apg-drop-target');
+}
+
+function adspendGridDragLeave(event, el) {
+  if (!el.contains(event.relatedTarget)) el.classList.remove('apg-drop-target');
+}
+
+// target: a card column on screen, or 'prev' / 'next' to carry the page onto
+// the neighbouring screen (only three cards show at a time).
+function adspendGridDrop(event, target) {
+  event.preventDefault();
+  const fromCol = adspendGridDragCol;
+  adspendGridDragEnd(fromCol);
+  if (fromCol < 0) return;
+  const order = [...(adspendGridView.order || [])];
+  const fromIdx = adspendGridStart + fromCol;
+  const page = order[fromIdx];
+  if (page === undefined) return;
+  let toIdx;
+  if (target === 'prev') toIdx = adspendGridStart - 1;
+  else if (target === 'next') toIdx = adspendGridStart + ADSPEND_GRID_SIZE;
+  else toIdx = adspendGridStart + Number(target);
+  toIdx = Math.max(0, Math.min(order.length - 1, toIdx));
+  if (toIdx === fromIdx) return;
+  order.splice(fromIdx, 1);
+  order.splice(toIdx, 0, page);
+  // Pages hidden by the current filters keep their place after the visible ones.
+  const rest = getAdspendGridOrder().filter((name) => !order.includes(name));
+  try { localStorage.setItem(ADSPEND_GRID_ORDER_KEY, JSON.stringify([...order, ...rest])); } catch {}
+  adspendGridSort = 'custom';
+  if (target === 'prev') adspendGridStart = Math.max(0, adspendGridStart - ADSPEND_GRID_SIZE);
+  else if (target === 'next') adspendGridStart += ADSPEND_GRID_SIZE;
+  navigateTo('adspend-roas');
+}
+
 function setAdspendPageColor(col, color) {
   const head = document.getElementById(`apg-head-${col}`);
   if (!head) return;
@@ -9023,6 +9091,8 @@ function renderAdspendRoas() {
   })();
 
   const gridSearch = adspendGridSearch.toLowerCase();
+  // "My order": dragged pages first in their saved spots, the rest A–Z after.
+  const gridOrderRank = new Map(getAdspendGridOrder().map((name, i) => [name, i]));
   const gridFiltered = gridPages
     .filter((p) => {
       if (gridSearch && !p.page.toLowerCase().includes(gridSearch)) return false;
@@ -9036,6 +9106,11 @@ function renderAdspendRoas() {
       if (adspendGridSort === 'spend') return b.totals.spend - a.totals.spend;
       if (adspendGridSort === 'roas') return b.totals.roas - a.totals.roas;
       if (adspendGridSort === 'orders') return b.totals.orders - a.totals.orders;
+      if (adspendGridSort === 'custom') {
+        const ra = gridOrderRank.has(a.page) ? gridOrderRank.get(a.page) : Infinity;
+        const rb = gridOrderRank.has(b.page) ? gridOrderRank.get(b.page) : Infinity;
+        if (ra !== rb) return ra - rb;
+      }
       return a.page.localeCompare(b.page);
     });
 
@@ -9045,7 +9120,7 @@ function renderAdspendRoas() {
   if (adspendGridStart < 0) adspendGridStart = 0;
   const gridWindow = gridFiltered.slice(adspendGridStart, adspendGridStart + ADSPEND_GRID_SIZE);
   const gridDayCount = dates.length;
-  adspendGridView = { pages: gridWindow.map((p) => p.page), dates: [...dates] };
+  adspendGridView = { pages: gridWindow.map((p) => p.page), dates: [...dates], order: gridFiltered.map((p) => p.page) };
 
   // Sales and spend read like the sheet they came from: thousands separated,
   // one decimal. The editable box keeps two, because that is what gets typed.
@@ -9082,8 +9157,11 @@ function renderAdspendRoas() {
     const days = pageData.rows.length || 1;
     const headColor = getPageHeaderColors()[pageData.page] || '';
     return `
-    <div style="border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;overflow:hidden;background:var(--surface-1);">
-      <div id="apg-head-${col}" data-page="${escapeHtml(pageData.page)}" style="position:relative;padding:11px 42px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;background:${headColor || 'var(--surface-3,#f1f5f9)'};color:${headColor ? readableTextOn(headColor) : 'var(--text-primary)'};border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="${escapeHtml(pageData.page)}">${escapeHtml(pageData.page)}
+    <div id="apg-card-${col}" class="apg-card" ondragover="adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, ${col})"
+      style="border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;overflow:hidden;background:var(--surface-1);">
+      <div id="apg-head-${col}" data-page="${escapeHtml(pageData.page)}" draggable="true" ondragstart="adspendGridDragStart(event, ${col})" ondragend="adspendGridDragEnd(${col})"
+        style="position:relative;padding:11px 42px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:grab;background:${headColor || 'var(--surface-3,#f1f5f9)'};color:${headColor ? readableTextOn(headColor) : 'var(--text-primary)'};border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="Drag to rearrange — ${escapeHtml(pageData.page)}">
+        <span aria-hidden="true" style="position:absolute;top:50%;left:12px;transform:translateY(-50%);font-size:14px;opacity:.6;letter-spacing:0;">⠿</span>${escapeHtml(pageData.page)}
         <span style="position:absolute;top:50%;right:8px;transform:translateY(-50%);display:flex;align-items:center;gap:2px;">
           <input type="color" value="${headColor || '#1e293b'}" title="Header colour for this page" onchange="setAdspendPageColor(${col}, this.value)"
             style="width:20px;height:20px;padding:0;border:1px solid rgba(148,163,184,0.5);border-radius:4px;background:none;cursor:pointer;">
@@ -9147,7 +9225,7 @@ function renderAdspendRoas() {
       <div>
         <div style="${gridLabelStyle}">FILTER BY</div>
         <select class="form-control" onchange="setAdspendGridSort(this.value)" style="height:38px;font-size:13px;min-width:280px;">
-          ${[['name', 'Page name (A–Z)'], ['sales', 'Sales (high to low)'], ['spend', 'Ad spend (high to low)'], ['roas', 'ROAS (high to low)'], ['orders', 'Orders (high to low)']]
+          ${[['name', 'Page name (A–Z)'], ['custom', 'My order (drag cards)'], ['sales', 'Sales (high to low)'], ['spend', 'Ad spend (high to low)'], ['roas', 'ROAS (high to low)'], ['orders', 'Orders (high to low)']]
             .map(([key, label]) => `<option value="${key}"${adspendGridSort === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
       </div>
@@ -9202,17 +9280,19 @@ function renderAdspendRoas() {
     <div style="padding:12px 20px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">${gridCount} page${gridCount === 1 ? '' : 's'} · ${adspendDateFrom} — ${adspendDateTo}</div>
     ${!gridCount ? '<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages match these filters.</div>' : `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-      <button class="apg-nav" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''}><span aria-hidden="true">‹</span>Prev</button>
+      <button class="apg-nav" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''} title="Drop a card here to move it to the previous screen"
+        ondragover="if (!this.disabled) adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, 'prev')"><span aria-hidden="true">‹</span>Prev</button>
       <div style="text-align:center;">
         <div style="font-size:15px;font-weight:700;color:var(--text-primary);">Pages ${gridFirst}${gridLast > gridFirst ? `–${gridLast}` : ''} of ${gridCount}</div>
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'}</div>
       </div>
-      <button class="apg-nav" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''}>Next<span aria-hidden="true">›</span></button>
+      <button class="apg-nav" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''} title="Drop a card here to move it to the next screen"
+        ondragover="if (!this.disabled) adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, 'next')">Next<span aria-hidden="true">›</span></button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:20px;">
       ${gridWindow.map((pageData, col) => gridCardHtml(pageData, col)).join('')}
     </div>
-    <div style="padding:0 20px 18px;font-size:12px;color:var(--text-muted);">Type an amount in Ad Spent to record that day's spend for that page — it saves when you leave the box, and Enter jumps to the next day. The figure feeds ROAS Summary and Marketing too.</div>`}
+    <div style="padding:0 20px 18px;font-size:12px;color:var(--text-muted);">Drag a card by its header to rearrange the pages (drop on Prev / Next to move it to another screen). Type an amount in Ad Spent to record that day's spend for that page — it saves when you leave the box, and Enter jumps to the next day. The figure feeds ROAS Summary and Marketing too.</div>`}
   </div>`;
 
   const monthlyTarget = Number(mktState.targets?.sales || 0);

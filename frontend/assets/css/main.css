@@ -2356,6 +2356,9 @@ tfoot td {
 
 .apg-nav span { font-size: 15px; line-height: 1; }
 
+.apg-card.apg-drop-target { outline: 2px dashed var(--accent); outline-offset: 3px; }
+.apg-nav.apg-drop-target { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .filter-pill.active {
   background: var(--accent);
   border-color: var(--accent);
