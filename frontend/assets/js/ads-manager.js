@@ -247,6 +247,7 @@ function renderAdsManager() {
         <input type="date" id="am-to" value="${amState.to}" onchange="amSetCustomDate()">
         <span class="am-date-icon">${AM_ICONS.calendar}</span>
       </div>
+      <button class="btn btn-secondary btn-sm am-howto-btn" type="button" onclick="openModal('am-howto-modal')" title="How to connect Meta and get a permanent access token">HOW TO</button>
     </div>
 
     <div class="am-kpis" id="am-kpis"></div>
@@ -326,7 +327,67 @@ function renderAdsManager() {
       </div>
       <div class="modal-body" id="am-settings-body"></div>
     </div>
+  </div>
+
+  <div class="modal-overlay" id="am-howto-modal">
+    <div class="modal am-howto">
+      <div class="modal-header">
+        <div class="modal-title">How to connect Meta Ads (permanent token)</div>
+        <button class="modal-close" type="button" onclick="closeModal('am-howto-modal')">×</button>
+      </div>
+      <div class="modal-body">${amHowToHtml()}</div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeModal('am-howto-modal')">Close</button>
+        <button class="btn btn-primary" type="button" onclick="closeModal('am-howto-modal'); amOpenSettings();">Open Connections</button>
+      </div>
+    </div>
   </div>`;
+}
+
+// A System User token never expires, unlike the ~60-day token the Facebook
+// login hands back — so this walks through making one and pasting it in.
+function amHowToHtml() {
+  const step = (n, title, body) => `
+    <div class="am-howto-step">
+      <div class="am-howto-num">${n}</div>
+      <div class="am-howto-content"><div class="am-howto-title">${title}</div>${body}</div>
+    </div>`;
+  return `
+    <p class="am-howto-intro">Use a <strong>System User token</strong> from Meta Business Settings. It is set to <strong>never expire</strong>, so the dashboard keeps syncing without reconnecting. (The <em>Continue with Facebook</em> login gives a personal token that expires in about 60 days.)</p>
+    ${step(1, 'Before you start', `<ul>
+      <li><strong>Admin</strong> access to your Business Portfolio at <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">business.facebook.com</a>.</li>
+      <li>A Meta app owned by the same business. None yet? <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</a> → <strong>Create App</strong> → <strong>Other</strong> → <strong>Business</strong> → pick your business.</li>
+      <li>In the app dashboard, <strong>Add product</strong> → <strong>Marketing API</strong>.</li>
+    </ul>`)}
+    ${step(2, 'Create a System User', `<ol>
+      <li>Business Settings → <strong>Users</strong> → <strong>System users</strong> → <strong>Add</strong>.</li>
+      <li>Name it (e.g. <code>YNT Dashboard</code>), role <strong>Admin</strong> → <strong>Create</strong>.</li>
+    </ol>`)}
+    ${step(3, 'Assign assets to the System User', `<p>Select the system user → <strong>Assign assets</strong>:</p><ul>
+      <li><strong>Ad accounts</strong> — tick every account to show. Give <strong>Full control / Manage campaigns</strong> so Pause/Activate works (<em>View performance</em> is read-only).</li>
+      <li><strong>Pages</strong> — tick your FB pages (for page names).</li>
+      <li><strong>Apps</strong> — tick your Meta app.</li>
+    </ul><p>Click <strong>Save changes</strong>.</p>`)}
+    ${step(4, 'Generate the token', `<ol>
+      <li>On the system user, click <strong>Generate new token</strong> and choose your app.</li>
+      <li>Token expiration: <strong>Never</strong>.</li>
+      <li>Tick permissions: <code>ads_read</code> (required), <code>ads_management</code> (pause/activate), <code>pages_show_list</code> (page names). Optional: <code>business_management</code>.</li>
+      <li>Click <strong>Generate token</strong> and <strong>copy it right away</strong> — Meta shows it only once. It starts with <code>EAA…</code>.</li>
+    </ol>`)}
+    ${step(5, 'Paste it into the dashboard', `<ol>
+      <li>Click <strong>Open Connections</strong> below (or the <strong>Connections</strong> button above the table).</li>
+      <li>Under <strong>+ Connect Meta Account</strong>, type a name, paste the token in <strong>Access token</strong>, then <strong>Connect &amp; sync</strong>.</li>
+      <li>If an older Facebook-login connection exists, remove it so the expiring one is not used.</li>
+    </ol>`)}
+    <div class="am-howto-tips">
+      <div class="am-howto-title">Troubleshooting</div>
+      <ul>
+        <li><strong>“Missing ads_read permission”</strong> — generate the token again with <code>ads_read</code> ticked.</li>
+        <li><strong>An ad account is missing</strong> — it was not assigned in step 3. Assign it, then <strong>Sync All</strong>; no new token needed.</li>
+        <li>The token only stops working if it is revoked, the system user is deleted, or the app is removed from the business.</li>
+        <li><strong>Keep it secret.</strong> Never share it in chat or commit it. If it leaks: system user → <strong>Revoke tokens</strong>, then generate a new one.</li>
+      </ul>
+    </div>`;
 }
 
 function initAdsManager() {
