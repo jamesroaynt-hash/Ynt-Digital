@@ -12355,11 +12355,13 @@ function renderRmoSummaryBody() {
         ${attemptTotal ? `
           <div class="data-report-chart-wrap"><canvas id="rmo-summary-attempt-chart"></canvas></div>
           <div class="table-wrapper"><table class="data-report-table">
-            <thead><tr><th>Attempt</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Percentage of Total</th></tr></thead>
+            <thead><tr><th>Attempt</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Delivered</th><th style="text-align:right" title="Includes orders still returning">Returned</th><th style="text-align:right">% of Total</th></tr></thead>
             <tbody>
               ${attemptRows.map((row) => `<tr>
                 <td>${escapeHtml(row.label)}</td>
-                <td style="text-align:right;font-weight:600;" class="${attemptView === 'delivered' ? 'text-success' : attemptView === 'returned' ? 'text-danger' : ''}">${attemptCount(row).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:600;">${Number(row.count || 0).toLocaleString()}</td>
+                <td style="text-align:right;" class="text-success">${Number(row.delivered || 0).toLocaleString()}</td>
+                <td style="text-align:right;" class="text-danger">${Number(row.returned || 0).toLocaleString()}</td>
                 <td style="text-align:right;color:var(--text-muted);">${rmoPct(attemptCount(row), attemptTotal)}</td>
               </tr>`).join('')}
             </tbody>
