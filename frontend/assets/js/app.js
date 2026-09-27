@@ -10,7 +10,7 @@ const App = {
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
   Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
   Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
@@ -12083,8 +12083,21 @@ let rmoSummaryState = {
   preset: 'month', dateFrom: '', dateTo: '',
   courier: 'all', page: 'all', province: 'all', status: 'all', reason: 'all', attempts: 'all',
   data: null, loading: false, error: '',
+  attemptView: 'all', // all | delivered | returned — Delivery Attempt Summary toggle
 };
 let rmoSummaryCharts = { reason: null, status: null, attempt: null };
+
+// Delivery Attempt Summary views: which count each bar shows, and its colour.
+const RMO_ATTEMPT_VIEWS = {
+  all: { label: 'All Shipped', field: 'count', color: '#3b82f6' },
+  delivered: { label: 'Delivered', field: 'delivered', color: '#059669' },
+  returned: { label: 'Returned', field: 'returned', color: '#ef4444' },
+};
+
+function setRmoAttemptView(view) {
+  rmoSummaryState.attemptView = RMO_ATTEMPT_VIEWS[view] ? view : 'all';
+  renderRmoSummaryBody();
+}
 
 // The business day is Manila's, whatever the browser's clock says.
 function rmoManilaToday() {
@@ -12260,6 +12273,15 @@ function renderRmoSummaryBody() {
   const statusRows = d.by_status || [];
   const attemptRows = d.by_attempt || [];
   const dispatched = Number(d.dispatched_total || 0);
+  const attemptView = RMO_ATTEMPT_VIEWS[s.attemptView] ? s.attemptView : 'all';
+  const attemptField = RMO_ATTEMPT_VIEWS[attemptView].field;
+  const attemptCount = (row) => Number(row[attemptField] || 0);
+  const attemptTotal = attemptRows.reduce((sum, row) => sum + attemptCount(row), 0);
+  const attemptSubtitle = attemptView === 'delivered'
+    ? `Delivered orders by the attempt they were delivered on — ${attemptTotal.toLocaleString()} total`
+    : attemptView === 'returned'
+      ? `Returned orders (incl. returning) by delivery attempt — ${attemptTotal.toLocaleString()} total`
+      : `Shipped orders by delivery attempt — ${dispatched.toLocaleString()} total (not-yet-shipped orders excluded)`;
 
   wrap.innerHTML = `
     <div class="rmo-summary-cards" style="${s.loading ? 'opacity:.6;' : ''}">
@@ -12324,29 +12346,32 @@ function renderRmoSummaryBody() {
         <div class="card-header">
           <div>
             <div class="card-title">Delivery Attempt Summary</div>
-            <div class="card-subtitle">Shipped orders by delivery attempt — ${dispatched.toLocaleString()} total (not-yet-shipped orders excluded)</div>
+            <div class="card-subtitle">${attemptSubtitle}</div>
+          </div>
+          <div class="table-filters rmo-attempt-toggle">
+            ${Object.entries(RMO_ATTEMPT_VIEWS).map(([key, v]) => `<button class="filter-pill ${attemptView === key ? 'active' : ''}" onclick="setRmoAttemptView('${key}')">${v.label}</button>`).join('')}
           </div>
         </div>
-        ${dispatched ? `
+        ${attemptTotal ? `
           <div class="data-report-chart-wrap"><canvas id="rmo-summary-attempt-chart"></canvas></div>
           <div class="table-wrapper"><table class="data-report-table">
             <thead><tr><th>Attempt</th><th style="text-align:right">Number of Orders</th><th style="text-align:right">Percentage of Total</th></tr></thead>
             <tbody>
               ${attemptRows.map((row) => `<tr>
                 <td>${escapeHtml(row.label)}</td>
-                <td style="text-align:right;font-weight:600;">${row.count.toLocaleString()}</td>
-                <td style="text-align:right;color:var(--text-muted);">${rmoPct(row.count, dispatched)}</td>
+                <td style="text-align:right;font-weight:600;" class="${attemptView === 'delivered' ? 'text-success' : attemptView === 'returned' ? 'text-danger' : ''}">${attemptCount(row).toLocaleString()}</td>
+                <td style="text-align:right;color:var(--text-muted);">${rmoPct(attemptCount(row), attemptTotal)}</td>
               </tr>`).join('')}
             </tbody>
           </table></div>`
-          : '<div class="dr-rank-empty">No shipped orders in this range.</div>'}
+          : `<div class="dr-rank-empty">No ${attemptView === 'all' ? 'shipped' : RMO_ATTEMPT_VIEWS[attemptView].label.toLowerCase()} orders in this range.</div>`}
       </section>
     </div>`;
 
-  renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, dispatched);
+  renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, attemptTotal, attemptView);
 }
 
-function renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, dispatched) {
+function renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, attemptTotal, attemptView = 'all') {
   const grid = { color: 'rgba(148,163,184,0.18)' };
   const countTooltip = (base) => ({
     callbacks: { label: (ctx) => `${Number(ctx.raw || 0).toLocaleString()} orders (${rmoPct(Number(ctx.raw || 0), base)})` },
@@ -12391,17 +12416,18 @@ function renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal
     },
   });
 
-  rmoSummaryCharts.attempt = upsertChart(rmoSummaryCharts.attempt, document.getElementById('rmo-summary-attempt-chart'), dispatched > 0, {
+  const view = RMO_ATTEMPT_VIEWS[attemptView] || RMO_ATTEMPT_VIEWS.all;
+  rmoSummaryCharts.attempt = upsertChart(rmoSummaryCharts.attempt, document.getElementById('rmo-summary-attempt-chart'), attemptTotal > 0, {
     type: 'bar',
     data: {
       labels: attemptRows.map((row) => row.label),
-      datasets: [{ label: 'Orders', data: attemptRows.map((row) => row.count), backgroundColor: '#3b82f6', borderRadius: 4, maxBarThickness: 64 }],
+      datasets: [{ label: view.label, data: attemptRows.map((row) => Number(row[view.field] || 0)), backgroundColor: view.color, borderRadius: 4, maxBarThickness: 64 }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       scales: { y: { beginAtZero: true, grid, ticks: { precision: 0 } }, x: { grid: { display: false } } },
-      plugins: { legend: { display: false }, tooltip: countTooltip(dispatched) },
+      plugins: { legend: { display: false }, tooltip: countTooltip(attemptTotal) },
     },
   });
 }
@@ -12532,7 +12558,7 @@ function renderCsrDailyReport() {
   return `
   <div class="csr-daily-page">
     <div class="page-header">
-      <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — each CSR fills in their own card; anyone can fill the product tables.</p></div>
+      <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — each CSR fills in their own card and the CSR desk fills the product table; other roles can view.</p></div>
       <div class="page-actions">
         <div class="csr-daily-actions" id="csr-daily-actions"></div>
         <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(-1)" aria-label="Previous day">‹</button>
@@ -12569,14 +12595,16 @@ function renderCsrDailyBody() {
 
   const me = Number(s.data.me);
   const hasMine = s.cards.some((card) => Number(card.user_id) === me);
-  const canEditAll = Boolean(s.data.can_edit_all);
+  const canEdit = s.data.can_edit !== false;
+  const canEditAll = canEdit && Boolean(s.data.can_edit_all);
   const users = DB.assignableUsers || [];
   const addable = users.filter((u) => !s.cards.some((card) => Number(card.user_id) === Number(u.id)));
 
   // Adding a card sits in the page header, next to the date it adds to.
   if (actions) {
     actions.innerHTML = `
-      ${hasMine ? '' : `<button class="csr-daily-btn primary" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
+      ${!canEdit ? '<span class="csr-daily-viewonly" title="Your role can see this report but not change it">View only</span>'
+        : hasMine ? '' : `<button class="csr-daily-btn primary" onclick="addCsrDailyCard(${me})">+ Add my card</button>`}
       ${canEditAll && addable.length ? `
         <select class="csr-daily-select" id="csr-daily-add-user" aria-label="Add a card for a CSR">
           <option value="">Add a card for…</option>
@@ -12598,7 +12626,7 @@ function renderCsrDailyBody() {
                 ${s.cards.map((card, index) => ((card.shift === 'PM' ? 'PM' : 'AM') === shift ? renderCsrDailyCard(card, index) : '')).join('')}
               </div>`).join('')}
           </div>`
-          : '<div class="csr-daily-empty"><strong>No CSR cards yet for this day</strong><span>Use “+ Add my card” to enter your numbers.</span></div>'}
+          : `<div class="csr-daily-empty"><strong>No CSR cards yet for this day</strong>${canEdit ? '<span>Use “+ Add my card” to enter your numbers.</span>' : ''}</div>`}
       </div>
       <div class="csr-daily-right">
         ${renderCsrDailyProductsCard()}
@@ -12652,22 +12680,29 @@ function csrDailyTeamTotal(section) {
 function renderCsrDailyProductsCard() {
   const s = csrDailyState;
   const products = (s.team.confirm_breakdown || []).map((row) => row.product);
+  const canEdit = s.data?.can_edit !== false;
   return `
-    <section class="csr-daily-panel" id="csr-daily-products">
+    <section class="csr-daily-panel ${canEdit ? '' : 'is-readonly'}" id="csr-daily-products">
       <header class="csr-daily-panel-head centered">
         <div class="csr-daily-panel-title">TOTAL POS CONFIRM</div>
-        <button class="csr-daily-btn primary" onclick="saveCsrDailyTeam()">Save</button>
+        ${canEdit ? '<button class="csr-daily-btn primary" onclick="saveCsrDailyTeam()">Save</button>' : ''}
       </header>
       <table class="csr-daily-product-table">
         <thead>
           <tr>
             <th scope="col">Product</th>
             ${CSR_DAILY_PRODUCT_COLUMNS.map(([, label]) => `<th scope="col">${label}</th>`).join('')}
-            <th scope="col" class="csr-daily-del-col" aria-label="Delete"></th>
+            ${canEdit ? '<th scope="col" class="csr-daily-del-col" aria-label="Delete"></th>' : ''}
           </tr>
         </thead>
         <tbody>
-          ${products.map((product, index) => `<tr>
+          ${products.map((product, index) => (!canEdit ? `<tr>
+            <th scope="row"><span class="csr-daily-name">${escapeHtml(product)}</span></th>
+            ${CSR_DAILY_PRODUCT_COLUMNS.map(([section]) => {
+              const qty = String(s.team[section]?.[index]?.qty ?? '').trim();
+              return `<td><span class="csr-daily-num">${qty === '' ? '—' : Number(qty).toLocaleString()}</span></td>`;
+            }).join('')}
+          </tr>` : `<tr>
             <th scope="row"><input type="text" class="csr-daily-name" value="${escapeHtml(product)}" maxlength="80"
               aria-label="Product name" title="Click to rename"
               onchange="renameCsrDailyProduct(${index}, this)"
@@ -12678,22 +12713,22 @@ function renderCsrDailyProductsCard() {
               oninput="setCsrDailyTeamQty('${section}', ${index}, this.value)"></td>`).join('')}
             <td class="csr-daily-del-col"><button class="csr-daily-row-del" onclick="removeCsrDailyProduct(${index})"
               aria-label="${escapeHtml(`Delete ${product}`)}" title="Delete row">×</button></td>
-          </tr>`).join('')}
+          </tr>`)).join('')}
         </tbody>
         <tfoot>
           <tr>
             <th scope="row">Total</th>
             ${CSR_DAILY_PRODUCT_COLUMNS.map(([section]) => `<td data-team-total="${section}">${csrDailyTeamTotal(section).toLocaleString()}</td>`).join('')}
-            <td class="csr-daily-del-col"></td>
+            ${canEdit ? '<td class="csr-daily-del-col"></td>' : ''}
           </tr>
         </tfoot>
       </table>
-      <div class="csr-daily-panel-foot">
+      ${canEdit ? `<div class="csr-daily-panel-foot">
         <input type="text" class="csr-daily-text" placeholder="Add a product…" id="csr-daily-new-product"
           aria-label="Add a product"
           onkeydown="if(event.key==='Enter'){event.preventDefault();addCsrDailyProduct();}">
         <button class="csr-daily-btn" onclick="addCsrDailyProduct()">Add</button>
-      </div>
+      </div>` : ''}
     </section>`;
 }
 
@@ -16315,13 +16350,11 @@ function canViewAllCSRRecords() {
   return isAdminUser() || isCSROversightUser() || normalizeRoleName(App.user?.role) === 'CSR TL';
 }
 
-// The POS tabs — Confirmed Orders and Duplicate Customers — are read wider
-// than the daily records: a CSR, and the RMO desk that works the same orders
-// after them, picks any confirmer there, or all of them, the same as the
-// oversight roles. It is the picker they gain, not a new landing page.
-const CSR_POS_VIEW_ALL_ROLES = ['CSR', 'RMO', 'RMO TL'];
+// The POS tabs — Confirmed Orders and Duplicate Customers — are open to every
+// user: anyone picks any confirmer there, or all of them. The daily records
+// stay scoped by canViewAllCSRRecords().
 function canViewAllCsrConfirmed() {
-  return canViewAllCSRRecords() || CSR_POS_VIEW_ALL_ROLES.includes(normalizeRoleName(App.user?.role));
+  return Boolean(App.user);
 }
 
 function getCSRPrimaryButtonLabel() {

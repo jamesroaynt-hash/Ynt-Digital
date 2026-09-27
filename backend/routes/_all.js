@@ -1114,7 +1114,10 @@ function ordersRoutes(db, { dispatch } = {}) {
           SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
           SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END) AS returned
         FROM (${filtered}) f WHERE reason != '' GROUP BY courier, reason`).all(...fParams),
-      db.prepare(`SELECT attempt_bucket, COUNT(*) AS c, SUM(attempts) AS total_attempts FROM (${filtered}) f WHERE status IN ${DISPATCHED} GROUP BY attempt_bucket`).all(...fParams),
+      db.prepare(`SELECT attempt_bucket, COUNT(*) AS c, SUM(attempts) AS total_attempts,
+          SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN status IN ('Returned','Returning') THEN 1 ELSE 0 END) AS returned
+        FROM (${filtered}) f WHERE status IN ${DISPATCHED} GROUP BY attempt_bucket`).all(...fParams),
       db.prepare(`
         SELECT 'courier' AS k, courier AS v FROM (${derived}) d GROUP BY courier
         UNION ALL SELECT 'page', page_name FROM (${derived}) d WHERE COALESCE(page_name, '') != '' GROUP BY page_name
@@ -1140,7 +1143,14 @@ function ordersRoutes(db, { dispatch } = {}) {
     const ATTEMPT_LABELS = { 1: '1st Attempt', 2: '2nd Attempt', 3: '3rd Attempt', '4plus': '4th+ Attempt' };
     const byAttempt = ['1', '2', '3', '4plus'].map((key) => {
       const row = attemptRows.find((r) => String(r.attempt_bucket) === key);
-      return { key, label: ATTEMPT_LABELS[key], count: Number(row?.c || 0) };
+      // Returned counts returning too, matching the reason table above.
+      return {
+        key,
+        label: ATTEMPT_LABELS[key],
+        count: Number(row?.c || 0),
+        delivered: Number(row?.delivered || 0),
+        returned: Number(row?.returned || 0),
+      };
     });
     const totalAttempts = attemptRows.reduce((sum, row) => sum + Number(row.total_attempts || 0), 0);
 
@@ -2544,16 +2554,13 @@ function csrRoutes(db) {
   const VIEW_ALL_ROLES = new Set([
     'Administrator', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL',
   ]);
-  // The POS tabs are read wider than the daily records above: every CSR reads
-  // any confirmer's confirmed orders and the duplicate customers behind them.
-  // A duplicate is one number two desks worked, so a CSR held to their own
-  // orders only ever sees the half of it they wrote themselves.
-  // RMO works the same confirmed orders after the CSR desk, so it reads them
-  // the same way.
-  const VIEW_ALL_POS_ROLES = new Set([...VIEW_ALL_ROLES, 'CSR', 'RMO', 'RMO TL']);
+  // The POS tabs — Confirmed Orders and Duplicate Customers — are open to every
+  // signed-in user, for any confirmer or all of them. A duplicate is one number
+  // two desks worked, so anyone held to their own orders only ever sees the
+  // half of it they wrote themselves.
   const role = (req) => String(req.user?.role || '').trim();
   const canViewAll = (req) => VIEW_ALL_ROLES.has(role(req));
-  const canViewAllPos = (req) => VIEW_ALL_POS_ROLES.has(role(req));
+  const canViewAllPos = (req) => Boolean(req.user);
   const isAdmin = (req) => role(req) === 'Administrator';
   const userId = (req) => req.user?.id || 0;
 
@@ -3228,6 +3235,15 @@ function csrRoutes(db) {
   const DAILY_TEAM_SECTIONS = new Set(['pending_new', 'awaiting_print', 'confirm_breakdown']);
   const DAILY_EDIT_ALL_ROLES = new Set(['Administrator', 'CSR TL', 'Operation']);
   const canEditAllDaily = (req) => DAILY_EDIT_ALL_ROLES.has(role(req));
+  // Everyone signed in can read the report; only the CSR desk and its managers
+  // write to it. Other roles (HR, RMO, Logistics, Sales and Marketing) view only.
+  const DAILY_EDIT_ROLES = new Set(['administrator', 'operation', 'csr', 'csr tl', 'trainee']);
+  const canEditDaily = (req) => DAILY_EDIT_ROLES.has(role(req).toLowerCase().replace(/\s+/g, ' '));
+  const denyViewOnly = (req, res) => {
+    if (canEditDaily(req)) return false;
+    res.status(403).json({ error: 'The Daily CSR Report is view-only for your role.' });
+    return true;
+  };
   const reportDate = (value) => {
     const date = String(value || '').slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
@@ -3255,17 +3271,19 @@ function csrRoutes(db) {
       teamRows.forEach((row) => {
         if (team[row.section]) team[row.section].push({ product: row.product, qty: Number(row.qty || 0) });
       });
-      const editAll = canEditAllDaily(req);
+      const canEdit = canEditDaily(req);
+      const editAll = canEdit && canEditAllDaily(req);
       res.json({
         date,
         me: userId(req),
+        can_edit: canEdit,
         can_edit_all: editAll,
         cards: cards.map((row) => ({
           user_id: Number(row.user_id),
           name: row.csr_name || `User ${row.user_id}`,
           shift: row.shift || 'AM',
           ...Object.fromEntries(DAILY_CARD_FIELDS.map((f) => [f, Number(row[f] || 0)])),
-          editable: editAll || Number(row.user_id) === Number(userId(req)),
+          editable: editAll || (canEdit && Number(row.user_id) === Number(userId(req))),
         })),
         team,
         // null until someone edits the list — the page then uses its defaults.
@@ -3277,6 +3295,7 @@ function csrRoutes(db) {
   });
 
   r.put('/daily-report/card', async (req, res) => {
+    if (denyViewOnly(req, res)) return;
     const body = req.body || {};
     const date = reportDate(body.date);
     if (!date) return res.status(400).json({ error: 'A valid date is required.' });
@@ -3304,6 +3323,7 @@ function csrRoutes(db) {
   });
 
   r.delete('/daily-report/card', async (req, res) => {
+    if (denyViewOnly(req, res)) return;
     const date = reportDate(req.query.date);
     const targetId = Number(req.query.user_id || userId(req));
     if (!date || !targetId) return res.status(400).json({ error: 'Date and user are required.' });
@@ -3320,6 +3340,7 @@ function csrRoutes(db) {
 
   // Replaces the product list the report shows (every day), in the given order.
   r.put('/daily-report/products', async (req, res) => {
+    if (denyViewOnly(req, res)) return;
     const seen = new Set();
     const names = (Array.isArray(req.body?.products) ? req.body.products : [])
       .map((name) => String(name || '').trim().slice(0, 80))
@@ -3345,6 +3366,7 @@ function csrRoutes(db) {
 
   // Replaces one team table for the day: products left out are removed.
   r.put('/daily-report/team', async (req, res) => {
+    if (denyViewOnly(req, res)) return;
     const body = req.body || {};
     const date = reportDate(body.date);
     const section = String(body.section || '');

@@ -5063,6 +5063,10 @@ tfoot td {
   transition: opacity .15s;
 }
 
+.rmo-summary-grid .card-header { flex-wrap: wrap; }
+.rmo-attempt-toggle { flex-shrink: 0; }
+.rmo-attempt-toggle .filter-pill { padding: 5px 12px; font-size: 12px; }
+
 .rmo-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5401,6 +5405,21 @@ tfoot td {
   outline: none;
   border-color: var(--daily-accent);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, .2);
+}
+
+.csr-daily-viewonly {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--daily-line);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .csr-daily-btn {
