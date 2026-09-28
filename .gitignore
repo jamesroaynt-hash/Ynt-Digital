@@ -28,3 +28,6 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 !.vscode/extensions.json
+
+# graphify knowledge graph output (local only)
+graphify-out/
