@@ -3235,10 +3235,9 @@ function csrRoutes(db) {
   const DAILY_TEAM_SECTIONS = new Set(['pending_new', 'awaiting_print', 'confirm_breakdown']);
   const DAILY_EDIT_ALL_ROLES = new Set(['Administrator', 'CSR TL', 'Operation']);
   const canEditAllDaily = (req) => DAILY_EDIT_ALL_ROLES.has(role(req));
-  // Everyone signed in can read the report; only the CSR desk and its managers
-  // write to it. Other roles (HR, RMO, Logistics, Sales and Marketing) view only.
-  const DAILY_EDIT_ROLES = new Set(['administrator', 'operation', 'csr', 'csr tl', 'trainee']);
-  const canEditDaily = (req) => DAILY_EDIT_ROLES.has(role(req).toLowerCase().replace(/\s+/g, ' '));
+  // Everyone signed in can read the report, keep their own card and fill the
+  // TOTAL POS CONFIRM table. Only DAILY_EDIT_ALL_ROLES touch other people's cards.
+  const canEditDaily = (req) => Boolean(req.user);
   const denyViewOnly = (req, res) => {
     if (canEditDaily(req)) return false;
     res.status(403).json({ error: 'The Daily CSR Report is view-only for your role.' });

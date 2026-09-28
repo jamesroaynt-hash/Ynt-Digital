@@ -12561,7 +12561,7 @@ function renderCsrDailyReport() {
   return `
   <div class="csr-daily-page">
     <div class="page-header">
-      <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — each CSR fills in their own card and the CSR desk fills the product table; other roles can view.</p></div>
+      <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — everyone fills in their own card and anyone can update the product table.</p></div>
       <div class="page-actions">
         <div class="csr-daily-actions" id="csr-daily-actions"></div>
         <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(-1)" aria-label="Previous day">‹</button>
