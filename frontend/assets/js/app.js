@@ -3794,6 +3794,7 @@ function renderHome() {
         ${getHomeCsrOptions().map((c) => `<option value="${escapeHtml(c)}" ${homeCsrFilter === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
       </select>
     </label>
+    ${renderHomeExcludedStatusChip()}
     </div>
     <button class="hf-clear" onclick="resetHomeFilters()">Clear</button>
   </div>
@@ -20831,6 +20832,13 @@ let homeOrderFilter = 'all';
 let homeSourceFilter = 'all';
 let homeProductFilter = 'all';
 let homeCsrFilter = 'all';
+// Statuses hidden from every Home tile/card/chart. Remembered per browser.
+let homeExcludedStatuses = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('homeExcludedStatuses') || '[]');
+    return Array.isArray(saved) ? saved.filter((s) => typeof s === 'string') : [];
+  } catch (_) { return []; }
+})();
 let homeDateFrom = '';
 let homeDateTo = '';
 const HOME_STATUS_CHART_ITEMS = [
@@ -20897,9 +20905,50 @@ function getFilteredHomeOrders() {
   if (homeCsrFilter !== 'all') {
     data = data.filter((order) => (order.assigning_seller_name || order.confirmed_by || '') === homeCsrFilter);
   }
+  if (homeExcludedStatuses.length) {
+    const excluded = new Set(homeExcludedStatuses);
+    data = data.filter((order) => !excluded.has(order.status || 'Unknown'));
+  }
 
   return data;
 }
+
+// Statuses the Excluded status chip can hide: whatever the loaded report set
+// carries, plus anything already excluded so a saved choice stays untickable.
+function getHomeStatusOptions() {
+  const set = new Set(DB.sheetRecordsForReport.map((o) => o.status || 'Unknown'));
+  homeExcludedStatuses.forEach((s) => set.add(s));
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+function renderHomeExcludedStatusChip() {
+  const n = homeExcludedStatuses.length;
+  const value = !n ? 'None' : (n === 1 ? homeExcludedStatuses[0] : `${n} statuses`);
+  return `
+    <details class="hf-chip hf-multi" id="home-excluded-status">
+      <summary><span>Excluded status:</span> <b>${escapeHtml(value)}</b></summary>
+      <div class="hf-multi-menu">
+        ${getHomeStatusOptions().map((s) => `
+          <label><input type="checkbox" value="${escapeHtml(s)}" ${homeExcludedStatuses.includes(s) ? 'checked' : ''} onchange="applyHomeExcludedStatuses()"> ${escapeHtml(s)}</label>`).join('') || '<div class="hf-multi-empty">No statuses loaded yet</div>'}
+      </div>
+    </details>`;
+}
+
+function applyHomeExcludedStatuses() {
+  const menu = document.getElementById('home-excluded-status');
+  homeExcludedStatuses = [...(menu?.querySelectorAll('input[type=checkbox]:checked') || [])].map((el) => el.value);
+  try { localStorage.setItem('homeExcludedStatuses', JSON.stringify(homeExcludedStatuses)); } catch (_) {}
+  const label = menu?.querySelector('summary b');
+  const n = homeExcludedStatuses.length;
+  if (label) label.textContent = !n ? 'None' : (n === 1 ? homeExcludedStatuses[0] : `${n} statuses`);
+  renderHomeOrderCharts();
+}
+
+// Close the Excluded status menu on any click outside it.
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('home-excluded-status');
+  if (menu?.open && !menu.contains(e.target)) menu.open = false;
+});
 
 // Distinct option lists for the Home filter dropdowns (from the loaded report set).
 function getHomeProductOptions() {
@@ -21155,6 +21204,9 @@ function openRmoFromCard(tab, status) {
 }
 
 function renderHomeOrderCharts() {
+  // Report records can land after first paint — refill the status menu unless it's open.
+  const exMenu = document.getElementById('home-excluded-status');
+  if (exMenu && !exMenu.open) exMenu.outerHTML = renderHomeExcludedStatusChip();
   renderHomeSummaryTiles();
   renderHomeStatusCards();
   renderHomeAnalyticsKpis();
@@ -21284,6 +21336,8 @@ function resetHomeFilters() {
   homeSourceFilter = 'all';
   homeProductFilter = 'all';
   homeCsrFilter = 'all';
+  homeExcludedStatuses = [];
+  try { localStorage.removeItem('homeExcludedStatuses'); } catch (_) {}
   homeDateFrom = '';
   homeDateTo = '';
   loadPage('home');
