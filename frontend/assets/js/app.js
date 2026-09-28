@@ -20903,7 +20903,7 @@ function getFilteredHomeOrders() {
     data = data.filter((order) => (order.product || '') === homeProductFilter);
   }
   if (homeCsrFilter !== 'all') {
-    data = data.filter((order) => (order.assigning_seller_name || order.confirmed_by || '') === homeCsrFilter);
+    data = data.filter((order) => (order.confirmed_by || '') === homeCsrFilter);
   }
   if (homeExcludedStatuses.length) {
     const excluded = new Set(homeExcludedStatuses);
@@ -20955,7 +20955,8 @@ function getHomeProductOptions() {
   return [...new Set(DB.sheetRecordsForReport.map((o) => (o.product || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 function getHomeCsrOptions() {
-  return [...new Set(DB.sheetRecordsForReport.map((o) => (o.assigning_seller_name || o.confirmed_by || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  // The real confirmer, matching the CSR page — not the assigning seller.
+  return [...new Set(DB.sheetRecordsForReport.map((o) => (o.confirmed_by || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
 function getHomeFilterLabel() {

@@ -1000,7 +1000,7 @@ function ordersRoutes(db, { dispatch } = {}) {
     const rows = await db.prepare(`
       SELECT external_id, shop_id, tracking_no, page_name, inserted_at_remote,
              customer_name, customer_phone, note_product, tags_json,
-             cod, assigning_seller_name, status_name, attempts, shipping_address_json,
+             cod, assigning_seller_name, confirmed_by_name, status_name, attempts, shipping_address_json,
              ${pancakePosSync.effectivePosStatusSql()} AS effective_status
       FROM pos_orders
       WHERE customer_phone IS NOT NULL AND customer_phone != '' AND ${vis.clause}
@@ -1045,7 +1045,9 @@ function ordersRoutes(db, { dispatch } = {}) {
           cod: Number(row.cod || 0),
           province: province || '',
           assigning_seller_name: row.assigning_seller_name || '',
-          confirmed_by: row.assigning_seller_name || '',
+          // The real confirmer (status_history editor), as on the CSR page — the
+          // assigning seller is often someone else. Blank until confirmed.
+          confirmed_by: String(row.confirmed_by_name || '').trim(),
           tags: tags.join(', '),
           date: toManilaDate(row.inserted_at_remote) || '',
           source_sheet: posPageLabel(row),
