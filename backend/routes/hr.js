@@ -373,7 +373,7 @@ module.exports = function hrRoutes(db) {
     if (requestedId > 0) { clauses.push('id = ?'); params.push(requestedId); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     return db.prepare(`
-      SELECT id, username, full_name, role, daily_rate, day_off, is_active
+      SELECT id, username, full_name, role, daily_rate, day_off, is_active, include_in_payroll
       FROM users
       ${where}
       ORDER BY full_name COLLATE NOCASE ASC
@@ -757,8 +757,11 @@ module.exports = function hrRoutes(db) {
     const today = manilaParts().date;
     const from = normalizeDate(req.query?.from, today);
     const to = normalizeDate(req.query?.to, from);
-    // Administrators aren't paid employees, so keep them out of the payroll list.
-    const users = (await listUsersForScope(req)).filter((u) => String(u.role || '').trim() !== 'Administrator');
+    // Administrators aren't paid employees, so keep them out of the payroll list
+    // unless the account is explicitly opted in (users.include_in_payroll).
+    const users = (await listUsersForScope(req)).filter((u) => (
+      String(u.role || '').trim() !== 'Administrator' || Number(u.include_in_payroll) === 1
+    ));
     if (!users.length) return res.json({ summary: [] });
 
     const ids = users.map((user) => Number(user.id));
