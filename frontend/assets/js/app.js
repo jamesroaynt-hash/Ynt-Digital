@@ -11587,7 +11587,7 @@ function csrConfirmedViewingAll() {
 }
 
 function csrConfirmedColumnCount() {
-  return csrConfirmedViewingAll() ? 8 : 7;
+  return csrConfirmedViewingAll() ? 9 : 8;
 }
 
 function csrConfirmedLoadingLabel() {
@@ -11643,7 +11643,10 @@ function paintCsrConfirmedToolbar() {
 }
 
 function renderCsrConfirmedHead() {
+  const pageRows = csrConfirmedState.data || [];
+  const allTicked = pageRows.length > 0 && pageRows.every((o) => csrConfirmedSelected.has(csrConfirmedKey(o)));
   return `<tr>
+    <th style="width:32px"><input type="checkbox" ${allTicked ? 'checked' : ''} onchange="toggleCsrConfirmedPage(this.checked)" title="Select this page for export" aria-label="Select this page"></th>
     <th style="width:12%">Order #</th>
     <th style="width:${csrConfirmedViewingAll() ? '17%' : '20%'}">Customer</th>
     <th style="width:${csrConfirmedViewingAll() ? '20%' : '24%'}">Product</th>
@@ -11688,7 +11691,7 @@ function renderCsrConfirmedPanel() {
             <option value="all">All Statuses</option>
             ${CSR_CONFIRMED_STATUSES.map((status) => `<option value="${escapeHtml(status)}" ${csrConfirmedState.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}
           </select>
-          <button class="btn btn-secondary btn-sm" onclick="exportCsrConfirmedTab()">Export</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCsrConfirmedTab()" title="Exports the ticked rows, or every order in this range when none are ticked">Export</button>
         </div>
       </div>
 
@@ -11845,9 +11848,10 @@ function renderCsrConfirmedTable() {
   }
 
   const dash = '<span style="color:var(--text-muted)">—</span>';
-  tbody.innerHTML = csrConfirmedState.data.map((order) => {
+  tbody.innerHTML = csrConfirmedState.data.map((order, index) => {
     const attempts = Number(order.attempts || 0);
     return `<tr>
+      <td><input type="checkbox" ${csrConfirmedSelected.has(csrConfirmedKey(order)) ? 'checked' : ''} onchange="toggleCsrConfirmedRow(${index}, this.checked)" aria-label="Select order for export"></td>
       <td>
         <div class="rmo-item-main font-mono text-xs">${escapeHtml(order.external_id || '')}</div>
         <div class="rmo-item-sub font-mono">${escapeHtml(order.tracking_no || '') || dash}</div>
@@ -11878,7 +11882,9 @@ function renderCsrConfirmedTable() {
     const start = total ? ((page - 1) * perPage) + 1 : 0;
     const end = Math.min(page * perPage, total);
     pagination.innerHTML = `
-      <span>${start}-${end} of ${total.toLocaleString()} confirmed orders</span>
+      <span>${start}-${end} of ${total.toLocaleString()} confirmed orders${csrConfirmedSelected.size
+        ? ` · <strong>${csrConfirmedSelected.size.toLocaleString()} selected for export</strong> <a href="#" onclick="event.preventDefault();clearCsrConfirmedSelection()">Clear</a>`
+        : ''}</span>
       <div class="pagination-buttons">
         <button class="page-btn" onclick="changeCsrConfirmedPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>‹</button>
         ${renderPaginationButtons(page, pages, 'changeCsrConfirmedPage')}
@@ -11965,6 +11971,9 @@ function reloadCsrConfirmedView() {
     loadCsrDuplicateCustomers(1);
     return;
   }
+  // A new range or confirmer is a new list; ticks from the old one would
+  // otherwise ride into its export unseen.
+  csrConfirmedSelected.clear();
   loadCsrConfirmedOrders(1);
 }
 
@@ -11991,7 +12000,71 @@ function setCsrConfirmedTab(tab) {
 // Export what is on screen, not whichever table was built first.
 function exportCsrConfirmedTab() {
   if (csrConfirmedState.tab === 'duplicates') exportTableCSV('csr-duplicates-table', 'duplicate-customers');
-  else exportTableCSV('csr-confirmed-table', 'confirmed-orders');
+  else exportCsrConfirmedOrders();
+}
+
+// Rows ticked for export, kept across pages: key -> order.
+const csrConfirmedSelected = new Map();
+
+function csrConfirmedKey(order) {
+  return `${order.shop_id || ''}|${order.external_id || ''}|${order.date || ''}`;
+}
+
+function toggleCsrConfirmedRow(index, checked) {
+  const order = csrConfirmedState.data[index];
+  if (!order) return;
+  if (checked) csrConfirmedSelected.set(csrConfirmedKey(order), order);
+  else csrConfirmedSelected.delete(csrConfirmedKey(order));
+  renderCsrConfirmedTable();
+}
+
+function toggleCsrConfirmedPage(checked) {
+  csrConfirmedState.data.forEach((order) => {
+    if (checked) csrConfirmedSelected.set(csrConfirmedKey(order), order);
+    else csrConfirmedSelected.delete(csrConfirmedKey(order));
+  });
+  renderCsrConfirmedTable();
+}
+
+function clearCsrConfirmedSelection() {
+  csrConfirmedSelected.clear();
+  renderCsrConfirmedTable();
+}
+
+// Ticked rows export on their own; with nothing ticked, the export pulls every
+// page for the current filters (200 at a time, the server's per_page cap) —
+// the table itself only ever holds one page.
+async function exportCsrConfirmedOrders() {
+  try {
+    let rows;
+    if (csrConfirmedSelected.size) {
+      rows = [...csrConfirmedSelected.values()];
+    } else {
+      showToast('info', 'Exporting', 'Collecting every confirmed order in this range…');
+      rows = [];
+      for (let page = 1; page <= 500; page += 1) {
+        const data = await authorizedJsonRequest(`/csr/confirmed-orders?${csrConfirmedParams(page, 200).toString()}`);
+        const batch = Array.isArray(data?.data) ? data.data : [];
+        rows.push(...batch);
+        if (batch.length < 200 || rows.length >= Number(data?.total || 0)) break;
+      }
+    }
+    const header = ['Order #', 'Tracking #', 'Customer', 'Phone', 'Product', 'Page', 'Confirmed By', 'Province', 'COD', 'Status', 'Attempts', 'Date'];
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [header, ...rows.map((o) => [
+      o.external_id, o.tracking_no, o.customer_name, o.customer_phone, o.product, o.page_name,
+      o.confirmed_by, o.province, Number(o.cod || 0), o.status, Number(o.attempts || 0), o.date,
+    ])].map((r) => r.map(cell).join(',')).join('\r\n');
+    // BOM so Excel reads UTF-8 (₱, ñ) instead of mangling it.
+    const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `confirmed-orders-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    showToast('success', 'CSV exported', `${rows.length.toLocaleString()} confirmed orders downloaded`);
+  } catch (error) {
+    showToast('error', 'Export failed', error.message || 'Could not export confirmed orders.');
+  }
 }
 
 function changeCsrDuplicatesPage(page) {
@@ -26361,7 +26434,8 @@ function exportTableCSV(tableId, filename) {
     // textContent would run them together into one unreadable value.
     Array.from(row.cells).map(cell => `"${(cell.innerText || cell.textContent || '').trim().replace(/\s*\n+\s*/g, ' / ').replace(/"/g,'""')}"`).join(',')
   ).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  // BOM so Excel reads UTF-8 (₱, —, ñ) instead of mangling it.
+  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${filename}-${new Date().toISOString().split('T')[0]}.csv`;
