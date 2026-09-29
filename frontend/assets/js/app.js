@@ -6248,7 +6248,10 @@ function isRestDayFor(dateStr, dayOff) {
 // Pill marking the user's rest day, in the same shape as the PH holiday pill.
 // Amber once the day is actually worked, since the whole shift is then paid as
 // overtime at 130%.
-function restDayBadge(worked) {
+function restDayBadge(worked, regular = false) {
+  if (worked && regular) {
+    return '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:#15803d;background:#dcfce7;" title="Worked rest day switched to a regular day — no 30% premium, counted as a day worked">Rest day — paid as regular</span>';
+  }
   const color = worked ? '#b45309' : '#0369a1';
   const bg = worked ? '#fef3c7' : '#e0f2fe';
   const label = worked ? 'Worked rest day — OT +30%' : 'Rest day';
@@ -6256,6 +6259,31 @@ function restDayBadge(worked) {
     ? 'Worked the scheduled rest day — the day plus a 30% premium, all booked as OT'
     : 'Scheduled rest day — unpaid unless worked';
   return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${title}">${label}</span>`;
+}
+
+// The day off to apply to one attendance record: a worked rest day that HR
+// switched to a regular day (rest_day_regular) is treated as having none, the
+// same test as restDayWorked in backend/routes/hr.js.
+function recordRestDayOff(record, dayOff) {
+  return Number(record?.rest_day_regular) ? -1 : dayOff;
+}
+
+async function setRestDayRegular(recordId, regular) {
+  try {
+    await authorizedJsonRequest(`/hr/attendance/${recordId}/rest-day-regular`, {
+      method: 'PATCH',
+      body: JSON.stringify({ regular: !!regular }),
+    });
+    const record = (hrState.attendance || []).find((r) => Number(r.id) === Number(recordId));
+    if (record) record.rest_day_regular = regular ? 1 : 0;
+    showToast('success', regular ? 'Paid as regular day' : 'Paid as rest day', regular
+      ? 'No 30% premium; the day counts as a regular work day.'
+      : 'The day is paid as OT with the 30% rest-day premium.');
+  } catch (error) {
+    showToast('error', 'Could not update', error.message || 'Could not change the rest day.');
+  }
+  if (document.getElementById('hr-summary-wrap')) loadHRDashboard();
+  else if (document.getElementById('al-attendance-wrap')) renderHRAttendanceTable('al-attendance-wrap');
 }
 
 // True when HR flagged the day as a holiday on the attendance record itself.
@@ -6276,10 +6304,10 @@ function nonRegularDayOtMinutes(dateStr, dayOff, workedMinutes, holidayType) {
   return Math.min(worked, 480);
 }
 
-function attendanceDateBadges(dateStr, dayOff, worked) {
+function attendanceDateBadges(dateStr, dayOff, worked, regular = false) {
   return [
     getPhHoliday(dateStr) ? phHolidayBadge(dateStr) : '',
-    isRestDayFor(dateStr, dayOff) ? restDayBadge(worked) : '',
+    isRestDayFor(dateStr, dayOff) ? restDayBadge(worked, regular) : '',
   ].filter(Boolean).join('');
 }
 
@@ -17639,7 +17667,7 @@ function renderMyWorkHours(payslip) {
   // approved request are not paid, so showing them here would overstate. A
   // worked rest day or holiday is all OT, so those shifts land here too.
   const totalOt = records.reduce((sum, r) => sum
-    + nonRegularDayOtMinutes(r.work_date, dayOff, r.worked_minutes, r.holiday_type)
+    + nonRegularDayOtMinutes(r.work_date, recordRestDayOff(r, dayOff), r.worked_minutes, r.holiday_type)
     + Number(r.payable_ot_minutes || 0), 0);
 
   // The cards render for any range, including a custom one with no punches in
@@ -17688,13 +17716,13 @@ function renderMyWorkHours(payslip) {
         <tbody>
           ${records.map((r) => {
             const worked = Number(r.worked_minutes || 0);
-            const ot = nonRegularDayOtMinutes(r.work_date, dayOff, worked, r.holiday_type) + Number(r.payable_ot_minutes || 0);
+            const ot = nonRegularDayOtMinutes(r.work_date, recordRestDayOff(r, dayOff), worked, r.holiday_type) + Number(r.payable_ot_minutes || 0);
             const complete = r.time_in && r.time_out;
             const otApproved = Boolean(r.ot_approved);
             const otApprovedIcon = otApproved
               ? ' <span title="Overtime approved for this date" style="color:var(--success,#16a34a);font-weight:700;">✓</span>'
               : '';
-            const dateBadges = attendanceDateBadges(r.work_date, dayOff, worked > 0);
+            const dateBadges = attendanceDateBadges(r.work_date, dayOff, worked > 0, !!Number(r.rest_day_regular));
             return `<tr>
               <td><strong>${escapeHtml(r.work_date || '')}</strong>${otApprovedIcon}${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}</td>
               <td class="font-mono text-xs">${r.time_in ? escapeHtml(formatClock12(r.time_in)) : '—'}</td>
@@ -19685,7 +19713,8 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             // regular work day: payroll books the whole of it as OT. An
             // unworked rest day pays nothing at all. Mirrors hr.js, so this
             // column, the payslip and payroll all agree.
-            const restDay = isRestDayFor(record.work_date, record.day_off);
+            const restDayOff = recordRestDayOff(record, record.day_off);
+            const restDay = isRestDayFor(record.work_date, restDayOff);
             const holiday = isFlaggedHoliday(record.holiday_type);
             const nonRegularDay = restDay || holiday;
             // A day that is both earns both premiums. A hand-entered rate is
@@ -19706,7 +19735,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
               ? (dailyRate / 480) * payableOt
               : 0;
             const nonRegularOt = paidDay
-              ? nonRegularDayOtMinutes(record.work_date, record.day_off, workedMins, record.holiday_type)
+              ? nonRegularDayOtMinutes(record.work_date, restDayOff, workedMins, record.holiday_type)
               : 0;
             const paidOtMinutes = nonRegularOt + (otApproved ? payableOt : 0);
             const dailySalary = basePay + nonRegularPay + otPay;
@@ -19715,7 +19744,13 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const partDayNote = paidDay && !hasCustomRate && workedMins < 480
               ? `<div class="text-xs text-muted">${Math.round(dayFraction * 100)}% of a day</div>`
               : '';
-            const dateBadges = attendanceDateBadges(record.work_date, record.day_off, workedMins > 0 || hasCustomRate);
+            const dateBadges = attendanceDateBadges(record.work_date, record.day_off, workedMins > 0 || hasCustomRate, !!Number(record.rest_day_regular));
+            // Per-day switch: pay this worked rest day as a regular day instead.
+            const restDaySwitch = paidDay && canManageHR() && isRestDayFor(record.work_date, record.day_off)
+              ? `<label onclick="event.stopPropagation()" style="margin-top:4px;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);cursor:pointer;" title="Pay this rest day as a regular work day (no 30% premium)">
+                  <input type="checkbox" ${Number(record.rest_day_regular) ? 'checked' : ''} onchange="setRestDayRegular(${record.id}, this.checked)"> Regular day
+                </label>`
+              : '';
 
             // Schedule lookup for this user + date
             const sched = (hrState.scheduleMap || {})[`${record.user_id}|${record.work_date}`] || null;
@@ -19748,7 +19783,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
 
             return `
             <tr onclick="openAttendanceEditModal(${record.id})" style="cursor:pointer;" title="Click to edit">
-              <td><strong>${escapeHtml(record.work_date || '')}</strong>${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}</td>
+              <td><strong>${escapeHtml(record.work_date || '')}</strong>${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}${restDaySwitch ? `<div>${restDaySwitch}</div>` : ''}</td>
               <td>${escapeHtml(record.full_name || '')}${hrInactiveBadge(record)}${scheduleHtml}</td>
               <td>${timeTxt(record.time_in)}</td>
               <td>${timeTxt(record.break_out)}</td>
@@ -19887,7 +19922,7 @@ function openAttendanceEditModal(recordId) {
   if (!record) return;
   document.getElementById('att-modal-record-id').value = recordId;
   document.getElementById('att-modal-title').textContent = `Edit — ${record.full_name || 'User'}`;
-  const modalBadges = attendanceDateBadges(record.work_date, record.day_off, Number(record.worked_minutes || 0) > 0);
+  const modalBadges = attendanceDateBadges(record.work_date, record.day_off, Number(record.worked_minutes || 0) > 0, !!Number(record.rest_day_regular));
   document.getElementById('att-modal-subtitle').innerHTML = `<span style="display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;">${escapeHtml(record.work_date || '')}${modalBadges}</span>`;
   document.getElementById('att-modal-time-in').value = record.time_in || '';
   document.getElementById('att-modal-time-out').value = record.time_out || '';
@@ -20435,7 +20470,7 @@ function buildPayslipDocument(slip) {
     // A worked rest day or holiday has its shift paid as OT, so it shows in
     // the OT column here the same way payroll counts it. Only the holiday
     // premium is paid outside OT, on its own Holiday Pay line above.
-    const otMinutes = nonRegularDayOtMinutes(record.work_date, user.day_off, record.worked_minutes, record.holiday_type)
+    const otMinutes = nonRegularDayOtMinutes(record.work_date, recordRestDayOff(record, user.day_off), record.worked_minutes, record.holiday_type)
       + Number(record.payable_ot_minutes || 0);
     return `
       <tr style="border-bottom:1px solid #eaedf1;">

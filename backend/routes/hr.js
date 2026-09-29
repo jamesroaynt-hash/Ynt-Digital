@@ -225,8 +225,12 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
     const dayBase = overridden ? dailyRate : cappedWorkedMinutes * perMinuteRate;
 
     const recordDayOff = Number(summary.user.day_off);
+    // HR can switch a single worked rest day to a regular day
+    // (attendance_records.rest_day_regular): no 30% premium, counted in days
+    // worked and base pay like any other day.
     const restDayWorked = Number.isInteger(recordDayOff) && recordDayOff >= 0 && recordDayOff <= 6
-      && weekdayForDate(record.work_date) === recordDayOff;
+      && weekdayForDate(record.work_date) === recordDayOff
+      && !Number(record.rest_day_regular);
     // A holiday is only ever what HR flagged on the record itself: payroll has
     // no holiday calendar of its own, and the Philippine calendar on the
     // frontend is for display only and never reaches here. The percentage is
@@ -740,6 +744,21 @@ module.exports = function hrRoutes(db) {
       id,
     );
 
+    const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(id);
+    res.json({ record });
+  });
+
+  // Toggles one worked rest day between the rest-day rule (OT + 30%) and a
+  // regular work day. Separate from PUT so the edit modal never clobbers it.
+  router.patch('/attendance/:id/rest-day-regular', requireHrManager, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid attendance id' });
+    const existing = await db.prepare('SELECT id FROM attendance_records WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Attendance record not found' });
+    const regular = req.body?.regular ? 1 : 0;
+    await db.prepare(`
+      UPDATE attendance_records SET rest_day_regular = ?, updated_at = datetime('now') WHERE id = ?
+    `).run(regular, id);
     const record = await db.prepare('SELECT * FROM attendance_records WHERE id = ?').get(id);
     res.json({ record });
   });

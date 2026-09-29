@@ -469,6 +469,7 @@ function runMigrations(db) {
   // Per-day rate override: NULL = use the effective-dated rate; a number overrides
   // the daily rate for THIS date only (one-off correction / special-rate day).
   ensureColumn(db, 'attendance_records', 'rate_override', 'REAL');
+  ensureColumn(db, 'attendance_records', 'rest_day_regular', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'cash_advances', 'paid', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'cash_advances', 'paid_at', 'TEXT');
   // Evaluation Matrix: per-item percentages replaced the old five-category
@@ -1076,6 +1077,7 @@ async function runPostgresMigrations(db) {
   // Per-day rate override: NULL = use the effective-dated rate; a number overrides
   // the daily rate for THIS date only (one-off correction / special-rate day).
   await ensureColumnAsync(db, 'attendance_records', 'rate_override', 'REAL');
+  await ensureColumnAsync(db, 'attendance_records', 'rest_day_regular', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'cash_advances', 'paid', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'cash_advances', 'paid_at', 'TEXT');
   // Evaluation Matrix: per-item percentages replaced the old five-category
