@@ -12547,6 +12547,15 @@ function setCsrDailyDate(value) {
   loadCsrDailyReport();
 }
 
+function jumpCsrDailyDate(daysAgo) {
+  const d = new Date(`${csrDailyToday()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - daysAgo);
+  csrDailyState.date = d.toISOString().slice(0, 10);
+  const input = document.getElementById('csr-daily-date');
+  if (input) input.value = csrDailyState.date;
+  loadCsrDailyReport();
+}
+
 function shiftCsrDailyDate(days) {
   const d = new Date(`${csrDailyState.date || csrDailyToday()}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -12564,6 +12573,8 @@ function renderCsrDailyReport() {
       <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — everyone fills in their own card and anyone can update the product table.</p></div>
       <div class="page-actions">
         <div class="csr-daily-actions" id="csr-daily-actions"></div>
+        <button class="btn btn-secondary btn-sm" onclick="jumpCsrDailyDate(1)">Yesterday</button>
+        <button class="btn btn-secondary btn-sm" onclick="jumpCsrDailyDate(0)">Today</button>
         <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(-1)" aria-label="Previous day">‹</button>
         <input type="date" class="form-control" id="csr-daily-date" value="${escapeHtml(csrDailyState.date)}" onchange="setCsrDailyDate(this.value)" style="height:34px;width:auto;">
         <button class="btn btn-secondary btn-sm" onclick="shiftCsrDailyDate(1)" aria-label="Next day">›</button>

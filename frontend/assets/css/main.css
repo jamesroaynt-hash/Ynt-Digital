@@ -5375,6 +5375,10 @@ tfoot td {
   text-align: right;
 }
 
+/* Borderless so the input blends into its row; the box only shows on hover/focus. */
+.csr-daily-input { border-color: transparent; }
+.csr-daily-input:hover { border-color: var(--daily-line); }
+
 .csr-daily-input::placeholder { color: var(--daily-muted); font-weight: 400; }
 
 .csr-daily-input:focus {
