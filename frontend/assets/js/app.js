@@ -11884,6 +11884,8 @@ function renderCsrConfirmedTable() {
     pagination.innerHTML = `
       <span>${start}-${end} of ${total.toLocaleString()} confirmed orders${csrConfirmedSelected.size
         ? ` · <strong>${csrConfirmedSelected.size.toLocaleString()} selected for export</strong> <a href="#" onclick="event.preventDefault();clearCsrConfirmedSelection()">Clear</a>`
+        : ''}${total && csrConfirmedSelected.size < total
+        ? ` · <a href="#" onclick="event.preventDefault();selectAllCsrConfirmed()">Select all ${total.toLocaleString()}</a>`
         : ''}</span>
       <div class="pagination-buttons">
         <button class="page-btn" onclick="changeCsrConfirmedPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>‹</button>
@@ -12031,6 +12033,29 @@ function clearCsrConfirmedSelection() {
   renderCsrConfirmedTable();
 }
 
+// Every order for the current filters, 200 a page (the server's per_page cap).
+async function fetchAllCsrConfirmedOrders() {
+  const rows = [];
+  for (let page = 1; page <= 500; page += 1) {
+    const data = await authorizedJsonRequest(`/csr/confirmed-orders?${csrConfirmedParams(page, 200).toString()}`);
+    const batch = Array.isArray(data?.data) ? data.data : [];
+    rows.push(...batch);
+    if (batch.length < 200 || rows.length >= Number(data?.total || 0)) break;
+  }
+  return rows;
+}
+
+// Ticks every order in the range, not just the page on screen.
+async function selectAllCsrConfirmed() {
+  try {
+    const rows = await fetchAllCsrConfirmedOrders();
+    rows.forEach((order) => csrConfirmedSelected.set(csrConfirmedKey(order), order));
+    renderCsrConfirmedTable();
+  } catch (error) {
+    showToast('error', 'Select all failed', error.message || 'Could not load every confirmed order.');
+  }
+}
+
 // Ticked rows export on their own; with nothing ticked, the export pulls every
 // page for the current filters (200 at a time, the server's per_page cap) —
 // the table itself only ever holds one page.
@@ -12041,13 +12066,7 @@ async function exportCsrConfirmedOrders() {
       rows = [...csrConfirmedSelected.values()];
     } else {
       showToast('info', 'Exporting', 'Collecting every confirmed order in this range…');
-      rows = [];
-      for (let page = 1; page <= 500; page += 1) {
-        const data = await authorizedJsonRequest(`/csr/confirmed-orders?${csrConfirmedParams(page, 200).toString()}`);
-        const batch = Array.isArray(data?.data) ? data.data : [];
-        rows.push(...batch);
-        if (batch.length < 200 || rows.length >= Number(data?.total || 0)) break;
-      }
+      rows = await fetchAllCsrConfirmedOrders();
     }
     const header = ['Order #', 'Tracking #', 'Customer', 'Phone', 'Product', 'Page', 'Confirmed By', 'Province', 'COD', 'Status', 'Attempts', 'Date'];
     const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
