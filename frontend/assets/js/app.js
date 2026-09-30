@@ -15412,6 +15412,8 @@ async function loadScanPerPage() {
     const num = (n) => (n ? Number(n).toLocaleString() : '<span style="color:var(--text-muted);">-</span>');
 
     listEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px;align-items:start;">
+      <div style="overflow-x:auto;">
       <table>
         <thead><tr>
           <th>Page</th>
@@ -15433,10 +15435,73 @@ async function loadScanPerPage() {
           <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
         </tr></tfoot>
       </table>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">1–5+ = number of parcels holding that many pcs.</div>`;
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">1–5+ = number of parcels holding that many pcs.</div>
+      </div>
+      <div class="card" style="margin:0;">
+        <div class="card-header"><div>
+          <div class="card-title">Parcels per page</div>
+          <div class="card-subtitle">Stacked by pcs in the parcel</div>
+        </div></div>
+        <div class="card-body" style="position:relative;height:${Math.max(220, pages.length * 28 + 70)}px;">
+          <canvas id="scan-per-page-chart" aria-label="Parcels per page, stacked by pcs in the parcel" role="img"></canvas>
+        </div>
+      </div>
+      </div>`;
+    renderScanPerPageChart(pages.map((p) => ({ page: p.page || 'Unknown', qty: qtyOf(p), scans: Number(p.scans || 0) })), qtyLabels);
   } catch (err) {
     listEl.innerHTML = `<div class="alert alert-danger">Failed to load per-page totals: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+// One-hue blue ramp, light → dark as pcs per parcel rises (ordinal; both
+// themes validated with the dataviz palette checker).
+const SCAN_QTY_RAMP = {
+  light: ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'],
+  dark: ['#b7d3f6', '#86b6ef', '#5598e7', '#2a78d6', '#1c5cab'],
+};
+let scanPerPageChart = null;
+
+function renderScanPerPageChart(rows, qtyLabels) {
+  const canvas = document.getElementById('scan-per-page-chart');
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const ramp = dark ? SCAN_QTY_RAMP.dark : SCAN_QTY_RAMP.light;
+  const colors = mktChartColors();
+  const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || (dark ? '#0f172a' : '#ffffff');
+  scanPerPageChart = upsertChart(scanPerPageChart, canvas, rows.length > 0, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => r.page),
+      datasets: qtyLabels.map((label, i) => ({
+        label: `${label} pc${label === '1' ? '' : 's'}`,
+        data: rows.map((r) => r.qty[i]),
+        backgroundColor: ramp[i],
+        borderColor: surface,
+        borderWidth: { right: 2 },
+        borderSkipped: false,
+        barThickness: 16,
+      })),
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', axis: 'y', intersect: false },
+      plugins: {
+        legend: { position: 'top', align: 'start', labels: { color: colors.label, boxWidth: 12, boxHeight: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw || 0).toLocaleString()} parcel${ctx.raw === 1 ? '' : 's'}`,
+            footer: (items) => `Total: ${Number(rows[items[0]?.dataIndex]?.scans || 0).toLocaleString()} parcels`,
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, beginAtZero: true, grid: { color: colors.grid }, ticks: { color: colors.tick, precision: 0 } },
+        y: { stacked: true, grid: { display: false }, ticks: { color: colors.label, font: { size: 11 }, autoSkip: false } },
+      },
+    },
+  });
 }
 
 function renderScanRecordsPanel() {
