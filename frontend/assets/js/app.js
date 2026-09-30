@@ -15403,33 +15403,37 @@ async function loadScanPerPage() {
       listEl.innerHTML = '<div class="empty-state" style="padding:40px 0;"><p>No scans found.</p></div>';
       return;
     }
-    const productsByPage = new Map((summary.by_page_product || []).map((p) => [p.page, p.products || []]));
-    const productName = (p) => String(p.name || p.product || '').replace(/^\s*\d+\s*/, '').trim() || '-';
+    // Parcels per pcs-in-parcel bucket: 1, 2, 3, 4, 5, 6+.
+    const qtyLabels = ['1', '2', '3', '4', '5', '6+'];
+    const qtyOf = (p) => (Array.isArray(p.by_qty) ? p.by_qty : []).concat([0, 0, 0, 0, 0, 0]).slice(0, 6).map(Number);
     const totalScans = pages.reduce((s, p) => s + Number(p.scans || 0), 0);
     const totalPcs = pages.reduce((s, p) => s + Number(p.pcs || 0), 0);
+    const totalQty = pages.reduce((acc, p) => qtyOf(p).map((n, i) => acc[i] + n), [0, 0, 0, 0, 0, 0]);
+    const num = (n) => (n ? Number(n).toLocaleString() : '<span style="color:var(--text-muted);">-</span>');
 
     listEl.innerHTML = `
       <table>
         <thead><tr>
-          <th>Page</th><th style="text-align:right;">Scans</th><th style="text-align:right;">Pcs</th><th>Products</th>
+          <th>Page</th>
+          ${qtyLabels.map((l) => `<th style="text-align:right;">${l}</th>`).join('')}
+          <th style="text-align:right;">Scans</th><th style="text-align:right;">Pcs</th>
         </tr></thead>
         <tbody>
           ${pages.map((p) => `<tr>
             <td style="font-weight:500">${escapeHtml(p.page || 'Unknown')}</td>
+            ${qtyOf(p).map((n) => `<td style="text-align:right;">${num(n)}</td>`).join('')}
             <td style="text-align:right;">${Number(p.scans || 0).toLocaleString()}</td>
             <td style="text-align:right;font-weight:600;">${Number(p.pcs || 0).toLocaleString()}</td>
-            <td class="text-sm" style="color:var(--text-muted);">${(productsByPage.get(p.page) || [])
-              .map((it) => `${escapeHtml(productName(it))} <b style="color:var(--text-primary);">${Number(it.pcs || 0).toLocaleString()}</b>`)
-              .join(' · ') || '-'}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot><tr style="font-weight:700;">
           <td>Total</td>
+          ${totalQty.map((n) => `<td style="text-align:right;">${num(n)}</td>`).join('')}
           <td style="text-align:right;">${totalScans.toLocaleString()}</td>
           <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
-          <td></td>
         </tr></tfoot>
-      </table>`;
+      </table>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">1–6+ = number of parcels holding that many pcs.</div>`;
   } catch (err) {
     listEl.innerHTML = `<div class="alert alert-danger">Failed to load per-page totals: ${escapeHtml(err.message)}</div>`;
   }

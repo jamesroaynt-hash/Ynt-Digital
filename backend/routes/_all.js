@@ -2455,6 +2455,8 @@ function scansRoutes(db) {
     const pcsByStatus = new Map();
     const pcsByPage = new Map();
     const scansByPage = new Map();
+    // page -> [parcels of 1 pc, 2, 3, 4, 5, 6+] for the Returned per Page tab.
+    const qtyByPage = new Map();
     const pcsByProduct = new Map();
     const pcsByPageProduct = new Map(); // page -> Map(productKey -> { name, pcs })
     let totalPcs = 0;
@@ -2466,6 +2468,8 @@ function scansRoutes(db) {
       pcsByStatus.set(status, (pcsByStatus.get(status) || 0) + pcs);
       pcsByPage.set(chatPage, (pcsByPage.get(chatPage) || 0) + pcs);
       scansByPage.set(chatPage, (scansByPage.get(chatPage) || 0) + 1);
+      if (!qtyByPage.has(chatPage)) qtyByPage.set(chatPage, [0, 0, 0, 0, 0, 0]);
+      qtyByPage.get(chatPage)[Math.min(6, Math.max(1, Math.round(pcs))) - 1] += 1;
       if (product) {
         pcsByProduct.set(product, (pcsByProduct.get(product) || 0) + pcs);
         if (!pcsByPageProduct.has(chatPage)) pcsByPageProduct.set(chatPage, new Map());
@@ -2483,6 +2487,7 @@ function scansRoutes(db) {
       page,
       pcs,
       scans: scansByPage.get(page) || 0,
+      by_qty: qtyByPage.get(page) || [0, 0, 0, 0, 0, 0],
     })).sort((a, b) => b.scans - a.scans);
     const by_product = Array.from(pcsByProduct, ([product, pcs]) => ({ product, pcs }))
       .sort((a, b) => b.pcs - a.pcs);
