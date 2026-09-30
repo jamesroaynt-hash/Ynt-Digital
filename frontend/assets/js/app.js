@@ -15178,6 +15178,7 @@ function renderRTSScanning() {
   <div class="tabs" style="margin-bottom:16px;">
     <button class="tab-btn active" onclick="switchTab(this,'rts-tab-scanner')">Scanner</button>
     <button class="tab-btn" onclick="switchTab(this,'rts-tab-records'); loadScanRecords(1)">Scan Records</button>
+    <button class="tab-btn" onclick="switchTab(this,'rts-tab-per-page'); loadScanPerPage()">Returned per Page</button>
     <button class="tab-btn" onclick="switchTab(this,'rts-tab-damage')">Damage Report</button>
   </div>
 
@@ -15187,6 +15188,10 @@ function renderRTSScanning() {
 
   <div id="rts-tab-records" class="tab-content">
     ${renderScanRecordsPanel()}
+  </div>
+
+  <div id="rts-tab-per-page" class="tab-content">
+    ${renderScanPerPagePanel()}
   </div>
 
   <div id="rts-tab-damage" class="tab-content">
@@ -15338,6 +15343,98 @@ function renderScanPreviewCard(pageId, scanType) {
     </div>`;
 }
 
+// Returned per Page tab: scans/pcs per page with a per-product breakdown,
+// rolled up server-side by /scans (summary.by_page + by_page_product).
+function renderScanPerPagePanel() {
+  return `
+    <div class="table-container">
+      <div class="records-filter-panel">
+        <div class="records-filter-row records-filter-primary">
+          <div class="records-filter-field">
+            <label class="records-filter-label">Status</label>
+            <select class="form-control" id="scan-per-page-status" onchange="loadScanPerPage()">
+              <option value="Returned" selected>Returned</option>
+              <option value="Returning">Returning</option>
+              <option value="Delivered">Delivered</option>
+              <option value="">All</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Date by</label>
+            <select class="form-control" id="scan-per-page-date-field" onchange="loadScanPerPage()">
+              <option value="scan">Scan date</option>
+              <option value="order">Order date</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">From</label>
+            <input type="date" class="form-control" id="scan-per-page-date-from" onchange="loadScanPerPage()">
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">To</label>
+            <input type="date" class="form-control" id="scan-per-page-date-to" onchange="loadScanPerPage()">
+          </div>
+        </div>
+      </div>
+      <div id="scan-per-page-list"><div class="loading-spinner" style="margin:24px auto;"></div></div>
+    </div>`;
+}
+
+async function loadScanPerPage() {
+  const listEl = document.getElementById('scan-per-page-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="loading-spinner" style="margin:24px auto;"></div>';
+
+  const params = new URLSearchParams({ page: '1', per_page: '10', type: 'RTS' });
+  const status = document.getElementById('scan-per-page-status')?.value || '';
+  const dateFrom = document.getElementById('scan-per-page-date-from')?.value || '';
+  const dateTo = document.getElementById('scan-per-page-date-to')?.value || '';
+  const dateField = document.getElementById('scan-per-page-date-field')?.value || 'scan';
+  if (status) params.set('status', status);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+  if ((dateFrom || dateTo) && dateField !== 'scan') params.set('date_field', dateField);
+
+  try {
+    const data = await authorizedJsonRequest(`/scans?${params}`);
+    const summary = data?.summary || {};
+    const pages = summary.by_page || [];
+    if (!pages.length) {
+      listEl.innerHTML = '<div class="empty-state" style="padding:40px 0;"><p>No scans found.</p></div>';
+      return;
+    }
+    const productsByPage = new Map((summary.by_page_product || []).map((p) => [p.page, p.products || []]));
+    const productName = (p) => String(p.name || p.product || '').replace(/^\s*\d+\s*/, '').trim() || '-';
+    const totalScans = pages.reduce((s, p) => s + Number(p.scans || 0), 0);
+    const totalPcs = pages.reduce((s, p) => s + Number(p.pcs || 0), 0);
+
+    listEl.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Page</th><th style="text-align:right;">Scans</th><th style="text-align:right;">Pcs</th><th>Products</th>
+        </tr></thead>
+        <tbody>
+          ${pages.map((p) => `<tr>
+            <td style="font-weight:500">${escapeHtml(p.page || 'Unknown')}</td>
+            <td style="text-align:right;">${Number(p.scans || 0).toLocaleString()}</td>
+            <td style="text-align:right;font-weight:600;">${Number(p.pcs || 0).toLocaleString()}</td>
+            <td class="text-sm" style="color:var(--text-muted);">${(productsByPage.get(p.page) || [])
+              .map((it) => `${escapeHtml(productName(it))} <b style="color:var(--text-primary);">${Number(it.pcs || 0).toLocaleString()}</b>`)
+              .join(' · ') || '-'}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr style="font-weight:700;">
+          <td>Total</td>
+          <td style="text-align:right;">${totalScans.toLocaleString()}</td>
+          <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
+          <td></td>
+        </tr></tfoot>
+      </table>`;
+  } catch (err) {
+    listEl.innerHTML = `<div class="alert alert-danger">Failed to load per-page totals: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
 function renderScanRecordsPanel() {
   return `
     <div class="table-container">
@@ -15370,6 +15467,13 @@ function renderScanRecordsPanel() {
               <option value="Returning">Returning</option>
               <option value="Returned">Returned</option>
               <option value="Canceled">Canceled</option>
+            </select>
+          </div>
+          <div class="records-filter-field">
+            <label class="records-filter-label">Date by</label>
+            <select class="form-control" id="scan-records-date-field" onchange="loadScanRecords(1)">
+              <option value="scan">Scan date</option>
+              <option value="order">Order date</option>
             </select>
           </div>
           <div class="records-filter-field">
@@ -15500,8 +15604,9 @@ async function exportScans(scanType) {
 
     const cols = [
       ['tracking_no', 'Tracking No'], ['customer', 'Customer'], ['phone', 'Phone'],
-      ['product_name', 'Product'], ['chat_page', 'Page'], ['province_city', 'Province/City'],
-      ['scan_date', 'Date'], ['status', 'Status'], ['courier', 'Courier'], ['scan_type', 'Type'],
+      ['product_name', 'Product'], ['pcs', 'Pcs'], ['chat_page', 'Page'], ['province_city', 'Province/City'],
+      ['scan_date', 'Scan Date'], ['order_date', 'Date Ordered'], ['returned_date', 'Date Returned'],
+      ['status', 'Status'], ['courier', 'Courier'], ['scan_type', 'Type'],
     ];
     const esc = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const header = cols.map((c) => c[1]).join(',');
@@ -15542,7 +15647,7 @@ async function loadScanPreviewForPage(pageId, scanType) {
       <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
       <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
       <td>${escapeHtml(r.product_name || '-')}</td>
-      <td style="text-align:right;font-weight:600;">${scanPcs(r.product_name)}</td>
+      <td style="text-align:right;font-weight:600;">${r.pcs ?? scanPcs(r.product_name)}</td>
       <td>${escapeHtml(r.province_city || '-')}</td>
       <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
       <td>${statusBadge(r.status)}</td>
@@ -25810,6 +25915,8 @@ let scanRecordsPage = 1;
 function clearScanRecordsFilters() {
   ['scan-records-search', 'scan-records-type', 'scan-records-status', 'scan-records-date-from', 'scan-records-date-to']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const dateField = document.getElementById('scan-records-date-field');
+  if (dateField) dateField.value = 'scan';
   loadScanRecords(1);
 }
 
@@ -25831,6 +25938,8 @@ async function loadScanRecords(page) {
   if (status) params.set('status', status);
   if (dateFrom) params.set('date_from', dateFrom);
   if (dateTo) params.set('date_to', dateTo);
+  const dateField = document.getElementById('scan-records-date-field')?.value || 'scan';
+  if ((dateFrom || dateTo) && dateField !== 'scan') params.set('date_field', dateField);
 
   try {
     const data = await authorizedJsonRequest(`/scans?${params}`);
@@ -25863,24 +25972,19 @@ async function loadScanRecords(page) {
     const statusChips = (summary.by_status || [])
       .map((s) => chip(s.status, s.pcs, statusChipClass[s.status] || 'badge-gray'))
       .join('');
-    const pageChips = (summary.by_page || [])
-      .map((p) => chip(`${p.page} · ${p.scans} scans`, `${p.pcs} pcs`, 'badge-info'))
-      .join('');
 
     listEl.innerHTML = `
       <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;">
         ${statusChips}
-        ${chip('Total', `${Number(summary.total_pcs || 0).toLocaleString()} pcs`, 'badge-gray')}
+        <span class="badge badge-gray" style="font-size:12px;padding:6px 10px;margin:2px;">
+          Total ${Number(summary.total_pcs || 0).toLocaleString()} pcs
+        </span>
       </div>
-      ${pageChips ? `<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;">
-        <span style="font-size:11px;color:var(--text-muted);margin-right:4px;">Per page:</span>
-        ${pageChips}
-      </div>` : ''}
       <table>
         <thead><tr>
           <th>Tracking No.</th><th>Customer</th><th>Phone</th>
           <th>Product</th><th style="text-align:right;">Pcs</th><th>Page</th><th>Province/City</th>
-          <th>Date</th><th>Status</th><th>Courier</th><th>Type</th>
+          <th>Scan Date</th><th>Date Ordered</th><th>Date Returned</th><th>Status</th><th>Courier</th><th>Type</th>
         </tr></thead>
         <tbody>
           ${records.map((r) => `<tr>
@@ -25888,10 +25992,12 @@ async function loadScanRecords(page) {
             <td style="font-weight:500">${escapeHtml(r.customer || '-')}</td>
             <td class="font-mono text-sm">${escapeHtml(r.phone || '-')}</td>
             <td>${escapeHtml(r.product_name || '-')}</td>
-            <td style="text-align:right;font-weight:600;">${scanPcs(r.product_name)}</td>
+            <td style="text-align:right;font-weight:600;">${r.pcs ?? scanPcs(r.product_name)}</td>
             <td>${escapeHtml(r.chat_page || '-')}</td>
             <td>${escapeHtml(r.province_city || '-')}</td>
             <td>${escapeHtml((r.scan_date || '').slice(0, 10))}</td>
+            <td>${escapeHtml(r.order_date || '-')}</td>
+            <td>${escapeHtml(r.returned_date || '-')}</td>
             <td>${statusBadge(r.status)}</td>
             <td>${escapeHtml(r.courier || '-')}</td>
             <td><span class="badge ${r.scan_type === 'RTS' ? 'badge-danger' : 'badge-info'}">${escapeHtml(r.scan_type || 'Standard')}</span></td>

@@ -2318,14 +2318,80 @@ function pickupsRoutes(db) {
 function scansRoutes(db) {
   const r = express.Router();
 
+  // Manila day the order was placed (UTC+8), same basis as posManilaExprs.
+  const orderDayExpr = db.type === 'postgres'
+    ? "to_char(NULLIF(p.inserted_at_remote, '')::timestamp + interval '8 hours', 'YYYY-MM-DD')"
+    : "date(p.inserted_at_remote, '+8 hours')";
+
+  // When the courier handed the parcel back: the newest "returned to Seller"
+  // scan in the courier history, else the partner's own last update once it
+  // reads returned. Returned as a Manila YYYY-MM-DD.
+  const manilaDate = (value) => {
+    const t = Date.parse(String(value || '').replace(' ', 'T').replace(/(T[\d:.]+)$/, '$1Z'));
+    return Number.isFinite(t) ? new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 10) : null;
+  };
+  const returnedDate = (partnerJson) => {
+    let partner;
+    try { partner = typeof partnerJson === 'string' ? JSON.parse(partnerJson) : partnerJson; } catch { return null; }
+    if (!partner || typeof partner !== 'object') return null;
+    const updates = Array.isArray(partner.extend_update) ? partner.extend_update : [];
+    const hits = updates
+      .filter((u) => /returned to (the )?seller|return(ed)? signed|退件签收/i.test(`${u?.status || ''} ${u?.note || ''}`))
+      .map((u) => String(u?.update_at || ''))
+      .filter(Boolean)
+      .sort();
+    if (hits.length) return manilaDate(hits[hits.length - 1]);
+    if (String(partner.partner_status || '').toLowerCase() === 'returned') return manilaDate(partner.updated_at);
+    return null;
+  };
+
+  // The order's CURRENT status from POS, labelled like the rest of the app.
+  // scan_records.status is only a snapshot from scan time, so it goes stale as
+  // the courier moves the parcel on; it is kept as the fallback for scans with
+  // no matching POS order.
+  const liveStatusExpr = `COALESCE(
+    CASE LOWER(TRIM(p.status_name))
+      WHEN 'new' THEN 'New'
+      WHEN 'submitted' THEN 'Confirmed'
+      WHEN 'pending' THEN 'Waiting for pickup'
+      WHEN 'wait_print' THEN 'Waiting for pickup'
+      WHEN 'waitting' THEN 'Waiting for pickup'
+      WHEN 'shipped' THEN 'Shipped'
+      WHEN 'delivered' THEN 'Delivered'
+      WHEN 'returning' THEN 'Returning'
+      WHEN 'returned' THEN 'Returned'
+      WHEN 'canceled' THEN 'Canceled'
+      WHEN 'removed' THEN 'Canceled'
+    END,
+    NULLIF(TRIM(p.status_name), ''),
+    NULLIF(TRIM(s.status), '')
+  )`;
+
+  // Pcs in the parcel, from the order's line items: each line is a bundle
+  // number from its variation name ("2 BOTTLE ALIPION" → 2, no number → 1)
+  // times the line's quantity. The product name alone missed every plain
+  // product ordered with qty 2+ ("Dental+ Advance Repair Drops" ×2 read as 1).
+  // NULL when the order has no items; callers fall back to the name then.
+  const itemPcsExpr = db.type === 'postgres'
+    ? `(SELECT SUM(
+          LEAST(10000, COALESCE(NULLIF(substring(COALESCE(e->'variation_info'->>'name', e->>'name', '') from '^\\s*(\\d+)'), '')::int, 1))
+          * GREATEST(1, COALESCE(NULLIF(e->>'quantity', '')::numeric, 1)))
+        FROM jsonb_array_elements(CASE WHEN p.items_json LIKE '[%' THEN p.items_json::jsonb ELSE '[]'::jsonb END) e)`
+    : `(SELECT SUM(
+          MIN(10000, MAX(1, COALESCE(CAST(TRIM(COALESCE(json_extract(e.value, '$.variation_info.name'), json_extract(e.value, '$.name'), '')) AS INTEGER), 1)))
+          * MAX(1, COALESCE(CAST(json_extract(e.value, '$.quantity') AS REAL), 1)))
+        FROM json_each(CASE WHEN json_valid(p.items_json) AND p.items_json LIKE '[%' THEN p.items_json ELSE '[]' END) e)`;
+
   r.get('/', async (req, res) => {
-    const { type, page=1, per_page=50, search, status, date_from, date_to } = req.query;
+    const { type, page=1, per_page=50, search, status, date_from, date_to, date_field } = req.query;
     const where = ['1=1'];
     const params = [];
     if (type) { where.push('s.scan_type = ?'); params.push(type); }
-    if (status) { where.push('LOWER(TRIM(COALESCE(s.status, p.status_name))) = LOWER(?)'); params.push(status); }
-    if (date_from) { where.push('s.scan_date >= ?'); params.push(date_from); }
-    if (date_to)   { where.push('s.scan_date <= ?'); params.push(date_to); }
+    if (status) { where.push(`LOWER(${liveStatusExpr}) = LOWER(?)`); params.push(status); }
+    // date_field=order filters on the order's placed date instead of the scan date.
+    const dateCol = date_field === 'order' ? orderDayExpr : 's.scan_date';
+    if (date_from) { where.push(`${dateCol} >= ?`); params.push(date_from); }
+    if (date_to)   { where.push(`${dateCol} <= ?`); params.push(date_to); }
     if (search) {
       where.push('(s.tracking_no LIKE ? OR s.customer LIKE ? OR s.phone LIKE ? OR p.note_product LIKE ?)');
       const q = `%${search}%`;
@@ -2346,29 +2412,43 @@ function scansRoutes(db) {
 
     const data = await db.prepare(`
       SELECT s.id, s.scan_ref, s.tracking_no, s.customer, s.phone,
-             s.scan_date, s.scan_time, s.status, s.courier, s.scan_type, s.created_at,
-             p.note_product AS product_name, NULL AS province_city, p.cod, p.page_name AS chat_page
+             s.scan_date, s.scan_time, ${liveStatusExpr} AS status, s.status AS scan_status,
+             s.courier, s.scan_type, s.created_at,
+             p.note_product AS product_name, NULL AS province_city, p.cod, p.page_name AS chat_page,
+             ${orderDayExpr} AS order_date, p.partner_json, ${itemPcsExpr} AS item_pcs
       ${baseFrom} ${whereSql}
       ORDER BY s.created_at DESC
       LIMIT ? OFFSET ?
     `).all(...params, perPage, offset);
 
-    // Lightweight rows for client-agnostic pcs aggregation. Leading-digit parse
-    // ("2 Niacinamide" → 2, no leading digits → 1 pc) is hard to write portably
-    // across SQLite + Postgres, so we ship the three needed fields and roll up
-    // in JS. Egress stays modest — only status / product_name / chat_page.
-    const summaryRows = await db.prepare(`
-      SELECT
-        TRIM(COALESCE(NULLIF(TRIM(s.status), ''), p.status_name)) AS status,
-        p.note_product AS product_name,
-        p.page_name AS chat_page
-      ${baseFrom} ${whereSql}
-    `).all(...params);
-
+    // Fallback when the order has no line items: the leading number in the
+    // product name ("2 Niacinamide" → 2, no leading digits → 1 pc).
     const extractLeadingPcs = (name) => {
       const m = String(name || '').match(/^\s*(\d+)/);
       return m ? Math.min(10000, parseInt(m[1], 10)) : 1;
     };
+    const rowPcs = (row) => {
+      const n = Number(row.item_pcs);
+      return Number.isFinite(n) && n > 0 ? n : extractLeadingPcs(row.product_name);
+    };
+    for (const row of data) {
+      row.returned_date = returnedDate(row.partner_json);
+      row.pcs = rowPcs(row);
+      delete row.partner_json;
+      delete row.item_pcs;
+    }
+
+    // Lightweight rows for the pcs roll-up: pcs is summed from the line items
+    // in SQL, so only status / product_name / chat_page / a number come back.
+    const summaryRows = await db.prepare(`
+      SELECT
+        ${liveStatusExpr} AS status,
+        p.note_product AS product_name,
+        p.page_name AS chat_page,
+        ${itemPcsExpr} AS item_pcs
+      ${baseFrom} ${whereSql}
+    `).all(...params);
+
     // Product name with the leading pcs count stripped ("2 Niacinamide" → "niacinamide"),
     // used to roll pcs up per product so the inventory page can match by item name.
     const productKey = (name) => String(name || '').replace(/^\s*\d+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -2379,7 +2459,7 @@ function scansRoutes(db) {
     const pcsByPageProduct = new Map(); // page -> Map(productKey -> { name, pcs })
     let totalPcs = 0;
     for (const r of summaryRows) {
-      const pcs = extractLeadingPcs(r.product_name);
+      const pcs = rowPcs(r);
       const status = r.status || 'Unknown';
       const chatPage = r.chat_page || 'Unknown';
       const product = productKey(r.product_name);
