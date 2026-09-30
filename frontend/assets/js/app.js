@@ -15376,7 +15376,7 @@ function renderScanPerPagePanel() {
           </div>
         </div>
       </div>
-      <div id="scan-per-page-list"><div class="loading-spinner" style="margin:24px auto;"></div></div>
+      <div id="scan-per-page-list" style="margin-top:16px;"><div class="loading-spinner" style="margin:24px auto;"></div></div>
     </div>`;
 }
 
