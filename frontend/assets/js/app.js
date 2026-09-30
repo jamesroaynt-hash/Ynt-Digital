@@ -15403,12 +15403,12 @@ async function loadScanPerPage() {
       listEl.innerHTML = '<div class="empty-state" style="padding:40px 0;"><p>No scans found.</p></div>';
       return;
     }
-    // Parcels per pcs-in-parcel bucket: 1, 2, 3, 4, 5, 6+.
-    const qtyLabels = ['1', '2', '3', '4', '5', '6+'];
-    const qtyOf = (p) => (Array.isArray(p.by_qty) ? p.by_qty : []).concat([0, 0, 0, 0, 0, 0]).slice(0, 6).map(Number);
+    // Parcels per pcs-in-parcel bucket: 1, 2, 3, 4, 5+.
+    const qtyLabels = ['1', '2', '3', '4', '5+'];
+    const qtyOf = (p) => (Array.isArray(p.by_qty) ? p.by_qty : []).concat([0, 0, 0, 0, 0]).slice(0, 5).map(Number);
     const totalScans = pages.reduce((s, p) => s + Number(p.scans || 0), 0);
     const totalPcs = pages.reduce((s, p) => s + Number(p.pcs || 0), 0);
-    const totalQty = pages.reduce((acc, p) => qtyOf(p).map((n, i) => acc[i] + n), [0, 0, 0, 0, 0, 0]);
+    const totalQty = pages.reduce((acc, p) => qtyOf(p).map((n, i) => acc[i] + n), [0, 0, 0, 0, 0]);
     const num = (n) => (n ? Number(n).toLocaleString() : '<span style="color:var(--text-muted);">-</span>');
 
     listEl.innerHTML = `
@@ -15433,7 +15433,7 @@ async function loadScanPerPage() {
           <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
         </tr></tfoot>
       </table>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">1–6+ = number of parcels holding that many pcs.</div>`;
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">1–5+ = number of parcels holding that many pcs.</div>`;
   } catch (err) {
     listEl.innerHTML = `<div class="alert alert-danger">Failed to load per-page totals: ${escapeHtml(err.message)}</div>`;
   }
