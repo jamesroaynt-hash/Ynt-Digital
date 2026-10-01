@@ -310,6 +310,17 @@ function pageIdFromCreative(creative) {
   return story.includes('_') ? story.split('_')[0] : null;
 }
 
+// A creative is a video when Meta says so or any of its video slots is filled
+// (plain video ad, link ad with video_data, dynamic creative with videos).
+function creativeType(creative) {
+  if (!creative) return null;
+  const type = String(creative.object_type || '').toUpperCase();
+  if (type === 'VIDEO' || creative.video_id || creative.object_story_spec?.video_data?.video_id
+    || (creative.asset_feed_spec?.videos || []).length) return 'video';
+  if (type === 'PHOTO' || type === 'SHARE' || type === 'STATUS') return 'image';
+  return type ? type.toLowerCase() : null;
+}
+
 // ─── Upserts ──────────────────────────────────────────────────────────────────
 // Batched multi-row upsert. The WHERE ... IS DISTINCT FROM guard skips rows that
 // did not change, so a 15-minute re-sync of an idle account writes nothing.
@@ -519,15 +530,16 @@ async function syncAdAccount(db, connectionId, token, account, trigger, options)
 
   await step('ads', async () => {
     const list = await graphPaginate(token, `${act}/ads`, {
-      fields: 'id,name,campaign_id,adset_id,status,effective_status,created_time,updated_time,creative{id,actor_id,effective_object_story_id,thumbnail_url}',
+      fields: 'id,name,campaign_id,adset_id,status,effective_status,created_time,updated_time,'
+        + 'creative{id,actor_id,effective_object_story_id,thumbnail_url,object_type,video_id,object_story_spec{video_data{video_id}},asset_feed_spec{videos{video_id}}}',
       limit: 500,
     }, options);
     return countedUpsert('meta_ads', 'meta_ad_id',
-      ['ad_account_id', 'campaign_id', 'adset_id', 'meta_ad_id', 'name', 'status', 'effective_status', 'creative_id', 'page_id', 'thumbnail_url', 'created_time', 'updated_time'],
+      ['ad_account_id', 'campaign_id', 'adset_id', 'meta_ad_id', 'name', 'status', 'effective_status', 'creative_id', 'creative_type', 'page_id', 'thumbnail_url', 'created_time', 'updated_time'],
       list.map((ad) => ({
         ad_account_id: act, campaign_id: ad.campaign_id, adset_id: ad.adset_id, meta_ad_id: ad.id, name: ad.name,
         status: ad.status || null, effective_status: ad.effective_status || null,
-        creative_id: ad.creative?.id || null, page_id: pageIdFromCreative(ad.creative),
+        creative_id: ad.creative?.id || null, creative_type: creativeType(ad.creative), page_id: pageIdFromCreative(ad.creative),
         thumbnail_url: ad.creative?.thumbnail_url || null,
         created_time: ad.created_time || null, updated_time: ad.updated_time || null,
       })));
@@ -561,6 +573,37 @@ async function syncAdAccount(db, connectionId, token, account, trigger, options)
   });
 
   return { errors, window };
+}
+
+// Pages the token neither admins nor can promote come back from Meta with no
+// name. Pancake's shop page lists cover the same page ids, so name the gaps
+// from there. Meta-provided names win: they upsert over these rows later.
+async function namePagesFromPos(db) {
+  const missing = await db.prepare(`
+    SELECT DISTINCT a.page_id FROM meta_ads a
+    LEFT JOIN meta_pages p ON p.meta_page_id = a.page_id
+    WHERE a.page_id IS NOT NULL AND p.meta_page_id IS NULL
+  `).all();
+  if (!missing.length) return 0;
+  const names = new Map();
+  for (const shop of await db.prepare("SELECT pages_json FROM pos_shops WHERE pages_json IS NOT NULL AND pages_json <> ''").all()) {
+    let pages;
+    try { pages = JSON.parse(shop.pages_json); } catch { continue; }
+    if (!Array.isArray(pages)) continue;
+    for (const p of pages) {
+      const name = String(p?.name || '').trim();
+      if (p?.id != null && name && !names.has(String(p.id))) names.set(String(p.id), name);
+    }
+  }
+  let named = 0;
+  for (const { page_id: pageId } of missing) {
+    const name = names.get(String(pageId));
+    if (!name) continue;
+    await db.prepare('INSERT INTO meta_pages (connection_id, meta_page_id, name) VALUES (NULL, ?, ?) ON CONFLICT (meta_page_id) DO NOTHING')
+      .run(String(pageId), name);
+    named += 1;
+  }
+  return named;
 }
 
 // Sync one connection end to end. Never throws for API failures: the outcome is
@@ -602,6 +645,12 @@ async function syncConnection(db, connectionId, options = {}) {
         summary.errors.push(`${account.name} ${entityType}: ${error.message}`);
         if (error.kind === 'auth') throw error;
       }
+    }
+
+    try {
+      await namePagesFromPos(db);
+    } catch (error) {
+      console.warn('[meta-ads] POS page-name fallback failed:', error.message);
     }
 
     summary.status = summary.errors.length ? 'partial' : 'success';

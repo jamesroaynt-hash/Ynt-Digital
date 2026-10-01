@@ -195,6 +195,46 @@ test('graph client retries rate limits, then surfaces a classified error', async
 });
 
 // ─── Sync ─────────────────────────────────────────────────────────────────────
+test('running creatives: video detection, page names from POS, grouped by page', async () => {
+  const db = await freshDb();
+  const id = await addConnection(db);
+  const graph = fakeGraph();
+  // Same fake, plus video creatives and an ad on a page Meta returns no name for.
+  const fetchImpl = async (url, init) => {
+    if (new URL(url).pathname.endsWith('/act_1/ads')) {
+      return jsonResponse(200, { data: [
+        { id: 'A1', name: 'LOLA VID 3', campaign_id: 'C1', adset_id: 'S1', effective_status: 'ACTIVE', creative: { id: 'CR1', actor_id: 'P1', object_type: 'VIDEO', video_id: 'V1' } },
+        { id: 'A3', name: 'LOLA VID 3', campaign_id: 'C1', adset_id: 'S2', effective_status: 'ACTIVE', creative: { id: 'CR3', actor_id: 'P1', object_type: 'SHARE', object_story_spec: { video_data: { video_id: 'V1' } } } },
+        { id: 'A4', name: 'IMAGE 1', campaign_id: 'C1', adset_id: 'S1', effective_status: 'ACTIVE', creative: { id: 'CR4', actor_id: 'P3', object_type: 'PHOTO' } },
+        { id: 'A2', name: 'Ad Two', campaign_id: 'C2', adset_id: 'S2', effective_status: 'CAMPAIGN_PAUSED', creative: { id: 'CR2', effective_object_story_id: 'P2_999' } },
+      ] });
+    }
+    return graph.fetchImpl(url, init);
+  };
+  await db.prepare("INSERT INTO pos_shops (external_id, name, pages_json, raw_payload) VALUES ('S9', 'Shop', ?, '{}')")
+    .run(JSON.stringify([{ id: 'P3', name: 'Tooth Restore PH' }, { id: 'P1', name: 'Pancake name loses' }]));
+
+  const result = await meta.syncConnection(db, id, { fetchImpl, sleep: noSleep, now: NOW, trigger: 'test' });
+  assert.equal(result.status, 'success', JSON.stringify(result.errors));
+  const types = Object.fromEntries((await db.prepare('SELECT meta_ad_id, creative_type FROM meta_ads').all()).map((r) => [r.meta_ad_id, r.creative_type]));
+  assert.deepEqual(types, { A1: 'video', A2: null, A3: 'video', A4: 'image' });
+  const p3 = await db.prepare("SELECT name, connection_id FROM meta_pages WHERE meta_page_id = 'P3'").get();
+  assert.equal(p3.name, 'Tooth Restore PH');
+  assert.equal(p3.connection_id, null);
+  assert.equal((await db.prepare("SELECT name FROM meta_pages WHERE meta_page_id = 'P1'").get()).name, 'Ageless');
+
+  const running = await reports.runningCreatives(db, { from: '2026-09-14', to: '2026-09-15' }, { now: NOW });
+  assert.deepEqual(running.pages.map((p) => p.page_name), ['Ageless', 'Tooth Restore PH']);
+  const lola = running.pages[0].creatives[0];
+  assert.equal(lola.name, 'LOLA VID 3');
+  assert.equal(lola.type, 'video');
+  assert.equal(lola.ads, 2);
+  assert.equal(lola.adsets, 2);
+  assert.equal(lola.spend, 100.5);
+  assert.equal(running.pages[0].videos, 1);
+  assert.equal(running.pages[1].creatives[0].type, 'image');
+});
+
 test('sync imports the hierarchy and insights; re-sync is idempotent', async () => {
   const db = await freshDb();
   const id = await addConnection(db);

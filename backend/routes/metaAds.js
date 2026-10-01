@@ -410,6 +410,10 @@ module.exports = function metaAdsRoutes(db, { onSyncFinished, metaOptions = {} }
     });
   }
 
+  router.get('/running-creatives', read, async (req, res) => {
+    try { res.json(await reports.runningCreatives(db, req.query)); } catch (error) { sendError(res, error); }
+  });
+
   router.get('/entity/:level/:id', read, async (req, res) => {
     try {
       const detail = await reports.entityDetail(db, req.params.level, req.params.id, req.query);

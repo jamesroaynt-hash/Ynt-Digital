@@ -9652,6 +9652,120 @@ function updateCreativeStatus(index, newStatus) {
   showToast('success', 'Status updated', `${normalizeCreative(state.creatives[index], index).name} → ${newStatus}`);
 }
 
+// "Running on Facebook" card: ads Meta reports as ACTIVE right now, grouped
+// page → creative name, from the synced Ads Manager data. Spend covers the
+// Creatives date range. Fetched after paint and cached per range.
+let runningCreativesData = null; // { key, pages } | { key, error }
+let runningCreativesLoading = '';
+let runningCreativesType = 'video';
+const runningCreativesOpen = new Set();
+
+function runningCreativesKey() {
+  return `${creativesDateFrom}|${creativesDateTo}`;
+}
+
+async function loadRunningCreatives() {
+  const key = runningCreativesKey();
+  if (runningCreativesLoading === key) return;
+  runningCreativesLoading = key;
+  try {
+    const qs = new URLSearchParams({ from: creativesDateFrom, to: creativesDateTo });
+    const data = await authorizedJsonRequest(`/meta/running-creatives?${qs}`);
+    runningCreativesData = { key, pages: data.pages || [] };
+  } catch (error) {
+    runningCreativesData = { key, error: error.message || 'Could not load running ads' };
+  } finally {
+    runningCreativesLoading = '';
+  }
+  if (key !== runningCreativesKey()) return;
+  const el = document.getElementById('creatives-running');
+  if (el) el.innerHTML = renderRunningCreatives();
+}
+
+function setRunningCreativesType(type) {
+  runningCreativesType = type;
+  const el = document.getElementById('creatives-running');
+  if (el) el.innerHTML = renderRunningCreatives();
+}
+
+function toggleRunningCreativesPage(pageId, open) {
+  if (open) runningCreativesOpen.add(pageId); else runningCreativesOpen.delete(pageId);
+}
+
+function renderRunningCreatives() {
+  const header = (subtitle, controls = '') => `<div class="card-header">
+      <div><div class="card-title">Running on Facebook — by Page</div><div class="card-subtitle">${subtitle}</div></div>${controls}
+    </div>`;
+  const data = runningCreativesData;
+  if (!data || data.key !== runningCreativesKey()) {
+    setTimeout(loadRunningCreatives, 0);
+    return `${header('Loading active ads from Ads Manager…')}`;
+  }
+  if (data.error) {
+    return `${header(`<span style="color:var(--danger);">${escapeHtml(data.error)}</span>`)}`;
+  }
+
+  const peso = (v) => `₱${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+  // creative_type is filled by the Meta sync; until one has run since it was
+  // added every type is null, so a Videos filter would hide everything.
+  const typed = data.pages.some((p) => p.creatives.some((c) => c.type));
+  const mode = typed ? runningCreativesType : 'all';
+  const pages = data.pages
+    .map((p) => ({ ...p, shown: p.creatives.filter((c) => mode === 'all' || (mode === 'video' ? c.type === 'video' : c.type !== 'video')) }))
+    .filter((p) => p.shown.length);
+  const totalShown = pages.reduce((s, p) => s + p.shown.length, 0);
+  const label = mode === 'video' ? 'videos' : mode === 'image' ? 'non-video creatives' : 'creatives';
+  const controls = typed ? `<div style="display:flex;gap:6px;">${[['video', 'Videos'], ['image', 'Images'], ['all', 'All']]
+    .map(([key, text]) => `<button type="button" class="filter-pill${mode === key ? ' active' : ''}" onclick="setRunningCreativesType('${key}')">${text}</button>`).join('')}</div>` : '';
+  const subtitle = `${totalShown} running ${label} across ${pages.length} page${pages.length === 1 ? '' : 's'} · spend ${escapeHtml(creativesDateFrom)} — ${escapeHtml(creativesDateTo)}`
+    + (typed ? '' : ' · run a Meta Ads sync to tell videos from images');
+
+  if (!pages.length) {
+    return `${header(subtitle, controls)}<div style="padding:32px;text-align:center;color:var(--text-muted);">No running ${label} in Ads Manager.</div>`;
+  }
+
+  const th = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:8px 12px;border-bottom:1px solid var(--border);';
+  const body = pages.map((p) => {
+    const pageKey = p.page_id || '';
+    const videos = p.shown.filter((c) => c.type === 'video').length;
+    const spend = p.shown.reduce((s, c) => s + c.spend, 0);
+    return `<details style="border-top:1px solid var(--border);"${runningCreativesOpen.has(pageKey) ? ' open' : ''} ontoggle="toggleRunningCreativesPage('${escapeHtml(pageKey)}', this.open)">
+      <summary style="cursor:pointer;padding:12px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong style="flex:1;min-width:180px;">${escapeHtml(p.page_name)}</strong>
+        <span class="badge badge-info">${p.shown.length} ${mode === 'video' ? `video${p.shown.length === 1 ? '' : 's'}` : `creative${p.shown.length === 1 ? '' : 's'}`}</span>
+        ${mode === 'all' && typed ? `<span style="font-size:12px;color:var(--text-muted);">${videos} video${videos === 1 ? '' : 's'}</span>` : ''}
+        <span style="font-size:12px;color:var(--text-muted);min-width:90px;text-align:right;">${peso(spend)}</span>
+      </summary>
+      <div class="table-container" style="padding:0 12px 12px;">
+        <table>
+          <thead><tr>
+            <th style="${th}">Creative</th>
+            <th style="${th}">Type</th>
+            <th style="${th}text-align:right;">Ads</th>
+            <th style="${th}text-align:right;">Ad Sets</th>
+            <th style="${th}text-align:right;">Spend</th>
+            <th style="${th}text-align:right;">Purchases</th>
+            <th style="${th}text-align:right;">Messages</th>
+          </tr></thead>
+          <tbody>${p.shown.map((c) => `<tr>
+            <td><div style="display:flex;gap:10px;align-items:center;">
+              ${c.thumbnail_url ? `<img src="${escapeHtml(c.thumbnail_url)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0;">` : ''}
+              <div><strong>${escapeHtml(c.name)}</strong>${c.first_created ? `<div style="font-size:11px;color:var(--text-muted);">since ${escapeHtml(String(c.first_created).slice(0, 10))}</div>` : ''}</div>
+            </div></td>
+            <td>${c.type === 'video' ? '<span class="badge badge-info">Video</span>' : c.type ? `<span class="badge">${escapeHtml(c.type === 'image' ? 'Image' : c.type)}</span>` : '<span style="color:var(--text-muted);">—</span>'}</td>
+            <td style="text-align:right;">${c.ads}</td>
+            <td style="text-align:right;">${c.adsets}</td>
+            <td style="text-align:right;">${peso(c.spend)}</td>
+            <td style="text-align:right;">${Number(c.purchases || 0).toLocaleString('en-PH')}</td>
+            <td style="text-align:right;">${Number(c.messages || 0).toLocaleString('en-PH')}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </details>`;
+  }).join('');
+  return `${header(subtitle, controls)}${body}`;
+}
+
 // The host wrapper is what refreshCreatives() repaints, so the block can sit
 // either in #main-page-content or inside the Marketing Center's tab.
 function renderCreatives() {
@@ -9760,6 +9874,10 @@ function renderCreativesBody() {
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Avg ROAS</div><div class="stat-value">${avgRoas.toFixed(2)}x</div></div>
     <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Conversions</div><div class="stat-value">${num(totals.conversions)}</div></div>
     <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Avg CTR</div><div class="stat-value">${avgCtr.toFixed(2)}%</div></div>
+  </div>
+
+  <div class="card erp-card" style="margin-bottom:16px;">
+    <div id="creatives-running">${renderRunningCreatives()}</div>
   </div>
 
   <div class="card erp-card">

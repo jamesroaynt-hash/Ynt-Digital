@@ -469,6 +469,73 @@ async function entityDetail(db, level, id, query = {}, { now } = {}) {
   return { level, row, record, trend: (await trend(db, scoped, { now })).days };
 }
 
+// Ads delivering right now (effective_status ACTIVE, which already accounts for
+// paused parents), grouped page → creative name. One creative name usually runs
+// as many ads across ad sets, so ads/adsets/campaigns are counted per name and
+// spend/results are summed over the date range from meta_insights_daily.
+async function runningCreatives(db, query = {}, { now } = {}) {
+  const f = parseFilters(query, now);
+  const params = [f.from, f.to];
+  const where = ["m.effective_status = 'ACTIVE'"];
+  const connected = connectedClause('m.ad_account_id', f); if (connected) where.push(connected);
+  if (f.pages.length) where.push(inClause('m.page_id', f.pages, params));
+  const rows = await db.prepare(`
+    SELECT m.page_id, pg.name AS page_name, m.name, m.creative_type, m.thumbnail_url,
+           m.adset_id, m.campaign_id, m.created_time,
+           COALESCE(ins.spend, 0) AS spend, COALESCE(ins.purchases, 0) AS purchases, COALESCE(ins.messages, 0) AS messages
+    FROM meta_ads m
+    LEFT JOIN meta_pages pg ON pg.meta_page_id = m.page_id
+    LEFT JOIN (
+      SELECT ad_id, SUM(spend) AS spend, SUM(purchases) AS purchases, SUM(messages) AS messages
+      FROM meta_insights_daily WHERE date >= ? AND date <= ? GROUP BY ad_id
+    ) ins ON ins.ad_id = m.meta_ad_id
+    WHERE ${where.join(' AND ')}
+  `).all(...params);
+
+  const pages = new Map();
+  for (const r of rows) {
+    const pageKey = r.page_id || '';
+    if (!pages.has(pageKey)) {
+      pages.set(pageKey, { page_id: r.page_id || null, page_name: r.page_name || r.page_id || 'Unknown page', creatives: new Map() });
+    }
+    const page = pages.get(pageKey);
+    const name = String(r.name || '').trim() || '(unnamed ad)';
+    if (!page.creatives.has(name)) {
+      page.creatives.set(name, {
+        name, type: null, thumbnail_url: null, ads: 0, adsets: new Set(), campaigns: new Set(),
+        first_created: null, spend: 0, purchases: 0, messages: 0,
+      });
+    }
+    const c = page.creatives.get(name);
+    c.ads += 1;
+    if (r.adset_id) c.adsets.add(r.adset_id);
+    if (r.campaign_id) c.campaigns.add(r.campaign_id);
+    // A name that runs as a video anywhere counts as a video.
+    if (r.creative_type === 'video' || !c.type) c.type = r.creative_type || c.type;
+    if (!c.thumbnail_url && r.thumbnail_url) c.thumbnail_url = r.thumbnail_url;
+    if (r.created_time && (!c.first_created || r.created_time < c.first_created)) c.first_created = r.created_time;
+    c.spend += Number(r.spend) || 0;
+    c.purchases += Number(r.purchases) || 0;
+    c.messages += Number(r.messages) || 0;
+  }
+
+  const result = [...pages.values()].map((p) => {
+    const creatives = [...p.creatives.values()]
+      .map((c) => ({ ...c, adsets: c.adsets.size, campaigns: c.campaigns.size, spend: Math.round(c.spend * 100) / 100 }))
+      .sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name));
+    return {
+      page_id: p.page_id,
+      page_name: p.page_name,
+      creatives,
+      videos: creatives.filter((c) => c.type === 'video').length,
+      ads: creatives.reduce((s, c) => s + c.ads, 0),
+      spend: Math.round(creatives.reduce((s, c) => s + c.spend, 0) * 100) / 100,
+    };
+  }).sort((a, b) => b.spend - a.spend || String(a.page_name).localeCompare(String(b.page_name)));
+
+  return { filters: { from: f.from, to: f.to }, pages: result };
+}
+
 function toCsv(rows, columns) {
   const escape = (value) => {
     if (value === null || value === undefined) return '';
@@ -488,6 +555,7 @@ module.exports = {
   summary,
   trend,
   entityDetail,
+  runningCreatives,
   derive,
   flagRow,
   resolveTargets,

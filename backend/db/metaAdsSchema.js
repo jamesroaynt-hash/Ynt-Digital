@@ -221,10 +221,19 @@ function metaAdsStatements(db) {
   ];
 }
 
+async function ensureColumn(db, table, column, definition) {
+  const exists = db.type === 'postgres'
+    ? await db.prepare('SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?').get(table, column)
+    : (await db.prepare(`PRAGMA table_info(${table})`).all()).some((c) => c.name === column);
+  if (!exists) await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 async function ensureMetaAdsSchema(db) {
   for (const sql of metaAdsStatements(db)) {
     await db.exec(sql);
   }
+  // Added after the first release: 'video' | 'image' | Meta's object_type.
+  await ensureColumn(db, 'meta_ads', 'creative_type', 'TEXT');
   // Profitability joins POS orders to ads by Pancake's stored Facebook ad id.
   // Only a speed-up, so it must never block boot: on an old SQLite file the
   // pos_orders rebuild migration can leave ad_id missing until the next start.
