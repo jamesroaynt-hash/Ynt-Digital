@@ -12,6 +12,10 @@ export default {
         // browser. Forwarding the browser's Accept-Encoding makes the Worker
         // pass through gzip bytes without the Content-Encoding header → garbled.
         headers.delete('accept-encoding');
+        // The backend sees this Worker's IP, not the visitor's; pass the
+        // real one so per-IP limits (login) don't lump every user together.
+        const clientIp = request.headers.get('cf-connecting-ip');
+        if (clientIp) headers.set('x-client-ip', clientIp);
 
         const hasBody = !['GET', 'HEAD'].includes(request.method);
         const body = hasBody ? await request.arrayBuffer() : undefined;

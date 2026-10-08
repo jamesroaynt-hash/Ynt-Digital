@@ -1,4 +1,5 @@
 const express = require('express');
+const { getClientIp } = require('../services/clientIp');
 
 // Administrator, HR and Operation may manage accounts: Operation was granted
 // HR's access, so it clears every gate HR clears. Role text is typed by hand
@@ -102,7 +103,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
   // POST /api/auth/login
   router.post('/login', async (req, res) => {
     // Rate limit: max 10 attempts per IP per minute
-    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const ip = getClientIp(req);
     const now = Date.now();
     const attempt = loginAttempts.get(ip) || { count: 0, resetAt: now + 60_000 };
     if (now > attempt.resetAt) { attempt.count = 0; attempt.resetAt = now + 60_000; }
