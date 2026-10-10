@@ -23797,6 +23797,18 @@ async function performScan(pageId, scanType) {
     }
   }
 
+  // Shared "not counted" result card for duplicate / unknown scans.
+  const rejectScan = (title, toastMsg, note) => {
+    showToast('warning', title, toastMsg);
+    resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">${escapeHtml(title)}</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">${escapeHtml(note)}</div></div></div></div>`;
+    input.value = '';
+    input.focus();
+  };
+  const rejectUnknown = () => rejectScan('Unknown tracking', `${tracking} is not a known order.`, 'This tracking number does not match any POS order, so it was not saved or counted.');
+
+  // RTS only counts parcels that match a real order.
+  if (!found && scanType === 'RTS') { rejectUnknown(); return; }
+
   if (!found) {
     // Create a new scan entry
     found = {
@@ -23816,18 +23828,15 @@ async function performScan(pageId, scanType) {
   const dateEl = document.getElementById(`scan-date-${pageId}`);
   const scanDate = (dateEl && dateEl.value) || today;
 
-  // Fast local pre-check: block if this tracking was already scanned on the
-  // selected date in this session
-  const alreadyLocal = DB.scanRecords.some(
-    (r) => r.tracking.toLowerCase() === tracking.toLowerCase() && r.type === scanType && r.date === scanDate
+  // Fast local pre-check. RTS: a tracking counts once ever, whatever the date;
+  // Standard: once per scan date.
+  const prior = DB.scanRecords.find(
+    (r) => r.tracking.toLowerCase() === tracking.toLowerCase() && r.type === scanType && (scanType === 'RTS' || r.date === scanDate)
   );
-  if (alreadyLocal) {
-    showToast('warning', 'Already scanned', `${tracking} was already scanned today.`);
-    resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">Already Scanned Today</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">This tracking number was already scanned today and will not be counted again.</div></div></div></div>`;
-    input.value = '';
-    input.focus();
-    return;
-  }
+  const rejectDuplicate = (onDate) => (scanType === 'RTS'
+    ? rejectScan('Already scanned', `${tracking} was already scanned${onDate ? ` on ${onDate}` : ''}.`, `This tracking number was already scanned${onDate ? ` on ${onDate}` : ''} and will not be saved or counted again.`)
+    : rejectScan('Already Scanned Today', `${tracking} was already scanned today.`, 'This tracking number was already scanned today and will not be counted again.'));
+  if (prior) { rejectDuplicate(prior.date); return; }
 
   // Add to scan records
   const newRecord = {
@@ -23854,10 +23863,13 @@ async function performScan(pageId, scanType) {
       DB.scanRecords.unshift(newRecord);
     } catch (error) {
       // 409 = already scanned (caught by server); surface as a warning, not a success
-      if (error?.status === 409 || String(error?.message || '').toLowerCase().includes('already scanned')) {
-        showToast('warning', 'Already scanned', `${tracking} was already scanned today.`);
-        resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">Already Scanned Today</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">This tracking number was already scanned today and will not be counted again.</div></div></div></div>`;
-        input.value = '';
+      const msg = String(error?.message || '').toLowerCase();
+      if (error?.status === 409 || msg.includes('already scanned')) { rejectDuplicate(''); return; }
+      // 422 = no matching POS order (RTS); the server refused to save it.
+      if (msg.includes('unknown tracking')) { rejectUnknown(); return; }
+      if (scanType === 'RTS') {
+        // Can't confirm it's new or known without the server, so don't keep it.
+        showToast('error', 'Scan not saved', error.message || 'The scan could not be saved to the server.');
         input.focus();
         return;
       }

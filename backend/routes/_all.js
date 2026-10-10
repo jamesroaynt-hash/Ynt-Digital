@@ -2561,10 +2561,27 @@ function scansRoutes(db) {
     if (!tracking_no) return res.status(400).json({ error: 'Tracking number required' });
     const today = scan_date || new Date().toISOString().split('T')[0];
     const type = scan_type || 'Standard';
-    const duplicate = await db.prepare(
-      `SELECT id FROM scan_records WHERE LOWER(tracking_no) = LOWER(?) AND scan_type = ? AND scan_date = ? LIMIT 1`
-    ).get(tracking_no, type, today);
-    if (duplicate) return res.status(409).json({ error: 'Already scanned', message: `${tracking_no} was already scanned today.` });
+    // RTS scans are deduped across every date (a parcel comes back once) and
+    // must match a POS order, so an unknown tracking never lands in the counts.
+    // Standard scans keep the once-per-day rule.
+    const isRts = type === 'RTS';
+    const duplicate = isRts
+      ? await db.prepare(
+        `SELECT id, scan_date FROM scan_records WHERE LOWER(tracking_no) = LOWER(?) AND scan_type = ? LIMIT 1`
+      ).get(tracking_no, type)
+      : await db.prepare(
+        `SELECT id, scan_date FROM scan_records WHERE LOWER(tracking_no) = LOWER(?) AND scan_type = ? AND scan_date = ? LIMIT 1`
+      ).get(tracking_no, type, today);
+    if (duplicate) {
+      const message = isRts
+        ? `${tracking_no} was already scanned on ${duplicate.scan_date} and will not be counted again.`
+        : `${tracking_no} was already scanned today.`;
+      return res.status(409).json({ error: 'Already scanned', scan_date: duplicate.scan_date, message });
+    }
+    if (isRts) {
+      const known = await db.prepare(`SELECT 1 AS ok FROM pos_orders WHERE LOWER(tracking_no) = LOWER(?) LIMIT 1`).get(tracking_no);
+      if (!known) return res.status(422).json({ error: 'Unknown tracking', message: `${tracking_no} does not match any POS order and was not saved.` });
+    }
     const ref = `SCN-${String(Date.now()).slice(-6)}`;
     await db.prepare(`INSERT INTO scan_records (scan_ref,tracking_no,customer,phone,scan_date,status,courier,scan_type,scanned_by) VALUES (?,?,?,?,?,?,?,?,?)`).run(ref, tracking_no, customer||null, phone||null, today, status||null, courier||null, type, req.user?.id||1);
     res.status(201).json({ scan_ref: ref });
