@@ -15353,6 +15353,7 @@ function renderScannerBody(pageId, scanType) {
           <div style="display:inline-flex;gap:6px;">
             <button class="btn btn-primary btn-sm" data-scan-range="${pageId}" data-range="today" onclick="setScanPageRange('${pageId}','${scanType}','today')">Today</button>
             <button class="btn btn-secondary btn-sm" data-scan-range="${pageId}" data-range="yesterday" onclick="setScanPageRange('${pageId}','${scanType}','yesterday')">Yesterday</button>
+            ${scanType === 'RTS' ? `<button class="btn btn-secondary btn-sm" data-scan-range="${pageId}" data-range="tomorrow" onclick="setScanPageRange('${pageId}','${scanType}','tomorrow')">Tomorrow</button>` : ''}
           </div>
           <input type="date" class="form-control" id="scan-page-date-${pageId}" style="width:170px;" onchange="setScanPageDate('${pageId}','${scanType}')">
         </div>
@@ -15710,7 +15711,7 @@ async function loadScanToday(pageId, scanType) {
   }
 }
 
-// Per-page scan summary table. Honours the Today/Yesterday toggle and the
+// Per-page scan summary table. Honours the Today/Yesterday/Tomorrow toggle and the
 // custom date picker in the Scan Page card (defaults to today when those
 // controls aren't present, e.g. standard scan pages).
 async function loadScanPageSummary(pageId, scanType) {
@@ -15727,8 +15728,9 @@ async function loadScanPageSummary(pageId, scanType) {
     } else {
       const d = new Date();
       if (range === 'yesterday') d.setDate(d.getDate() - 1);
+      if (range === 'tomorrow') d.setDate(d.getDate() + 1);
       dateStr = normalizeDateString(d);
-      emptyMsg = range === 'yesterday' ? 'No scans yesterday.' : 'No scans today.';
+      emptyMsg = range === 'yesterday' ? 'No scans yesterday.' : range === 'tomorrow' ? 'No scans tomorrow.' : 'No scans today.';
     }
     if (!dateStr) { dateStr = normalizeDateString(new Date()); }
     const params = new URLSearchParams({ per_page: '10', page: '1', date_from: dateStr, date_to: dateStr });
