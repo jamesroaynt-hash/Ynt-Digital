@@ -10196,6 +10196,20 @@ function renderSalesTrackerConnectCard() {
   </div>`;
 }
 
+// Same "Running on Facebook — by Page" card as the Creatives tab, sharing its
+// date range and cache. Only one page is on screen at a time, so the
+// #creatives-running id never appears twice.
+function renderSalesTrackerRunningCard() {
+  if (!creativesDateFrom) {
+    const r = computePresetRange('monthly');
+    creativesDateFrom = r.from;
+    creativesDateTo = r.to;
+  }
+  return `<div class="card erp-card" style="margin-bottom:18px;">
+    <div id="creatives-running">${renderRunningCreatives()}</div>
+  </div>`;
+}
+
 function renderSalesMarketingTracker() {
   const { config, tabs, activeTab, sheet, loadingTabs, loadingSheet, error } = salesTrackerState;
 
@@ -10299,6 +10313,7 @@ function renderSalesMarketingTracker() {
   </div>
 
   ${renderSalesTrackerConnectCard()}
+  ${renderSalesTrackerRunningCard()}
   ${body}
   `;
 }
