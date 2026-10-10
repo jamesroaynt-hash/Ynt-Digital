@@ -15447,6 +15447,7 @@ function renderScanComboCard(pageId, scanType) {
             <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
               <label for="scan-date-${pageId}" style="font-size:12px;font-weight:600;color:var(--text-muted);white-space:nowrap;">Scan date</label>
               <input type="date" class="form-control" id="scan-date-${pageId}" value="${new Date().toISOString().split('T')[0]}" style="width:170px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="setScanDateTomorrow('${pageId}')">Tomorrow</button>
             </div>
             <p class="form-hint" style="margin-bottom:0;margin-top:8px;">Press Enter or click Scan to look up tracking details. Scans count toward the selected date.</p>
           </div>
@@ -15761,6 +15762,16 @@ async function loadScanPageSummary(pageId, scanType) {
     bodyEl.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load.</td></tr>';
     if (footEl) footEl.innerHTML = '';
   }
+}
+
+// Scan date shortcut: count the next scans toward tomorrow.
+function setScanDateTomorrow(pageId) {
+  const el = document.getElementById(`scan-date-${pageId}`);
+  if (!el) return;
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  el.value = normalizeDateString(d);
+  document.getElementById(`scan-input-${pageId}`)?.focus();
 }
 
 function setScanPageRange(pageId, scanType, range) {
