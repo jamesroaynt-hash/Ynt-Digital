@@ -6276,6 +6276,11 @@ tfoot td {
 }
 
 /* ─── TEAM CHAT POPUP ─────────────────────────────────────── */
+/* Reserve room under every page so the fixed launcher (22px + 58px) never
+   covers the last row of content — e.g. the pager's next/last buttons. */
+@media screen {
+  .page-content { padding-bottom: 96px; }
+}
 .chat-launcher {
   position: fixed;
   right: 22px;
