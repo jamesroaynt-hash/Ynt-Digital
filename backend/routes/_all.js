@@ -3164,9 +3164,22 @@ function csrRoutes(db) {
 
       const perPage = Math.max(1, Math.min(200, parseInt(req.query.per_page, 10) || 25));
       const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const { where, params, effStatus, manilaDay } = confirmedOrdersWhere(req.query, names, scope.system);
+      // Duplicates are found across every confirmer's orders: a duplicate is
+      // usually one number two desks worked, so grouping inside one confirmer's
+      // orders would only ever show the half they wrote themselves. A picked
+      // confirmer (or "my orders") narrows the list to the customers that
+      // confirmer had a hand in, and every order behind them is still shown.
+      const everyone = confirmedOrdersWhere(req.query, null, false);
+      const { effStatus, manilaDay } = everyone;
       // A number too short to be a phone groups everything that is missing one.
-      const scoped = `${where} AND LENGTH(${PHONE_DIGITS}) >= 10`;
+      let scoped = `${everyone.where} AND LENGTH(${PHONE_DIGITS}) >= 10`;
+      const params = [...everyone.params];
+      if (names || scope.system) {
+        const theirs = confirmedOrdersWhere(req.query, names, scope.system);
+        scoped += ` AND ${PHONE_KEY} IN (
+          SELECT ${PHONE_KEY} FROM pos_orders ${theirs.where} AND LENGTH(${PHONE_DIGITS}) >= 10)`;
+        params.push(...theirs.params);
+      }
       // One page's orders for a number on one Manila day. Blank pages and rows
       // with no date key to NULL, which COUNT() skips, so neither can look like
       // a repeat. More orders than distinct keys means a page booked the same

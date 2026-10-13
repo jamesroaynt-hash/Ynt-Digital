@@ -11594,8 +11594,10 @@ let csrConfirmedState = {
 
 // Customers a number was worked twice for — it ordered off more than one page,
 // one page booked it more than once on the same day, or a page booked it again
-// while an earlier order was still open — over whatever range, status and
-// confirmer the toolbar above is set to. Kept apart from the orders
+// while an earlier order was still open — over whatever range and status the
+// toolbar above is set to. Duplicates are matched across every confirmer's
+// orders; a picked confirmer only narrows the list to the customers they
+// worked, with the other desks' orders still shown. Kept apart from the orders
 // list so switching tabs back and forth does not refetch either one.
 let csrDuplicatesState = {
   data: [], total: 0, page: 1, perPage: 25,
