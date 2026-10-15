@@ -485,6 +485,9 @@ function runMigrations(db) {
   ensureColumn(db, 'evaluation_weights', 'technical_weight', 'REAL NOT NULL DEFAULT 25');
   // The score an evaluation has to reach to count as passed, set by HR.
   ensureColumn(db, 'evaluation_weights', 'passing_score', 'REAL NOT NULL DEFAULT 75');
+  // HR's extension of the fill-up window: the period it keeps open, and until when.
+  ensureColumn(db, 'evaluation_weights', 'extended_period', 'TEXT');
+  ensureColumn(db, 'evaluation_weights', 'extended_until', 'TEXT');
   // The matrix's item rows. Seeded from the printed sheet the first time the
   // evaluations route reads them, and edited from the page after that.
   db.exec(`
@@ -1093,6 +1096,9 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'evaluation_weights', 'technical_weight', 'NUMERIC NOT NULL DEFAULT 25');
   // The score an evaluation has to reach to count as passed, set by HR.
   await ensureColumnAsync(db, 'evaluation_weights', 'passing_score', 'NUMERIC NOT NULL DEFAULT 75');
+  // HR's extension of the fill-up window: the period it keeps open, and until when.
+  await ensureColumnAsync(db, 'evaluation_weights', 'extended_period', 'TEXT');
+  await ensureColumnAsync(db, 'evaluation_weights', 'extended_until', 'TEXT');
   // The matrix's item rows. Seeded from the printed sheet the first time the
   // evaluations route reads them, and edited from the page after that.
   await db.exec(`

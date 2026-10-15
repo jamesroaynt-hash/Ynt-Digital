@@ -680,6 +680,8 @@ CREATE TABLE IF NOT EXISTS evaluation_weights (
   skills_weight REAL NOT NULL DEFAULT 25,
   technical_weight REAL NOT NULL DEFAULT 25,
   passing_score REAL NOT NULL DEFAULT 75,
+  extended_period TEXT,
+  extended_until TEXT,
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

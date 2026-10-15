@@ -52,6 +52,46 @@ function evaluationWindow(today = manilaDate()) {
   };
 }
 
+// The day before a date, as YYYY-MM-DD.
+function previousDay(date) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// The window with HR's extension applied. An extension keeps one period open
+// for everybody until its date: inside that period it only pushes the closing
+// day out, and after the period has ended it keeps that period the one being
+// filled — instead of rolling over to the next period, whose own window has not
+// opened yet — until the extension runs out. extension = { period, until }.
+function windowWithExtension(extension, today = manilaDate()) {
+  const base = evaluationWindow(today);
+  const until = extension?.until;
+  if (!extension?.period || !until || until < today) return { ...base, extended_until: null };
+  if (extension.period === base.period) {
+    return {
+      ...base,
+      open: base.open || today >= base.opens_on,
+      closes_on: until > base.closes_on ? until : base.closes_on,
+      extended_until: until,
+    };
+  }
+  // The extension is for the period that just ended; the running one has not
+  // opened, so the ended one stays open until the extension's date.
+  const previous = evaluationWindow(previousDay(base.starts_on));
+  if (extension.period === previous.period && !base.open) {
+    return {
+      ...previous,
+      today,
+      open: true,
+      days_until_open: 0,
+      closes_on: until,
+      extended_until: until,
+    };
+  }
+  return { ...base, extended_until: null };
+}
+
 // Half-month periods, and the whole-month ones the sheets were filed under
 // before the period was split in two.
 const PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])(-H[12])?$/;
@@ -221,6 +261,14 @@ module.exports = function evaluationRoutes(db) {
       }
     }
     itemsSeeded = true;
+  }
+
+  // The fill-up window as everybody sees it, HR's extension included.
+  async function currentWindow() {
+    const row = await db.prepare(
+      'SELECT extended_period, extended_until FROM evaluation_weights WHERE id = 1'
+    ).get();
+    return windowWithExtension({ period: row?.extended_period, until: row?.extended_until });
   }
 
   // The sheet as it stands: the four criteria with what each is worth, the
@@ -443,7 +491,7 @@ module.exports = function evaluationRoutes(db) {
     try {
       const config = await loadConfig();
       res.json({
-        window: evaluationWindow(),
+        window: await currentWindow(),
         ...config,
         can_manage: isHrManager(req.user),
         can_evaluate: canEvaluate(req.user),
@@ -506,12 +554,48 @@ module.exports = function evaluationRoutes(db) {
     }
   });
 
+  // Extend the fill-up window — HR and the Administrator only. The extension
+  // belongs to the period being filled now (or the one that just closed, when
+  // the running one has not opened yet), and an empty date clears it.
+  router.put('/extension', async (req, res) => {
+    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    try {
+      const raw = String(req.body?.until || '').trim();
+      if (!raw) {
+        await db.prepare(`
+          UPDATE evaluation_weights
+          SET extended_period = NULL, extended_until = NULL, updated_by = ?, updated_at = datetime('now')
+          WHERE id = 1
+        `).run(req.user?.id || null);
+        return res.json({ window: await currentWindow() });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(`${raw}T00:00:00Z`))) {
+        return res.status(400).json({ error: 'Pick a valid extension date.' });
+      }
+      const today = manilaDate();
+      const base = evaluationWindow(today);
+      const target = base.open ? base : evaluationWindow(previousDay(base.starts_on));
+      if (raw < today) return res.status(400).json({ error: 'The extension date cannot be in the past.' });
+      if (raw <= target.closes_on) {
+        return res.status(400).json({ error: `Pick a date after ${target.closes_on}, when the window normally closes.` });
+      }
+      await db.prepare(`
+        UPDATE evaluation_weights
+        SET extended_period = ?, extended_until = ?, updated_by = ?, updated_at = datetime('now')
+        WHERE id = 1
+      `).run(target.period, raw, req.user?.id || null);
+      res.json({ window: await currentWindow() });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // The queue: everyone this user may rate this period, never themselves.
   // Scores ride along only for HR/Administrator — the rest fill their sheets
   // in without ever seeing what anybody scored.
   router.get('/queue', async (req, res) => {
     try {
-      const window = evaluationWindow();
+      const window = await currentWindow();
       const period = validPeriod(req.query?.period, window.period);
       const viewerId = Number(req.user?.id);
       const canSeeScores = isHrManager(req.user);
@@ -579,7 +663,7 @@ module.exports = function evaluationRoutes(db) {
       return res.status(403).json({ error: 'Sign in to submit an evaluation.' });
     }
     try {
-      const window = evaluationWindow();
+      const window = await currentWindow();
       const anytime = isHrManager(req.user);
       if (!window.open && !anytime) {
         return res.status(409).json({
@@ -650,7 +734,7 @@ module.exports = function evaluationRoutes(db) {
   router.get('/summary/:subjectId', async (req, res) => {
     if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
     try {
-      const window = evaluationWindow();
+      const window = await currentWindow();
       const period = validPeriod(req.query?.period, window.period);
       const subjectId = Number(req.params.subjectId);
       const showNames = isAdministrator(req.user) && subjectId !== Number(req.user?.id);
@@ -666,7 +750,7 @@ module.exports = function evaluationRoutes(db) {
   // nothing more, and the sheets carry no evaluator's name either way.
   router.get('/me', async (req, res) => {
     try {
-      const window = evaluationWindow();
+      const window = await currentWindow();
       const period = validPeriod(req.query?.period, window.period);
       const viewerId = Number(req.user?.id);
       if (!isHrManager(req.user)) {
@@ -740,4 +824,5 @@ module.exports = function evaluationRoutes(db) {
 };
 
 module.exports.evaluationWindow = evaluationWindow;
+module.exports.windowWithExtension = windowWithExtension;
 module.exports.DEFAULT_CRITERIA = DEFAULT_CRITERIA;

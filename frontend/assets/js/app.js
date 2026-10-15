@@ -5098,19 +5098,27 @@ function renderEvaluationWindowNotice() {
   if (!wrap || !win) return;
   const period = evaluationPeriodLabel(win.period);
   const days = Number(win.fill_days || 5);
+  const extended = win.extended_until ? ' (extended)' : '';
   if (evaluationState.canFillAnytime) {
     wrap.innerHTML = `<div class="alert alert-info" style="margin-bottom:16px;">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg>
-        <div><strong>${escapeHtml(period)}.</strong> HR and the Administrator write sheets at any time.
-          Everybody else fills theirs in over the ${days} days from
-          ${escapeHtml(win.opens_on)} to ${escapeHtml(win.closes_on)}${win.open ? ' — open now' : ''}.</div>
+        <div style="flex:1;"><strong>${escapeHtml(period)}.</strong> HR and the Administrator write sheets at any time.
+          Everybody else fills theirs in from
+          ${escapeHtml(win.opens_on)} to ${escapeHtml(win.closes_on)}${extended}${win.open ? ' — open now' : ''}.
+          <div class="ev-extend">
+            <label for="evaluation-extend-until">Extend for everyone until</label>
+            <input type="date" class="form-control" id="evaluation-extend-until" value="${escapeHtml(win.extended_until || '')}">
+            <button class="btn btn-primary btn-sm" type="button" onclick="saveEvaluationExtension()">Save</button>
+            ${win.extended_until ? '<button class="btn btn-secondary btn-sm" type="button" onclick="saveEvaluationExtension(true)">Remove</button>' : ''}
+          </div>
+        </div>
       </div>`;
     return;
   }
   wrap.innerHTML = win.open
     ? `<div class="alert alert-success" style="margin-bottom:16px;">
          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 5L6 12l-3-3"/></svg>
-         <div><strong>${escapeHtml(period)} evaluation is open.</strong>
+         <div><strong>${escapeHtml(period)} evaluation is open${win.extended_until ? ' — extended' : ''}.</strong>
            Rate everyone on the list by ${escapeHtml(win.closes_on)} — the form closes after that.</div>
        </div>`
     : `<div class="alert alert-info" style="margin-bottom:16px;">
@@ -5118,6 +5126,27 @@ function renderEvaluationWindowNotice() {
          <div><strong>${escapeHtml(period)} evaluation opens ${escapeHtml(win.opens_on)}.</strong>
            It stays open ${days} days, until ${escapeHtml(win.closes_on)}.</div>
        </div>`;
+}
+
+// HR's extension of the fill-up window. The server decides which period it
+// keeps open; an empty date (or Remove) puts the normal window back.
+async function saveEvaluationExtension(remove = false) {
+  const until = remove ? '' : (document.getElementById('evaluation-extend-until')?.value || '');
+  if (!remove && !until) {
+    showToast('warning', 'Pick a date', 'Choose the day the evaluation should stay open until.');
+    return;
+  }
+  try {
+    await authorizedJsonRequest('/evaluations/extension', {
+      method: 'PUT',
+      body: JSON.stringify({ until }),
+    });
+    showToast('success', remove ? 'Extension removed' : 'Evaluation extended',
+      remove ? 'The normal five-day window is back.' : `Everyone can evaluate until ${until}.`);
+    await initEvaluationKpi();
+  } catch (error) {
+    showToast('error', 'Could not save', error.message || 'The extension was not saved.');
+  }
 }
 
 // The matrix itself, HR's to set: what each criteria is worth, the score that
