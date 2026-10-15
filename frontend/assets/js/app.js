@@ -5754,12 +5754,15 @@ function renderEvaluationMatrix() {
   const wrap = document.getElementById('evaluation-matrix-wrap');
   if (!wrap) return;
   const items = evaluationState.draft?.items || {};
+  // The criteria weights are HR/Administrator only; a peer rates the items
+  // without seeing how much each criterion counts.
+  const showWeight = !!evaluationState.canSeeScores;
   wrap.innerHTML = `
   <div class="ev-scroll">
     <table class="ev-table ev-matrix">
       <thead>
         <tr>
-          <th>Total Percentage</th><th>Criteria</th><th>Items</th>
+          ${showWeight ? '<th>Total Percentage</th>' : ''}<th>Criteria</th><th>Items</th>
           <th>Percentage</th><th>Average</th><th>Overall</th>
         </tr>
       </thead>
@@ -5769,7 +5772,7 @@ function renderEvaluationMatrix() {
           return criterion.items.map((item, index) => {
             const value = items[item.key];
             const lead = index === 0
-              ? `<td rowspan="${span}" class="ev-matrix-weight">${evaluationWeightOf(criterion.id)}%</td>
+              ? `${showWeight ? `<td rowspan="${span}" class="ev-matrix-weight">${evaluationWeightOf(criterion.id)}%</td>` : ''}
                  <td rowspan="${span}" class="ev-matrix-criteria">${escapeHtml(criterion.label.toUpperCase())}</td>`
               : '';
             const tail = index === 0
