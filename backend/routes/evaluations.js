@@ -329,15 +329,12 @@ module.exports = function evaluationRoutes(db) {
     }
   }
 
-  // Who can be rated. Administrators are not rated as staff — the same rule
-  // payroll already applies when it leaves them off the summary. They still
-  // evaluate other people; this is only the list of subjects.
+  // Who can be rated: every active account, administrators included.
   async function ratableUsers() {
     return db.prepare(`
       SELECT id, full_name, username, role
       FROM users
       WHERE is_active = 1
-        AND LOWER(TRIM(COALESCE(role, ''))) NOT IN ('administrator', 'admin')
       ORDER BY full_name COLLATE NOCASE ASC
     `).all();
   }
@@ -591,7 +588,6 @@ module.exports = function evaluationRoutes(db) {
       const subject = await db.prepare(`
         SELECT id FROM users
         WHERE id = ? AND is_active = 1
-          AND LOWER(TRIM(COALESCE(role, ''))) NOT IN ('administrator', 'admin')
       `).get(subjectId);
       if (!subject) return res.status(404).json({ error: 'Employee not found' });
 
