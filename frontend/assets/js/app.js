@@ -5715,7 +5715,14 @@ function openEvaluationForm(userId) {
   // Re-opening a submitted sheet starts from what was saved, so a revision is
   // an edit rather than a blank matrix.
   const saved = row.my_sheet || {};
-  evaluationState.draft = { subjectId: row.id, items: { ...(saved.items || {}) } };
+  // A sheet saved before the 1–5 dropdown can hold any percentage; snap it to
+  // the rating the dropdown shows so what is resubmitted is what is on screen.
+  const savedItems = {};
+  Object.entries(saved.items || {}).forEach(([key, raw]) => {
+    const rating = evaluationRatingOf(raw);
+    savedItems[key] = rating === null ? raw : rating * EVALUATION_RATING_STEP;
+  });
+  evaluationState.draft = { subjectId: row.id, items: savedItems };
   renderEvaluationQueue();
 
   const today = manilaToday();
@@ -5763,7 +5770,7 @@ function renderEvaluationMatrix() {
       <thead>
         <tr>
           ${showWeight ? '<th>Total Percentage</th>' : ''}<th>Criteria</th><th>Items</th>
-          <th>Percentage</th><th>Average</th><th>Overall</th>
+          <th>Rating (1–5)</th><th>Average</th><th>Overall</th>
         </tr>
       </thead>
       <tbody>
@@ -5782,10 +5789,11 @@ function renderEvaluationMatrix() {
             return `<tr>${lead}
               <td>${escapeHtml(item.label)}</td>
               <td class="ev-matrix-cell">
-                <input type="number" class="form-control ev-matrix-input" min="0" max="100" step="1"
-                  id="evaluation-item-${item.key}" value="${value === null || value === undefined ? '' : Number(value)}"
-                  aria-label="${escapeHtml(item.label)} percentage"
-                  oninput="setEvaluationItemPercent('${item.key}', this.value)"><span>%</span>
+                <select class="form-control ev-matrix-input" id="evaluation-item-${item.key}"
+                  aria-label="${escapeHtml(item.label)} rating"
+                  onchange="setEvaluationItemPercent('${item.key}', this.value === '' ? '' : Number(this.value) * EVALUATION_RATING_STEP)">
+                  ${evaluationRatingOptions(value)}
+                </select>
               </td>${tail}</tr>`;
           }).join('');
         }).join('')}
@@ -5793,6 +5801,22 @@ function renderEvaluationMatrix() {
     </table>
   </div>`;
   refreshEvaluationMatrixTotals();
+}
+
+// Each item is rated 1–5 and stored as its percentage (5 = 100%), so the
+// averages and the server's 0–100 check are unchanged. A sheet saved before the
+// dropdown can hold any percentage; it shows as the nearest rating.
+const EVALUATION_RATING_STEP = 20;
+function evaluationRatingOf(percent) {
+  const value = evaluationPercentValue(percent);
+  return value === null ? null : Math.min(5, Math.max(1, Math.round(value / EVALUATION_RATING_STEP)));
+}
+
+function evaluationRatingOptions(percent) {
+  const rating = evaluationRatingOf(percent);
+  return `<option value=""${rating === null ? ' selected' : ''}>—</option>` + [1, 2, 3, 4, 5]
+    .map((n) => `<option value="${n}"${n === rating ? ' selected' : ''}>${n} (${n * EVALUATION_RATING_STEP}%)</option>`)
+    .join('');
 }
 
 function setEvaluationItemPercent(itemKey, raw) {
@@ -5860,7 +5884,7 @@ async function submitEvaluation() {
     for (const item of criterion.items) {
       const percent = evaluationPercentValue(draft.items[item.key]);
       if (percent === null) {
-        showToast('warning', 'Incomplete matrix', `Rate "${item.label}" from 0 to 100% before submitting.`);
+        showToast('warning', 'Incomplete matrix', `Rate "${item.label}" from 1 to 5 before submitting.`);
         document.getElementById(`evaluation-item-${item.key}`)?.focus();
         return;
       }
