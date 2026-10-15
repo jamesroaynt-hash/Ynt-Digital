@@ -7325,6 +7325,7 @@ tfoot td {
 /* The matrix: TOTAL PERCENTAGE and CRITERIA span their group's item rows, the
    way the merged cells do on the sheet. */
 .ev-matrix td, .ev-matrix th { padding: 8px 12px; }
+.ev-mine-sheets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12.5px; }
 
 /* The header band is the printed sheet's: white paper, black type, in both
    themes. Everything under it sits on ONE ground — the merged label cells and

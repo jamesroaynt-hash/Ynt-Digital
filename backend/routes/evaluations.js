@@ -132,6 +132,10 @@ function isHrManager(user) {
   return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
+function isAdministrator(user) {
+  return ['administrator', 'admin'].includes(String(user?.role || '').trim().toLowerCase());
+}
+
 // Everyone rates everyone: the sheets are peer evaluations, so any account may
 // write one. What HR and the Administrator have that the rest do not is the
 // scores, the matrix itself, and a sheet they can fill in outside the window.
@@ -395,15 +399,17 @@ module.exports = function evaluationRoutes(db) {
     };
   }
 
-  // Every sheet written about one employee in a period, scored. Nobody is told
-  // who wrote which sheet — not HR, not the Administrator — so the evaluator's
-  // name never leaves the server and cannot be read out of the network tab
-  // either. The rows themselves keep the evaluator_id.
-  async function summaryFor(subjectId, period, config) {
+  // Every sheet written about one employee in a period, scored. Evaluators are
+  // anonymous unless showNames is set — only for an Administrator reading
+  // somebody else's sheets (see /summary). When it is not set the name never
+  // leaves the server, so it cannot be read out of the network tab either.
+  async function summaryFor(subjectId, period, config, { showNames = false } = {}) {
     const rows = await db.prepare(`
-      SELECT * FROM evaluations
-      WHERE period = ? AND subject_id = ?
-      ORDER BY updated_at DESC
+      SELECT e.*, u.full_name AS evaluator_full_name, u.username AS evaluator_username
+      FROM evaluations e
+      LEFT JOIN users u ON u.id = e.evaluator_id
+      WHERE e.period = ? AND e.subject_id = ?
+      ORDER BY e.updated_at DESC
     `).all(period, subjectId);
     return {
       period,
@@ -411,11 +417,14 @@ module.exports = function evaluationRoutes(db) {
       passing_score: config.passing_score,
       criteria: config.criteria,
       result: scoreFor(rows, config),
-      anonymous: true,
+      anonymous: !showNames,
       responses: rows.filter(hasMatrix).map((row, index) => ({
         // Numbered by the order they come back in, which shifts as sheets are
-        // revised — nothing to line up across periods, and no name anywhere.
+        // revised — nothing to line up across periods.
         evaluator_label: `Evaluator ${index + 1}`,
+        ...(showNames ? {
+          evaluator_name: row.evaluator_full_name || row.evaluator_username || `Evaluator ${index + 1}`,
+        } : {}),
         items: parseItems(row),
         // This one sheet scored on its own, so HR can open a single
         // evaluation and read the same matrix the average is built from.
@@ -635,14 +644,17 @@ module.exports = function evaluationRoutes(db) {
     }
   });
 
-  // Full result for one employee, scores included — HR/Administrator only,
-  // and without the evaluators' names.
+  // Full result for one employee, scores included — HR/Administrator only.
+  // An Administrator also sees who wrote each sheet, except on the sheets
+  // written about themselves; HR and Operation never see names.
   router.get('/summary/:subjectId', async (req, res) => {
     if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
     try {
       const window = evaluationWindow();
       const period = validPeriod(req.query?.period, window.period);
-      res.json(await summaryFor(Number(req.params.subjectId), period, await loadConfig()));
+      const subjectId = Number(req.params.subjectId);
+      const showNames = isAdministrator(req.user) && subjectId !== Number(req.user?.id);
+      res.json(await summaryFor(subjectId, period, await loadConfig(), { showNames }));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

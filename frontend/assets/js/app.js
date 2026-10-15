@@ -5374,7 +5374,12 @@ function renderEvaluationMine() {
         <div class="stat-meta">sheets submitted</div>
       </div>
     </div>
-    ${renderEvaluationResultMatrix(result)}
+    <div class="ev-mine-sheets">
+      <span class="ev-muted">Open one evaluator's sheet:</span>
+      ${responses.map((response, index) => `
+        <button class="btn btn-secondary btn-sm" type="button" onclick="openMyEvaluationSheet(${index})">
+          ${escapeHtml(evaluationResponseName(response, index))}</button>`).join('')}
+    </div>
     <div class="ev-notes">
       <div class="ev-sheet-block-title">Areas that require development and suggestions to accomplish</div>
       ${responses.map((response, index) => `
@@ -5394,6 +5399,22 @@ function renderEvaluationMine() {
     </div>
     <div id="evaluation-mine-history"></div>`;
   renderEvaluationMineHistory();
+}
+
+// One sheet written about the viewer, in the same popup HR reads sheets in.
+// The server never names the evaluators of the viewer's own sheets, so this
+// shows "Evaluator N" and there is no list to go back to.
+function openMyEvaluationSheet(index) {
+  const responses = evaluationState.mine?.responses || [];
+  if (!responses[index]) return;
+  const body = document.getElementById('evaluation-responses-body');
+  const title = document.getElementById('evaluation-responses-title');
+  if (!body) return;
+  const me = { name: App.user?.name || App.user?.full_name || App.user?.username || 'You', role: App.user?.role };
+  const periodLabel = evaluationPeriodLabel(evaluationState.mine?.period || evaluationState.period);
+  if (title) title.textContent = `${evaluationResponseName(responses[index], index)} · ${periodLabel}`;
+  body.innerHTML = renderEvaluationResponseDetail(responses, index, me, { back: false });
+  openModal('evaluation-responses-modal');
 }
 
 // Every period this employee has been rated in, so the current score is read
@@ -5559,9 +5580,9 @@ function selectEvaluationEmployee(userId) {
 
 /* ─── The evaluations written about one employee ───────────
    Opened by clicking a name in the queue: every submitted sheet for the
-   selected period, each openable on its own. Who wrote which sheet is nobody's
-   to read — the server sends "Evaluator 1, 2, 3…" to everyone, the
-   Administrator included, so the ratings are read without their authors. */
+   selected period, each openable on its own. The server names the evaluators
+   only for an Administrator reading somebody else's sheets; everyone else, and
+   an Administrator reading their own, gets "Evaluator 1, 2, 3…". */
 
 function renderEvaluationResponsesModal() {
   return `
@@ -5642,15 +5663,15 @@ function renderEvaluationResponsesList(responses, row) {
     <div class="ev-muted" style="margin-top:12px;font-size:12px;">${escapeHtml(row?.name || 'This employee')} is rated on the average of these sheets — open one to see the ratings behind it.</div>`;
 }
 
-function renderEvaluationResponseDetail(responses, index, row) {
+function renderEvaluationResponseDetail(responses, index, row, { back = true } = {}) {
   const response = responses[index];
   if (!response) return renderEvaluationResponsesList(responses, row);
   const result = response.result || {};
   const level = evaluationLevelFor(Number(result.score) || 0);
   return `
-    <button class="btn btn-secondary btn-sm" type="button" style="margin-bottom:14px;" onclick="backToEvaluationResponses()">
+    ${back ? `<button class="btn btn-secondary btn-sm" type="button" style="margin-bottom:14px;" onclick="backToEvaluationResponses()">
       &larr; All evaluations
-    </button>
+    </button>` : ''}
     <div class="ev-sheet-head">
       <div class="ev-sheet-brand">YNT DIGITAL MARKETING COMPANY</div>
       <div class="ev-sheet-title">Evaluation Matrix</div>
