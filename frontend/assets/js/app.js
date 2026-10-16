@@ -5200,6 +5200,25 @@ async function saveEvaluationExtension(remove = false) {
 // passes, and the item rows everyone is rated on. The totals have to reach 100
 // or every score would silently be capped below them, so the server rejects
 // anything else.
+// The setup card is only touched now and then, so it starts folded and each
+// browser remembers whether HR left it open. Folding only hides the body — an
+// edit in progress is still there when it is opened again.
+const EVAL_SETUP_COLLAPSED_KEY = 'ynt.evaluationSetupCollapsed';
+
+function evaluationSetupCollapsed() {
+  try { return localStorage.getItem(EVAL_SETUP_COLLAPSED_KEY) !== '0'; } catch { return true; }
+}
+
+function toggleEvaluationSetup() {
+  const body = document.getElementById('evaluation-setup-body');
+  const button = document.getElementById('evaluation-setup-toggle');
+  if (!body) return;
+  const collapse = body.style.display !== 'none';
+  body.style.display = collapse ? 'none' : '';
+  if (button) button.textContent = collapse ? 'Show' : 'Hide';
+  try { localStorage.setItem(EVAL_SETUP_COLLAPSED_KEY, collapse ? '1' : '0'); } catch { /* not remembered */ }
+}
+
 function renderEvaluationSetup() {
   const wrap = document.getElementById('evaluation-weights-wrap');
   if (!wrap) return;
@@ -5207,14 +5226,18 @@ function renderEvaluationSetup() {
   const items = evaluationSetupItems();
   wrap.innerHTML = `
     <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
+      <div class="card-header" style="cursor:pointer;" onclick="toggleEvaluationSetup()">
         <div>
           <div class="card-title">Evaluation Matrix Setup</div>
           <div class="card-subtitle">What each criteria is worth, the score that passes, and the items rated under each.</div>
         </div>
-        <div class="eval-weight-total" id="evaluation-weight-total"></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="eval-weight-total" id="evaluation-weight-total"></div>
+          <button type="button" class="btn btn-secondary btn-sm" id="evaluation-setup-toggle"
+            onclick="event.stopPropagation();toggleEvaluationSetup()">${evaluationSetupCollapsed() ? 'Show' : 'Hide'}</button>
+        </div>
       </div>
-      <div class="card-body">
+      <div class="card-body" id="evaluation-setup-body"${evaluationSetupCollapsed() ? ' style="display:none;"' : ''}>
         <div class="eval-weight-grid">
           ${evaluationCriteria().map((criterion) => `
             <div class="eval-weight-field">
