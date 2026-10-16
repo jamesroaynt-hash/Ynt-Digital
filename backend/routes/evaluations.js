@@ -381,12 +381,14 @@ module.exports = function evaluationRoutes(db) {
     }
   }
 
-  // Who can be rated: every active account, administrators included.
+  // Who can be rated: every active account, administrators included, except
+  // trainees — they are still in training and are not on the list.
   async function ratableUsers() {
     return db.prepare(`
       SELECT id, full_name, username, role
       FROM users
       WHERE is_active = 1
+        AND LOWER(TRIM(COALESCE(role, ''))) <> 'trainee'
       ORDER BY full_name COLLATE NOCASE ASC
     `).all();
   }
@@ -608,6 +610,16 @@ module.exports = function evaluationRoutes(db) {
       const mineBySubject = new Map(mine.map((row) => [Number(row.subject_id), row]));
 
       let allBySubject = new Map();
+      // Every period anybody filed sheets under, plus the running one, so HR
+      // can read a period after the window has rolled past it.
+      let periods = [];
+      if (canSeeScores) {
+        const filed = await db.prepare('SELECT DISTINCT period FROM evaluations').all();
+        periods = [...new Set([window.period, period, ...filed.map((row) => row.period)])]
+          .filter((value) => PERIOD_PATTERN.test(String(value || '')))
+          .sort()
+          .reverse();
+      }
       if (canSeeScores) {
         const all = await db.prepare('SELECT * FROM evaluations WHERE period = ?').all(period);
         all.forEach((row) => {
@@ -648,6 +660,7 @@ module.exports = function evaluationRoutes(db) {
         can_see_scores: canSeeScores,
         can_evaluate: canEvaluate(req.user),
         can_fill_anytime: isHrManager(req.user),
+        periods,
         data: rows,
       });
     } catch (error) {
@@ -681,6 +694,7 @@ module.exports = function evaluationRoutes(db) {
       const subject = await db.prepare(`
         SELECT id FROM users
         WHERE id = ? AND is_active = 1
+          AND LOWER(TRIM(COALESCE(role, ''))) <> 'trainee'
       `).get(subjectId);
       if (!subject) return res.status(404).json({ error: 'Employee not found' });
 
@@ -745,29 +759,16 @@ module.exports = function evaluationRoutes(db) {
   });
 
   // What was written about the signed-in user: their own evaluation, and
-  // nobody else's. Reading a score is HR's and the Administrator's — an
-  // employee's own included — so everybody else is told the period and
-  // nothing more, and the sheets carry no evaluator's name either way.
+  // nobody else's. Everybody reads their own sheets and score; the evaluators
+  // are never named here, Administrator included, so the names never leave the
+  // server. With no ?period= it shows the running period, or — once the window
+  // has rolled past the last filled period — the latest one with sheets, so
+  // the card is not blank for the half-month before the next window opens.
   router.get('/me', async (req, res) => {
     try {
       const window = await currentWindow();
-      const period = validPeriod(req.query?.period, window.period);
       const viewerId = Number(req.user?.id);
-      if (!isHrManager(req.user)) {
-        return res.json({
-          period,
-          window,
-          hidden: true,
-          anonymous: true,
-          can_evaluate: canEvaluate(req.user),
-          can_fill_anytime: false,
-          result: null,
-          responses: [],
-          history: [],
-        });
-      }
       const config = await loadConfig();
-      const summary = await summaryFor(viewerId, period, config);
       const history = await db.prepare(
         'SELECT * FROM evaluations WHERE subject_id = ? ORDER BY period DESC'
       ).all(viewerId);
@@ -776,11 +777,26 @@ module.exports = function evaluationRoutes(db) {
         if (!byPeriod.has(row.period)) byPeriod.set(row.period, []);
         byPeriod.get(row.period).push(row);
       });
+      const rated = [...byPeriod.entries()]
+        .filter(([, rows]) => rows.some(hasMatrix))
+        .map(([historyPeriod]) => historyPeriod)
+        .filter((value) => PERIOD_PATTERN.test(String(value || '')))
+        .sort()
+        .reverse();
+
+      let period = validPeriod(req.query?.period, '');
+      if (!period) {
+        const latest = rated.find((value) => value <= window.period);
+        period = (byPeriod.get(window.period) || []).some(hasMatrix) || !latest ? window.period : latest;
+      }
+
+      const summary = await summaryFor(viewerId, period, config);
       res.json({
         ...summary,
         window,
         can_evaluate: canEvaluate(req.user),
         can_fill_anytime: isHrManager(req.user),
+        periods: [...new Set([window.period, period, ...rated])].sort().reverse(),
         history: [...byPeriod.entries()].map(([historyPeriod, periodRows]) => ({
           period: historyPeriod,
           ...scoreFor(periodRows, config),

@@ -4917,6 +4917,10 @@ function evaluationPercentText(value, places = 2) {
 
 let evaluationState = {
   period: '',
+  // The period HR picked to read, or '' for the one running. Everybody else
+  // only ever sees the running period.
+  viewPeriod: '',
+  periods: [],
   window: null,
   weights: null,
   // The matrix as HR has it, and the score that passes — both come back with
@@ -4958,6 +4962,8 @@ function renderEvaluationKpi() {
       <p id="evaluation-page-sub">Evaluation Matrix — General Evaluation, filled every fifteen days.</p>
     </div>
     <div class="page-actions">
+      <select class="form-control" id="evaluation-period-select" style="display:none;width:auto;"
+        onchange="changeEvaluationPeriod(this.value)" title="Evaluation period"></select>
       <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
     </div>
   </div>
@@ -5056,10 +5062,50 @@ function renderEvaluationModal() {
   </div>`;
 }
 
+// The ?period= every read on this page carries — empty for the running period.
+// Everybody else only picks which of their own periods My Evaluation shows —
+// their queue is always the running period, since that is what they file under.
+function evaluationPeriodQuery({ queue = false } = {}) {
+  if (!evaluationState.viewPeriod) return '';
+  if (queue && !evaluationState.canSeeScores) return '';
+  return `period=${encodeURIComponent(evaluationState.viewPeriod)}&`;
+}
+
+function changeEvaluationPeriod(period) {
+  evaluationState.viewPeriod = period;
+  evaluationState.mine = null;
+  if (!evaluationState.canSeeScores) {
+    renderEvaluationMine();
+    loadMyEvaluation();
+    return;
+  }
+  evaluationState.summary = null;
+  evaluationState.openResponse = null;
+  initEvaluationKpi();
+}
+
+// The period picker. HR reads every period with sheets on file; everybody else
+// the periods they were rated in. The running one is marked.
+function renderEvaluationPeriodSelect() {
+  const select = document.getElementById('evaluation-period-select');
+  if (!select) return;
+  const hr = evaluationState.canSeeScores;
+  const periods = (hr ? evaluationState.periods : evaluationState.mine?.periods) || [];
+  const selected = hr ? evaluationState.period : evaluationState.mine?.period;
+  if (periods.length < 2) {
+    select.style.display = 'none';
+    return;
+  }
+  const running = evaluationState.window?.period;
+  select.innerHTML = periods.map((period) => `<option value="${escapeHtml(period)}"${period === selected ? ' selected' : ''}>${escapeHtml(evaluationPeriodLabel(period))}${period === running ? ' (current)' : ''}</option>`).join('');
+  select.style.display = '';
+}
+
 async function initEvaluationKpi() {
   try {
-    const result = await authorizedJsonRequest(`/evaluations/queue?_=${Date.now()}`);
+    const result = await authorizedJsonRequest(`/evaluations/queue?${evaluationPeriodQuery({ queue: true })}_=${Date.now()}`);
     evaluationState.period = result.period;
+    evaluationState.periods = Array.isArray(result.periods) ? result.periods : [];
     evaluationState.window = result.window;
     evaluationState.weights = result.weights;
     evaluationState.criteria = Array.isArray(result.criteria) ? result.criteria : null;
@@ -5081,6 +5127,7 @@ async function initEvaluationKpi() {
     evaluationState.summary = null;
   }
   if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationPeriodSelect();
   renderEvaluationWindowNotice();
   renderEvaluationSetup();
   renderEvaluationMine();
@@ -5333,13 +5380,12 @@ async function saveEvaluationSetup() {
 }
 
 // ─── The viewer's own evaluation ─────────────────────────
-// The sheets written about the signed-in user. Scores are HR's and the
-// Administrator's to read — an employee's own included — so this card is only
-// built for them, and the evaluators are not named to anybody.
+// The sheets written about the signed-in user. Everybody reads their own; the
+// evaluators are not named to anybody.
 async function loadMyEvaluation() {
-  if (!evaluationState.canSeeScores) { evaluationState.mine = null; return; }
+  if (!evaluationState.canEvaluate) { evaluationState.mine = null; return; }
   try {
-    const result = await authorizedJsonRequest(`/evaluations/me?_=${Date.now()}`);
+    const result = await authorizedJsonRequest(`/evaluations/me?${evaluationPeriodQuery()}_=${Date.now()}`);
     evaluationState.mine = result;
     evaluationState.mineHistory = Array.isArray(result.history) ? result.history : [];
   } catch (error) {
@@ -5348,6 +5394,7 @@ async function loadMyEvaluation() {
     showToast('error', 'Evaluation load failed', error.message || 'Could not load your evaluation.');
   }
   if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationPeriodSelect();
   renderEvaluationMine();
 }
 
@@ -5356,8 +5403,7 @@ function renderEvaluationMine() {
   const card = document.getElementById('evaluation-mine-card');
   if (!wrap || !card) return;
   const pageSub = document.getElementById('evaluation-page-sub');
-  if (!evaluationState.canSeeScores) {
-    if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation. Rate everyone on the list; the scores are HR\'s.';
+  if (!evaluationState.canEvaluate) {
     card.style.display = 'none';
     wrap.innerHTML = '';
     return;
@@ -5585,7 +5631,7 @@ async function loadEvaluationSummary() {
   const subjectId = evaluationState.selectedId;
   if (!evaluationState.canSeeScores || !subjectId) { evaluationState.summary = null; return; }
   try {
-    const summary = await authorizedJsonRequest(`/evaluations/summary/${subjectId}?_=${Date.now()}`);
+    const summary = await authorizedJsonRequest(`/evaluations/summary/${subjectId}?${evaluationPeriodQuery()}_=${Date.now()}`);
     if (evaluationState.selectedId !== subjectId) return;
     evaluationState.summary = summary;
   } catch {
@@ -5951,6 +5997,9 @@ async function submitEvaluation() {
     await authorizedJsonRequest('/evaluations', {
       method: 'POST',
       body: JSON.stringify({
+        // HR may be filing against a past period they picked; the server
+        // ignores this for everybody else and files under the running one.
+        period: evaluationState.period,
         subject_id: draft.subjectId,
         items,
         development_areas: development,
