@@ -4964,6 +4964,8 @@ function renderEvaluationKpi() {
     <div class="page-actions">
       <select class="form-control" id="evaluation-period-select" style="display:none;width:auto;"
         onchange="changeEvaluationPeriod(this.value)" title="Evaluation period"></select>
+      <button class="btn btn-danger btn-sm" id="evaluation-reset-btn" style="display:none;"
+        onclick="resetEvaluationPeriod()" title="Delete every sheet filed under this period">Reset period</button>
       <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
     </div>
   </div>
@@ -5087,6 +5089,8 @@ function changeEvaluationPeriod(period) {
 // The period picker. HR reads every period with sheets on file; everybody else
 // the periods they were rated in. The running one is marked.
 function renderEvaluationPeriodSelect() {
+  const reset = document.getElementById('evaluation-reset-btn');
+  if (reset) reset.style.display = evaluationState.canSeeScores && isAdminUser() ? '' : 'none';
   const select = document.getElementById('evaluation-period-select');
   if (!select) return;
   const hr = evaluationState.canSeeScores;
@@ -5746,7 +5750,8 @@ function renderEvaluationResponsesList(responses, row) {
                   ? ` <span class="ev-muted">of ${result.covered_weight}% rated</span>` : ''}</td>
               <td><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span>
                 ${evaluationPassBadge(result)}</td>
-              <td><button class="btn btn-secondary btn-sm" type="button" onclick="viewEvaluationResponse(${index})">View sheet</button></td>
+              <td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" type="button" onclick="viewEvaluationResponse(${index})">View sheet</button>
+                ${response.id ? `<button class="btn btn-danger btn-sm" type="button" onclick="cancelEvaluationResponse(${index})">Cancel</button>` : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -5759,6 +5764,49 @@ function renderEvaluationResponsesList(responses, row) {
       </table>
     </div>
     <div class="ev-muted" style="margin-top:12px;font-size:12px;">${escapeHtml(row?.name || 'This employee')} is rated on the average of these sheets — open one to see the ratings behind it.</div>`;
+}
+
+// The Administrator wipes the period on screen. Typing the word is the guard —
+// every sheet in it is gone for good.
+async function resetEvaluationPeriod() {
+  const period = evaluationState.period;
+  if (!period) return;
+  const label = evaluationPeriodLabel(period);
+  const typed = window.prompt(`Reset ${label}? Every evaluation sheet filed under it is deleted for everybody and cannot be recovered.
+
+Type RESET to confirm.`);
+  if (String(typed || '').trim().toUpperCase() !== 'RESET') return;
+  try {
+    const result = await authorizedJsonRequest(`/evaluations/period/${encodeURIComponent(period)}`, { method: 'DELETE' });
+    showToast('success', 'Period reset', `${result.deleted || 0} sheet${result.deleted === 1 ? '' : 's'} removed from ${label}.`);
+    evaluationState.summary = null;
+    evaluationState.mine = null;
+    evaluationState.openResponse = null;
+    await initEvaluationKpi();
+    refreshEvaluationTopbarButton({ force: true }).catch(() => {});
+  } catch (error) {
+    showToast('error', 'Could not reset', error.message || 'The period was not reset.');
+  }
+}
+
+// The Administrator cancels one evaluator's sheet. The server only hands out a
+// sheet's id to the Administrator, so the button is only ever drawn for them.
+async function cancelEvaluationResponse(index) {
+  const response = evaluationState.summary?.responses?.[index];
+  if (!response?.id) return;
+  const subject = evaluationState.rows.find((row) => row.id === evaluationState.selectedId);
+  const period = evaluationPeriodLabel(evaluationState.summary?.period || evaluationState.period);
+  const ok = window.confirm(`Cancel ${evaluationResponseName(response, index)}'s evaluation of ${subject?.name || 'this employee'} for ${period}? The sheet is deleted and the average is recalculated.`);
+  if (!ok) return;
+  try {
+    await authorizedJsonRequest(`/evaluations/${response.id}`, { method: 'DELETE' });
+    showToast('success', 'Evaluation cancelled', 'The sheet was removed.');
+    evaluationState.openResponse = null;
+    await initEvaluationKpi();
+    refreshEvaluationTopbarButton({ force: true }).catch(() => {});
+  } catch (error) {
+    showToast('error', 'Could not cancel', error.message || 'The evaluation was not removed.');
+  }
 }
 
 function renderEvaluationResponseDetail(responses, index, row, { back = true } = {}) {

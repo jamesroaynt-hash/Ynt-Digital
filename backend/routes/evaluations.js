@@ -475,6 +475,9 @@ module.exports = function evaluationRoutes(db) {
         // revised — nothing to line up across periods.
         evaluator_label: `Evaluator ${index + 1}`,
         ...(showNames ? {
+          // The sheet's id rides along with the name, so the Administrator
+          // can cancel one — never on the anonymous views.
+          id: row.id,
           evaluator_name: row.evaluator_full_name || row.evaluator_username || `Evaluator ${index + 1}`,
         } : {}),
         items: parseItems(row),
@@ -757,6 +760,41 @@ module.exports = function evaluationRoutes(db) {
       const subjectId = Number(req.params.subjectId);
       const showNames = isAdministrator(req.user) && subjectId !== Number(req.user?.id);
       res.json(await summaryFor(subjectId, period, await loadConfig(), { showNames }));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reset a whole period: every sheet filed under it is deleted, so it starts
+  // over empty. The Administrator only.
+  router.delete('/period/:period', async (req, res) => {
+    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
+    try {
+      const period = validPeriod(req.params.period, '');
+      if (!period) return res.status(400).json({ error: 'Invalid period' });
+      const count = await db.prepare('SELECT COUNT(*) AS n FROM evaluations WHERE period = ?').get(period);
+      await db.prepare('DELETE FROM evaluations WHERE period = ?').run(period);
+      res.json({ deleted: Number(count?.n || 0), period });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Cancel one sheet — the Administrator only, and never one written about
+  // themselves. It is deleted outright, so the employee's average for that
+  // period is rebuilt from the sheets that are left.
+  router.delete('/:id', async (req, res) => {
+    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid evaluation' });
+      const row = await db.prepare('SELECT id, subject_id, period FROM evaluations WHERE id = ?').get(id);
+      if (!row) return res.status(404).json({ error: 'Evaluation not found' });
+      if (Number(row.subject_id) === Number(req.user?.id)) {
+        return res.status(403).json({ error: 'You cannot cancel an evaluation written about you.' });
+      }
+      await db.prepare('DELETE FROM evaluations WHERE id = ?').run(id);
+      res.json({ deleted: true, id, period: row.period, subject_id: row.subject_id });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
