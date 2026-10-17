@@ -1,4 +1,5 @@
 const express = require('express');
+const superAdmin = require('../services/superAdmin');
 
 const MANILA_TIMEZONE = 'Asia/Manila';
 
@@ -237,7 +238,19 @@ function itemKeyFrom(label, taken) {
   return key;
 }
 
+// The roles that read evaluation results besides the super admin. Operation
+// has HR's access throughout, so it reads them too; the other Administrators
+// do not.
+const RESULT_ROLES = new Set(['hr', 'operation', 'operations']);
+
 module.exports = function evaluationRoutes(db) {
+  // Scores — the queue's, each employee's sheets, anybody's record — are for
+  // HR and the super admin only.
+  async function canSeeResults(user) {
+    if (RESULT_ROLES.has(String(user?.role || '').trim().toLowerCase())) return true;
+    return superAdmin.isSuperAdmin(db, user);
+  }
+
   const router = express.Router();
 
   // The matrix starts as the printed sheet: the rows above are written into
@@ -610,7 +623,7 @@ module.exports = function evaluationRoutes(db) {
       const window = await currentWindow();
       const period = validPeriod(req.query?.period, window.period);
       const viewerId = Number(req.user?.id);
-      const canSeeScores = isHrManager(req.user);
+      const canSeeScores = await canSeeResults(req.user);
       const config = await loadConfig();
 
       const users = (await ratableUsers()).filter((user) => Number(user.id) !== viewerId);
@@ -795,12 +808,13 @@ module.exports = function evaluationRoutes(db) {
   // An Administrator also sees who wrote each sheet, except on the sheets
   // written about themselves; HR and Operation never see names.
   router.get('/summary/:subjectId', async (req, res) => {
-    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    if (!(await canSeeResults(req.user))) return res.status(403).json({ error: 'HR or super admin access required' });
     try {
       const window = await currentWindow();
       const period = validPeriod(req.query?.period, window.period);
       const subjectId = Number(req.params.subjectId);
-      const showNames = isAdministrator(req.user) && subjectId !== Number(req.user?.id);
+      // Evaluator names are the super admin's alone, and never on their own sheets.
+      const showNames = (await superAdmin.isSuperAdmin(db, req.user)) && subjectId !== Number(req.user?.id);
       res.json(await summaryFor(subjectId, period, await loadConfig(), { showNames }));
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -812,13 +826,13 @@ module.exports = function evaluationRoutes(db) {
   // what they gave each person would name them as an evaluator, and HR never
   // sees evaluator names. The Administrator also gets each sheet, scored.
   router.get('/given/:evaluatorId', async (req, res) => {
-    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    if (!(await canSeeResults(req.user))) return res.status(403).json({ error: 'HR or super admin access required' });
     try {
       const window = await currentWindow();
       const period = validPeriod(req.query?.period, window.period);
       const evaluatorId = Number(req.params.evaluatorId);
       if (!Number.isFinite(evaluatorId) || evaluatorId <= 0) return res.status(400).json({ error: 'Invalid user' });
-      const showSheets = isAdministrator(req.user);
+      const showSheets = await superAdmin.isSuperAdmin(db, req.user);
       const config = await loadConfig();
       const evaluator = await db.prepare('SELECT id, full_name, username FROM users WHERE id = ?').get(evaluatorId);
       if (!evaluator) return res.status(404).json({ error: 'User not found' });
@@ -876,6 +890,7 @@ module.exports = function evaluationRoutes(db) {
       const excluded = req.body?.excluded ? 1 : 0;
       const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
       if (!user) return res.status(404).json({ error: 'User not found' });
+      if (!(await superAdmin.guardSuperAdminTarget(db, req, res, userId))) return;
       await db.prepare('UPDATE users SET exclude_from_evaluation = ? WHERE id = ?').run(excluded, userId);
       res.json({ saved: true, user_id: userId, excluded: !!excluded });
     } catch (error) {
@@ -884,9 +899,9 @@ module.exports = function evaluationRoutes(db) {
   });
 
   // Reset a whole period: every sheet filed under it is deleted, so it starts
-  // over empty. The Administrator only.
+  // over empty. The super admin only.
   router.delete('/period/:period', async (req, res) => {
-    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
+    if (!(await superAdmin.isSuperAdmin(db, req.user))) return res.status(403).json({ error: 'Super admin access required' });
     try {
       const period = validPeriod(req.params.period, '');
       if (!period) return res.status(400).json({ error: 'Invalid period' });
@@ -898,11 +913,11 @@ module.exports = function evaluationRoutes(db) {
     }
   });
 
-  // Cancel one sheet — the Administrator only, and never one written about
+  // Cancel one sheet — the super admin only, and never one written about
   // themselves. It is deleted outright, so the employee's average for that
   // period is rebuilt from the sheets that are left.
   router.delete('/:id', async (req, res) => {
-    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
+    if (!(await superAdmin.isSuperAdmin(db, req.user))) return res.status(403).json({ error: 'Super admin access required' });
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid evaluation' });
@@ -928,9 +943,9 @@ module.exports = function evaluationRoutes(db) {
     try {
       const window = await currentWindow();
       const viewerId = Number(req.user?.id);
-      // Scores are HR's and the Administrator's to read — an employee's own
+      // Scores are HR's and the super admin's to read — an employee's own
       // included — so everybody else gets the window and nothing more.
-      if (!isHrManager(req.user)) {
+      if (!(await canSeeResults(req.user))) {
         return res.json({
           period: window.period,
           window,
@@ -985,9 +1000,9 @@ module.exports = function evaluationRoutes(db) {
 
   // Every period this employee has been rated in, for the record card.
   router.get('/history/:subjectId', async (req, res) => {
-    // Scores are HR's and the Administrator's alone — an employee's own included.
-    if (!isHrManager(req.user)) {
-      return res.status(403).json({ error: 'HR or Administrator access required' });
+    // Scores are HR's and the super admin's alone — an employee's own included.
+    if (!(await canSeeResults(req.user))) {
+      return res.status(403).json({ error: 'HR or super admin access required' });
     }
     const subjectId = Number(req.params.subjectId);
     try {

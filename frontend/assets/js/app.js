@@ -17100,6 +17100,12 @@ function getDefaultPageForCurrentUser() {
 // The System section (Users + Integrations) is Administrator-only, whatever
 // NAV_ACCESS says for the role.
 const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
+// Of those, the super admin's alone: other Administrators do not get them.
+const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary'];
+
+function isSuperAdminUser() {
+  return !!App.user?.is_super_admin;
+}
 
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
@@ -17107,7 +17113,9 @@ function getAccessiblePagesForCurrentUser() {
   const pages = NAV_ACCESS[role]
     || NAV_ACCESS_BY_KEY[navAccessKey(role)]
     || ['home', 'rts-rate', 'data-report'];
-  if (isAdminUser()) return pages;
+  if (isAdminUser()) {
+    return isSuperAdminUser() ? pages : pages.filter((page) => !SUPER_ADMIN_PAGES.includes(page));
+  }
   return pages.filter((page) => !ADMIN_ONLY_PAGES.includes(page));
 }
 
@@ -21566,6 +21574,9 @@ async function handleOwnAccountSave(event) {
         email_address: data.user.email_address,
         fb_account_name: data.user.fb_account_name,
         daily_rate: data.user.daily_rate,
+        // The profile form does not change it; keep it so the super admin's
+        // menu survives a profile save.
+        is_super_admin: !!App.user?.is_super_admin,
       },
       getAuthToken(),
     );

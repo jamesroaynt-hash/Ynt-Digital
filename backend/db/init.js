@@ -458,6 +458,12 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'day_off', 'INTEGER NOT NULL DEFAULT -1');
   ensureColumn(db, 'users', 'include_in_payroll', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'users', 'exclude_from_evaluation', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'users', 'is_super_admin', 'INTEGER NOT NULL DEFAULT 0');
+  // The "Admin User" account is the super admin. Marked only while nobody is,
+  // so a later change of super admin is never undone on restart.
+  if (!db.prepare('SELECT 1 FROM users WHERE is_super_admin = 1').get()) {
+    db.prepare("UPDATE users SET is_super_admin = 1 WHERE role = 'Administrator' AND LOWER(TRIM(COALESCE(full_name, ''))) = 'admin user'").run();
+  }
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   ensureColumn(db, 'orders', 'tags', 'TEXT');
   ensureColumn(db, 'orders', 'confirmed_by', 'TEXT');
@@ -1070,6 +1076,12 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'users', 'day_off', 'INTEGER NOT NULL DEFAULT -1');
   await ensureColumnAsync(db, 'users', 'include_in_payroll', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'users', 'exclude_from_evaluation', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumnAsync(db, 'users', 'is_super_admin', 'INTEGER NOT NULL DEFAULT 0');
+  // The "Admin User" account is the super admin. Marked only while nobody is,
+  // so a later change of super admin is never undone on restart.
+  if (!(await db.prepare('SELECT 1 FROM users WHERE is_super_admin = 1').get())) {
+    await db.prepare("UPDATE users SET is_super_admin = 1 WHERE role = 'Administrator' AND LOWER(TRIM(COALESCE(full_name, ''))) = 'admin user'").run();
+  }
   await ensureColumnAsync(db, 'orders', 'source_sheet', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'confirmed_by', 'TEXT');

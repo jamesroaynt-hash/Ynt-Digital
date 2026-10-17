@@ -1,5 +1,6 @@
 const express = require('express');
 const { getClientIp } = require('../services/clientIp');
+const superAdmin = require('../services/superAdmin');
 
 // Administrator, HR and Operation may manage accounts: Operation was granted
 // HR's access, so it clears every gate HR clears. Role text is typed by hand
@@ -36,7 +37,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
       const user = await db.prepare(`
-        SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active
+        SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active, is_super_admin
         FROM users
         WHERE id = ?
       `).get(decoded.id);
@@ -54,6 +55,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
         daily_rate: user.daily_rate,
+        is_super_admin: Number(user.is_super_admin) === 1,
       };
     } catch {
       return null;
@@ -68,6 +70,10 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     req.user = user;
     next();
   }
+
+  // Creating, editing, activating and deleting accounts, and the POS name
+  // links, are the super admin's alone (see services/superAdmin.js).
+  const requireSuperAdmin = [requireAdmin, superAdmin.requireSuperAdmin(db)];
 
   async function requireAuth(req, res, next) {
     const user = await getRequestUser(req);
@@ -142,12 +148,13 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
         daily_rate: user.daily_rate,
+        is_super_admin: Number(user.is_super_admin) === 1,
       },
     });
   });
 
   // POST /api/auth/register
-  router.post('/register', requireAdmin, async (req, res) => {
+  router.post('/register', requireSuperAdmin, async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
     const fullName = String(req.body?.full_name || req.body?.name || '').trim();
@@ -218,9 +225,9 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
       if (decoded.jti && tokenBlocklist.has(decoded.jti)) {
         return res.status(401).json({ error: 'Token has been revoked' });
       }
-      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate FROM users WHERE id=? AND is_active=1').get(decoded.id);
+      const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_super_admin FROM users WHERE id=? AND is_active=1').get(decoded.id);
       if (!user) return res.status(401).json({ error: 'Account not found or deactivated' });
-      res.json(user);
+      res.json({ ...user, is_super_admin: Number(user.is_super_admin) === 1 });
     } catch {
       res.status(401).json({ error: 'Invalid token' });
     }
@@ -322,7 +329,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     res.json({ users });
   });
 
-  router.put('/users/:id', requireAdmin, async (req, res) => {
+  router.put('/users/:id', requireSuperAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });
@@ -475,7 +482,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
   // Assign one confirmer name to a dashboard user, or clear it with a null
   // user_id. A name held by somebody else is refused rather than moved: two
   // dashboard accounts on one name would both count its orders as their own.
-  router.put('/pos-links', requireAdmin, async (req, res) => {
+  router.put('/pos-links', requireSuperAdmin, async (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'name required' });
 
@@ -522,7 +529,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
   // but it refuses to touch a row that is already inactive, so there was no way
   // back — a deactivated employee was stranded. requireAdmin covers
   // Administrator and HR, which is who may do this.
-  router.patch('/users/:id/active', requireAdmin, async (req, res) => {
+  router.patch('/users/:id/active', requireSuperAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });
@@ -551,7 +558,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     res.json({ success: true, id: userId, is_active: active, full_name: existing.full_name });
   });
 
-  router.delete('/users/:id', requireAdmin, async (req, res) => {
+  router.delete('/users/:id', requireSuperAdmin, async (req, res) => {
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });

@@ -1,11 +1,9 @@
 const express = require('express');
 const dailySummary = require('../services/dailySummary');
+const superAdmin = require('../services/superAdmin');
 
 // The end-of-day Summary page. Sales figures for the whole business, so it is
-// the Administrator's alone — every route here checks, not just the menu.
-function isAdministrator(user) {
-  return ['administrator', 'admin'].includes(String(user?.role || '').trim().toLowerCase());
-}
+// the super admin's alone — every route here checks, not just the menu.
 
 function parseData(row) {
   try {
@@ -18,10 +16,7 @@ function parseData(row) {
 module.exports = function dailySummaryRoutes(db) {
   const router = express.Router();
 
-  router.use((req, res, next) => {
-    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
-    next();
-  });
+  router.use(superAdmin.requireSuperAdmin(db));
 
   // The days with a snapshot, newest first, with the headline numbers for the
   // picker.

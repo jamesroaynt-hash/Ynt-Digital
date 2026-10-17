@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const superAdmin = require('../services/superAdmin');
 
 const ALLOWED_SCOPES = [
   'orders:read', 'orders:write',
@@ -32,6 +33,8 @@ function requireAdmin(req, res, next) {
 module.exports = function apiKeysRoutes(db) {
   const r = express.Router();
   r.use(requireAdmin);
+  // API keys are the super admin's alone.
+  r.use(superAdmin.requireSuperAdmin(db));
 
   r.get('/', async (req, res) => {
     try {

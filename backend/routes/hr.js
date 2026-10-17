@@ -1,4 +1,5 @@
 const express = require('express');
+const superAdmin = require('../services/superAdmin');
 
 // Administrator, HR and Operation all manage HR: Operation was granted HR's
 // access, so it clears every gate HR clears. Role text is typed by hand on
@@ -954,6 +955,7 @@ module.exports = function hrRoutes(db) {
     const rawDayOff = Number(req.body?.day_off);
     const dayOff = Number.isInteger(rawDayOff) && rawDayOff >= 0 && rawDayOff <= 6 ? rawDayOff : -1;
     if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user id' });
+    if (!(await superAdmin.guardSuperAdminTarget(db, req, res, userId))) return;
 
     const user = await getActiveUser(db, userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
