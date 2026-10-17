@@ -453,7 +453,9 @@ module.exports = function evaluationRoutes(db) {
   // anonymous unless showNames is set — only for an Administrator reading
   // somebody else's sheets (see /summary). When it is not set the name never
   // leaves the server, so it cannot be read out of the network tab either.
-  async function summaryFor(subjectId, period, config, { showNames = false } = {}) {
+  // showDates is off for an employee reading their own sheets: when a sheet
+  // was filed can be enough to tell who filed it.
+  async function summaryFor(subjectId, period, config, { showNames = false, showDates = true } = {}) {
     const rows = await db.prepare(`
       SELECT e.*, u.full_name AS evaluator_full_name, u.username AS evaluator_username
       FROM evaluations e
@@ -482,7 +484,9 @@ module.exports = function evaluationRoutes(db) {
         development_areas: row.development_areas || '',
         proceed_to_final: row.proceed_to_final || '',
         passed: row.passed || '',
-        date_evaluated: String(row.updated_at || row.created_at || '').slice(0, 10),
+        ...(showDates ? {
+          date_evaluated: String(row.updated_at || row.created_at || '').slice(0, 10),
+        } : {}),
       })),
     };
   }
@@ -790,7 +794,7 @@ module.exports = function evaluationRoutes(db) {
         period = (byPeriod.get(window.period) || []).some(hasMatrix) || !latest ? window.period : latest;
       }
 
-      const summary = await summaryFor(viewerId, period, config);
+      const summary = await summaryFor(viewerId, period, config, { showDates: isHrManager(req.user) });
       res.json({
         ...summary,
         window,

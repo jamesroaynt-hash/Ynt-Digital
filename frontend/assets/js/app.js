@@ -5781,7 +5781,7 @@ function renderEvaluationResponseDetail(responses, index, row, { back = true } =
         <div><span>Position</span><strong>${escapeHtml(row?.role || 'Not set')}</strong></div>
       </div>
       <div><span>Evaluated by</span><strong>${escapeHtml(evaluationResponseName(response, index))}</strong></div>
-      <div><span>Date Evaluated</span><strong>${escapeHtml(response.date_evaluated || '—')}</strong></div>
+      ${response.date_evaluated ? `<div><span>Date Evaluated</span><strong>${escapeHtml(response.date_evaluated)}</strong></div>` : ''}
       <div><span>Evaluation Period</span><strong>${escapeHtml(evaluationPeriodLabel(evaluationState.period))}</strong></div>
       <div><span>Over All Percentage</span><strong class="eval-meta-total">${evaluationPercentText(result.score)}</strong></div>
     </div>
