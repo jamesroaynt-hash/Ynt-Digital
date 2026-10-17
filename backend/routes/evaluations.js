@@ -382,15 +382,18 @@ module.exports = function evaluationRoutes(db) {
   }
 
   // Who can be rated: every active account, administrators included, except
-  // trainees — they are still in training and are not on the list.
-  async function ratableUsers() {
+  // trainees — they are still in training and are not on the list — and
+  // anybody the Administrator took off it (users.exclude_from_evaluation).
+  // Taken off the list only stops them being rated; they still rate others.
+  async function ratableUsers({ excluded = false } = {}) {
     return db.prepare(`
       SELECT id, full_name, username, role
       FROM users
       WHERE is_active = 1
         AND LOWER(TRIM(COALESCE(role, ''))) <> 'trainee'
+        AND COALESCE(exclude_from_evaluation, 0) = ?
       ORDER BY full_name COLLATE NOCASE ASC
-    `).all();
+    `).all(excluded ? 1 : 0);
   }
 
   // A subject's matrix is every evaluator's sheet averaged item by item: each
@@ -668,6 +671,13 @@ module.exports = function evaluationRoutes(db) {
         can_evaluate: canEvaluate(req.user),
         can_fill_anytime: isHrManager(req.user),
         periods,
+        // Who the Administrator took off the list, so they can be put back.
+        excluded: isAdministrator(req.user)
+          ? (await ratableUsers({ excluded: true })).map((user) => ({
+            id: user.id, name: user.full_name || user.username, role: user.role || null,
+          }))
+          : [],
+        can_exclude: isAdministrator(req.user),
         data: rows,
       });
     } catch (error) {
@@ -702,6 +712,7 @@ module.exports = function evaluationRoutes(db) {
         SELECT id FROM users
         WHERE id = ? AND is_active = 1
           AND LOWER(TRIM(COALESCE(role, ''))) <> 'trainee'
+          AND COALESCE(exclude_from_evaluation, 0) = 0
       `).get(subjectId);
       if (!subject) return res.status(404).json({ error: 'Employee not found' });
 
@@ -760,6 +771,23 @@ module.exports = function evaluationRoutes(db) {
       const subjectId = Number(req.params.subjectId);
       const showNames = isAdministrator(req.user) && subjectId !== Number(req.user?.id);
       res.json(await summaryFor(subjectId, period, await loadConfig(), { showNames }));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Take somebody off the list of people rated, or put them back. The
+  // Administrator only. Sheets already filed about them are left as they are.
+  router.put('/exclusion', async (req, res) => {
+    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
+    try {
+      const userId = Number(req.body?.user_id);
+      if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user' });
+      const excluded = req.body?.excluded ? 1 : 0;
+      const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      await db.prepare('UPDATE users SET exclude_from_evaluation = ? WHERE id = ?').run(excluded, userId);
+      res.json({ saved: true, user_id: userId, excluded: !!excluded });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

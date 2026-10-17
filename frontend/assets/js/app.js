@@ -5110,6 +5110,8 @@ async function initEvaluationKpi() {
     const result = await authorizedJsonRequest(`/evaluations/queue?${evaluationPeriodQuery({ queue: true })}_=${Date.now()}`);
     evaluationState.period = result.period;
     evaluationState.periods = Array.isArray(result.periods) ? result.periods : [];
+    evaluationState.excluded = Array.isArray(result.excluded) ? result.excluded : [];
+    evaluationState.canExclude = !!result.can_exclude;
     evaluationState.window = result.window;
     evaluationState.weights = result.weights;
     evaluationState.criteria = Array.isArray(result.criteria) ? result.criteria : null;
@@ -5596,13 +5598,48 @@ function renderEvaluationQueue() {
             <td>${row.submitted
               ? '<span class="badge badge-success">Submitted</span>'
               : (open ? '<span class="badge badge-warning">Pending</span>' : '<span class="badge badge-gray">Not open</span>')}</td>
-            <td onclick="event.stopPropagation();"><button class="btn ${row.submitted ? 'btn-secondary' : 'btn-primary'} btn-sm"
+            <td onclick="event.stopPropagation();" style="white-space:nowrap;"><button class="btn ${row.submitted ? 'btn-secondary' : 'btn-primary'} btn-sm"
               onclick="openEvaluationForm(${Number(row.id)})"${open ? '' : ' disabled title="Opens ' + escapeHtml(evaluationState.window?.opens_on || '') + '"'}>
-              ${row.submitted ? 'Edit' : 'Evaluate'}</button></td>
+              ${row.submitted ? 'Edit' : 'Evaluate'}</button>
+              ${evaluationState.canExclude ? `<button class="btn btn-secondary btn-sm" type="button"
+                onclick="setEvaluationExcluded(${Number(row.id)}, true)" title="Take off the list — nobody rates them">Exclude</button>` : ''}</td>
           </tr>`).join('')}
       </tbody>
     </table>
+  </div>
+  ${renderEvaluationExcluded()}`;
+}
+
+// The people the Administrator took off the list, each with a way back on.
+function renderEvaluationExcluded() {
+  const excluded = evaluationState.canExclude ? (evaluationState.excluded || []) : [];
+  if (!excluded.length) return '';
+  return `
+  <div class="ev-mine-sheets" style="margin-top:14px;">
+    <span class="ev-muted">Not included in evaluation:</span>
+    ${excluded.map((user) => `
+      <button class="btn btn-secondary btn-sm" type="button" onclick="setEvaluationExcluded(${Number(user.id)}, false)"
+        title="Put back on the list">${escapeHtml(user.name || 'User')} · Include</button>`).join('')}
   </div>`;
+}
+
+async function setEvaluationExcluded(userId, excluded) {
+  const name = (evaluationState.rows.find((row) => row.id === userId)
+    || (evaluationState.excluded || []).find((user) => user.id === userId))?.name || 'this user';
+  if (excluded && !window.confirm(`Exclude ${name} from evaluation? Nobody will be asked to rate them until they are included again. Sheets already filed are kept.`)) return;
+  try {
+    await authorizedJsonRequest('/evaluations/exclusion', {
+      method: 'PUT',
+      body: JSON.stringify({ user_id: userId, excluded }),
+    });
+    showToast('success', excluded ? 'Excluded' : 'Included', excluded
+      ? `${name} is no longer on the evaluation list.`
+      : `${name} is back on the evaluation list.`);
+    await initEvaluationKpi();
+    refreshEvaluationTopbarButton({ force: true }).catch(() => {});
+  } catch (error) {
+    showToast('error', 'Could not update', error.message || 'The list was not changed.');
+  }
 }
 
 // Only ever called for HR/Administrator — the column is dropped for everyone

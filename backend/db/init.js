@@ -457,6 +457,7 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'daily_rate', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'users', 'day_off', 'INTEGER NOT NULL DEFAULT -1');
   ensureColumn(db, 'users', 'include_in_payroll', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'users', 'exclude_from_evaluation', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'orders', 'source_sheet', 'TEXT');
   ensureColumn(db, 'orders', 'tags', 'TEXT');
   ensureColumn(db, 'orders', 'confirmed_by', 'TEXT');
@@ -1068,6 +1069,7 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'users', 'daily_rate', 'REAL NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'users', 'day_off', 'INTEGER NOT NULL DEFAULT -1');
   await ensureColumnAsync(db, 'users', 'include_in_payroll', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumnAsync(db, 'users', 'exclude_from_evaluation', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'orders', 'source_sheet', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'tags', 'TEXT');
   await ensureColumnAsync(db, 'orders', 'confirmed_by', 'TEXT');
