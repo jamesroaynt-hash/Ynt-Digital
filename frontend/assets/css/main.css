@@ -7041,10 +7041,15 @@ tfoot td {
 .et-chip.yes.active  { background: var(--success); border-color: var(--success); color: #fff; }
 .et-chip.rest.active { background: var(--warning); border-color: var(--warning); color: #fff; }
 .et-chip.no.active   { background: var(--danger);  border-color: var(--danger);  color: #fff; }
+.et-chip.late.active { background: #f97316; border-color: #f97316; color: #fff; }
+.et-chip.note { font-size: 11px; opacity: .55; }
+.et-chip.note.active { opacity: 1; background: var(--accent); border-color: var(--accent); }
 .et-legend .et-chip { cursor: default; }
 .et-legend .et-chip.yes  { color: var(--success); border-color: var(--success); }
 .et-legend .et-chip.rest { color: var(--warning); border-color: var(--warning); }
 .et-legend .et-chip.no   { color: var(--danger);  border-color: var(--danger); }
+.et-legend .et-chip.late { color: #f97316; border-color: #f97316; }
+.et-legend .et-chip.note { opacity: 1; }
 
 .et-scroll {
   overflow-x: auto;

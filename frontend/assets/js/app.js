@@ -4422,7 +4422,7 @@ const EMPLOYEE_TRACKER_METRICS = [
     id: 'standup',
     tab: 'Standup',
     title: 'Standup Meeting Attendance',
-    hint: 'Did the employee attend the daily standup? One click per employee per day — click an active state again to clear it.',
+    hint: 'Did the employee attend the daily standup? One click per employee per day — click an active state again to clear it. 📝 adds a note for that day.',
     yes: 'Attended',
     no: 'Not Attended',
   },
@@ -4430,7 +4430,7 @@ const EMPLOYEE_TRACKER_METRICS = [
     id: 'eod',
     tab: 'EOD',
     title: 'EOD Report Submission',
-    hint: 'Did the employee send an end-of-day report? One click per employee per day — click an active state again to clear it.',
+    hint: 'Did the employee send an end-of-day report? One click per employee per day — click an active state again to clear it. 📝 adds a note for that day.',
     yes: 'Submitted',
     no: 'Not Submitted',
   },
@@ -4438,7 +4438,7 @@ const EMPLOYEE_TRACKER_METRICS = [
     id: 'selfcare',
     tab: 'Self-Care',
     title: 'Self-Care Compliance',
-    hint: 'Did the employee log their self-care for the day? One click per employee per day — click an active state again to clear it.',
+    hint: 'Did the employee log their self-care for the day? One click per employee per day — click an active state again to clear it. 📝 adds a note for that day.',
     yes: 'Done',
     no: 'Not Done',
   },
@@ -4593,6 +4593,22 @@ function renderEmployeeTracker() {
 
   <div class="card" id="employee-tracker-card">
     <div class="empty-state"><h3>Loading tracker</h3><p>Pulling the active account list.</p></div>
+  </div>
+
+  <div class="modal-overlay" id="et-note-modal">
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-header">
+        <div class="modal-title" id="et-note-title">Note</div>
+        <button class="modal-close" onclick="closeModal('et-note-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <textarea class="form-control" id="et-note-text" rows="5" placeholder="What happened that day — e.g. late 20 minutes, sick, sent EOD on Messenger…"></textarea>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="saveEmployeeTrackerNote()">Save note</button>
+          <button class="btn btn-secondary" onclick="clearEmployeeTrackerNote()">Delete</button>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -4658,8 +4674,10 @@ function renderEmployeeTrackerCard() {
       </div>
       <div class="et-legend">
         <span><i class="et-chip yes">✓</i>${escapeHtml(metric.yes)}</span>
+        <span><i class="et-chip late">L</i>Late</span>
         <span><i class="et-chip rest">R</i>Rest Day</span>
         <span><i class="et-chip no">×</i>${escapeHtml(metric.no)}</span>
+        <span><i class="et-chip note">📝</i>Note for the day</span>
       </div>
       ${renderEmployeeTrackerGrid(metric, weekStart)}
       <div class="et-foot">${renderEmployeeTrackerFootnote()}</div>
@@ -4674,17 +4692,23 @@ function renderEmployeeTrackerGrid(metric, weekStart) {
   const today = manilaToday();
   const days = Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i));
   const marks = employeeTrackerState.marks[metric.id] || {};
-  const states = [['yes', '✓', metric.yes], ['rest', 'R', 'Rest Day'], ['no', '×', metric.no]];
+  const states = [['yes', '✓', metric.yes], ['late', 'L', 'Late'], ['rest', 'R', 'Rest Day'], ['no', '×', metric.no]];
+  const notes = employeeTrackerNotes(metric.id);
 
   const employeeRow = (employee) => {
     const row = marks[employee.id] || {};
+    const noteRow = notes[employee.id] || {};
     return `<tr>
       <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
-      ${days.map((day) => `<td class="${day === today ? 'et-today' : ''}">
+      ${days.map((day) => {
+        const note = noteRow[day] || '';
+        return `<td class="${day === today ? 'et-today' : ''}">
         <div class="et-cell">
           ${states.map(([state, glyph, label]) => `<button class="et-chip ${state}${row[day] === state ? ' active' : ''}" title="${escapeHtml(label)}" onclick="setEmployeeMark(${Number(employee.id)}, '${day}', '${state}')">${glyph}</button>`).join('')}
+          <button class="et-chip note${note ? ' active' : ''}" title="${escapeHtml(note || 'Add a note for this day')}" onclick="openEmployeeTrackerNote(${Number(employee.id)}, '${day}')">📝</button>
         </div>
-      </td>`).join('')}
+      </td>`;
+      }).join('')}
     </tr>`;
   };
 
@@ -4749,6 +4773,50 @@ function setEmployeeMark(userId, date, state) {
   else row[date] = state;
   saveEmployeeTrackerMarks();
   renderEmployeeTrackerCard();
+}
+
+// Notes ride along with the marks: one per employee per day, per tab, kept
+// under their own key in the same saved object.
+function employeeTrackerNotes(metricId) {
+  const all = employeeTrackerState.marks._notes || (employeeTrackerState.marks._notes = {});
+  return all[metricId] || (all[metricId] = {});
+}
+
+let employeeTrackerNoteTarget = null;
+
+function openEmployeeTrackerNote(userId, date) {
+  const metric = EMPLOYEE_TRACKER_METRICS.find((m) => m.id === employeeTrackerState.metric) || EMPLOYEE_TRACKER_METRICS[0];
+  const employee = employeeTrackerState.employees.find((e) => Number(e.id) === Number(userId));
+  employeeTrackerNoteTarget = { userId: Number(userId), date, metric: metric.id };
+  const title = document.getElementById('et-note-title');
+  const text = document.getElementById('et-note-text');
+  const label = etParseDate(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (title) title.textContent = `${employee?.name || 'Employee'} · ${label} · ${metric.tab}`;
+  if (text) text.value = employeeTrackerNotes(metric.id)[userId]?.[date] || '';
+  openModal('et-note-modal');
+  setTimeout(() => text?.focus(), 50);
+}
+
+function writeEmployeeTrackerNote(value) {
+  const target = employeeTrackerNoteTarget;
+  if (!target) return;
+  const notes = employeeTrackerNotes(target.metric);
+  const row = notes[target.userId] || (notes[target.userId] = {});
+  const text = String(value || '').trim();
+  if (text) row[target.date] = text;
+  else delete row[target.date];
+  saveEmployeeTrackerMarks();
+  closeModal('et-note-modal');
+  employeeTrackerNoteTarget = null;
+  renderEmployeeTrackerCard();
+}
+
+function saveEmployeeTrackerNote() {
+  writeEmployeeTrackerNote(document.getElementById('et-note-text')?.value || '');
+}
+
+function clearEmployeeTrackerNote() {
+  writeEmployeeTrackerNote('');
 }
 
 function setEmployeeTrackerMetric(metric) {
