@@ -624,16 +624,16 @@ module.exports = function evaluationRoutes(db) {
       // HR's view of who has done their part: every active account rates
       // everyone on the list but themselves, so each one owes that many sheets.
       let progress = [];
-      // Every period anybody filed sheets under, plus the running one, so HR
-      // can read a period after the window has rolled past it.
-      let periods = [];
-      if (canSeeScores) {
-        const filed = await db.prepare('SELECT DISTINCT period FROM evaluations').all();
-        periods = [...new Set([window.period, period, ...filed.map((row) => row.period)])]
-          .filter((value) => PERIOD_PATTERN.test(String(value || '')))
-          .sort()
-          .reverse();
-      }
+      // The periods to pick from, the running one always among them: HR gets
+      // every period anybody filed sheets under; everybody else the periods
+      // they filed their own sheets in, to look back at who they rated.
+      const filed = canSeeScores
+        ? await db.prepare('SELECT DISTINCT period FROM evaluations').all()
+        : await db.prepare('SELECT DISTINCT period FROM evaluations WHERE evaluator_id = ?').all(viewerId);
+      const periods = [...new Set([window.period, period, ...filed.map((row) => row.period)])]
+        .filter((value) => PERIOD_PATTERN.test(String(value || '')))
+        .sort()
+        .reverse();
       if (canSeeScores) {
         const all = await db.prepare('SELECT * FROM evaluations WHERE period = ?').all(period);
         all.forEach((row) => {

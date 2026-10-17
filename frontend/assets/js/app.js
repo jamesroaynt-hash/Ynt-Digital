@@ -5085,38 +5085,38 @@ function renderEvaluationModal() {
 }
 
 // The ?period= every read on this page carries — empty for the running period.
-// Everybody else only picks which of their own periods My Evaluation shows —
-// their queue is always the running period, since that is what they file under.
-function evaluationPeriodQuery({ queue = false } = {}) {
+function evaluationPeriodQuery() {
   if (!evaluationState.viewPeriod) return '';
-  if (queue && !evaluationState.canSeeScores) return '';
   return `period=${encodeURIComponent(evaluationState.viewPeriod)}&`;
 }
 
 function changeEvaluationPeriod(period) {
   evaluationState.viewPeriod = period;
   evaluationState.mine = null;
-  if (!evaluationState.canSeeScores) {
-    renderEvaluationMine();
-    loadMyEvaluation();
-    return;
-  }
   evaluationState.summary = null;
   evaluationState.openResponse = null;
   initEvaluationKpi();
 }
 
-// The period picker. HR reads every period with sheets on file; everybody else
-// the periods they were rated in. The running one is marked.
+// Everybody but HR files only under the running period, so a past one they
+// pick is there to look at, not to fill in.
+function evaluationViewOnly() {
+  return !evaluationState.canFillAnytime
+    && !!evaluationState.window?.period
+    && evaluationState.period !== evaluationState.window.period;
+}
+
+// The period picker, for everybody. HR reads every period with sheets on file;
+// everybody else the periods they filed their own sheets in. The running one
+// is marked.
 function renderEvaluationPeriodSelect() {
   const reset = document.getElementById('evaluation-reset-btn');
   if (reset) reset.style.display = evaluationState.canSeeScores && isAdminUser() ? '' : 'none';
   const select = document.getElementById('evaluation-period-select');
   if (!select) return;
-  const hr = evaluationState.canSeeScores;
-  const periods = (hr ? evaluationState.periods : evaluationState.mine?.periods) || [];
-  const selected = hr ? evaluationState.period : evaluationState.mine?.period;
-  if (periods.length < 2) {
+  const periods = evaluationState.periods || [];
+  const selected = evaluationState.period;
+  if (!periods.length) {
     select.style.display = 'none';
     return;
   }
@@ -5127,7 +5127,7 @@ function renderEvaluationPeriodSelect() {
 
 async function initEvaluationKpi() {
   try {
-    const result = await authorizedJsonRequest(`/evaluations/queue?${evaluationPeriodQuery({ queue: true })}_=${Date.now()}`);
+    const result = await authorizedJsonRequest(`/evaluations/queue?${evaluationPeriodQuery()}_=${Date.now()}`);
     evaluationState.period = result.period;
     evaluationState.periods = Array.isArray(result.periods) ? result.periods : [];
     evaluationState.excluded = Array.isArray(result.excluded) ? result.excluded : [];
@@ -5598,13 +5598,16 @@ function renderEvaluationQueue() {
   const period = evaluationPeriodLabel(evaluationState.period);
   // HR and the Administrator are not held to the five-day window, so the form
   // stays available to them whether or not it is open for everybody else.
-  const open = !!evaluationState.window?.open || !!evaluationState.canFillAnytime;
+  const viewOnly = evaluationViewOnly();
+  const open = !viewOnly && (!!evaluationState.window?.open || !!evaluationState.canFillAnytime);
   // The score column and the row's record are HR/Administrator only, so for a
   // peer the column is not rendered at all rather than repeating "HR only"
   // down the table, and a row is not clickable — there is nothing to open.
   const showScores = !!evaluationState.canSeeScores;
 
   wrap.innerHTML = `
+  ${viewOnly ? `<div class="alert alert-info" style="margin-bottom:12px;"><div><strong>${escapeHtml(period)} — view only.</strong>
+    This period has ended; it shows who you rated. Switch back to the current period to fill in sheets.</div></div>` : ''}
   <div class="ev-scroll">
     <table class="ev-table">
       <thead>
@@ -5627,9 +5630,10 @@ function renderEvaluationQueue() {
             ${showScores ? `<td>${renderEvaluationScoreCell(row)}</td>` : ''}
             <td>${row.submitted
               ? '<span class="badge badge-success">Submitted</span>'
-              : (open ? '<span class="badge badge-warning">Pending</span>' : '<span class="badge badge-gray">Not open</span>')}</td>
+              : viewOnly ? '<span class="badge badge-gray">Not submitted</span>'
+                : (open ? '<span class="badge badge-warning">Pending</span>' : '<span class="badge badge-gray">Not open</span>')}</td>
             <td onclick="event.stopPropagation();" style="white-space:nowrap;"><button class="btn ${row.submitted ? 'btn-secondary' : 'btn-primary'} btn-sm"
-              onclick="openEvaluationForm(${Number(row.id)})"${open ? '' : ' disabled title="Opens ' + escapeHtml(evaluationState.window?.opens_on || '') + '"'}>
+              onclick="openEvaluationForm(${Number(row.id)})"${open ? '' : viewOnly ? ' disabled title="Past period — view only"' : ' disabled title="Opens ' + escapeHtml(evaluationState.window?.opens_on || '') + '"'}>
               ${row.submitted ? 'Edit' : 'Evaluate'}</button>
               ${evaluationState.canExclude ? `<button class="btn btn-secondary btn-sm" type="button"
                 onclick="setEvaluationExcluded(${Number(row.id)}, true)" title="Take off the list — nobody rates them">Exclude</button>` : ''}</td>
@@ -6096,6 +6100,12 @@ function openEvaluationForm(userId) {
   const row = evaluationState.rows.find((r) => r.id === Number(userId));
   if (!row) return;
   // The window is everybody else's; HR and the Administrator write any time.
+  // A past period is for looking back; the server would file the sheet under
+  // the running period instead.
+  if (evaluationViewOnly()) {
+    showToast('warning', 'Past period', 'Switch to the current period to fill in sheets.');
+    return;
+  }
   if (!evaluationState.window?.open && !evaluationState.canFillAnytime) {
     const win = evaluationState.window || {};
     showToast('warning', 'Evaluation is closed',
