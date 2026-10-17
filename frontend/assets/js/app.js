@@ -27646,20 +27646,26 @@ function renderSummaryBody() {
     return;
   }
 
-  const sections = summaryNoteSections(s, day);
+  // Each big heading starts a column — Today on the left, Month to date on the
+  // right — and the columns stack once the screen is too narrow for both.
+  const columns = [];
+  summaryNoteSections(s, day).forEach((section) => {
+    if (section.big || !columns.length) columns.push([]);
+    columns[columns.length - 1].push(section);
+  });
+  const renderSection = (section, index) => `
+    ${section.heading ? `<div style="${section.big
+      ? `font-size:16px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin:${index ? 22 : 4}px 0 8px;`
+      : 'font-weight:600;margin:16px 0 6px;'}">${escapeHtml(section.heading)}</div>` : ''}
+    ${section.table ? renderSummaryNoteTable(section.table) : ''}`;
   body.innerHTML = `
   <div class="card">
     <div class="card-header">
       <div class="card-title" style="font-size:18px;">📝 Summary — ${escapeHtml(label)}</div>
       <button class="btn btn-secondary btn-sm" type="button" onclick="copySummaryNote()">Copy</button>
     </div>
-    <div class="card-body" style="max-width:820px;">
-      ${sections.map((section) => `
-        ${section.heading ? `<div style="${section.big
-          ? 'font-size:16px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin:22px 0 8px;'
-          : 'font-weight:600;margin:16px 0 6px;'}">${escapeHtml(section.heading)}</div>` : ''}
-        ${section.table ? renderSummaryNoteTable(section.table) : ''}
-      `).join('')}
+    <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:8px 32px;align-items:start;">
+      ${columns.map((column) => `<div style="min-width:0;">${column.map(renderSection).join('')}</div>`).join('')}
     </div>
   </div>`;
 }
