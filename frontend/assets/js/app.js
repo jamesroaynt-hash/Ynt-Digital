@@ -16966,7 +16966,7 @@ function toggleNavSection(sectionId) {
   else localStorage.removeItem('nav_collapsed_' + sectionId);
 }
 
-const NAV_SECTION_IDS = ['main', 'sales', 'rmo', 'operations', 'reports', 'people', 'system'];
+const NAV_SECTION_IDS = ['main', 'summary', 'sales', 'rmo', 'operations', 'reports', 'people', 'system'];
 const NAV_SECTION_OPEN_BY_DEFAULT = 'main';
 
 // Fresh login (and first ever visit) starts with only the Dashboard section expanded.
@@ -27510,38 +27510,62 @@ function summaryCount(value) {
   return Number(value || 0).toLocaleString();
 }
 
-function summaryTable(title, subtitle, rows, { nameLabel = 'Name', emptyName = '—', total = null } = {}) {
-  const list = Array.isArray(rows) ? rows : [];
-  const sum = total || {
-    orders: list.reduce((s, r) => s + Number(r.orders || 0), 0),
-    sales: list.reduce((s, r) => s + Number(r.sales || 0), 0),
-  };
-  return `
-  <div class="card" style="margin-bottom:20px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">${escapeHtml(title)}</div>
-        <div class="card-subtitle">${escapeHtml(subtitle)}</div>
-      </div>
-    </div>
-    <div class="card-body">
-      ${list.length ? `
-      <div class="ev-scroll">
-        <table class="ev-table">
-          <thead><tr><th>${escapeHtml(nameLabel)}</th><th>Orders</th><th>Sales</th><th>Share</th></tr></thead>
-          <tbody>
-            ${list.map((row) => `<tr>
-              <td><strong>${escapeHtml(row.name || emptyName)}</strong></td>
-              <td>${summaryCount(row.orders)}</td>
-              <td>${formatPeso(row.sales)}</td>
-              <td><span class="ev-muted">${sum.orders ? ((Number(row.orders || 0) / sum.orders) * 100).toFixed(1) : '0.0'}%</span></td>
-            </tr>`).join('')}
-          </tbody>
-          <tfoot><tr><td><strong>Total</strong></td><td><strong>${summaryCount(sum.orders)}</strong></td><td><strong>${formatPeso(sum.sales)}</strong></td><td></td></tr></tfoot>
-        </table>
-      </div>` : '<div class="empty-state"><p>No orders.</p></div>'}
-    </div>
-  </div>`;
+// The day as a note: one card read top to bottom, the same lines that Copy
+// puts on the clipboard so it pastes cleanly into a chat or a notes app.
+function summaryNoteSections(s, day) {
+  const dayStats = s.day || {};
+  const month = s.month || {};
+  const peso = (value) => formatPeso(value);
+  const count = (value) => summaryCount(value);
+  const short = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const statusLine = (list) => (list || []).filter((row) => row.orders)
+    .map((row) => `${row.name} ${count(row.orders)}`).join(' · ') || 'No orders';
+  const people = (list, emptyName, withSales = true) => (list || []).length
+    ? list.map((row) => `${row.name || emptyName} — ${count(row.orders)}${withSales ? ` (${peso(row.sales)})` : ''}`)
+    : ['No orders'];
+  const rts = month.rts_rate === null || month.rts_rate === undefined ? '—' : `${Number(month.rts_rate).toFixed(2)}%`;
+
+  return [
+    { heading: `Orders today: ${count(dayStats.orders)} · ${peso(dayStats.sales)}`, big: true },
+    { heading: 'Per user', bullets: people(dayStats.by_confirmer, 'Not confirmed yet') },
+    { heading: 'Per page', bullets: people(dayStats.by_page, 'No page') },
+    { heading: 'Per status', line: statusLine(dayStats.by_status) },
+    { heading: `Month to date (${short(month.from || day)}–${short(day)})`, big: true },
+    { line: `Total sales: ${peso(month.sales)} (${count(month.orders)} orders)` },
+    { line: `Delivered ${count(month.delivered?.orders)} · Returning ${count(month.returning?.orders)} · Returned ${count(month.returned?.orders)}` },
+    { line: `RTS ${rts}` },
+    { heading: 'Per status — month to date', line: statusLine(month.by_status) },
+    { heading: 'Per page — month to date', bullets: people(month.by_page, 'No page') },
+  ];
+}
+
+function summaryNoteText() {
+  const s = summaryState.data?.summary;
+  if (!s) return '';
+  const day = summaryState.date;
+  const lines = [`📝 Summary — ${summaryDateLabel(day)}`, ''];
+  summaryNoteSections(s, day).forEach((section) => {
+    if (section.heading) {
+      if (lines[lines.length - 1] !== '') lines.push('');
+      lines.push(section.big ? section.heading.toUpperCase() : section.heading);
+    }
+    if (section.line) lines.push(section.line);
+    (section.bullets || []).forEach((bullet) => lines.push(`• ${bullet}`));
+  });
+  const notes = (document.getElementById('summary-notes')?.value || summaryState.data?.notes || '').trim();
+  if (notes) lines.push('', 'Notes', notes);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function copySummaryNote() {
+  const text = summaryNoteText();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('success', 'Copied', 'The summary is on your clipboard.');
+  } catch {
+    showToast('error', 'Could not copy', 'Select the note and copy it by hand.');
+  }
 }
 
 function renderSummaryBody() {
@@ -27562,8 +27586,8 @@ function renderSummaryBody() {
     const source = { scheduled: 'taken automatically', 'catch-up': 'taken late (server was down at 11:50 PM)', manual: 'taken by hand' }[result?.source] || 'taken';
     status.innerHTML = !s ? ''
       : result.live
-        ? `<div class="alert alert-info" style="margin-bottom:16px;"><div><strong>${escapeHtml(label)} — live.</strong> Today is still running; the snapshot is taken at 11:50 PM.</div></div>`
-        : `<div class="alert alert-info" style="margin-bottom:16px;"><div><strong>${escapeHtml(label)}.</strong> Snapshot ${escapeHtml(source)}${when ? ` on ${escapeHtml(when)}` : ''}.</div></div>`;
+        ? '<div class="alert alert-info" style="margin-bottom:16px;"><div><strong>Live.</strong> Today is still running; the snapshot is taken at 11:50 PM.</div></div>'
+        : `<div class="alert alert-info" style="margin-bottom:16px;"><div>Snapshot ${escapeHtml(source)}${when ? ` on ${escapeHtml(when)}` : ''}.</div></div>`;
   }
   if (!s) {
     body.innerHTML = `<div class="empty-state"><h3>No snapshot for ${escapeHtml(label)}</h3>
@@ -27571,42 +27595,23 @@ function renderSummaryBody() {
     return;
   }
 
-  const dayStats = s.day || {};
-  const month = s.month || {};
-  const monthLabel = new Date(`${month.from || day}T00:00:00`).toLocaleDateString('en-US', { month: 'long' });
-  const statusTone = { New: 'blue', Confirmed: 'gray', 'Waiting for pickup': 'amber', Shipped: 'blue', Delivered: 'green', Returning: 'amber', Returned: 'red' };
-
+  const sections = summaryNoteSections(s, day);
   body.innerHTML = `
-  <div class="card-title" style="margin:4px 0 10px;">The day — orders placed on ${escapeHtml(label)}</div>
-  <div class="stats-grid" style="margin-bottom:20px;">
-    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Orders</div><div class="stat-value">${summaryCount(dayStats.orders)}</div><div class="stat-meta">placed this day</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Sales</div><div class="stat-value">${formatPeso(dayStats.sales)}</div><div class="stat-meta">COD of this day's orders</div></div>
-    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">Confirmers</div><div class="stat-value">${summaryCount((dayStats.by_confirmer || []).filter((r) => r.name).length)}</div><div class="stat-meta">confirmed orders this day</div></div>
-    <div class="stat-card navy"><div class="stat-card-accent"></div><div class="stat-label">Pages</div><div class="stat-value">${summaryCount((dayStats.by_page || []).length)}</div><div class="stat-meta">took orders this day</div></div>
-  </div>
-
-  <div class="stats-grid" style="margin-bottom:20px;">
-    ${(dayStats.by_status || []).map((row) => `
-      <div class="stat-card ${statusTone[row.name] || 'gray'}"><div class="stat-card-accent"></div>
-        <div class="stat-label">${escapeHtml(row.name)}</div>
-        <div class="stat-value">${summaryCount(row.orders)}</div>
-        <div class="stat-meta">${formatPeso(row.sales)}</div></div>`).join('')}
-  </div>
-
-  ${summaryTable('Orders per user', 'Who confirmed this day\'s orders. "Not confirmed yet" are still New.', dayStats.by_confirmer, { nameLabel: 'Confirmed by', emptyName: 'Not confirmed yet' })}
-  ${summaryTable('Orders per page', 'This day\'s orders by Facebook page.', dayStats.by_page, { nameLabel: 'Page', emptyName: 'No page' })}
-
-  <div class="card-title" style="margin:8px 0 10px;">Month to date — ${escapeHtml(monthLabel)} 1 to ${escapeHtml(label)}</div>
-  <div class="stats-grid" style="margin-bottom:20px;">
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total sales (cumulative)</div><div class="stat-value">${formatPeso(month.sales)}</div><div class="stat-meta">${summaryCount(month.orders)} orders this month</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${summaryCount(month.delivered?.orders)}</div><div class="stat-meta">${formatPeso(month.delivered?.sales)}</div></div>
-    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${summaryCount(month.returning?.orders)}</div><div class="stat-meta">${formatPeso(month.returning?.sales)}</div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${summaryCount(month.returned?.orders)}</div><div class="stat-meta">${formatPeso(month.returned?.sales)}</div></div>
-    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">RTS rate</div><div class="stat-value">${month.rts_rate === null || month.rts_rate === undefined ? '—' : `${Number(month.rts_rate).toFixed(2)}%`}</div><div class="stat-meta">(returning + returned) ÷ settled</div></div>
-  </div>
-
-  ${summaryTable('Total per status — month to date', `Every ${monthLabel} order up to this day, by where it stands now.`, (month.by_status || []).filter((r) => r.orders), { nameLabel: 'Status', total: { orders: month.orders, sales: month.sales } })}
-  ${summaryTable('Orders per page — month to date', `${monthLabel} orders up to this day, by page.`, month.by_page, { nameLabel: 'Page', emptyName: 'No page' })}`;
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title" style="font-size:18px;">📝 Summary — ${escapeHtml(label)}</div>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="copySummaryNote()">Copy</button>
+    </div>
+    <div class="card-body" style="line-height:1.7;max-width:760px;">
+      ${sections.map((section) => `
+        ${section.heading ? `<div style="${section.big
+          ? 'font-size:16px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin-top:18px;'
+          : 'font-weight:600;margin-top:12px;'}">${escapeHtml(section.heading)}</div>` : ''}
+        ${section.line ? `<div>${escapeHtml(section.line)}</div>` : ''}
+        ${section.bullets ? `<ul style="margin:2px 0 0;padding-left:20px;">${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}
+      `).join('')}
+    </div>
+  </div>`;
 }
 
 async function generateSummarySnapshot() {
