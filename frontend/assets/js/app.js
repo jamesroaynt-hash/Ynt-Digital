@@ -4446,10 +4446,11 @@ const EMPLOYEE_TRACKER_METRICS = [
     id: 'wam',
     tab: 'WAM',
     title: 'WAM Attendance — every Monday',
-    hint: 'Did the employee attend WAM? It runs every Monday, so only the Monday of the week is shown. Click an active state again to clear it. 📝 adds a note for that day.',
+    hint: 'Did the employee attend WAM? It runs every Monday, so the grid shows every Monday of the month. Click an active state again to clear it. 📝 adds a note for that day.',
     yes: 'Attended',
     no: 'Not Attended',
-    // Days of the week this one happens on (0 = Sunday); the grid shows only these.
+    // Days of the week this one happens on (0 = Sunday). A metric with set days
+    // is read a month at a time: every one of those days in the month.
     weekdays: [1],
   },
 ];
@@ -4496,7 +4497,19 @@ function employeeTrackerGroups() {
   return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
-let employeeTrackerState = { metric: 'standup', weekStart: '', employees: [], marks: {}, collapsed: {} };
+let employeeTrackerState = { metric: 'standup', weekStart: '', month: '', employees: [], marks: {}, collapsed: {} };
+
+// Every date in a month that falls on one of the given weekdays (0 = Sunday).
+function etDaysInMonthOn(ym, weekdays) {
+  const [year, month] = String(ym).split('-').map(Number);
+  const last = new Date(year, month, 0).getDate();
+  const days = [];
+  for (let d = 1; d <= last; d += 1) {
+    const date = new Date(year, month - 1, d);
+    if (weekdays.includes(date.getDay())) days.push(etYmd(date));
+  }
+  return days;
+}
 
 // Dates here are handled as plain Y-M-D in local time. Letting Date parse them
 // as UTC would slide the whole week by a day for anyone east of UTC.
@@ -4647,7 +4660,14 @@ function renderEmployeeTrackerCard() {
   const metric = EMPLOYEE_TRACKER_METRICS.find((m) => m.id === employeeTrackerState.metric)
     || EMPLOYEE_TRACKER_METRICS[0];
   const weekStart = employeeTrackerState.weekStart;
-  const ym = weekStart.slice(0, 7);
+  // A metric held on set days (WAM, Mondays) is read a month at a time, on its
+  // own month so switching tabs never moves the week the others are on.
+  const monthly = !!metric.weekdays;
+  if (monthly && !employeeTrackerState.month) employeeTrackerState.month = manilaToday().slice(0, 7);
+  const ym = monthly ? employeeTrackerState.month : weekStart.slice(0, 7);
+  const days = monthly
+    ? etDaysInMonthOn(ym, metric.weekdays)
+    : Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i));
   // weekStart is a Sunday inside `ym`, and etWeeksInMonth walks Sundays from the
   // one on/before the 1st, so the current week is always one of these options.
   const weeks = etWeeksInMonth(ym);
@@ -4668,14 +4688,14 @@ function renderEmployeeTrackerCard() {
         <div class="card-subtitle">${escapeHtml(metric.hint)}</div>
       </div>
       <div class="et-toolbar">
-        <select class="et-select" id="et-month" title="Month" onchange="setEmployeeTrackerMonth(this.value)">
+        <select class="et-select" id="et-month" title="Month" onchange="${monthly ? 'setEmployeeTrackerOwnMonth' : 'setEmployeeTrackerMonth'}(this.value)">
           ${monthOptions.join('')}
         </select>
-        <select class="et-select" id="et-week" title="Week" onchange="setEmployeeTrackerWeek(this.value)">
+        ${monthly ? '' : `<select class="et-select" id="et-week" title="Week" onchange="setEmployeeTrackerWeek(this.value)">
           ${weeks.map((start, i) => `<option value="${start}"${start === weekStart ? ' selected' : ''}>Week ${i + 1} · ${escapeHtml(etRangeLabel(start))}</option>`).join('')}
-        </select>
-        <button class="et-nav" onclick="shiftEmployeeTrackerWeek(-1)" title="Previous week" aria-label="Previous week">←</button>
-        <button class="et-nav" onclick="shiftEmployeeTrackerWeek(1)" title="Next week" aria-label="Next week">→</button>
+        </select>`}
+        <button class="et-nav" onclick="${monthly ? 'shiftEmployeeTrackerMonth' : 'shiftEmployeeTrackerWeek'}(-1)" title="Previous ${monthly ? 'month' : 'week'}" aria-label="Previous ${monthly ? 'month' : 'week'}">←</button>
+        <button class="et-nav" onclick="${monthly ? 'shiftEmployeeTrackerMonth' : 'shiftEmployeeTrackerWeek'}(1)" title="Next ${monthly ? 'month' : 'week'}" aria-label="Next ${monthly ? 'month' : 'week'}">→</button>
       </div>
     </div>
     <div class="card-body">
@@ -4689,21 +4709,17 @@ function renderEmployeeTrackerCard() {
         <span><i class="et-chip no">×</i>${escapeHtml(metric.no)}</span>
         <span><i class="et-chip note">📝</i>Note for the day</span>
       </div>
-      ${renderEmployeeTrackerGrid(metric, weekStart)}
+      ${renderEmployeeTrackerGrid(metric, days)}
       <div class="et-foot">${renderEmployeeTrackerFootnote()}</div>
     </div>`;
 }
 
-function renderEmployeeTrackerGrid(metric, weekStart) {
+function renderEmployeeTrackerGrid(metric, days) {
   const groups = employeeTrackerGroups();
   if (!groups.length) {
     return '<div class="empty-state"><h3>No active accounts</h3><p>Add an account under Users and it will appear here.</p></div>';
   }
   const today = manilaToday();
-  // weekStart is a Sunday, so day i of the week is weekday i. A metric held on
-  // set days only (WAM, Mondays) shows just those columns.
-  const days = Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i))
-    .filter((_, i) => !metric.weekdays || metric.weekdays.includes(i));
   const marks = employeeTrackerState.marks[metric.id] || {};
   const states = [['yes', '✓', metric.yes], ['late', 'L', 'Late'], ['rest', 'R', 'Rest Day'], ['no', '×', metric.no]];
   const notes = employeeTrackerNotes(metric.id);
@@ -4741,7 +4757,7 @@ function renderEmployeeTrackerGrid(metric, weekStart) {
 
   return `
   <div class="et-scroll">
-    <table class="et-table${days.length === 1 ? ' et-single' : ''}">
+    <table class="et-table${metric.weekdays ? ' et-single' : ''}">
       <thead>
         <tr>
           <th class="et-name-col">Employee</th>
@@ -4853,6 +4869,18 @@ function setEmployeeTrackerMonth(ym) {
   renderEmployeeTrackerCard();
 }
 
+function setEmployeeTrackerOwnMonth(ym) {
+  employeeTrackerState.month = ym;
+  renderEmployeeTrackerCard();
+}
+
+function shiftEmployeeTrackerMonth(direction) {
+  const [year, month] = String(employeeTrackerState.month || manilaToday().slice(0, 7)).split('-').map(Number);
+  const date = new Date(year, month - 1 + direction, 1);
+  employeeTrackerState.month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  renderEmployeeTrackerCard();
+}
+
 function shiftEmployeeTrackerWeek(direction) {
   employeeTrackerState.weekStart = etAddDays(employeeTrackerState.weekStart, direction * 7);
   renderEmployeeTrackerCard();
@@ -4860,6 +4888,7 @@ function shiftEmployeeTrackerWeek(direction) {
 
 function employeeTrackerThisWeek() {
   employeeTrackerState.weekStart = etWeekStart(manilaToday());
+  employeeTrackerState.month = manilaToday().slice(0, 7);
   renderEmployeeTrackerCard();
 }
 
