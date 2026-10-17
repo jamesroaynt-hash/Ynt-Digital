@@ -1504,7 +1504,7 @@ function ordersRoutes(db, { dispatch } = {}) {
   // is available to any authenticated user (RMO staff need it, they aren't admins).
   r.get('/assignable-users', async (req, res) => {
     const users = await db.prepare(`
-      SELECT id, full_name, username, role
+      SELECT id, full_name, username, role, is_super_admin
       FROM users
       WHERE is_active = 1
       ORDER BY full_name COLLATE NOCASE ASC
@@ -1514,6 +1514,8 @@ function ordersRoutes(db, { dispatch } = {}) {
         id: u.id,
         name: u.full_name || u.username,
         role: u.role || null,
+        // The Employee Tracker leaves the super admin off its roster.
+        is_super_admin: Number(u.is_super_admin) === 1,
       })),
     });
   });
