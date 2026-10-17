@@ -27510,51 +27510,89 @@ function summaryCount(value) {
   return Number(value || 0).toLocaleString();
 }
 
-// The day as a note: one card read top to bottom, the same lines that Copy
-// puts on the clipboard so it pastes cleanly into a chat or a notes app.
+// The day as a note: one card read top to bottom, each part a small table.
+// Copy puts the same tables on the clipboard as text, so it pastes cleanly
+// into a chat or a notes app.
 function summaryNoteSections(s, day) {
   const dayStats = s.day || {};
   const month = s.month || {};
-  const peso = (value) => formatPeso(value);
-  const count = (value) => summaryCount(value);
   const short = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const statusLine = (list) => (list || []).filter((row) => row.orders)
-    .map((row) => `${row.name} ${count(row.orders)}`).join(' · ') || 'No orders';
-  const people = (list, emptyName, withSales = true) => (list || []).length
-    ? list.map((row) => `${row.name || emptyName} — ${count(row.orders)}${withSales ? ` (${peso(row.sales)})` : ''}`)
-    : ['No orders'];
+  const share = (orders, total) => (total ? `${((Number(orders || 0) / total) * 100).toFixed(1)}%` : '0.0%');
+  // Name | Orders | Sales | Share, with a Total row.
+  const breakdown = (heading, nameLabel, list, emptyName, total) => {
+    const rows = (list || []).filter((row) => row.orders);
+    const sum = total || {
+      orders: rows.reduce((t, row) => t + Number(row.orders || 0), 0),
+      sales: rows.reduce((t, row) => t + Number(row.sales || 0), 0),
+    };
+    return {
+      heading,
+      table: {
+        columns: [nameLabel, 'Orders', 'Sales', 'Share'],
+        rows: rows.map((row) => [row.name || emptyName, summaryCount(row.orders), formatPeso(row.sales), share(row.orders, sum.orders)]),
+        total: rows.length ? ['Total', summaryCount(sum.orders), formatPeso(sum.sales), ''] : null,
+      },
+    };
+  };
   const rts = month.rts_rate === null || month.rts_rate === undefined ? '—' : `${Number(month.rts_rate).toFixed(2)}%`;
 
   return [
-    { heading: `Orders today: ${count(dayStats.orders)} · ${peso(dayStats.sales)}`, big: true },
-    { heading: 'Per user', bullets: people(dayStats.by_confirmer, 'Not confirmed yet') },
-    { heading: 'Per page', bullets: people(dayStats.by_page, 'No page') },
-    { heading: 'Per status', line: statusLine(dayStats.by_status) },
-    { heading: `Month to date (${short(month.from || day)}–${short(day)})`, big: true },
-    { line: `Total sales: ${peso(month.sales)} (${count(month.orders)} orders)` },
-    { line: `Delivered ${count(month.delivered?.orders)} · Returning ${count(month.returning?.orders)} · Returned ${count(month.returned?.orders)}` },
-    { line: `RTS ${rts}` },
-    { heading: 'Per status — month to date', line: statusLine(month.by_status) },
-    { heading: 'Per page — month to date', bullets: people(month.by_page, 'No page') },
+    { heading: `Today — ${short(day)}`, big: true },
+    {
+      table: {
+        columns: ['', 'Orders', 'Sales'],
+        rows: [['Orders today', summaryCount(dayStats.orders), formatPeso(dayStats.sales)]],
+      },
+    },
+    breakdown('Per user', 'Confirmed by', dayStats.by_confirmer, 'Not confirmed yet', { orders: dayStats.orders, sales: dayStats.sales }),
+    breakdown('Per page', 'Page', dayStats.by_page, 'No page', { orders: dayStats.orders, sales: dayStats.sales }),
+    breakdown('Per status', 'Status', dayStats.by_status, '—', { orders: dayStats.orders, sales: dayStats.sales }),
+    { heading: `Month to date — ${short(month.from || day)} to ${short(day)}`, big: true },
+    {
+      table: {
+        columns: ['', 'Orders', 'Sales'],
+        rows: [
+          ['Total sales (cumulative)', summaryCount(month.orders), formatPeso(month.sales)],
+          ['Delivered', summaryCount(month.delivered?.orders), formatPeso(month.delivered?.sales)],
+          ['Returning', summaryCount(month.returning?.orders), formatPeso(month.returning?.sales)],
+          ['Returned', summaryCount(month.returned?.orders), formatPeso(month.returned?.sales)],
+          ['RTS rate', rts, ''],
+        ],
+      },
+    },
+    breakdown('Per status — month to date', 'Status', month.by_status, '—', { orders: month.orders, sales: month.sales }),
+    breakdown('Per page — month to date', 'Page', month.by_page, 'No page', { orders: month.orders, sales: month.sales }),
   ];
+}
+
+// A table as aligned text columns, for the clipboard.
+function summaryTableText(table) {
+  const all = [table.columns, ...table.rows, ...(table.total ? [table.total] : [])];
+  const widths = table.columns.map((_, i) => Math.max(...all.map((row) => String(row[i] ?? '').length)));
+  const line = (row) => row.map((cell, i) => (i === 0
+    ? String(cell ?? '').padEnd(widths[i])
+    : String(cell ?? '').padStart(widths[i]))).join('  ').trimEnd();
+  const out = [line(table.columns), widths.map((w) => '-'.repeat(w)).join('  ')];
+  table.rows.forEach((row) => out.push(line(row)));
+  if (table.total) out.push(line(table.total));
+  return out;
 }
 
 function summaryNoteText() {
   const s = summaryState.data?.summary;
   if (!s) return '';
   const day = summaryState.date;
-  const lines = [`📝 Summary — ${summaryDateLabel(day)}`, ''];
+  const lines = [`📝 Summary — ${summaryDateLabel(day)}`];
   summaryNoteSections(s, day).forEach((section) => {
-    if (section.heading) {
-      if (lines[lines.length - 1] !== '') lines.push('');
-      lines.push(section.big ? section.heading.toUpperCase() : section.heading);
+    if (section.heading) lines.push('', section.big ? section.heading.toUpperCase() : section.heading);
+    if (section.table) {
+      if (!section.heading) lines.push('');
+      lines.push(...(section.table.rows.length ? summaryTableText(section.table) : ['No orders']));
     }
-    if (section.line) lines.push(section.line);
-    (section.bullets || []).forEach((bullet) => lines.push(`• ${bullet}`));
   });
   const notes = (document.getElementById('summary-notes')?.value || summaryState.data?.notes || '').trim();
-  if (notes) lines.push('', 'Notes', notes);
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (notes) lines.push('', 'NOTES', notes);
+  return lines.join('\n');
 }
 
 async function copySummaryNote() {
@@ -27566,6 +27604,19 @@ async function copySummaryNote() {
   } catch {
     showToast('error', 'Could not copy', 'Select the note and copy it by hand.');
   }
+}
+
+function renderSummaryNoteTable(table) {
+  if (!table.rows.length) return '<div class="ev-muted">No orders.</div>';
+  const cell = (value, i, tag = 'td') => `<${tag}${i ? ' style="text-align:right;white-space:nowrap;"' : ''}>${escapeHtml(String(value ?? ''))}</${tag}>`;
+  return `
+  <div class="ev-scroll">
+    <table class="ev-table">
+      <thead><tr>${table.columns.map((col, i) => cell(col, i, 'th')).join('')}</tr></thead>
+      <tbody>${table.rows.map((row) => `<tr>${row.map((value, i) => cell(value, i)).join('')}</tr>`).join('')}</tbody>
+      ${table.total ? `<tfoot><tr>${table.total.map((value, i) => `<td${i ? ' style="text-align:right;white-space:nowrap;"' : ''}><strong>${escapeHtml(String(value ?? ''))}</strong></td>`).join('')}</tr></tfoot>` : ''}
+    </table>
+  </div>`;
 }
 
 function renderSummaryBody() {
@@ -27602,13 +27653,12 @@ function renderSummaryBody() {
       <div class="card-title" style="font-size:18px;">📝 Summary — ${escapeHtml(label)}</div>
       <button class="btn btn-secondary btn-sm" type="button" onclick="copySummaryNote()">Copy</button>
     </div>
-    <div class="card-body" style="line-height:1.7;max-width:760px;">
+    <div class="card-body" style="max-width:820px;">
       ${sections.map((section) => `
         ${section.heading ? `<div style="${section.big
-          ? 'font-size:16px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin-top:18px;'
-          : 'font-weight:600;margin-top:12px;'}">${escapeHtml(section.heading)}</div>` : ''}
-        ${section.line ? `<div>${escapeHtml(section.line)}</div>` : ''}
-        ${section.bullets ? `<ul style="margin:2px 0 0;padding-left:20px;">${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}
+          ? 'font-size:16px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin:22px 0 8px;'
+          : 'font-weight:600;margin:16px 0 6px;'}">${escapeHtml(section.heading)}</div>` : ''}
+        ${section.table ? renderSummaryNoteTable(section.table) : ''}
       `).join('')}
     </div>
   </div>`;
