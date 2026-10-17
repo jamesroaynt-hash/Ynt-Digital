@@ -4442,6 +4442,16 @@ const EMPLOYEE_TRACKER_METRICS = [
     yes: 'Done',
     no: 'Not Done',
   },
+  {
+    id: 'wam',
+    tab: 'WAM',
+    title: 'WAM Attendance — every Monday',
+    hint: 'Did the employee attend WAM? It runs every Monday, so only the Monday of the week is shown. Click an active state again to clear it. 📝 adds a note for that day.',
+    yes: 'Attended',
+    no: 'Not Attended',
+    // Days of the week this one happens on (0 = Sunday); the grid shows only these.
+    weekdays: [1],
+  },
 ];
 
 // Accounts carry a role but no department column, so the tracker derives the
@@ -4583,7 +4593,7 @@ function renderEmployeeTracker() {
   <div class="page-header">
     <div class="page-title">
       <h1>Employee Tracker</h1>
-      <p>Standup, EOD and self-care compliance in one grid.</p>
+      <p>Standup, EOD, self-care and Monday WAM compliance in one grid.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="toggleAllEmployeeTrackerDepartments()">Collapse / Expand All</button>
@@ -4690,7 +4700,10 @@ function renderEmployeeTrackerGrid(metric, weekStart) {
     return '<div class="empty-state"><h3>No active accounts</h3><p>Add an account under Users and it will appear here.</p></div>';
   }
   const today = manilaToday();
-  const days = Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i));
+  // weekStart is a Sunday, so day i of the week is weekday i. A metric held on
+  // set days only (WAM, Mondays) shows just those columns.
+  const days = Array.from({ length: 7 }, (_, i) => etAddDays(weekStart, i))
+    .filter((_, i) => !metric.weekdays || metric.weekdays.includes(i));
   const marks = employeeTrackerState.marks[metric.id] || {};
   const states = [['yes', '✓', metric.yes], ['late', 'L', 'Late'], ['rest', 'R', 'Rest Day'], ['no', '×', metric.no]];
   const notes = employeeTrackerNotes(metric.id);
@@ -4728,7 +4741,7 @@ function renderEmployeeTrackerGrid(metric, weekStart) {
 
   return `
   <div class="et-scroll">
-    <table class="et-table">
+    <table class="et-table${days.length === 1 ? ' et-single' : ''}">
       <thead>
         <tr>
           <th class="et-name-col">Employee</th>

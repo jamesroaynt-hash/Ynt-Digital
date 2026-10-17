@@ -7077,6 +7077,9 @@ tfoot td {
 .et-dow { display: block; }
 .et-date { display: block; margin-top: 2px; font-size: 12px; color: var(--text-secondary); }
 .et-name-col { text-align: left; min-width: 170px; }
+/* A one-day tab (WAM) would otherwise stretch its single column across the
+   card; keep the cell its natural width. */
+.et-table.et-single { width: auto; }
 .et-table td.et-name-col { color: var(--text-primary); }
 /* Today's column stays picked out down the whole grid so the row you are
    actually encoding is obvious on a seven-column table. */
