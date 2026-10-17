@@ -12,6 +12,7 @@ const { initializeDatabaseAsync } = require('./db/init');
 const googleSheetsSync = require('./services/googleSheetsSync');
 const pancakePosSync = require('./services/pancakePosSync');
 const infotxtSms = require('./services/infotxtSms');
+const dailySummary = require('./services/dailySummary');
 const metaAds = require('./services/metaAds');
 const { dispatch: dispatchWebhook } = require('./services/webhookDispatcher');
 const { hashKey: hashApiKey } = require('./routes/apiKeys');
@@ -343,6 +344,7 @@ async function createApp() {
   app.use('/api/expenses', authMiddleware, require('./routes/expenses')(db));
   app.use('/api/hr', authMiddleware, require('./routes/hr')(db));
   app.use('/api/evaluations', authMiddleware, require('./routes/evaluations')(db));
+  app.use('/api/daily-summary', authMiddleware, require('./routes/dailySummary')(db));
   app.use('/api/marketing', authMiddleware, require('./routes/marketing')(db));
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));
   app.use('/api/scans', authMiddleware, require('./routes/scans')(db));
@@ -626,6 +628,27 @@ async function createApp() {
   app.locals.runSmsLogCleanup = runSmsLogCleanup;
   app.locals.scheduleSmsLogCleanup = scheduleSmsLogCleanup;
 
+  // End-of-day Summary snapshot: checks every 10 minutes and takes the day's
+  // snapshot once it is past 23:50 Manila (and yesterday's if it was missed).
+  // Safe to run on more than one instance — a snapshot is an upsert per day.
+  const DAILY_SUMMARY_CHECK_MS = 10 * 60 * 1000;
+  async function runDailySummarySnapshot() {
+    try {
+      const taken = await dailySummary.runScheduledSnapshot(db);
+      if (taken.length) console.log(`[daily_summary] snapshot taken for ${taken.join(', ')}.`);
+    } catch (error) {
+      console.warn(`[daily_summary] snapshot failed: ${error.message}`);
+    }
+  }
+  function scheduleDailySummarySnapshot() {
+    setTimeout(async () => {
+      await runDailySummarySnapshot();
+      scheduleDailySummarySnapshot();
+    }, DAILY_SUMMARY_CHECK_MS);
+  }
+  app.locals.runDailySummarySnapshot = runDailySummarySnapshot;
+  app.locals.scheduleDailySummarySnapshot = scheduleDailySummarySnapshot;
+
   return app;
 }
 
@@ -723,6 +746,11 @@ if (require.main === module) {
         }, 45 * 1000);
 
         app.locals.scheduleSmsLogCleanup();
+
+        setTimeout(() => {
+          app.locals.runDailySummarySnapshot();
+        }, 90 * 1000);
+        app.locals.scheduleDailySummarySnapshot();
 
         if (process.env.META_SYNC_ENABLED === 'true') {
           console.log('[meta_ads] auto-sync enabled.');

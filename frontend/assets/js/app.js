@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
@@ -168,6 +168,7 @@ function loadPage(page) {
   // Render page content
   const renderFns = {
     home: renderHome,
+    summary: renderSummaryPage,
     'hr-dashboard': renderHrDashboardPage,
     'employee-tracker': renderEmployeeTracker,
     'evaluation-kpi': renderEvaluationKpi,
@@ -211,6 +212,7 @@ function loadPage(page) {
 
 const pageNames = {
   home: 'Home',
+  summary: 'Summary',
   'hr-dashboard': 'HR Dashboard',
   'employee-tracker': 'Employee Tracker',
   'evaluation-kpi': 'Monthly Evaluation / KPI',
@@ -16912,7 +16914,7 @@ function getDefaultPageForCurrentUser() {
 
 // The System section (Users + Integrations) is Administrator-only, whatever
 // NAV_ACCESS says for the role.
-const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections'];
+const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 
 function getAccessiblePagesForCurrentUser() {
   if (!App.user) return [];
@@ -19251,6 +19253,10 @@ function initPage(page) {
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});
+  }
+
+  if (page === 'summary') {
+    initSummaryPage().catch(() => {});
   }
 
   if (page === 'rts-rate') {
@@ -27397,3 +27403,243 @@ async function init(options) {
 }
 
 window.addEventListener('DOMContentLoaded', init);
+
+// ─── Summary (end-of-day snapshot) ───────────────────────
+// One frozen snapshot per Manila day, taken at 23:50 by the server, so the
+// morning after reads the day as it closed. Administrator only — the server
+// refuses everyone else too. Today, before the snapshot, is shown live.
+let summaryState = {
+  date: '',
+  today: '',
+  days: [],
+  data: null,
+  notesDirty: false,
+};
+
+function summaryManilaToday() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function summaryDateLabel(day) {
+  if (!day) return '';
+  const d = new Date(`${day}T00:00:00`);
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function renderSummaryPage() {
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Summary</h1>
+      <p>End-of-day snapshot of the orders — taken automatically at 11:50 PM, ready to read the next morning.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(-1)" title="Previous day">‹</button>
+      <input type="date" class="form-control" id="summary-date" style="width:auto;" onchange="loadSummaryDay(this.value)">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(1)" title="Next day">›</button>
+      <button class="btn btn-secondary btn-sm" type="button" id="summary-generate-btn" onclick="generateSummarySnapshot()">Take snapshot now</button>
+    </div>
+  </div>
+  <div id="summary-status"></div>
+  <div id="summary-body"><div class="empty-state"><h3>Loading summary</h3><p>Pulling the day's snapshot.</p></div></div>
+  <div class="card" style="margin-top:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Notes</div>
+        <div class="card-subtitle" id="summary-notes-sub">Your notes for this day.</div>
+      </div>
+      <button class="btn btn-primary btn-sm" type="button" onclick="saveSummaryNotes()">Save notes</button>
+    </div>
+    <div class="card-body">
+      <textarea class="form-control" id="summary-notes" rows="6"
+        placeholder="What happened today, what to follow up tomorrow…"
+        oninput="summaryState.notesDirty = true"></textarea>
+    </div>
+  </div>`;
+}
+
+async function initSummaryPage() {
+  try {
+    const list = await authorizedJsonRequest(`/daily-summary?_=${Date.now()}`);
+    summaryState.today = list.today || summaryManilaToday();
+    summaryState.days = Array.isArray(list.data) ? list.data : [];
+  } catch (error) {
+    summaryState.today = summaryManilaToday();
+    summaryState.days = [];
+    showToast('error', 'Summary load failed', error.message || 'Could not load the summaries.');
+  }
+  // The latest snapshot first — that is "yesterday" when read in the morning.
+  const start = summaryState.date || summaryState.days[0]?.date || summaryState.today;
+  await loadSummaryDay(start);
+}
+
+async function loadSummaryDay(day) {
+  if (!day) return;
+  if (summaryState.notesDirty && !window.confirm('You have unsaved notes. Leave them?')) {
+    const input = document.getElementById('summary-date');
+    if (input) input.value = summaryState.date;
+    return;
+  }
+  summaryState.date = day;
+  summaryState.notesDirty = false;
+  const input = document.getElementById('summary-date');
+  if (input) { input.value = day; input.max = summaryState.today || summaryManilaToday(); }
+  const body = document.getElementById('summary-body');
+  if (body) body.innerHTML = '<div class="empty-state"><h3>Loading summary</h3><p>Pulling the day\'s snapshot.</p></div>';
+  try {
+    const live = day === (summaryState.today || summaryManilaToday()) ? '&live=1' : '';
+    summaryState.data = await authorizedJsonRequest(`/daily-summary/${encodeURIComponent(day)}?_=${Date.now()}${live}`);
+  } catch (error) {
+    summaryState.data = null;
+    showToast('error', 'Summary load failed', error.message || 'Could not load this day.');
+  }
+  if (App.currentPage !== 'summary' || summaryState.date !== day) return;
+  renderSummaryBody();
+}
+
+function shiftSummaryDate(days) {
+  const base = summaryState.date || summaryManilaToday();
+  const d = new Date(`${base}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  const next = d.toISOString().slice(0, 10);
+  if (next > (summaryState.today || summaryManilaToday())) return;
+  loadSummaryDay(next);
+}
+
+function summaryCount(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function summaryTable(title, subtitle, rows, { nameLabel = 'Name', emptyName = '—', total = null } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  const sum = total || {
+    orders: list.reduce((s, r) => s + Number(r.orders || 0), 0),
+    sales: list.reduce((s, r) => s + Number(r.sales || 0), 0),
+  };
+  return `
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">${escapeHtml(title)}</div>
+        <div class="card-subtitle">${escapeHtml(subtitle)}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      ${list.length ? `
+      <div class="ev-scroll">
+        <table class="ev-table">
+          <thead><tr><th>${escapeHtml(nameLabel)}</th><th>Orders</th><th>Sales</th><th>Share</th></tr></thead>
+          <tbody>
+            ${list.map((row) => `<tr>
+              <td><strong>${escapeHtml(row.name || emptyName)}</strong></td>
+              <td>${summaryCount(row.orders)}</td>
+              <td>${formatPeso(row.sales)}</td>
+              <td><span class="ev-muted">${sum.orders ? ((Number(row.orders || 0) / sum.orders) * 100).toFixed(1) : '0.0'}%</span></td>
+            </tr>`).join('')}
+          </tbody>
+          <tfoot><tr><td><strong>Total</strong></td><td><strong>${summaryCount(sum.orders)}</strong></td><td><strong>${formatPeso(sum.sales)}</strong></td><td></td></tr></tfoot>
+        </table>
+      </div>` : '<div class="empty-state"><p>No orders.</p></div>'}
+    </div>
+  </div>`;
+}
+
+function renderSummaryBody() {
+  const body = document.getElementById('summary-body');
+  const status = document.getElementById('summary-status');
+  const notes = document.getElementById('summary-notes');
+  const notesSub = document.getElementById('summary-notes-sub');
+  if (!body) return;
+  const result = summaryState.data;
+  const day = summaryState.date;
+  const label = summaryDateLabel(day);
+  if (notes) notes.value = result?.notes || '';
+  if (notesSub) notesSub.textContent = `Your notes for ${label}.`;
+
+  const s = result?.summary;
+  if (status) {
+    const when = result?.generated_at ? new Date(result.generated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    const source = { scheduled: 'taken automatically', 'catch-up': 'taken late (server was down at 11:50 PM)', manual: 'taken by hand' }[result?.source] || 'taken';
+    status.innerHTML = !s ? ''
+      : result.live
+        ? `<div class="alert alert-info" style="margin-bottom:16px;"><div><strong>${escapeHtml(label)} — live.</strong> Today is still running; the snapshot is taken at 11:50 PM.</div></div>`
+        : `<div class="alert alert-info" style="margin-bottom:16px;"><div><strong>${escapeHtml(label)}.</strong> Snapshot ${escapeHtml(source)}${when ? ` on ${escapeHtml(when)}` : ''}.</div></div>`;
+  }
+  if (!s) {
+    body.innerHTML = `<div class="empty-state"><h3>No snapshot for ${escapeHtml(label)}</h3>
+      <p>Snapshots are taken at 11:50 PM each day. Use <strong>Take snapshot now</strong> to make one for this day from the current data.</p></div>`;
+    return;
+  }
+
+  const dayStats = s.day || {};
+  const month = s.month || {};
+  const monthLabel = new Date(`${month.from || day}T00:00:00`).toLocaleDateString('en-US', { month: 'long' });
+  const statusTone = { New: 'blue', Confirmed: 'gray', 'Waiting for pickup': 'amber', Shipped: 'blue', Delivered: 'green', Returning: 'amber', Returned: 'red' };
+
+  body.innerHTML = `
+  <div class="card-title" style="margin:4px 0 10px;">The day — orders placed on ${escapeHtml(label)}</div>
+  <div class="stats-grid" style="margin-bottom:20px;">
+    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Orders</div><div class="stat-value">${summaryCount(dayStats.orders)}</div><div class="stat-meta">placed this day</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Sales</div><div class="stat-value">${formatPeso(dayStats.sales)}</div><div class="stat-meta">COD of this day's orders</div></div>
+    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">Confirmers</div><div class="stat-value">${summaryCount((dayStats.by_confirmer || []).filter((r) => r.name).length)}</div><div class="stat-meta">confirmed orders this day</div></div>
+    <div class="stat-card navy"><div class="stat-card-accent"></div><div class="stat-label">Pages</div><div class="stat-value">${summaryCount((dayStats.by_page || []).length)}</div><div class="stat-meta">took orders this day</div></div>
+  </div>
+
+  <div class="stats-grid" style="margin-bottom:20px;">
+    ${(dayStats.by_status || []).map((row) => `
+      <div class="stat-card ${statusTone[row.name] || 'gray'}"><div class="stat-card-accent"></div>
+        <div class="stat-label">${escapeHtml(row.name)}</div>
+        <div class="stat-value">${summaryCount(row.orders)}</div>
+        <div class="stat-meta">${formatPeso(row.sales)}</div></div>`).join('')}
+  </div>
+
+  ${summaryTable('Orders per user', 'Who confirmed this day\'s orders. "Not confirmed yet" are still New.', dayStats.by_confirmer, { nameLabel: 'Confirmed by', emptyName: 'Not confirmed yet' })}
+  ${summaryTable('Orders per page', 'This day\'s orders by Facebook page.', dayStats.by_page, { nameLabel: 'Page', emptyName: 'No page' })}
+
+  <div class="card-title" style="margin:8px 0 10px;">Month to date — ${escapeHtml(monthLabel)} 1 to ${escapeHtml(label)}</div>
+  <div class="stats-grid" style="margin-bottom:20px;">
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total sales (cumulative)</div><div class="stat-value">${formatPeso(month.sales)}</div><div class="stat-meta">${summaryCount(month.orders)} orders this month</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${summaryCount(month.delivered?.orders)}</div><div class="stat-meta">${formatPeso(month.delivered?.sales)}</div></div>
+    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${summaryCount(month.returning?.orders)}</div><div class="stat-meta">${formatPeso(month.returning?.sales)}</div></div>
+    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${summaryCount(month.returned?.orders)}</div><div class="stat-meta">${formatPeso(month.returned?.sales)}</div></div>
+    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">RTS rate</div><div class="stat-value">${month.rts_rate === null || month.rts_rate === undefined ? '—' : `${Number(month.rts_rate).toFixed(2)}%`}</div><div class="stat-meta">(returning + returned) ÷ settled</div></div>
+  </div>
+
+  ${summaryTable('Total per status — month to date', `Every ${monthLabel} order up to this day, by where it stands now.`, (month.by_status || []).filter((r) => r.orders), { nameLabel: 'Status', total: { orders: month.orders, sales: month.sales } })}
+  ${summaryTable('Orders per page — month to date', `${monthLabel} orders up to this day, by page.`, month.by_page, { nameLabel: 'Page', emptyName: 'No page' })}`;
+}
+
+async function generateSummarySnapshot() {
+  const day = summaryState.date;
+  if (!day) return;
+  const label = summaryDateLabel(day);
+  const existing = summaryState.data?.summary && !summaryState.data?.live;
+  if (!window.confirm(existing
+    ? `Retake the snapshot for ${label}? It is rebuilt from the orders as they are now; your notes are kept.`
+    : `Take a snapshot for ${label} from the orders as they are now?`)) return;
+  try {
+    await authorizedJsonRequest(`/daily-summary/${encodeURIComponent(day)}/generate`, { method: 'POST' });
+    showToast('success', 'Snapshot taken', `${label} was saved.`);
+    summaryState.notesDirty = false;
+    await initSummaryPage();
+  } catch (error) {
+    showToast('error', 'Could not take snapshot', error.message || 'The snapshot was not saved.');
+  }
+}
+
+async function saveSummaryNotes() {
+  const day = summaryState.date;
+  if (!day) return;
+  const notes = document.getElementById('summary-notes')?.value || '';
+  try {
+    await authorizedJsonRequest(`/daily-summary/${encodeURIComponent(day)}/notes`, {
+      method: 'PUT',
+      body: JSON.stringify({ notes }),
+    });
+    summaryState.notesDirty = false;
+    if (summaryState.data) summaryState.data.notes = notes;
+    showToast('success', 'Notes saved', summaryDateLabel(day));
+  } catch (error) {
+    showToast('error', 'Could not save notes', error.message || 'The notes were not saved.');
+  }
+}

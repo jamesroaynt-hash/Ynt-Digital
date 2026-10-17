@@ -619,3 +619,14 @@ CREATE INDEX IF NOT EXISTS idx_evaluation_items_criterion
   ON evaluation_items(criterion_id, position);
 
 COMMIT;
+
+-- End-of-day summary: one frozen snapshot per Manila day of the POS orders
+-- (see services/dailySummary.js), plus the Administrator's notes for that day.
+CREATE TABLE IF NOT EXISTS daily_summaries (
+  summary_date TEXT PRIMARY KEY,
+  data TEXT,
+  notes TEXT,
+  source TEXT,
+  generated_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
