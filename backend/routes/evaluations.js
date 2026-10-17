@@ -620,6 +620,9 @@ module.exports = function evaluationRoutes(db) {
       const mineBySubject = new Map(mine.map((row) => [Number(row.subject_id), row]));
 
       let allBySubject = new Map();
+      // HR's view of who has done their part: every active account rates
+      // everyone on the list but themselves, so each one owes that many sheets.
+      let progress = [];
       // Every period anybody filed sheets under, plus the running one, so HR
       // can read a period after the window has rolled past it.
       let periods = [];
@@ -636,6 +639,33 @@ module.exports = function evaluationRoutes(db) {
           const key = Number(row.subject_id);
           if (!allBySubject.has(key)) allBySubject.set(key, []);
           allBySubject.get(key).push(row);
+        });
+
+        const ratable = new Set((await ratableUsers()).map((user) => Number(user.id)));
+        const doneBy = new Map();
+        all.forEach((row) => {
+          // Only sheets about somebody still on the list count toward the total.
+          if (!hasMatrix(row) || !ratable.has(Number(row.subject_id))) return;
+          const key = Number(row.evaluator_id);
+          doneBy.set(key, (doneBy.get(key) || 0) + 1);
+        });
+        const evaluators = await db.prepare(`
+          SELECT id, full_name, username, role FROM users
+          WHERE is_active = 1
+          ORDER BY full_name COLLATE NOCASE ASC
+        `).all();
+        progress = evaluators.map((user) => {
+          const id = Number(user.id);
+          const required = ratable.size - (ratable.has(id) ? 1 : 0);
+          const submitted = Math.min(doneBy.get(id) || 0, required);
+          return {
+            id,
+            name: user.full_name || user.username,
+            role: user.role || null,
+            submitted,
+            required,
+            not_submitted: Math.max(0, required - submitted),
+          };
         });
       }
 
@@ -678,6 +708,7 @@ module.exports = function evaluationRoutes(db) {
           }))
           : [],
         can_exclude: isAdministrator(req.user),
+        progress,
         data: rows,
       });
     } catch (error) {
@@ -776,6 +807,65 @@ module.exports = function evaluationRoutes(db) {
     }
   });
 
+  // The other side of one person's record: everybody on the list they owe a
+  // sheet, and which of those they have submitted. HR gets only that much —
+  // what they gave each person would name them as an evaluator, and HR never
+  // sees evaluator names. The Administrator also gets each sheet, scored.
+  router.get('/given/:evaluatorId', async (req, res) => {
+    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    try {
+      const window = await currentWindow();
+      const period = validPeriod(req.query?.period, window.period);
+      const evaluatorId = Number(req.params.evaluatorId);
+      if (!Number.isFinite(evaluatorId) || evaluatorId <= 0) return res.status(400).json({ error: 'Invalid user' });
+      const showSheets = isAdministrator(req.user);
+      const config = await loadConfig();
+      const evaluator = await db.prepare('SELECT id, full_name, username FROM users WHERE id = ?').get(evaluatorId);
+      if (!evaluator) return res.status(404).json({ error: 'User not found' });
+      const evaluatorName = evaluator.full_name || evaluator.username;
+
+      const subjects = (await ratableUsers()).filter((user) => Number(user.id) !== evaluatorId);
+      const sheets = await db.prepare(
+        'SELECT * FROM evaluations WHERE period = ? AND evaluator_id = ?'
+      ).all(period, evaluatorId);
+      const bySubject = new Map(sheets.filter(hasMatrix).map((row) => [Number(row.subject_id), row]));
+
+      const data = subjects.map((user) => {
+        const sheet = bySubject.get(Number(user.id)) || null;
+        return {
+          subject_id: user.id,
+          name: user.full_name || user.username,
+          role: user.role || null,
+          submitted: !!sheet,
+          ...(showSheets && sheet ? {
+            sheet: {
+              id: sheet.id,
+              evaluator_name: evaluatorName,
+              items: parseItems(sheet),
+              result: scoreFor([sheet], config),
+              development_areas: sheet.development_areas || '',
+              proceed_to_final: sheet.proceed_to_final || '',
+              passed: sheet.passed || '',
+              date_evaluated: String(sheet.updated_at || sheet.created_at || '').slice(0, 10),
+            },
+          } : {}),
+        };
+      });
+
+      res.json({
+        period,
+        evaluator_id: evaluatorId,
+        evaluator_name: evaluatorName,
+        show_sheets: showSheets,
+        submitted: data.filter((row) => row.submitted).length,
+        required: data.length,
+        data,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Take somebody off the list of people rated, or put them back. The
   // Administrator only. Sheets already filed about them are left as they are.
   router.put('/exclusion', async (req, res) => {
@@ -838,6 +928,22 @@ module.exports = function evaluationRoutes(db) {
     try {
       const window = await currentWindow();
       const viewerId = Number(req.user?.id);
+      // Scores are HR's and the Administrator's to read — an employee's own
+      // included — so everybody else gets the window and nothing more.
+      if (!isHrManager(req.user)) {
+        return res.json({
+          period: window.period,
+          window,
+          hidden: true,
+          anonymous: true,
+          can_evaluate: canEvaluate(req.user),
+          can_fill_anytime: false,
+          result: null,
+          responses: [],
+          periods: [],
+          history: [],
+        });
+      }
       const config = await loadConfig();
       const history = await db.prepare(
         'SELECT * FROM evaluations WHERE subject_id = ? ORDER BY period DESC'
@@ -879,11 +985,11 @@ module.exports = function evaluationRoutes(db) {
 
   // Every period this employee has been rated in, for the record card.
   router.get('/history/:subjectId', async (req, res) => {
-    const subjectId = Number(req.params.subjectId);
-    // HR reads anybody's record; everyone else only their own.
-    if (!isHrManager(req.user) && subjectId !== Number(req.user?.id)) {
+    // Scores are HR's and the Administrator's alone — an employee's own included.
+    if (!isHrManager(req.user)) {
       return res.status(403).json({ error: 'HR or Administrator access required' });
     }
+    const subjectId = Number(req.params.subjectId);
     try {
       const config = await loadConfig();
       const rows = await db.prepare(

@@ -4949,6 +4949,11 @@ let evaluationState = {
   summary: null,
   // Index of the single evaluation opened from the list, or null for the list.
   openResponse: null,
+  // The popup's tab: the sheets written about the person ('received') or the
+  // ones they wrote about everybody else ('given').
+  responsesTab: 'received',
+  given: null,
+  openGiven: null,
 };
 
 function evaluationWeightOf(criterionId) {
@@ -4986,6 +4991,19 @@ function renderEvaluationKpi() {
       </div>
     </div>
     <div class="card-body" id="evaluation-mine-wrap"></div>
+  </div>
+
+  <div class="card" id="evaluation-progress-card" style="display:none;margin-bottom:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Submission Progress</div>
+        <div class="card-subtitle" id="evaluation-progress-sub">Who has submitted their evaluations this period.</div>
+      </div>
+      <label class="ev-muted" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" id="evaluation-progress-pending" onchange="renderEvaluationProgress()"> Not finished only
+      </label>
+    </div>
+    <div class="card-body" id="evaluation-progress-wrap"></div>
   </div>
 
   <div class="card" id="evaluation-queue-card" style="display:none;margin-bottom:20px;">
@@ -5113,6 +5131,7 @@ async function initEvaluationKpi() {
     evaluationState.period = result.period;
     evaluationState.periods = Array.isArray(result.periods) ? result.periods : [];
     evaluationState.excluded = Array.isArray(result.excluded) ? result.excluded : [];
+    evaluationState.progress = Array.isArray(result.progress) ? result.progress : [];
     evaluationState.canExclude = !!result.can_exclude;
     evaluationState.window = result.window;
     evaluationState.weights = result.weights;
@@ -5139,8 +5158,10 @@ async function initEvaluationKpi() {
   renderEvaluationWindowNotice();
   renderEvaluationSetup();
   renderEvaluationMine();
+  renderEvaluationProgress();
   renderEvaluationQueue();
   loadEvaluationSummary();
+  if (evaluationState.given) loadEvaluationGiven();
   loadMyEvaluation();
 }
 
@@ -5411,10 +5432,11 @@ async function saveEvaluationSetup() {
 }
 
 // ─── The viewer's own evaluation ─────────────────────────
-// The sheets written about the signed-in user. Everybody reads their own; the
-// evaluators are not named to anybody.
+// The sheets written about the signed-in user. Scores are HR's and the
+// Administrator's to read — an employee's own included — so this card is only
+// built for them, and the evaluators are not named to anybody.
 async function loadMyEvaluation() {
-  if (!evaluationState.canEvaluate) { evaluationState.mine = null; return; }
+  if (!evaluationState.canSeeScores) { evaluationState.mine = null; return; }
   try {
     const result = await authorizedJsonRequest(`/evaluations/me?${evaluationPeriodQuery()}_=${Date.now()}`);
     evaluationState.mine = result;
@@ -5435,6 +5457,12 @@ function renderEvaluationMine() {
   if (!wrap || !card) return;
   const pageSub = document.getElementById('evaluation-page-sub');
   if (!evaluationState.canEvaluate) {
+    card.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  if (!evaluationState.canSeeScores) {
+    if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation. Rate everyone on the list; the scores are HR\'s.';
     card.style.display = 'none';
     wrap.innerHTML = '';
     return;
@@ -5644,6 +5672,58 @@ async function setEvaluationExcluded(userId, excluded) {
   }
 }
 
+// HR's tally of who has filed their sheets: everybody rates everyone on the
+// list but themselves, so each person owes that many for the period.
+function renderEvaluationProgress() {
+  const card = document.getElementById('evaluation-progress-card');
+  const wrap = document.getElementById('evaluation-progress-wrap');
+  if (!card || !wrap) return;
+  const progress = evaluationState.canSeeScores ? (evaluationState.progress || []) : [];
+  if (!progress.length) { card.style.display = 'none'; wrap.innerHTML = ''; return; }
+  card.style.display = '';
+  const sub = document.getElementById('evaluation-progress-sub');
+  if (sub) sub.textContent = `Who has submitted their evaluations for ${evaluationPeriodLabel(evaluationState.period)}.`;
+
+  const done = progress.filter((row) => row.required > 0 && row.not_submitted === 0).length;
+  const notStarted = progress.filter((row) => row.required > 0 && row.submitted === 0).length;
+  const inProgress = progress.filter((row) => row.submitted > 0 && row.not_submitted > 0).length;
+  const submitted = progress.reduce((sum, row) => sum + row.submitted, 0);
+  const required = progress.reduce((sum, row) => sum + row.required, 0);
+  const pendingOnly = !!document.getElementById('evaluation-progress-pending')?.checked;
+  const rows = progress
+    .filter((row) => !pendingOnly || row.not_submitted > 0)
+    .sort((a, b) => b.not_submitted - a.not_submitted || String(a.name).localeCompare(String(b.name)));
+
+  wrap.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:16px;">
+      <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Finished</div><div class="stat-value">${done}</div><div class="stat-meta">of ${progress.length} people</div></div>
+      <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">In progress</div><div class="stat-value">${inProgress}</div><div class="stat-meta">some sheets left</div></div>
+      <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Not started</div><div class="stat-value">${notStarted}</div><div class="stat-meta">no sheet submitted</div></div>
+      <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Sheets submitted</div><div class="stat-value">${submitted} / ${required}</div><div class="stat-meta">${required ? Math.round((submitted / required) * 100) : 0}% done · ${required - submitted} not submitted</div></div>
+    </div>
+    ${rows.length ? `
+    <div class="ev-scroll">
+      <table class="ev-table">
+        <thead><tr><th>Name</th><th>Position</th><th>Submitted</th><th>Not submitted</th><th>Status</th></tr></thead>
+        <tbody>
+          ${rows.map((row) => {
+            const status = row.required === 0 ? '<span class="badge badge-gray">Nobody to rate</span>'
+              : row.not_submitted === 0 ? '<span class="badge badge-success">Done</span>'
+                : row.submitted === 0 ? '<span class="badge badge-danger">Not started</span>'
+                  : `<span class="badge badge-warning">${row.not_submitted} left</span>`;
+            return `<tr>
+              <td><strong>${escapeHtml(row.name || 'User')}</strong></td>
+              <td>${escapeHtml(row.role || 'Not set')}</td>
+              <td>${row.submitted} / ${row.required}</td>
+              <td>${row.not_submitted}</td>
+              <td>${status}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>` : '<div class="empty-state"><p>Everybody has submitted all their sheets.</p></div>'}`;
+}
+
 // Only ever called for HR/Administrator — the column is dropped for everyone
 // else — so an unrated employee is the only "no score" case left to say.
 function renderEvaluationScoreCell(row) {
@@ -5707,10 +5787,45 @@ async function loadEvaluationSummary() {
   renderEvaluationResponses();
 }
 
+async function loadEvaluationGiven() {
+  const evaluatorId = evaluationState.selectedId;
+  if (!evaluationState.canSeeScores || !evaluatorId) { evaluationState.given = null; return; }
+  try {
+    const given = await authorizedJsonRequest(`/evaluations/given/${evaluatorId}?${evaluationPeriodQuery()}_=${Date.now()}`);
+    if (evaluationState.selectedId !== evaluatorId) return;
+    evaluationState.given = given;
+  } catch {
+    evaluationState.given = null;
+  }
+  if (App.currentPage !== 'evaluation-kpi') return;
+  renderEvaluationResponses();
+}
+
+function switchEvaluationTab(tab) {
+  evaluationState.responsesTab = tab === 'given' ? 'given' : 'received';
+  evaluationState.openResponse = null;
+  evaluationState.openGiven = null;
+  renderEvaluationResponses();
+}
+
+function viewEvaluationGiven(index) {
+  evaluationState.openGiven = Number(index);
+  renderEvaluationResponses();
+}
+
+function backToEvaluationGiven() {
+  evaluationState.openGiven = null;
+  renderEvaluationResponses();
+}
+
 function selectEvaluationEmployee(userId) {
   evaluationState.selectedId = Number(userId);
   evaluationState.summary = null;
   evaluationState.openResponse = null;
+  evaluationState.responsesTab = 'received';
+  evaluationState.given = null;
+  evaluationState.openGiven = null;
+  loadEvaluationGiven();
   renderEvaluationQueue();
   // The queue row carries the average; the modal carries the sheets it is made
   // of, so HR can read any one evaluator's ratings on their own.
@@ -5749,21 +5864,91 @@ function renderEvaluationResponses() {
   const row = evaluationState.rows.find((r) => r.id === evaluationState.selectedId);
   const periodLabel = evaluationPeriodLabel(evaluationState.period);
   if (title) title.textContent = `Evaluations for ${row?.name || 'User'} · ${periodLabel}`;
+  const tabs = renderEvaluationTabs(row);
+
+  if (evaluationState.responsesTab === 'given') {
+    body.innerHTML = tabs + renderEvaluationGiven(row, periodLabel);
+    return;
+  }
 
   if (!evaluationState.summary) {
-    body.innerHTML = '<div class="empty-state"><h3>Loading evaluations</h3><p>Pulling the submitted sheets.</p></div>';
+    body.innerHTML = `${tabs}<div class="empty-state"><h3>Loading evaluations</h3><p>Pulling the submitted sheets.</p></div>`;
     return;
   }
 
   const responses = evaluationState.summary.responses || [];
   if (!responses.length) {
-    body.innerHTML = `<div class="empty-state"><h3>No evaluations yet</h3><p>Nobody has submitted a sheet for ${escapeHtml(row?.name || 'this employee')} in ${escapeHtml(periodLabel)}.</p></div>`;
+    body.innerHTML = `${tabs}<div class="empty-state"><h3>No evaluations yet</h3><p>Nobody has submitted a sheet for ${escapeHtml(row?.name || 'this employee')} in ${escapeHtml(periodLabel)}.</p></div>`;
     return;
   }
 
-  body.innerHTML = evaluationState.openResponse === null
+  body.innerHTML = tabs + (evaluationState.openResponse === null
     ? renderEvaluationResponsesList(responses, row)
-    : renderEvaluationResponseDetail(responses, evaluationState.openResponse, row);
+    : renderEvaluationResponseDetail(responses, evaluationState.openResponse, row));
+}
+
+function renderEvaluationTabs(row) {
+  const received = evaluationState.summary ? (evaluationState.summary.responses || []).length : null;
+  const given = evaluationState.given;
+  const tab = evaluationState.responsesTab;
+  const button = (key, label) => `<button type="button" class="btn ${tab === key ? 'btn-primary' : 'btn-secondary'} btn-sm"
+    onclick="switchEvaluationTab('${key}')">${label}</button>`;
+  return `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+    ${button('received', `Received${received === null ? '' : ` (${received})`}`)}
+    ${button('given', `Given by ${escapeHtml((row?.name || 'them').split(' ')[0])}${given ? ` (${given.submitted}/${given.required})` : ''}`)}
+  </div>`;
+}
+
+// Everybody this person owes a sheet, and whether they have filed it. HR sees
+// only that; the Administrator also sees what they gave and can open it.
+function renderEvaluationGiven(row, periodLabel) {
+  const given = evaluationState.given;
+  if (!given) return '<div class="empty-state"><h3>Loading</h3><p>Pulling the sheets this person submitted.</p></div>';
+  const list = given.data || [];
+  const name = row?.name || given.evaluator_name || 'This employee';
+
+  if (evaluationState.openGiven !== null) {
+    const entry = list[evaluationState.openGiven];
+    if (entry?.sheet) {
+      return renderEvaluationResponseDetail([entry.sheet], 0, { name: entry.name, role: entry.role },
+        { backAction: 'backToEvaluationGiven()', backLabel: `All sheets by ${name}` });
+    }
+  }
+  if (!list.length) return `<div class="empty-state"><p>There is nobody on the list for ${escapeHtml(name)} to rate.</p></div>`;
+
+  const showSheets = !!given.show_sheets;
+  const rows = [...list].sort((a, b) => Number(a.submitted) - Number(b.submitted) || String(a.name).localeCompare(String(b.name)));
+  return `
+    <div class="ev-muted" style="margin-bottom:12px;font-size:12px;">
+      ${escapeHtml(name)} submitted <strong>${given.submitted}</strong> of <strong>${given.required}</strong> sheets for ${escapeHtml(periodLabel)}.
+      ${showSheets ? '' : 'What they gave each person stays private — HR sees only who has been rated.'}
+    </div>
+    <div class="ev-scroll">
+      <table class="ev-table">
+        <thead><tr>
+          <th>Evaluated</th><th>Position</th><th>Status</th>
+          ${showSheets ? '<th>Date Evaluated</th><th>Over All Percentage</th><th>Performance Level</th><th>Action</th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${rows.map((entry) => {
+            const index = list.indexOf(entry);
+            const result = entry.sheet?.result || {};
+            const level = evaluationLevelFor(Number(result.score) || 0);
+            return `<tr>
+              <td><strong>${escapeHtml(entry.name || 'User')}</strong></td>
+              <td>${escapeHtml(entry.role || 'Not set')}</td>
+              <td>${entry.submitted ? '<span class="badge badge-success">Submitted</span>' : '<span class="badge badge-danger">Not submitted</span>'}</td>
+              ${showSheets ? (entry.sheet ? `
+                <td>${escapeHtml(entry.sheet.date_evaluated || '—')}</td>
+                <td><strong>${evaluationPercentText(result.score)}</strong></td>
+                <td><span class="badge badge-${level.tone}">${escapeHtml(level.label)}</span> ${evaluationPassBadge(result)}</td>
+                <td><button class="btn btn-secondary btn-sm" type="button" onclick="viewEvaluationGiven(${index})">View sheet</button></td>`
+                : '<td>—</td><td>—</td><td>—</td><td></td>') : ''}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function renderEvaluationResponsesList(responses, row) {
@@ -5848,14 +6033,14 @@ async function cancelEvaluationResponse(index) {
   }
 }
 
-function renderEvaluationResponseDetail(responses, index, row, { back = true } = {}) {
+function renderEvaluationResponseDetail(responses, index, row, { back = true, backAction = 'backToEvaluationResponses()', backLabel = 'All evaluations' } = {}) {
   const response = responses[index];
   if (!response) return renderEvaluationResponsesList(responses, row);
   const result = response.result || {};
   const level = evaluationLevelFor(Number(result.score) || 0);
   return `
-    ${back ? `<button class="btn btn-secondary btn-sm" type="button" style="margin-bottom:14px;" onclick="backToEvaluationResponses()">
-      &larr; All evaluations
+    ${back ? `<button class="btn btn-secondary btn-sm" type="button" style="margin-bottom:14px;" onclick="${backAction}">
+      &larr; ${escapeHtml(backLabel)}
     </button>` : ''}
     <div class="ev-sheet-head">
       <div class="ev-sheet-brand">YNT DIGITAL MARKETING COMPANY</div>
