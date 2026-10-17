@@ -1,10 +1,11 @@
 const express = require('express');
 const superAdmin = require('../services/superAdmin');
 
-// Administrator, HR and Operation all manage HR: Operation was granted HR's
-// access, so it clears every gate HR clears. Role text is typed by hand on
-// accounts, hence the lowercase compare and the plural spelling.
-const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operations']);
+// HR access is HR's, Operation's (it was granted HR's access, so it clears
+// every gate HR clears) and the super admin's — the other Administrators do
+// not get it. Role text is typed by hand on accounts, hence the lowercase
+// compare and the plural spelling.
+const HR_MANAGER_ROLES = new Set(['hr', 'operation', 'operations']);
 
 const MANILA_TIMEZONE = 'Asia/Manila';
 const DEFAULT_BREAK_MINUTES = 15;
@@ -324,13 +325,16 @@ function normalizeTime(value) {
 
 async function getActiveUser(db, userId) {
   return db.prepare(`
-    SELECT id, username, full_name, role, daily_rate, day_off, is_active
+    SELECT id, username, full_name, role, daily_rate, day_off, is_active, is_super_admin
     FROM users
     WHERE id = ? AND is_active = 1
   `).get(userId);
 }
 
+// Takes the account as read by getActiveUser (req.currentUser), which carries
+// is_super_admin — the token alone does not.
 function isHrManager(user) {
+  if (Number(user?.is_super_admin) === 1) return true;
   return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
@@ -351,15 +355,15 @@ module.exports = function hrRoutes(db) {
     next();
   }
 
-  // Writing a day nobody clocked is the Administrator's and HR's alone.
+  // Writing a day nobody clocked is HR's and the super admin's alone.
   // Deliberately narrower than requireHrManager: Operation clears every other
   // HR gate, but not this one — an attendance record is pay, and authoring one
   // from nothing is a different act from correcting one that already exists.
-  const ATTENDANCE_AUTHOR_ROLES = new Set(['administrator', 'hr']);
+  const ATTENDANCE_AUTHOR_ROLES = new Set(['hr']);
   function requireAttendanceAuthor(req, res, next) {
     const role = String(req.currentUser?.role || '').trim().toLowerCase();
-    if (!ATTENDANCE_AUTHOR_ROLES.has(role)) {
-      return res.status(403).json({ error: 'Only an Administrator or HR can add an attendance record.' });
+    if (!ATTENDANCE_AUTHOR_ROLES.has(role) && Number(req.currentUser?.is_super_admin) !== 1) {
+      return res.status(403).json({ error: 'Only HR or the super admin can add an attendance record.' });
     }
     next();
   }
@@ -1075,7 +1079,7 @@ module.exports = function hrRoutes(db) {
 
   // ─── OVERTIME REQUESTS ───────────────────────────────────────
   router.get('/ot-requests', requireCurrentUser, async (req, res) => {
-    const isManager = isHrManager(req.user);
+    const isManager = isHrManager(req.currentUser);
     const status = String(req.query?.status || '').trim();
     const params = [];
     let where = 'WHERE 1=1';
@@ -1125,7 +1129,7 @@ module.exports = function hrRoutes(db) {
   // or reject it after the fact. OT is paid strictly from the approved
   // request, so this is the only way to fix an approval that was wrong.
   router.patch('/ot-requests/:id', requireCurrentUser, async (req, res) => {
-    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    if (!isHrManager(req.currentUser)) return res.status(403).json({ error: 'HR access required' });
     const id = Number(req.params.id);
     const existing = await db.prepare('SELECT * FROM overtime_requests WHERE id = ?').get(id);
     if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -1170,10 +1174,10 @@ module.exports = function hrRoutes(db) {
     const id = Number(req.params.id);
     const row = await db.prepare('SELECT user_id, status FROM overtime_requests WHERE id = ?').get(id);
     if (!row) return res.status(404).json({ error: 'Not found' });
-    if (Number(row.user_id) !== Number(req.user.id) && !isHrManager(req.user)) {
+    if (Number(row.user_id) !== Number(req.user.id) && !isHrManager(req.currentUser)) {
       return res.status(403).json({ error: 'Cannot delete another user request' });
     }
-    if (row.status === 'approved' && !isHrManager(req.user)) {
+    if (row.status === 'approved' && !isHrManager(req.currentUser)) {
       return res.status(403).json({ error: 'Approved requests can only be removed by HR' });
     }
     await db.prepare('DELETE FROM overtime_requests WHERE id = ?').run(id);

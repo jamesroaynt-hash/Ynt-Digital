@@ -3,11 +3,6 @@ const superAdmin = require('../services/superAdmin');
 
 const MANILA_TIMEZONE = 'Asia/Manila';
 
-// Administrator, HR and Operation all manage HR: Operation was granted HR's
-// access, so it clears every gate HR clears. Role text is typed by hand on
-// accounts, hence the lowercase compare and the plural spelling.
-const HR_MANAGER_ROLES = new Set(['administrator', 'hr', 'operation', 'operations']);
-
 // The fill-up window is the last five days of the period it covers.
 const FILL_DAYS = 5;
 
@@ -169,17 +164,10 @@ const DEFAULT_PASSING_SCORE = 75;
 const ITEM_LABEL_LIMIT = 120;
 const MAX_ITEMS_PER_CRITERION = 40;
 
-function isHrManager(user) {
-  return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
-}
-
-function isAdministrator(user) {
-  return ['administrator', 'admin'].includes(String(user?.role || '').trim().toLowerCase());
-}
-
 // Everyone rates everyone: the sheets are peer evaluations, so any account may
-// write one. What HR and the Administrator have that the rest do not is the
-// scores, the matrix itself, and a sheet they can fill in outside the window.
+// write one. What HR access (HR, Operation, the super admin — see
+// canSeeResults) adds is the scores, the matrix itself, and a sheet they can
+// fill in outside the window.
 function canEvaluate(user) {
   return !!Number(user?.id);
 }
@@ -518,11 +506,11 @@ module.exports = function evaluationRoutes(db) {
       res.json({
         window: await currentWindow(),
         ...config,
-        can_manage: isHrManager(req.user),
+        can_manage: (await canSeeResults(req.user)),
         can_evaluate: canEvaluate(req.user),
         // HR and the Administrator write sheets whenever they need to; the
         // five-day window is everybody else's.
-        can_fill_anytime: isHrManager(req.user),
+        can_fill_anytime: (await canSeeResults(req.user)),
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -532,7 +520,7 @@ module.exports = function evaluationRoutes(db) {
   // The matrix setup: what each criteria is worth, the score that passes, and
   // the item rows themselves. HR and the Administrator only.
   router.put('/config', async (req, res) => {
-    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    if (!(await canSeeResults(req.user))) return res.status(403).json({ error: 'HR access required' });
     try {
       // The weights came flat on the body before the setup card carried the
       // items and the passing score with them; both shapes still read.
@@ -583,7 +571,7 @@ module.exports = function evaluationRoutes(db) {
   // belongs to the period being filled now (or the one that just closed, when
   // the running one has not opened yet), and an empty date clears it.
   router.put('/extension', async (req, res) => {
-    if (!isHrManager(req.user)) return res.status(403).json({ error: 'HR or Administrator access required' });
+    if (!(await canSeeResults(req.user))) return res.status(403).json({ error: 'HR access required' });
     try {
       const raw = String(req.body?.until || '').trim();
       if (!raw) {
@@ -712,15 +700,15 @@ module.exports = function evaluationRoutes(db) {
         ...config,
         can_see_scores: canSeeScores,
         can_evaluate: canEvaluate(req.user),
-        can_fill_anytime: isHrManager(req.user),
+        can_fill_anytime: (await canSeeResults(req.user)),
         periods,
         // Who the Administrator took off the list, so they can be put back.
-        excluded: isAdministrator(req.user)
+        excluded: (await canSeeResults(req.user))
           ? (await ratableUsers({ excluded: true })).map((user) => ({
             id: user.id, name: user.full_name || user.username, role: user.role || null,
           }))
           : [],
-        can_exclude: isAdministrator(req.user),
+        can_exclude: (await canSeeResults(req.user)),
         progress,
         data: rows,
       });
@@ -738,7 +726,7 @@ module.exports = function evaluationRoutes(db) {
     }
     try {
       const window = await currentWindow();
-      const anytime = isHrManager(req.user);
+      const anytime = (await canSeeResults(req.user));
       if (!window.open && !anytime) {
         return res.status(409).json({
           error: `Evaluation opens ${window.opens_on} and closes ${window.closes_on}.`,
@@ -883,7 +871,7 @@ module.exports = function evaluationRoutes(db) {
   // Take somebody off the list of people rated, or put them back. The
   // Administrator only. Sheets already filed about them are left as they are.
   router.put('/exclusion', async (req, res) => {
-    if (!isAdministrator(req.user)) return res.status(403).json({ error: 'Administrator access required' });
+    if (!(await canSeeResults(req.user))) return res.status(403).json({ error: 'HR access required' });
     try {
       const userId = Number(req.body?.user_id);
       if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user' });
@@ -981,12 +969,12 @@ module.exports = function evaluationRoutes(db) {
         period = (byPeriod.get(window.period) || []).some(hasMatrix) || !latest ? window.period : latest;
       }
 
-      const summary = await summaryFor(viewerId, period, config, { showDates: isHrManager(req.user) });
+      const summary = await summaryFor(viewerId, period, config, { showDates: (await canSeeResults(req.user)) });
       res.json({
         ...summary,
         window,
         can_evaluate: canEvaluate(req.user),
-        can_fill_anytime: isHrManager(req.user),
+        can_fill_anytime: (await canSeeResults(req.user)),
         periods: [...new Set([window.period, period, ...rated])].sort().reverse(),
         history: [...byPeriod.entries()].map(([historyPeriod, periodRows]) => ({
           period: historyPeriod,

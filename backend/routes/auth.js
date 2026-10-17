@@ -326,7 +326,11 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
         username COLLATE NOCASE ASC
     `).all();
 
-    res.json({ users });
+    // Other pages read this list for names; the pay rate in it is HR's, so
+    // anybody without HR access gets the list without it.
+    const hrAccess = req.user.is_super_admin
+      || ['hr', 'operation', 'operations'].includes(String(req.user.role || '').trim().toLowerCase());
+    res.json({ users: hrAccess ? users : users.map(({ daily_rate, ...rest }) => rest) });
   });
 
   router.put('/users/:id', requireSuperAdmin, async (req, res) => {

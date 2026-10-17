@@ -17101,7 +17101,10 @@ function getDefaultPageForCurrentUser() {
 // NAV_ACCESS says for the role.
 const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // Of those, the super admin's alone: other Administrators do not get them.
-const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary'];
+// HR access is HR's, Operation's and the super admin's, so the HR pages leave
+// the other Administrators' menu too (the server refuses them as well).
+const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
+  'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr'];
 
 function isSuperAdminUser() {
   return !!App.user?.is_super_admin;
