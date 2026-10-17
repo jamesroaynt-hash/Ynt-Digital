@@ -51,10 +51,13 @@ async function ensureColumnAsync(db, tableName, columnName, definition) {
     return;
   }
 
+  // Scoped to the app's own schema: Supabase keeps its own auth.users, which
+  // has an is_super_admin column of its own — matching on the table name alone
+  // found that one and skipped adding ours, and startup crashed on the next query.
   const column = await db.prepare(`
     SELECT column_name
     FROM information_schema.columns
-    WHERE table_name = ? AND column_name = ?
+    WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?
   `).get(tableName, columnName);
 
   if (column) return;
