@@ -1,4 +1,4 @@
-// Operations calendar routes. Run: node --experimental-sqlite --test backend/tests/
+// Operations calendar (supplier order tracking). Run: node --experimental-sqlite --test backend/tests/
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
@@ -10,7 +10,7 @@ const { SqliteClient } = require('../db/client');
 const { initializeDatabaseAsync } = require('../db/init');
 const opsCalendarRoutes = require('../routes/opsCalendar');
 
-test('logistics schedules deliveries; other roles only read', async () => {
+test('logistics tracks supplier orders; other roles only read', async () => {
   const db = new SqliteClient(':memory:');
   await initializeDatabaseAsync(db);
   const insert = db.prepare("INSERT INTO users (username, password, full_name, role) VALUES (?, 'x', ?, ?)");
@@ -30,22 +30,25 @@ test('logistics schedules deliveries; other roles only read', async () => {
     return { status: res.status, data: await res.json() };
   };
   try {
-    const delivery = { event_date: '2026-10-20', event_time: '09:30', category: 'Supplier Delivery', title: 'Coffee restock', item_id: 'P1', qty: 500, supplier: 'Main supplier' };
-    assert.equal((await call('POST', '', delivery, 'csr')).status, 403);
-    assert.equal((await call('POST', '', { ...delivery, title: '' })).status, 400);
-    const created = await call('POST', '', delivery);
+    const order = { event_date: '2026-10-20', order_date: '2026-10-10', po_number: 'PO-1', item_id: 'P1', qty: 1000, supplier: 'Main supplier', amount: 38000, tracking_no: 'JT123' };
+    assert.equal((await call('POST', '', order, 'csr')).status, 403);
+    assert.equal((await call('POST', '', { ...order, item_id: '' })).status, 400);
+    const created = await call('POST', '', order);
     assert.equal(created.status, 201);
-    assert.equal(created.data.row.item_name, 'Paragis Coffee');
-    assert.equal(created.data.row.status, 'Scheduled');
-    await call('POST', '', { event_date: '2026-09-01', title: 'Weekly courier pickup', category: 'Courier Pickup', repeat_rule: 'weekly' });
-    await call('POST', '', { event_date: '2026-12-01', title: 'Out of range' });
+    assert.equal(created.data.row.title, 'Paragis Coffee'); // named after the product
+    assert.equal(created.data.row.status, 'Ordered');
+    assert.equal(created.data.row.amount, 38000);
 
+    // A late open order still shows when looking at a later range.
+    await call('POST', '', { event_date: '2026-09-15', title: 'Late labels', status: 'In Transit' });
+    await call('POST', '', { event_date: '2026-09-16', title: 'Old arrived', status: 'Arrived' });
     const list = await call('GET', '?from=2026-10-01&to=2026-10-31', null, 'csr');
-    assert.deepEqual(list.data.rows.map((r) => r.title).sort(), ['Coffee restock', 'Weekly courier pickup']);
+    assert.deepEqual(list.data.rows.map((r) => r.title).sort(), ['Late labels', 'Paragis Coffee']);
 
-    const updated = await call('PUT', `/${created.data.row.id}`, { status: 'Delivered' });
-    assert.equal(updated.data.row.status, 'Delivered');
-    assert.equal(updated.data.row.qty, 500);
+    const updated = await call('PUT', `/${created.data.row.id}`, { status: 'Arrived', qty_received: 980 });
+    assert.equal(updated.data.row.status, 'Arrived');
+    assert.equal(updated.data.row.qty, 1000);
+    assert.equal(updated.data.row.qty_received, 980);
     assert.equal((await call('DELETE', `/${created.data.row.id}`, null, 'csr')).status, 403);
     assert.equal((await call('DELETE', `/${created.data.row.id}`)).status, 200);
   } finally {

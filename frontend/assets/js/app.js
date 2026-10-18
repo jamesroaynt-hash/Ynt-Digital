@@ -252,7 +252,7 @@ const pageNames = {
   'learning-manage': 'Manage Trainings',
   'learning-reports': 'Training Reports',
   'daily-pickup': 'Pickup',
-  'ops-calendar': 'Operations Calendar',
+  'ops-calendar': 'Supplier Order Calendar',
   'rts-scanning': 'RTS Scan',
   calculators: 'Calculators',
   'rts-rate': 'Sale Report',
@@ -14204,7 +14204,7 @@ function renderInventoryDashboard(lowStock, canEditStock) {
     { icon: 'supplies', title: 'Supplies', desc: 'Packaging and materials on hand.', run: "openInventoryTab('tab-supplies')" },
     { icon: 'rts', title: 'RTS Return', desc: 'Returned pcs per page and their SKU.', run: "openInventoryTab('tab-rts-return')" },
     { icon: 'history', title: 'Stock History', desc: 'Every stock change, newest first.', run: "openInventoryTab('tab-stock-history')" },
-    canAccessPage('ops-calendar') && { icon: 'calendar', title: 'Delivery Calendar', desc: 'Scheduled supplier deliveries and pickups.', run: "navigateTo('ops-calendar')" },
+    canAccessPage('ops-calendar') && { icon: 'calendar', title: 'Supplier Orders', desc: 'Track incoming orders from suppliers.', run: "navigateTo('ops-calendar')" },
   ].filter(Boolean);
   return `
   <div class="stats-grid" style="margin-bottom:20px;">
@@ -14237,7 +14237,7 @@ function renderInventoryDashboard(lowStock, canEditStock) {
       </table></div>
     </div>
     <div class="card">
-      <div class="card-header"><div><div class="card-title"><span class="inv-title-icon inv-tone-blue">${INV_TAB_ICONS.truck}</span>Upcoming Deliveries</div><div class="card-subtitle">Open schedules in the next 2 weeks.</div></div>
+      <div class="card-header"><div><div class="card-title"><span class="inv-title-icon inv-tone-blue">${INV_TAB_ICONS.truck}</span>Incoming Orders</div><div class="card-subtitle">Supplier orders due in the next 2 weeks, and any overdue.</div></div>
         ${canAccessPage('ops-calendar') ? `<button class="btn btn-secondary btn-sm" onclick="navigateTo('ops-calendar')">Open calendar</button>` : ''}</div>
       <div class="card-body" id="inv-dash-deliveries"><div class="text-muted text-sm">Loading…</div></div>
     </div>
@@ -14251,8 +14251,8 @@ async function loadInventoryDashboardDeliveries() {
     const list = await window.loadOpsUpcoming(14);
     wrap.innerHTML = list.length ? list.slice(0, 12).map((item) => `<div class="hrr-upcoming-item">
       <div class="hrr-upcoming-date">${escapeHtml(new Date(`${item.day}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }))}</div>
-      <div class="${window.ocEventClass(item)}"><b>${escapeHtml(item.title)}</b>${window.ocEventMeta(item) ? `<span>${escapeHtml(window.ocEventMeta(item))}</span>` : ''}</div>
-    </div>`).join('') : '<div class="text-muted text-sm">Nothing scheduled in the next two weeks.</div>';
+      <div class="${window.ocEventClass(item)}"><b>${escapeHtml(window.ocOrderName(item))}</b>${window.ocEventMeta(item) ? `<span>${escapeHtml(window.ocEventMeta(item))}</span>` : ''}</div>
+    </div>`).join('') : '<div class="text-muted text-sm">No open supplier orders due in the next two weeks.</div>';
   } catch (error) {
     wrap.innerHTML = `<div class="text-muted text-sm">Could not load: ${escapeHtml(error.message || 'error')}</div>`;
   }

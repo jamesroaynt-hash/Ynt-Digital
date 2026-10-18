@@ -7898,12 +7898,18 @@ tfoot td {
 .inv-tone-blue { color: var(--accent); }
 @media (max-width: 1000px) { .inv-dash-grid { grid-template-columns: 1fr; } }
 
-/* ── Operations calendar tones (on the HR calendar's hrr-cal-event) ── */
-.hrr-cal-event.oc-delivery { border-left-color: var(--success); background: var(--success-soft); }
-.hrr-cal-event.oc-pickup { border-left-color: var(--info); background: var(--info-soft); }
-.hrr-cal-event.oc-count { border-left-color: var(--gold); background: var(--gold-soft); }
-.hrr-cal-event.oc-restock { border-left-color: var(--warning); background: var(--warning-soft); }
-.hrr-cal-event.oc-payment { border-left-color: var(--accent); background: var(--accent-soft); }
-.hrr-cal-event.oc-delayed { outline: 1px solid #ef4444; }
+/* ── Operations calendar: supplier order statuses (on hrr-cal-event) ── */
+.hrr-cal-event.oc-ordered { border-left-color: var(--info); background: var(--info-soft); }
+.hrr-cal-event.oc-paid { border-left-color: var(--accent); background: var(--accent-soft); }
+.hrr-cal-event.oc-transit { border-left-color: var(--warning); background: var(--warning-soft); }
+.hrr-cal-event.oc-arrived { border-left-color: var(--success); background: var(--success-soft); }
+.hrr-cal-event.oc-delayed { border-left-color: var(--danger); background: var(--danger-soft); }
+.hrr-cal-event.oc-cancelled { border-left-color: var(--text-muted); }
+.hrr-cal-event.oc-overdue { outline: 1px solid #ef4444; }
 .oc-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .oc-legend .hrr-cal-event { margin: 0; font-size: 11px; }
+.oc-late { color: #ef4444; font-weight: 600; }
+.oc-short { color: #ef4444; font-weight: 600; }
+.oc-table td.num, .oc-table th.num { text-align: right; }
+.oc-table td { white-space: nowrap; }
+.oc-table td:nth-child(2), .oc-table td:nth-child(3) { white-space: normal; }
