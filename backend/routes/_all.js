@@ -1895,7 +1895,7 @@ function inventoryRoutes(db, { dispatch } = {}) {
     let sql = `
       SELECT l.id, l.item_id, i.name AS item_name, i.unit,
              l.action, l.qty_before, l.qty_change, l.qty_after,
-             l.notes, l.movement, l.ref, l.created_at, u.full_name AS created_by_name
+             l.notes, l.created_at, u.full_name AS created_by_name
       FROM inventory_logs l
       LEFT JOIN inventory i ON i.item_id = l.item_id
       LEFT JOIN users u ON u.id = l.created_by`;

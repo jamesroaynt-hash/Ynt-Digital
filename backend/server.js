@@ -346,7 +346,6 @@ async function createApp() {
   app.use('/api/evaluations', authMiddleware, require('./routes/evaluations')(db));
   app.use('/api/hr-records', authMiddleware, require('./routes/hrRecords')(db));
   app.use('/api/training', authMiddleware, require('./routes/training')(db));
-  app.use('/api/stock-flow', authMiddleware, require('./routes/stockFlow')(db, { dispatch: webhookDispatch }));
   app.use('/api/daily-summary', authMiddleware, require('./routes/dailySummary')(db));
   app.use('/api/marketing', authMiddleware, require('./routes/marketing')(db));
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));
