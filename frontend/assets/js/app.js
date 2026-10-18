@@ -14187,6 +14187,7 @@ function renderInventory() {
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab(this,'tab-active')">Active</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-inactive')">Not Active</button>
+    <button class="tab-btn" onclick="switchTab(this,'tab-products')">Products</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
     <button class="tab-btn" onclick="switchTab(this,'tab-stock-history')">Stock History</button>
@@ -14199,6 +14200,9 @@ function renderInventory() {
     <div class="table-container">
       ${renderInventoryTable(inventoryProductsFiltered())}
     </div>
+  </div>
+  <div id="tab-products" class="tab-content">
+    ${typeof window.renderProductInfoTab === 'function' ? window.renderProductInfoTab() : ''}
   </div>
   <div id="tab-supplies" class="tab-content">
     <div class="table-container">
@@ -14216,6 +14220,8 @@ function renderInventory() {
   <div id="tab-stock-history" class="tab-content">
     ${renderStockHistoryTab()}
   </div>
+
+  ${typeof window.renderProductInfoModal === 'function' ? window.renderProductInfoModal() : ''}
 
   <!-- Add/Edit Inventory Modal -->
   ${canEditStock ? `<div class="modal-overlay" id="add-inventory-modal">
@@ -19830,6 +19836,7 @@ function initPage(page) {
   }
 
   if (page === 'inventory') {
+    window.loadProductInfo?.().catch(() => {});
     loadRtsReturnRecords().catch(() => {});
     loadStockHistory().catch(() => {});
     refreshRtsPcsByProduct()

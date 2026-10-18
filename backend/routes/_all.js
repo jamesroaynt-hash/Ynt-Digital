@@ -1926,6 +1926,81 @@ function inventoryRoutes(db, { dispatch } = {}) {
     res.json({ success: true, page_name, sku });
   });
 
+  /* ── Product information (Products tab) ─────────────────────
+     Ingredients, supplier, unit cost breakdown, selling price and the pages
+     that sell the item. The breakdown's total is written back to the item's
+     cost_price (and the selling price to sell_price) so the stock tables show
+     the same money as the sheet. */
+  const parseJsonList = (value) => {
+    try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+  };
+
+  r.get('/product-info', async (req, res) => {
+    const rows = await db.prepare(`
+      SELECT p.*, u.full_name AS updated_by_name
+      FROM inventory_product_info p LEFT JOIN users u ON u.id = p.updated_by
+    `).all();
+    const info = {};
+    for (const row of rows) {
+      info[row.item_id] = {
+        product_no: row.product_no || '',
+        ingredients: row.ingredients || '',
+        supplier_name: row.supplier_name || '',
+        supplier_link: row.supplier_link || '',
+        cost_breakdown: parseJsonList(row.cost_breakdown_json),
+        pages: parseJsonList(row.pages_json),
+        notes: row.notes || '',
+        updated_at: row.updated_at,
+        updated_by_name: row.updated_by_name || null,
+      };
+    }
+    // Every page the dashboard knows, for the "sold on" picker.
+    const pageRows = await db.prepare(`
+      SELECT DISTINCT page_name FROM pos_orders WHERE page_name IS NOT NULL AND page_name <> ''
+      UNION SELECT page_name FROM rts_page_sku
+    `).all();
+    const pages = [...new Set(pageRows.map((r) => String(r.page_name || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    res.json({ info, pages });
+  });
+
+  r.put('/:item_id/product-info', requireInventoryWrite, async (req, res) => {
+    const item = await db.prepare('SELECT item_id FROM inventory WHERE item_id = ?').get(req.params.item_id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    const body = req.body || {};
+    const text = (v, max) => (String(v ?? '').trim().slice(0, max) || null);
+    const link = text(body.supplier_link, 500);
+    if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'Supplier link must start with http:// or https://' });
+    const breakdown = (Array.isArray(body.cost_breakdown) ? body.cost_breakdown : [])
+      .map((c) => ({ label: String(c?.label || '').trim().slice(0, 80), amount: Math.round((Number(c?.amount) || 0) * 100) / 100 }))
+      .filter((c) => c.label || c.amount)
+      .slice(0, 30);
+    if (breakdown.some((c) => c.amount < 0)) return res.status(400).json({ error: 'Cost amounts cannot be negative' });
+    const pages = [...new Set((Array.isArray(body.pages) ? body.pages : []).map((p) => String(p || '').trim()).filter(Boolean))].slice(0, 100);
+    const unitCost = Math.round(breakdown.reduce((s, c) => s + c.amount, 0) * 100) / 100;
+    const sellRaw = body.sell_price;
+    const sellPrice = sellRaw === '' || sellRaw === null || sellRaw === undefined ? null : Math.max(0, Number(sellRaw) || 0);
+
+    await db.prepare(`
+      INSERT INTO inventory_product_info (item_id, product_no, ingredients, supplier_name, supplier_link, cost_breakdown_json, pages_json, notes, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(item_id) DO UPDATE SET
+        product_no = excluded.product_no, ingredients = excluded.ingredients,
+        supplier_name = excluded.supplier_name, supplier_link = excluded.supplier_link,
+        cost_breakdown_json = excluded.cost_breakdown_json, pages_json = excluded.pages_json,
+        notes = excluded.notes, updated_by = excluded.updated_by, updated_at = datetime('now')
+    `).run(item.item_id, text(body.product_no, 80), text(body.ingredients, 4000), text(body.supplier_name, 160), link,
+      JSON.stringify(breakdown), JSON.stringify(pages), text(body.notes, 2000), req.user?.id || null);
+    // An empty breakdown leaves the item's cost alone rather than zeroing it.
+    if (breakdown.length) {
+      await db.prepare(`UPDATE inventory SET cost_price = ?, sell_price = ?, updated_at = datetime('now') WHERE item_id = ?`).run(unitCost, sellPrice, item.item_id);
+    } else {
+      await db.prepare(`UPDATE inventory SET sell_price = ?, updated_at = datetime('now') WHERE item_id = ?`).run(sellPrice, item.item_id);
+    }
+    if (dispatch) dispatch('inventory.updated', { item_id: item.item_id, cost_price: breakdown.length ? unitCost : undefined, sell_price: sellPrice });
+    res.json({ success: true, item_id: item.item_id, unit_cost: breakdown.length ? unitCost : null, sell_price: sellPrice });
+  });
+
   r.post('/', requireInventoryWrite, async (req, res) => {
     const { name, sku, type, unit, stock, reorder_pt, cost_price, sell_price } = req.body;
     const item_id = `${type === 'Product' ? 'P' : 'S'}${String(Date.now()).slice(-4)}`;
