@@ -6539,7 +6539,6 @@ function renderHR() {
         ? '<button class="btn btn-primary btn-sm" onclick="openAttendanceAddModal()">+ Add Attendance</button>'
         : ''}
       <button class="btn btn-primary btn-sm" onclick="openModal('cash-advance-modal')">+ Cash Advance</button>
-      <button class="btn btn-secondary btn-sm" onclick="openScheduleModal()">+ Schedule</button>
     </div>
   </div>
 
@@ -6613,73 +6612,6 @@ function renderHR() {
             <button type="button" class="btn btn-secondary" onclick="closeModal('cash-advance-modal')">Cancel</button>
           </div>
         </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- Daily Schedule Modal -->
-  <div class="modal-overlay" id="schedule-modal">
-    <div class="modal" style="max-width:560px;">
-      <div class="modal-header">
-        <div class="modal-title">Daily Schedule</div>
-        <button class="modal-close" onclick="closeModal('schedule-modal')">×</button>
-      </div>
-      <div class="modal-body">
-        <form onsubmit="createUserSchedule(event)">
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label class="form-label">User</label>
-              <select id="schedule-user" class="form-control" onchange="loadUserSchedules()"></select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Date</label>
-              <input type="date" id="schedule-date" class="form-control" value="${today}">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Shift Start</label>
-              <input type="time" id="schedule-shift-start" class="form-control">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Shift End</label>
-              <input type="time" id="schedule-shift-end" class="form-control">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Notes</label>
-            <input type="text" id="schedule-notes" class="form-control" placeholder="e.g. Morning shift, WFH, Rest day">
-          </div>
-          <div style="margin-bottom:10px;">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500;margin-bottom:8px;">
-              <input type="checkbox" id="schedule-is-holiday" onchange="toggleScheduleHoliday()" style="width:16px;height:16px;cursor:pointer;">
-              Holiday
-            </label>
-            <div id="schedule-holiday-options" style="display:none;">
-              <div class="form-grid-2" style="gap:8px;margin-bottom:8px;">
-                <div class="form-group" style="margin:0;">
-                  <label class="form-label" style="font-size:11px;">Holiday Type</label>
-                  <select id="schedule-holiday-type" class="form-control" style="height:34px;font-size:13px;">
-                    <option value="Special Holiday">Special Holiday</option>
-                    <option value="Regular Holiday">Regular Holiday</option>
-                  </select>
-                </div>
-                <div class="form-group" style="margin:0;">
-                  <label class="form-label" style="font-size:11px;">Holiday Pay %</label>
-                  <div style="display:flex;gap:4px;">
-                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-30" onclick="selectSchedulePct(30)" style="flex:1;">30%</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-50" onclick="selectSchedulePct(50)" style="flex:1;">50%</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-100" onclick="selectSchedulePct(100)" style="flex:1;">100%</button>
-                  </div>
-                  <input type="hidden" id="schedule-holiday-percentage" value="30">
-                </div>
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:4px;">
-            <button type="submit" class="btn btn-primary" style="flex:1;">Add Schedule</button>
-            <button type="button" class="btn btn-secondary" onclick="closeModal('schedule-modal')">Close</button>
-          </div>
-        </form>
-        <div id="schedule-list" style="margin-top:16px;"></div>
       </div>
     </div>
   </div>
@@ -21083,6 +21015,9 @@ function renderSchedulePage() {
         <h1>Schedule</h1>
         <p class="page-subtitle">Staff daily schedules</p>
       </div>
+      ${canManageHR() ? `<div class="page-actions">
+        <button class="btn btn-primary btn-sm" onclick="openScheduleModal()">+ Schedule</button>
+      </div>` : ''}
     </div>
     <div class="card" style="margin-bottom:16px;padding:16px 20px;">
       <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
@@ -21107,7 +21042,79 @@ function renderSchedulePage() {
       <div id="sched-page-table-wrap">
         <div class="empty-state"><p>Loading schedules...</p></div>
       </div>
-    </div>`;
+    </div>
+    ${canManageHR() ? renderScheduleModal(today) : ''}`;
+}
+
+// The "+ Schedule" form. It lives on the Schedule page; it used to sit on
+// HR & Payroll.
+function renderScheduleModal(today) {
+  return `
+  <div class="modal-overlay" id="schedule-modal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title">Daily Schedule</div>
+        <button class="modal-close" onclick="closeModal('schedule-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <form onsubmit="createUserSchedule(event)">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">User</label>
+              <select id="schedule-user" class="form-control" onchange="loadUserSchedules()"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date</label>
+              <input type="date" id="schedule-date" class="form-control" value="${today}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Shift Start</label>
+              <input type="time" id="schedule-shift-start" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Shift End</label>
+              <input type="time" id="schedule-shift-end" class="form-control">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <input type="text" id="schedule-notes" class="form-control" placeholder="e.g. Morning shift, WFH, Rest day">
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500;margin-bottom:8px;">
+              <input type="checkbox" id="schedule-is-holiday" onchange="toggleScheduleHoliday()" style="width:16px;height:16px;cursor:pointer;">
+              Holiday
+            </label>
+            <div id="schedule-holiday-options" style="display:none;">
+              <div class="form-grid-2" style="gap:8px;margin-bottom:8px;">
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:11px;">Holiday Type</label>
+                  <select id="schedule-holiday-type" class="form-control" style="height:34px;font-size:13px;">
+                    <option value="Special Holiday">Special Holiday</option>
+                    <option value="Regular Holiday">Regular Holiday</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                  <label class="form-label" style="font-size:11px;">Holiday Pay %</label>
+                  <div style="display:flex;gap:4px;">
+                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-30" onclick="selectSchedulePct(30)" style="flex:1;">30%</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-50" onclick="selectSchedulePct(50)" style="flex:1;">50%</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-100" onclick="selectSchedulePct(100)" style="flex:1;">100%</button>
+                  </div>
+                  <input type="hidden" id="schedule-holiday-percentage" value="30">
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button type="submit" class="btn btn-primary" style="flex:1;">Add Schedule</button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('schedule-modal')">Close</button>
+          </div>
+        </form>
+        <div id="schedule-list" style="margin-top:16px;"></div>
+      </div>
+    </div>
+  </div>`;
 }
 
 async function initSchedulePage() {
@@ -21203,7 +21210,17 @@ function renderSchedulePageTable(schedules) {
     </div>`;
 }
 
-function openScheduleModal() {
+async function openScheduleModal() {
+  // hrState.users is filled by the HR & Payroll page; coming straight to
+  // Schedule it may still be empty.
+  if (!hrState.users.length) {
+    try {
+      const data = await authorizedJsonRequest('/auth/users');
+      hrState.users = Array.isArray(data?.users) ? data.users : [];
+    } catch (error) {
+      showToast('error', 'Users unavailable', error.message || 'Could not load users.');
+    }
+  }
   populateHRUserSelects();
   openModal('schedule-modal');
   loadUserSchedules();
@@ -21314,6 +21331,7 @@ async function createUserSchedule(event) {
     if (cb) { cb.checked = false; toggleScheduleHoliday(); }
     showToast('success', 'Schedule added', 'Daily schedule entry was saved.');
     await loadUserSchedules();
+    if (App.currentPage === 'schedule') loadSchedulePageData();
   } catch (error) {
     showToast('error', 'Schedule failed', error.message || 'Could not save schedule.');
   }
@@ -21324,6 +21342,7 @@ async function deleteUserSchedule(id) {
     await authorizedJsonRequest(`/hr/schedules/${id}`, { method: 'DELETE' });
     showToast('success', 'Deleted', 'Schedule entry removed.');
     await loadUserSchedules();
+    if (App.currentPage === 'schedule') loadSchedulePageData();
   } catch (error) {
     showToast('error', 'Delete failed', error.message || 'Could not delete schedule.');
   }
