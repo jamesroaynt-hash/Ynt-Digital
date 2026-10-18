@@ -9,17 +9,17 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'stock-flow', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'stock-flow', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'stock-flow', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'stock-flow', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -199,6 +199,7 @@ function loadPage(page) {
     'learning-manage': lazyPage('renderTrainingManagePage'),
     'learning-reports': lazyPage('renderTrainingReportsPage'),
     'daily-pickup': renderDailyPickup,
+    'stock-flow': lazyPage('renderStockFlowPage'),
     'rts-scanning': renderRTSScanning,
     calculators: renderCalculators,
     'rts-rate': renderRTSRate,
@@ -251,6 +252,7 @@ const pageNames = {
   'learning-manage': 'Manage Trainings',
   'learning-reports': 'Training Reports',
   'daily-pickup': 'Pickup',
+  'stock-flow': 'Stock Flow',
   'rts-scanning': 'RTS Scan',
   calculators: 'Calculators',
   'rts-rate': 'Sale Report',
@@ -561,7 +563,19 @@ async function refreshRtsPcsByProduct() {
   DB.rtsProductNames = [...nameSet].filter(Boolean).sort((a, b) => a.localeCompare(b));
 
   await loadRtsPageSkuMap();
+  await loadStockFlowStatus();
   return true;
+}
+
+// Whether inspected returns are on, and the pcs per item still waiting to be
+// opened — shown in the RTS column instead of the raw scan totals.
+async function loadStockFlowStatus() {
+  try {
+    DB.stockFlowStatus = await authorizedJsonRequest(`/stock-flow/status?_=${Date.now()}`);
+  } catch {
+    DB.stockFlowStatus = DB.stockFlowStatus || null;
+  }
+  return DB.stockFlowStatus;
 }
 
 // Page → SKU assignments for RTS Return. Once a page is mapped to a SKU, that
@@ -584,6 +598,10 @@ async function loadRtsPageSkuMap() {
 // Build RTS pcs lookups honoring the page→SKU mapping: a mapped page's total pcs
 // go to its assigned SKU; unmapped pages fall back to per-product name matching.
 function computeRtsPcsLookups() {
+  // Once inspected returns are on (Stock Flow → Returns), a scan no longer
+  // counts as stock: the old pcs were folded into stock at the switch and new
+  // ones go in only after inspection, so adding scans here would double them.
+  if (DB.stockFlowStatus?.returns_started) return { skuPcs: {}, namePcs: {} };
   const pageProduct = DB.rtsPcsByPageProduct || {}; // page -> { nameKey -> pcs }
   const pageSku = DB.rtsPageSku || {};              // page -> sku
   const skuPcs = {};
@@ -682,7 +700,7 @@ async function loadStockHistory() {
       return `<tr>
         <td style="white-space:nowrap;">${escapeHtml(formatDateTime(r.created_at))}</td>
         <td style="font-weight:500;">${escapeHtml(r.item_name || r.item_id || '—')}</td>
-        <td>${escapeHtml(actionLabel[r.action] || r.action || '—')}</td>
+        <td>${escapeHtml(window.sfMovementLabel?.(r.movement) || actionLabel[r.action] || r.action || '—')}${r.ref ? `<div class="text-xs text-muted font-mono">${escapeHtml(r.ref)}</div>` : ''}</td>
         <td style="text-align:right;">${Number(r.qty_before || 0).toLocaleString()}</td>
         <td style="text-align:right;font-weight:600;color:${changeColor};">${changeStr}</td>
         <td style="text-align:right;font-weight:600;">${Number(r.qty_after || 0).toLocaleString()}</td>
@@ -14160,6 +14178,7 @@ function renderInventory() {
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 14V6M5 9l3-3 3 3M2 3h12"/></svg>
         Import CSV
       </button>` : ''}
+      <button class="btn btn-secondary" onclick="navigateTo('stock-flow')" title="Picking list, stock out, stock in, returns and counts">Stock Flow</button>
       ${canEditStock ? `<button class="btn btn-secondary" onclick="openStockModal()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
         Stocks Update
@@ -14314,13 +14333,18 @@ function renderInventoryTable(items, pageScope) {
       ? Number(skuPcs[item.sku])
       : Number(namePcs[normalizeProductKey(item.name)] || 0);
   }
+  // After the switch to inspected returns the column shows parcels waiting to
+  // be opened. They are not stock yet, so they stay out of Total Stock.
+  const inspected = !!DB.stockFlowStatus?.returns_started;
+  const pendingByItem = DB.stockFlowStatus?.pending_by_item || {};
+  const pendingPcs = (item) => Number(pendingByItem[item.id] || 0);
   // Column totals shown in the footer (base stock, RTS pcs, combined total).
   const totalBaseStock = items.reduce((s, it) => s + Number(it.stock || 0), 0);
   const totalRts = items.reduce((s, it) => s + getRtsPcs(it), 0);
   const totalStock = totalBaseStock + totalRts;
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th>${inspected ? '<th title="Returned pcs scanned but not inspected yet — not counted as stock (Stock Flow → Returns)">Returns to Inspect</th>' : `<th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th>`}<th title="${inspected ? 'Stock on hand' : 'Stock + RTS pcs'}">Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const rtsPcs = getRtsPcs(item);
@@ -14337,7 +14361,9 @@ function renderInventoryTable(items, pageScope) {
               : `<div style="font-weight:500">${escapeHtml(item.name)}</div>`}</td>
             <td><span class="badge ${item.type==='Product'?'badge-info':'badge-gray'}">${item.type}</span></td>
             <td><strong>${Number(item.stock || 0).toLocaleString()}</strong> ${item.unit}</td>
-            <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
+            <td>${inspected
+              ? (pendingPcs(item) ? `<span class="badge badge-warning">${pendingPcs(item).toLocaleString()} pcs</span>` : '<span class="text-xs text-muted">—</span>')
+              : (rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>')}</td>
             <td${rtsPcs ? ` title="Stock ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
             <td>
               ${canManageInventoryStock()
@@ -14366,7 +14392,9 @@ function renderInventoryTable(items, pageScope) {
         <tr style="font-weight:700;border-top:2px solid var(--border)">
           <td colspan="3" style="text-align:right">Totals</td>
           <td><strong>${totalBaseStock.toLocaleString()}</strong></td>
-          <td>${totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—'}</td>
+          <td>${inspected
+            ? (items.reduce((s, it) => s + pendingPcs(it), 0) || '—')
+            : (totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—')}</td>
           <td><strong>${totalStock.toLocaleString()}</strong></td>
           <td colspan="5"></td>
         </tr>
@@ -19585,6 +19613,7 @@ function initPage(page) {
   if (page === 'learning-leaderboard') window.initTrainingLeaderboardPage?.().catch(() => {});
   if (page === 'learning-manage') window.initTrainingManagePage?.().catch(() => {});
   if (page === 'learning-reports') window.initTrainingReportsPage?.().catch(() => {});
+  if (page === 'stock-flow') window.initStockFlowPage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});
