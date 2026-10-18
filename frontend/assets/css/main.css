@@ -751,7 +751,7 @@ body::before {
 .nav-section-body {
   overflow: hidden;
   transition: max-height 0.22s ease, opacity 0.18s ease;
-  max-height: 600px;
+  max-height: 900px;
   opacity: 1;
 }
 .nav-section-body.collapsed {
@@ -7764,3 +7764,16 @@ tfoot td {
 .table-container.hrr-scroll { overflow-x: auto; width: 0; min-width: 100%; }
 .hrr-scroll table { min-width: 1100px; }
 .hrr-ministats b .badge { display: inline-flex; width: auto; }
+
+/* Category labels inside a sidebar section (HR Management). */
+.nav-subgroup {
+  padding: 12px 20px 4px 22px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(148,163,184,0.5);
+  user-select: none;
+}
+.nav-flyout-head + .nav-subgroup { padding-top: 4px; }
+.sidebar.collapsed .nav-section-body .nav-subgroup { padding: 8px 10px 3px; white-space: nowrap; }

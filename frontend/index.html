@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/Images/yntlogo.png?v=20260603">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=20261018-hr-records">
+<link rel="stylesheet" href="assets/css/main.css?v=20261018-hr-nav-groups">
 <link rel="stylesheet" href="assets/css/ads-manager.css?v=20260916-billing-spend">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -294,20 +294,19 @@
         <div class="nav-section-body" id="nav-section-body-people">
           <div class="nav-flyout-head"><svg class="nav-section-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.25"/><path d="M2 12.5c.7-1.9 2.3-3 4-3s3.3 1.1 4 3"/><path d="M10.75 3.1a2.25 2.25 0 010 3.9M11.5 9.8c1.2.35 2.1 1.35 2.6 2.7"/></svg><span>HR Management</span></div>
 
+          <div class="nav-subgroup">Time &amp; Pay</div>
           <a class="nav-item" data-page="hr" onclick="navigateTo('hr')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="5" cy="5" r="2.25"/><path d="M1.75 12.5c.7-1.9 2.1-3 3.25-3s2.55 1.1 3.25 3"/><path d="M10.5 3v4M8.5 5h4"/><path d="M10 10.5h4M10 13h3"/>
             </svg>
             HR & Payroll
           </a>
-
           <a class="nav-item" data-page="attendance-log" onclick="navigateTo('attendance-log')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="2" y="2.5" width="12" height="11.5" rx="1.5"/><path d="M2 6h12M5 1.5v2M11 1.5v2"/><path d="M4.5 9h2M4.5 11.5h2M9 9h2.5M9 11.5h2.5"/>
             </svg>
             Attendance Log
           </a>
-
           <a class="nav-item" data-page="schedule" onclick="navigateTo('schedule')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="2" y="2.5" width="12" height="11.5" rx="1.5"/><path d="M2 6h12M5 1.5v2M11 1.5v2"/><circle cx="5.5" cy="10" r="1"/><circle cx="10.5" cy="10" r="1"/>
@@ -315,20 +314,19 @@
             Schedule
           </a>
 
-          <a class="nav-item" data-page="employee-tracker" onclick="navigateTo('employee-tracker')">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10M2 6h4.5"/>
-            </svg>
-            Employee Tracker
-          </a>
-
+          <div class="nav-subgroup">People &amp; Records</div>
           <a class="nav-item" data-page="hr-records" onclick="navigateTo('hr-records')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M2 4.5A1.5 1.5 0 013.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0114 6v5.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z"/><path d="M5 9h6M5 11h4"/>
             </svg>
             201 Files
           </a>
-
+          <a class="nav-item" data-page="training" onclick="navigateTo('training')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M8 2.5L1.5 5.5 8 8.5l6.5-3L8 2.5z"/><path d="M4 7v3.5c0 1 1.8 2 4 2s4-1 4-2V7"/>
+            </svg>
+            Onboarding
+          </a>
           <a class="nav-item" data-page="hr-calendar" onclick="navigateTo('hr-calendar')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="2" y="2.5" width="12" height="11.5" rx="1.5"/><path d="M2 6h12M5 1.5v2M11 1.5v2"/><path d="M8 8.5v3M6.5 10h3"/>
@@ -336,20 +334,19 @@
             HR Calendar
           </a>
 
-          <a class="nav-item" data-page="training" onclick="navigateTo('training')">
+          <div class="nav-subgroup">Performance</div>
+          <a class="nav-item" data-page="employee-tracker" onclick="navigateTo('employee-tracker')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M8 2.5L1.5 5.5 8 8.5l6.5-3L8 2.5z"/><path d="M4 7v3.5c0 1 1.8 2 4 2s4-1 4-2V7"/>
+              <rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10M2 6h4.5"/>
             </svg>
-            Onboarding
+            Employee Tracker
           </a>
-
           <a class="nav-item" data-page="evaluation-kpi" onclick="navigateTo('evaluation-kpi')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M8 1.75l1.9 3.85 4.25.62-3.07 3 .72 4.23L8 11.45l-3.8 2l.72-4.23-3.07-3 4.25-.62L8 1.75z"/>
             </svg>
             Evaluation / KPI
           </a>
-
           <a class="nav-item" data-page="kpi-allowance" onclick="navigateTo('kpi-allowance')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="1.5" y="4" width="13" height="8.5" rx="1.5"/><circle cx="8" cy="8.25" r="1.75"/><path d="M4 6.5v3.5M12 6.5v3.5"/>
@@ -357,6 +354,7 @@
             KPI Allowance
           </a>
 
+          <div class="nav-subgroup">Reports</div>
           <a class="nav-item" data-page="hr-reports" onclick="navigateTo('hr-reports')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M2.5 13.5h11"/><path d="M4 11V8M7 11V5M10 11V7M13 11V3.5"/>
@@ -486,6 +484,6 @@
        router references renderAdsManager when any page loads. -->
   <script src="assets/js/ads-manager.js?v=20260916-billing-spend"></script>
   <script src="assets/js/hr-records.js?v=20261018-hr-records"></script>
-  <script src="assets/js/app.js?v=20261018-hr-records"></script>
+  <script src="assets/js/app.js?v=20261018-hr-nav-groups"></script>
 </body>
 </html>

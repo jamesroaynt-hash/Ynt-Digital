@@ -17309,6 +17309,18 @@ function refreshSidebarAccess() {
     item.style.display = accessiblePages.has(item.dataset.page) ? 'flex' : 'none';
   });
 
+  // A category label inside a section (HR Management's Time & Pay, People &
+  // Records…) shows only while at least one page under it — up to the next
+  // label — is in reach, so an employee who only has Evaluation / KPI sees
+  // just its own heading.
+  document.querySelectorAll('.nav-subgroup').forEach((label) => {
+    let visible = false;
+    for (let el = label.nextElementSibling; el && !el.classList.contains('nav-subgroup'); el = el.nextElementSibling) {
+      if (el.classList.contains('nav-item') && accessiblePages.has(el.dataset.page)) { visible = true; break; }
+    }
+    label.style.display = visible ? '' : 'none';
+  });
+
   // A section whose every item is out of reach is hidden outright — header
   // included — rather than left standing as an empty heading somebody can click.
   // Read from the items actually in each section rather than a list kept
