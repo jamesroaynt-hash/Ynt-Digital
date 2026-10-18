@@ -7772,7 +7772,7 @@ tfoot td {
   font-weight: 600;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: rgba(148,163,184,0.5);
+  color: #fff;
   user-select: none;
 }
 .nav-flyout-head + .nav-subgroup { padding-top: 4px; }
