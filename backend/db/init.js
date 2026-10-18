@@ -1653,6 +1653,7 @@ async function ensurePerformanceIndexesAsync(db) {
 
 const { ensureMetaAdsSchema } = require('./metaAdsSchema');
 const { ensureHrRecordsSchema } = require('./hrRecordsSchema');
+const { ensureTrainingSchema } = require('./trainingSchema');
 
 function initializeDatabase(db) {
   runSqlFile(db, 'schema.sql');
@@ -1670,6 +1671,7 @@ async function initializeDatabaseAsync(db) {
   }
   await ensureMetaAdsSchema(db);
   await ensureHrRecordsSchema(db);
+  await ensureTrainingSchema(db);
 }
 
 async function runSqlFileAsync(db, filename) {

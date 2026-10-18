@@ -9,19 +9,19 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
+  CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
+  RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
+  'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -189,11 +189,15 @@ function loadPage(page) {
     expenses: renderExpenses,
     hr: renderHR,
     'attendance-log': renderAttendanceLog,
-    training: hrRecordsPage('renderOnboardingPage'),
-    'hr-records': hrRecordsPage('renderHrRecordsPage'),
-    'hr-calendar': hrRecordsPage('renderHrCalendarPage'),
-    'kpi-allowance': hrRecordsPage('renderKpiAllowancePage'),
-    'hr-reports': hrRecordsPage('renderHrReportsPage'),
+    training: lazyPage('renderOnboardingPage'),
+    'hr-records': lazyPage('renderHrRecordsPage'),
+    'hr-calendar': lazyPage('renderHrCalendarPage'),
+    'kpi-allowance': lazyPage('renderKpiAllowancePage'),
+    'hr-reports': lazyPage('renderHrReportsPage'),
+    learning: lazyPage('renderTrainingPage'),
+    'learning-leaderboard': lazyPage('renderTrainingLeaderboardPage'),
+    'learning-manage': lazyPage('renderTrainingManagePage'),
+    'learning-reports': lazyPage('renderTrainingReportsPage'),
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
     calculators: renderCalculators,
@@ -242,6 +246,10 @@ const pageNames = {
   'hr-calendar': 'HR Calendar',
   'kpi-allowance': 'KPI Allowance',
   'hr-reports': 'HR Reports',
+  learning: 'My Training',
+  'learning-leaderboard': 'Training Leaderboard',
+  'learning-manage': 'Manage Trainings',
+  'learning-reports': 'Training Reports',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
   calculators: 'Calculators',
@@ -2306,11 +2314,11 @@ function saveTrainings() {
   localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(DB.trainings));
 }
 
-// The HR records pages (201 Files, HR Calendar, Onboarding, KPI Allowance, HR
-// Reports) live in hr-records.js. loadPage reaches them through this lookup
-// rather than by name: a bare reference to a function that failed to load
-// would throw inside the renderFns literal and blank EVERY page.
-function hrRecordsPage(name) {
+// Pages that live in their own script (hr-records.js, training.js) are reached
+// through this lookup rather than by name: a bare reference to a function
+// that failed to load would throw inside the renderFns literal and blank
+// EVERY page.
+function lazyPage(name) {
   return typeof window[name] === 'function' ? window[name] : renderHrRecordsUnavailable;
 }
 
@@ -17212,7 +17220,8 @@ const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // the other Administrators' menu too (the server refuses them as well).
 const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
   'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
-  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'hr-reports'];
+  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'hr-reports',
+  'learning-manage', 'learning-reports'];
 
 function isSuperAdminUser() {
   return !!App.user?.is_super_admin;
@@ -17223,7 +17232,7 @@ function getAccessiblePagesForCurrentUser() {
   const role = normalizeRoleName(App.user.role);
   const pages = NAV_ACCESS[role]
     || NAV_ACCESS_BY_KEY[navAccessKey(role)]
-    || ['home', 'rts-rate', 'data-report'];
+    || ['home', 'rts-rate', 'data-report', 'learning', 'learning-leaderboard'];
   if (isAdminUser()) {
     return isSuperAdminUser() ? pages : pages.filter((page) => !SUPER_ADMIN_PAGES.includes(page));
   }
@@ -17282,7 +17291,7 @@ function toggleNavSection(sectionId) {
   else localStorage.removeItem('nav_collapsed_' + sectionId);
 }
 
-const NAV_SECTION_IDS = ['main', 'summary', 'sales', 'rmo', 'operations', 'reports', 'people', 'system'];
+const NAV_SECTION_IDS = ['main', 'summary', 'sales', 'rmo', 'operations', 'reports', 'people', 'training', 'system'];
 const NAV_SECTION_OPEN_BY_DEFAULT = 'main';
 
 // Fresh login (and first ever visit) starts with only the Dashboard section expanded.
@@ -19572,6 +19581,10 @@ function initPage(page) {
   if (page === 'training') window.initOnboardingPage?.().catch(() => {});
   if (page === 'kpi-allowance') window.initKpiAllowancePage?.().catch(() => {});
   if (page === 'hr-reports') window.initHrReportsPage?.().catch(() => {});
+  if (page === 'learning') window.initTrainingPage?.().catch(() => {});
+  if (page === 'learning-leaderboard') window.initTrainingLeaderboardPage?.().catch(() => {});
+  if (page === 'learning-manage') window.initTrainingManagePage?.().catch(() => {});
+  if (page === 'learning-reports') window.initTrainingReportsPage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});
