@@ -344,6 +344,7 @@ async function createApp() {
   app.use('/api/expenses', authMiddleware, require('./routes/expenses')(db));
   app.use('/api/hr', authMiddleware, require('./routes/hr')(db));
   app.use('/api/evaluations', authMiddleware, require('./routes/evaluations')(db));
+  app.use('/api/hr-records', authMiddleware, require('./routes/hrRecords')(db));
   app.use('/api/daily-summary', authMiddleware, require('./routes/dailySummary')(db));
   app.use('/api/marketing', authMiddleware, require('./routes/marketing')(db));
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));

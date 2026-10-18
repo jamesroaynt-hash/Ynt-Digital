@@ -7706,3 +7706,61 @@ tfoot td {
   color: var(--danger);
   font-weight: 600;
 }
+
+/* ── HR Records: 201 Files, HR Calendar, Onboarding, KPI Allowance ──────── */
+.hrr-meter { display: inline-block; vertical-align: middle; width: 90px; height: 6px; margin-right: 8px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.hrr-meter span { display: block; height: 100%; border-radius: 999px; }
+.hrr-person-head { display: flex; align-items: center; gap: 12px; }
+.hrr-avatar { width: 44px; height: 44px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.hrr-ministats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.hrr-ministats > div { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 12px; }
+.hrr-ministats span { display: block; font-size: 11px; color: var(--text-muted); }
+.hrr-ministats b { display: block; margin-top: 4px; color: var(--text-primary); }
+.hrr-subtabs, .hrr-picker { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 16px 0 12px; }
+.hrr-callout { background: var(--info-soft); color: var(--info-text); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-size: 13px; margin-bottom: 12px; line-height: 1.8; }
+.hrr-chip { border: 1px solid var(--border-strong); background: var(--surface-1); color: var(--text-primary); border-radius: 999px; padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.hrr-chip:hover { border-color: var(--accent); }
+.hrr-docgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.hrr-doc { display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; padding: 14px 16px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-lg); cursor: pointer; color: var(--text-primary); }
+.hrr-doc:hover, .hrr-doc.active { border-color: var(--accent); }
+.hrr-doc.active { box-shadow: var(--shadow-sm); }
+.hrr-docname { font-size: 14px; font-weight: 650; }
+.hrr-docmeta { font-size: 12px; color: var(--text-muted); }
+.hrr-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.hrr-inline { min-width: 120px; padding: 5px 8px; font-size: 12.5px; height: auto; }
+.hrr-cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+.hrr-calendar { width: 100%; min-width: 760px; table-layout: fixed; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.hrr-calendar th { text-align: center; font-size: 12px; padding: 8px; background: var(--surface-2); color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+.hrr-calday { height: 118px; vertical-align: top; padding: 6px; position: relative; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: pointer; }
+.hrr-calday:nth-child(7n) { border-right: 0; }
+.hrr-calday.empty { background: var(--surface-2); cursor: default; }
+.hrr-calday.today .hrr-daynum { background: var(--accent); color: #fff; }
+.hrr-daynum { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 999px; font-weight: 700; font-size: 12px; color: var(--text-primary); }
+.hrr-cal-event { margin-top: 5px; border-radius: 7px; padding: 5px 7px; font-size: 11px; line-height: 1.3; background: var(--surface-3); color: var(--text-primary); border-left: 3px solid var(--text-muted); cursor: pointer; overflow: hidden; }
+.hrr-cal-event b { display: block; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrr-cal-event span { display: block; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrr-cal-event.done { opacity: .55; text-decoration: line-through; }
+.hrr-cal-event.payroll { border-left-color: var(--success); background: var(--success-soft); }
+.hrr-cal-event.bill { border-left-color: var(--warning); background: var(--warning-soft); }
+.hrr-cal-event.birthday { border-left-color: var(--gold); background: var(--gold-soft); }
+.hrr-cal-event.leave { border-left-color: var(--info); background: var(--info-soft); }
+.hrr-cal-event.document { border-left-color: var(--danger); background: var(--danger-soft); }
+.hrr-cal-event.evaluation, .hrr-cal-event.schedule { border-left-color: var(--accent); background: var(--accent-soft); }
+.hrr-addcal { position: absolute; right: 5px; bottom: 4px; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; cursor: pointer; opacity: 0; }
+.hrr-calday:hover .hrr-addcal { opacity: 1; }
+.hrr-upcoming-item { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; align-items: start; margin-bottom: 8px; }
+.hrr-upcoming-item .hrr-cal-event { margin-top: 0; cursor: default; }
+.hrr-upcoming-date { font-size: 12px; color: var(--text-muted); padding-top: 5px; }
+@media (max-width: 1100px) {
+  .hrr-cal-layout { grid-template-columns: 1fr; }
+  .hrr-docgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .hrr-ministats, .hrr-docgrid { grid-template-columns: 1fr 1fr; }
+}
+#hrr-root, #hrr-rep-root, #hrr-onb-root, #hrr-kpi-root, .hrr-cal-layout > .card { min-width: 0; max-width: 100%; }
+/* width 0 + min-width 100%: the wide table scrolls inside the card instead of
+   stretching the whole page (the main column is a flex item with no min-width). */
+.table-container.hrr-scroll { overflow-x: auto; width: 0; min-width: 100%; }
+.hrr-scroll table { min-width: 1100px; }
+.hrr-ministats b .badge { display: inline-flex; width: auto; }

@@ -9,11 +9,11 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
@@ -189,7 +189,11 @@ function loadPage(page) {
     expenses: renderExpenses,
     hr: renderHR,
     'attendance-log': renderAttendanceLog,
-    training: renderTraining,
+    training: hrRecordsPage('renderOnboardingPage'),
+    'hr-records': hrRecordsPage('renderHrRecordsPage'),
+    'hr-calendar': hrRecordsPage('renderHrCalendarPage'),
+    'kpi-allowance': hrRecordsPage('renderKpiAllowancePage'),
+    'hr-reports': hrRecordsPage('renderHrReportsPage'),
     'daily-pickup': renderDailyPickup,
     'rts-scanning': renderRTSScanning,
     calculators: renderCalculators,
@@ -233,7 +237,11 @@ const pageNames = {
   expenses: 'Expenses',
   hr: 'HR & Payroll',
   'attendance-log': 'Attendance Log',
-  training: 'Training',
+  training: 'Onboarding & Playbooks',
+  'hr-records': '201 Files',
+  'hr-calendar': 'HR Calendar',
+  'kpi-allowance': 'KPI Allowance',
+  'hr-reports': 'HR Reports',
   'daily-pickup': 'Pickup',
   'rts-scanning': 'RTS Scan',
   calculators: 'Calculators',
@@ -2298,20 +2306,19 @@ function saveTrainings() {
   localStorage.setItem(TRAINING_STORAGE_KEY, JSON.stringify(DB.trainings));
 }
 
-// Placeholder Training page. The training feature is scaffolded (storage,
-// departments, categories) but its UI isn't built yet; this stub exists so the
-// `training: renderTraining` entry in loadPage's renderFns map resolves —
-// otherwise the object literal throws and EVERY page renders blank.
-function renderTraining() {
-  const trainings = Array.isArray(DB.trainings) ? DB.trainings : [];
+// The HR records pages (201 Files, HR Calendar, Onboarding, KPI Allowance, HR
+// Reports) live in hr-records.js. loadPage reaches them through this lookup
+// rather than by name: a bare reference to a function that failed to load
+// would throw inside the renderFns literal and blank EVERY page.
+function hrRecordsPage(name) {
+  return typeof window[name] === 'function' ? window[name] : renderHrRecordsUnavailable;
+}
+
+function renderHrRecordsUnavailable() {
   return `
-    <div class="page-header">
-      <h1 class="page-title">Training</h1>
-      <p class="page-subtitle">Employee training records</p>
-    </div>
     <div class="card" style="padding:48px;text-align:center;color:var(--text-muted);">
-      <h3 style="margin-bottom:8px;">Training module coming soon</h3>
-      <p>${trainings.length ? `${trainings.length} saved record(s).` : 'No training records yet.'}</p>
+      <h3 style="margin-bottom:8px;">This page did not load</h3>
+      <p>Refresh the browser to try again.</p>
     </div>`;
 }
 
@@ -4290,7 +4297,11 @@ const HR_QUICK_LINKS = [
   { page: 'employee-tracker', metric: 'selfcare', title: 'Self-Care', desc: '✓ Done · R Rest Day · × Not Done' },
   { page: 'schedule', title: 'Schedule', desc: 'Shifts, rest days, holidays, and daily notes.' },
   { page: 'attendance', title: 'Time & Attendance', desc: 'Time clock plus leave, OT and cash advance requests.' },
-  { page: 'manage-users', title: 'Employee Record', desc: 'Account, role, daily rate and contact details in one profile.' },
+  { page: 'hr-records', title: 'Employee Record', desc: '201 file: contract, NDA, documents, memos and payroll in one profile.' },
+  { page: 'training', title: 'New Trainee', desc: 'Add a trainee and track onboarding + daily department targets.' },
+  { page: 'hr-calendar', title: 'HR Calendar', desc: 'Payroll, bills, deadlines, birthdays and HR tasks.' },
+  { page: 'kpi-allowance', title: 'KPI Allowance', desc: 'Allowance eligibility from KPI / evaluation scores.' },
+  { page: 'hr-reports', title: 'HR Reports', desc: 'Lates, leave, payroll, 201 completeness and tracker compliance.' },
 ];
 
 function renderHrDashboardPage() {
@@ -4626,6 +4637,10 @@ function renderEmployeeTracker() {
       </div>
       <div class="modal-body">
         <textarea class="form-control" id="et-note-text" rows="5" placeholder="What happened that day — e.g. late 20 minutes, sick, sent EOD on Messenger…"></textarea>
+        <div id="et-note-link-wrap" style="display:none;margin-top:10px;">
+          <label class="form-label">EOD link</label>
+          <input type="url" class="form-control" id="et-note-link" placeholder="Paste the exact link the employee sent">
+        </div>
         <div style="display:flex;gap:8px;margin-top:12px;">
           <button class="btn btn-primary" style="flex:1;" onclick="saveEmployeeTrackerNote()">Save note</button>
           <button class="btn btn-secondary" onclick="clearEmployeeTrackerNote()">Delete</button>
@@ -4710,6 +4725,7 @@ function renderEmployeeTrackerCard() {
         <span><i class="et-chip note">📝</i>Note for the day</span>
       </div>
       ${renderEmployeeTrackerGrid(metric, days)}
+      ${metric.id === 'eod' ? renderEmployeeTrackerEodLinks(days) : ''}
       <div class="et-foot">${renderEmployeeTrackerFootnote()}</div>
     </div>`;
 }
@@ -4781,6 +4797,31 @@ function renderEmployeeTrackerGrid(metric, days) {
   </div>`;
 }
 
+// Every EOD link pasted for the days on screen. Added from a day's 📝 note.
+function renderEmployeeTrackerEodLinks(days) {
+  const links = employeeTrackerLinks();
+  const marks = employeeTrackerState.marks.eod || {};
+  const rows = [];
+  employeeTrackerState.employees.forEach((employee) => {
+    days.forEach((day) => {
+      const link = links[employee.id]?.[day];
+      if (link) rows.push({ employee, day, link, state: marks[employee.id]?.[day] });
+    });
+  });
+  const label = { yes: 'Submitted', late: 'Late', rest: 'Rest Day', no: 'Not Submitted' };
+  return `
+    <div class="card-subtitle" style="margin:18px 0 8px;font-weight:600;">EOD Submission Links</div>
+    ${rows.length ? `<div class="table-container"><table>
+      <thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>EOD Link</th></tr></thead>
+      <tbody>${rows.map((row) => `<tr>
+        <td>${escapeHtml(etParseDate(row.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}</td>
+        <td><strong>${escapeHtml(row.employee.name || 'User')}</strong></td>
+        <td>${escapeHtml(label[row.state] || '—')}</td>
+        <td>${/^https?:\/\//i.test(row.link) ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(row.link)}" target="_blank" rel="noopener">Open Link</a>` : escapeHtml(row.link)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p class="text-xs text-muted">No links for these days. Open a day&rsquo;s 📝 and paste the link the employee sent.</p>'}`;
+}
+
 function renderEmployeeTrackerFootnote() {
   const count = employeeTrackerState.employees.length;
   const source = canAccessPage('manage-users')
@@ -4811,6 +4852,12 @@ function employeeTrackerNotes(metricId) {
   return all[metricId] || (all[metricId] = {});
 }
 
+// EOD submission links, one per employee per day: HR pastes the exact link the
+// employee sent so reviewing it is one click. Kept beside the notes.
+function employeeTrackerLinks() {
+  return employeeTrackerState.marks._links || (employeeTrackerState.marks._links = {});
+}
+
 let employeeTrackerNoteTarget = null;
 
 function openEmployeeTrackerNote(userId, date) {
@@ -4822,11 +4869,15 @@ function openEmployeeTrackerNote(userId, date) {
   const label = etParseDate(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   if (title) title.textContent = `${employee?.name || 'Employee'} · ${label} · ${metric.tab}`;
   if (text) text.value = employeeTrackerNotes(metric.id)[userId]?.[date] || '';
+  const linkWrap = document.getElementById('et-note-link-wrap');
+  const link = document.getElementById('et-note-link');
+  if (linkWrap) linkWrap.style.display = metric.id === 'eod' ? '' : 'none';
+  if (link) link.value = employeeTrackerLinks()[userId]?.[date] || '';
   openModal('et-note-modal');
   setTimeout(() => text?.focus(), 50);
 }
 
-function writeEmployeeTrackerNote(value) {
+function writeEmployeeTrackerNote(value, { clear = false } = {}) {
   const target = employeeTrackerNoteTarget;
   if (!target) return;
   const notes = employeeTrackerNotes(target.metric);
@@ -4834,6 +4885,14 @@ function writeEmployeeTrackerNote(value) {
   const text = String(value || '').trim();
   if (text) row[target.date] = text;
   else delete row[target.date];
+  if (target.metric === 'eod') {
+    const links = employeeTrackerLinks();
+    const linkRow = links[target.userId] || (links[target.userId] = {});
+    // Delete clears the link with the note — it means the whole entry.
+    const link = clear ? '' : String(document.getElementById('et-note-link')?.value || '').trim();
+    if (link) linkRow[target.date] = link;
+    else delete linkRow[target.date];
+  }
   saveEmployeeTrackerMarks();
   closeModal('et-note-modal');
   employeeTrackerNoteTarget = null;
@@ -4845,7 +4904,7 @@ function saveEmployeeTrackerNote() {
 }
 
 function clearEmployeeTrackerNote() {
-  writeEmployeeTrackerNote('');
+  writeEmployeeTrackerNote('', { clear: true });
 }
 
 function setEmployeeTrackerMetric(metric) {
@@ -17220,7 +17279,8 @@ const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // HR access is HR's, Operation's and the super admin's, so the HR pages leave
 // the other Administrators' menu too (the server refuses them as well).
 const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
-  'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr'];
+  'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
+  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'hr-reports'];
 
 function isSuperAdminUser() {
   return !!App.user?.is_super_admin;
@@ -19562,6 +19622,12 @@ function initPage(page) {
   if (page === 'employee-tracker') {
     initEmployeeTracker().catch(() => {});
   }
+
+  if (page === 'hr-records') window.initHrRecordsPage?.().catch(() => {});
+  if (page === 'hr-calendar') window.initHrCalendarPage?.().catch(() => {});
+  if (page === 'training') window.initOnboardingPage?.().catch(() => {});
+  if (page === 'kpi-allowance') window.initKpiAllowancePage?.().catch(() => {});
+  if (page === 'hr-reports') window.initHrReportsPage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});
