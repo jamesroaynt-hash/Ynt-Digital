@@ -727,7 +727,7 @@ body::before {
   font-size: 12px;
   letter-spacing: 1.2px;
   text-transform: uppercase;
-  color: rgba(148,163,184,0.75);
+  color: #fff;
   padding: 14px 20px 7px;
   font-weight: 600;
   display: flex;
@@ -736,7 +736,7 @@ body::before {
   cursor: pointer;
   user-select: none;
 }
-.nav-section-label:hover { color: rgba(148,163,184,1); }
+.nav-section-label:hover { color: #fff; }
 .nav-section-chevron {
   width: 11px;
   height: 11px;
@@ -5717,7 +5717,7 @@ tfoot td {
   box-shadow: 0 0 8px #5b8bff;
 }
 [data-theme="dark"] .nav-item.active svg { color: #9cc0ff; }
-[data-theme="dark"] .nav-section-label { color: rgba(120, 138, 170, 0.7); }
+[data-theme="dark"] .nav-section-label { color: #fff; }
 
 [data-theme="dark"] .sidebar-logo .brand-name { gap: 11px; }
 [data-theme="dark"] .logo-mark {
