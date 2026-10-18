@@ -9,17 +9,17 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
   CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -199,6 +199,7 @@ function loadPage(page) {
     'learning-manage': lazyPage('renderTrainingManagePage'),
     'learning-reports': lazyPage('renderTrainingReportsPage'),
     'daily-pickup': renderDailyPickup,
+    'ops-calendar': lazyPage('renderOpsCalendarPage'),
     'rts-scanning': renderRTSScanning,
     calculators: renderCalculators,
     'rts-rate': renderRTSRate,
@@ -251,6 +252,7 @@ const pageNames = {
   'learning-manage': 'Manage Trainings',
   'learning-reports': 'Training Reports',
   'daily-pickup': 'Pickup',
+  'ops-calendar': 'Operations Calendar',
   'rts-scanning': 'RTS Scan',
   calculators: 'Calculators',
   'rts-rate': 'Sale Report',
@@ -14147,6 +14149,115 @@ function normalizeOdzImportRow(raw) {
   };
 }
 
+// Stock page tabs. Dashboard first: the counts, quick actions, low stock and
+// the deliveries due, before the item tables.
+const INV_TABS = [
+  { id: 'tab-dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { id: 'tab-active', label: 'Active', icon: 'active' },
+  { id: 'tab-inactive', label: 'Not Active', icon: 'inactive' },
+  { id: 'tab-products', label: 'Products', icon: 'products' },
+  { id: 'tab-supplies', label: 'Supplies', icon: 'supplies' },
+  { id: 'tab-rts-return', label: 'RTS Return', icon: 'rts' },
+  { id: 'tab-stock-history', label: 'Stock History', icon: 'history' },
+];
+
+const INV_ICON = (paths) => `<svg class="inv-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const INV_TAB_ICONS = {
+  dashboard: INV_ICON('<rect x="2" y="2" width="5" height="6" rx="1"/><rect x="9" y="2" width="5" height="3.5" rx="1"/><rect x="9" y="7.5" width="5" height="6.5" rx="1"/><rect x="2" y="10" width="5" height="4" rx="1"/>'),
+  active: INV_ICON('<path d="M2.5 5L8 2l5.5 3v6L8 14l-5.5-3z"/><path d="M5.5 8.2l1.8 1.8 3.2-3.4"/>'),
+  inactive: INV_ICON('<path d="M2.5 5L8 2l5.5 3v6L8 14l-5.5-3z"/><path d="M6 6.5l4 4M10 6.5l-4 4"/>'),
+  products: INV_ICON('<path d="M5.5 2h5l.5 2.5H5z"/><rect x="4" y="4.5" width="8" height="9.5" rx="1.5"/><path d="M6.5 8.5h3M6.5 11h3"/>'),
+  supplies: INV_ICON('<rect x="2" y="5" width="12" height="9" rx="1"/><path d="M2 8h12M6 5V2.5h4V5"/>'),
+  rts: INV_ICON('<path d="M5.5 4.5L2.5 7.5l3 3"/><path d="M2.5 7.5h7a4 4 0 010 8h-1"/>'),
+  history: INV_ICON('<path d="M2.5 8a5.5 5.5 0 105.5-5.5A5.5 5.5 0 004 4.3"/><path d="M2.5 2v3h3"/><path d="M8 5v3l2 1.5"/>'),
+  add: INV_ICON('<rect x="2" y="2" width="12" height="12" rx="2"/><path d="M8 5v6M5 8h6"/>'),
+  update: INV_ICON('<path d="M13.5 6.5A5.5 5.5 0 003.4 4.6M2.5 9.5a5.5 5.5 0 0010.1 1.9"/><path d="M3 2v3h3M13 14v-3h-3"/>'),
+  import: INV_ICON('<path d="M8 2v8M5 7l3 3 3-3"/><path d="M2.5 11v1.5a1.5 1.5 0 001.5 1.5h8a1.5 1.5 0 001.5-1.5V11"/>'),
+  calendar: INV_ICON('<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.5v3M11 1.5v3"/><path d="M5 9.5h2M9 9.5h2M5 12h2"/>'),
+  truck: INV_ICON('<path d="M1.5 4.5h8v6h-8z"/><path d="M9.5 7h2.5l2 2v1.5h-4.5z"/><circle cx="4.5" cy="12" r="1.25"/><circle cx="11.5" cy="12" r="1.25"/>'),
+  warning: INV_ICON('<path d="M8 2L14 13H2z"/><path d="M8 6.5v3M8 11.2v.3"/>'),
+};
+
+// Opens one of the Stock page tabs from a dashboard card.
+function openInventoryTab(id) {
+  const btn = document.querySelector(`.inv-tabs [data-inv-tab="${id}"]`);
+  if (btn) switchTab(btn, id);
+}
+
+function renderInventoryDashboard(lowStock, canEditStock) {
+  const items = DB.inventory || [];
+  const active = items.filter((i) => i.active !== 0);
+  const units = active.reduce((s, i) => s + Number(i.stock || 0), 0);
+  const value = active.reduce((s, i) => s + Number(i.stock || 0) * Number(i.cost || 0), 0);
+  const cards = [
+    { tone: 'blue', label: 'Total Products', value: items.filter((i) => i.type === 'Product').length, meta: `${items.filter((i) => i.type === 'Product' && i.active !== 0).length} active` },
+    { tone: 'green', label: 'Total Supplies', value: items.filter((i) => i.type === 'Supply').length, meta: 'packaging and materials' },
+    { tone: 'red', label: 'Low Stock', value: lowStock.length, meta: 'below reorder point' },
+    { tone: 'amber', label: 'Stock on Hand', value: units.toLocaleString(), meta: `${formatPHP(value)} at cost` },
+  ];
+  const actions = [
+    canEditStock && { icon: 'add', title: 'Add Item', desc: 'Create a new product or supply.', run: "openModal('add-inventory-modal')" },
+    canEditStock && { icon: 'update', title: 'Stocks Update', desc: 'Add, remove or set an item’s stock.', run: 'openStockModal()' },
+    canEditStock && { icon: 'import', title: 'Import CSV', desc: 'Bulk add or update items from a file.', run: "startCsvImport('inventory')" },
+    { icon: 'active', title: 'Active Stock', desc: 'Stock levels of the products being sold.', run: "openInventoryTab('tab-active')" },
+    { icon: 'products', title: 'Products', desc: 'Ingredients, supplier, costing and pages.', run: "openInventoryTab('tab-products')" },
+    { icon: 'supplies', title: 'Supplies', desc: 'Packaging and materials on hand.', run: "openInventoryTab('tab-supplies')" },
+    { icon: 'rts', title: 'RTS Return', desc: 'Returned pcs per page and their SKU.', run: "openInventoryTab('tab-rts-return')" },
+    { icon: 'history', title: 'Stock History', desc: 'Every stock change, newest first.', run: "openInventoryTab('tab-stock-history')" },
+    canAccessPage('ops-calendar') && { icon: 'calendar', title: 'Delivery Calendar', desc: 'Scheduled supplier deliveries and pickups.', run: "navigateTo('ops-calendar')" },
+  ].filter(Boolean);
+  return `
+  <div class="stats-grid" style="margin-bottom:20px;">
+    ${cards.map((c) => `<div class="stat-card ${c.tone}"><div class="stat-card-accent"></div><div class="stat-label">${escapeHtml(c.label)}</div><div class="stat-value">${escapeHtml(String(c.value))}</div><div class="stat-meta">${escapeHtml(c.meta)}</div></div>`).join('')}
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header"><div><div class="card-title">Quick Actions</div><div class="card-subtitle">Jump straight to what you need.</div></div></div>
+    <div class="card-body">
+      <div class="qe-grid">
+        ${actions.map((a) => `<button type="button" class="qe-card inv-qe-card" onclick="${a.run}">
+          <span class="inv-qe-icon">${INV_TAB_ICONS[a.icon]}</span>
+          <span class="qe-title">${escapeHtml(a.title)}</span>
+          <span class="qe-desc">${escapeHtml(a.desc)}</span>
+        </button>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <div class="inv-dash-grid">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title"><span class="inv-title-icon inv-tone-red">${INV_TAB_ICONS.warning}</span>Low Stock</div><div class="card-subtitle">Below the reorder point (stock + RTS pcs).</div></div></div>
+      <div class="table-container"><table>
+        <thead><tr><th>Item</th><th class="num">Total stock</th><th class="num">Reorder pt</th></tr></thead>
+        <tbody>${lowStock.length ? lowStock.map((i) => `<tr>
+          <td style="font-weight:500">${escapeHtml(i.name)}<div class="text-xs text-muted font-mono">${escapeHtml(i.sku || '')}</div></td>
+          <td class="num" style="color:#ef4444;font-weight:600">${inventoryEffectiveStock(i).toLocaleString()} ${escapeHtml(i.unit || '')}</td>
+          <td class="num">${Number(i.reorder || 0).toLocaleString()}</td>
+        </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--text-muted)">Everything is above its reorder point.</td></tr>'}</tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div><div class="card-title"><span class="inv-title-icon inv-tone-blue">${INV_TAB_ICONS.truck}</span>Upcoming Deliveries</div><div class="card-subtitle">Open schedules in the next 2 weeks.</div></div>
+        ${canAccessPage('ops-calendar') ? `<button class="btn btn-secondary btn-sm" onclick="navigateTo('ops-calendar')">Open calendar</button>` : ''}</div>
+      <div class="card-body" id="inv-dash-deliveries"><div class="text-muted text-sm">Loading…</div></div>
+    </div>
+  </div>`;
+}
+
+async function loadInventoryDashboardDeliveries() {
+  const wrap = document.getElementById('inv-dash-deliveries');
+  if (!wrap || typeof window.loadOpsUpcoming !== 'function') return;
+  try {
+    const list = await window.loadOpsUpcoming(14);
+    wrap.innerHTML = list.length ? list.slice(0, 12).map((item) => `<div class="hrr-upcoming-item">
+      <div class="hrr-upcoming-date">${escapeHtml(new Date(`${item.day}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }))}</div>
+      <div class="${window.ocEventClass(item)}"><b>${escapeHtml(item.title)}</b>${window.ocEventMeta(item) ? `<span>${escapeHtml(window.ocEventMeta(item))}</span>` : ''}</div>
+    </div>`).join('') : '<div class="text-muted text-sm">Nothing scheduled in the next two weeks.</div>';
+  } catch (error) {
+    wrap.innerHTML = `<div class="text-muted text-sm">Could not load: ${escapeHtml(error.message || 'error')}</div>`;
+  }
+}
+
 function renderInventory() {
   const rtsLookups = computeRtsPcsLookups();
   const lowStock = DB.inventory.filter(i => inventoryEffectiveStock(i, rtsLookups) < i.reorder);
@@ -14171,29 +14282,15 @@ function renderInventory() {
     </div>
   </div>
 
-  ${lowStock.length ? `
-  <div class="alert alert-warning">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2L14 13H2L8 2z"/><path d="M8 6v4M8 11v1"/></svg>
-    <div><strong>${lowStock.length} item(s) below reorder point:</strong> ${lowStock.map(i => i.name).join(', ')}</div>
-  </div>` : ''}
-
-  <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:20px;">
-    <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Total Products</div><div class="stat-value">${DB.inventory.filter(i=>i.type==='Product').length}</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total Supplies</div><div class="stat-value">${DB.inventory.filter(i=>i.type==='Supply').length}</div></div>
-    <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Low Stock</div><div class="stat-value">${lowStock.length}</div></div>
-    <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Total SKUs</div><div class="stat-value">${DB.inventory.length}</div></div>
+  <div class="tabs inv-tabs">
+    ${INV_TABS.map((t, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-inv-tab="${t.id}" onclick="switchTab(this,'${t.id}')">${INV_TAB_ICONS[t.icon]}<span>${t.label}</span></button>`).join('')}
   </div>
 
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab(this,'tab-active')">Active</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-inactive')">Not Active</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-products')">Products</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-supplies')">Supplies</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-rts-return')">RTS Return</button>
-    <button class="tab-btn" onclick="switchTab(this,'tab-stock-history')">Stock History</button>
+  <div id="tab-dashboard" class="tab-content active">
+    ${renderInventoryDashboard(lowStock, canEditStock)}
   </div>
 
-  <div id="tab-active" class="tab-content active">
+  <div id="tab-active" class="tab-content">
     <div style="margin-bottom:12px;">
       <input type="text" id="inv-products-search" class="form-control" style="max-width:320px;" placeholder="Search by item name or SKU..." oninput="filterInventoryProducts()">
     </div>
@@ -14327,7 +14424,7 @@ function renderInventoryTable(items, pageScope) {
   const totalStock = totalBaseStock + totalRts;
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th><th>Status</th><th>Active / Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const rtsPcs = getRtsPcs(item);
@@ -14349,20 +14446,18 @@ function renderInventoryTable(items, pageScope) {
             <td>₱${item.cost}</td>
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
-              ${canManageInventoryStock()
-                ? `<label class="switch" title="${isActive ? 'Active — click to close' : 'Closed — click to activate'}">
-                    <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleInventoryActive('${escapeHtml(item.id)}', this.checked)">
-                    <span class="switch-slider"></span>
-                  </label>`
-                : `<span class="badge ${isActive ? 'badge-success' : 'badge-gray'}">${isActive ? 'Active' : 'Closed'}</span>`}
-            </td>
-            <td>
-              <div class="flex gap-2">
-                ${canManageInventoryStock() ? `<button class="btn btn-ghost btn-sm" onclick="openStockModal('${escapeHtml(item.id)}')">Restock</button>` : '<span class="text-xs text-muted">View only</span>'}
+              <div class="flex gap-2" style="align-items:center;flex-wrap:nowrap">
+                ${canManageInventoryStock()
+                  ? `<label class="switch" title="${isActive ? 'Active — click to close' : 'Closed — click to activate'}">
+                      <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleInventoryActive('${escapeHtml(item.id)}', this.checked)">
+                      <span class="switch-slider"></span>
+                    </label>
+                    <button class="btn btn-ghost btn-sm" onclick="openStockModal('${escapeHtml(item.id)}')">Restock</button>`
+                  : `<span class="badge ${isActive ? 'badge-success' : 'badge-gray'}">${isActive ? 'Active' : 'Closed'}</span>`}
               </div>
             </td>
           </tr>`;
-        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
+        }).join('') : '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
       ${items.length ? `<tfoot>
         <tr style="font-weight:700;border-top:2px solid var(--border)">
@@ -14370,7 +14465,7 @@ function renderInventoryTable(items, pageScope) {
           <td><strong>${totalBaseStock.toLocaleString()}</strong></td>
           <td>${totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—'}</td>
           <td><strong>${totalStock.toLocaleString()}</strong></td>
-          <td colspan="4"></td>
+          <td colspan="3"></td>
         </tr>
       </tfoot>` : ''}
     </table>`;
@@ -19596,6 +19691,7 @@ function initPage(page) {
   if (page === 'learning-leaderboard') window.initTrainingLeaderboardPage?.().catch(() => {});
   if (page === 'learning-manage') window.initTrainingManagePage?.().catch(() => {});
   if (page === 'learning-reports') window.initTrainingReportsPage?.().catch(() => {});
+  if (page === 'ops-calendar') window.initOpsCalendarPage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});
@@ -19837,6 +19933,7 @@ function initPage(page) {
 
   if (page === 'inventory') {
     window.loadProductInfo?.().catch(() => {});
+    loadInventoryDashboardDeliveries().catch(() => {});
     loadRtsReturnRecords().catch(() => {});
     loadStockHistory().catch(() => {});
     refreshRtsPcsByProduct()

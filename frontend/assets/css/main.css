@@ -7883,3 +7883,27 @@ tfoot td {
 .pi-table th:nth-child(8) { width: 15%; }
 .pi-table th:nth-child(9) { width: 7%; }
 .pi-table td { overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Stock page: tab icons, dashboard ───────────────────────── */
+.inv-tabs { flex-wrap: wrap; }
+.inv-tabs .tab-btn { display: inline-flex; align-items: center; gap: 7px; }
+.inv-icon { width: 15px; height: 15px; flex-shrink: 0; }
+.inv-qe-card { position: relative; }
+.inv-qe-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); margin-bottom: 4px; }
+.inv-qe-icon .inv-icon { width: 18px; height: 18px; }
+.inv-dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.inv-dash-grid td.num, .inv-dash-grid th.num { text-align: right; }
+.inv-title-icon { display: inline-flex; vertical-align: -3px; margin-right: 7px; }
+.inv-tone-red { color: #ef4444; }
+.inv-tone-blue { color: var(--accent); }
+@media (max-width: 1000px) { .inv-dash-grid { grid-template-columns: 1fr; } }
+
+/* ── Operations calendar tones (on the HR calendar's hrr-cal-event) ── */
+.hrr-cal-event.oc-delivery { border-left-color: var(--success); background: var(--success-soft); }
+.hrr-cal-event.oc-pickup { border-left-color: var(--info); background: var(--info-soft); }
+.hrr-cal-event.oc-count { border-left-color: var(--gold); background: var(--gold-soft); }
+.hrr-cal-event.oc-restock { border-left-color: var(--warning); background: var(--warning-soft); }
+.hrr-cal-event.oc-payment { border-left-color: var(--accent); background: var(--accent-soft); }
+.hrr-cal-event.oc-delayed { outline: 1px solid #ef4444; }
+.oc-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.oc-legend .hrr-cal-event { margin: 0; font-size: 11px; }

@@ -1655,6 +1655,7 @@ const { ensureMetaAdsSchema } = require('./metaAdsSchema');
 const { ensureHrRecordsSchema } = require('./hrRecordsSchema');
 const { ensureTrainingSchema } = require('./trainingSchema');
 const { ensureProductInfoSchema } = require('./productInfoSchema');
+const { ensureOpsCalendarSchema } = require('./opsCalendarSchema');
 
 function initializeDatabase(db) {
   runSqlFile(db, 'schema.sql');
@@ -1674,6 +1675,7 @@ async function initializeDatabaseAsync(db) {
   await ensureHrRecordsSchema(db);
   await ensureTrainingSchema(db);
   await ensureProductInfoSchema(db);
+  await ensureOpsCalendarSchema(db);
 }
 
 async function runSqlFileAsync(db, filename) {
