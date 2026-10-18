@@ -747,7 +747,7 @@ body::before {
 }
 .nav-section-label.collapsed .nav-section-chevron { transform: rotate(-90deg); }
 .nav-section-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.nav-section-icon { display: none; width: 20px; height: 20px; flex-shrink: 0; }
+.nav-section-icon { display: block; width: 16px; height: 16px; flex-shrink: 0; opacity: 0.9; }
 .nav-section-body {
   overflow: hidden;
   transition: max-height 0.22s ease, opacity 0.18s ease;
