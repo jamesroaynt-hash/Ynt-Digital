@@ -727,7 +727,7 @@ body::before {
   font-size: 12px;
   letter-spacing: 1.2px;
   text-transform: uppercase;
-  color: #22c55e;
+  color: rgba(255,255,255,0.55);
   padding: 14px 20px 7px;
   font-weight: 600;
   display: flex;
@@ -736,7 +736,11 @@ body::before {
   cursor: pointer;
   user-select: none;
 }
-.nav-section-label:hover { color: #4ade80; }
+.nav-section-label:hover { color: rgba(255,255,255,0.85); }
+/* An open section reads green, heading and icon; a shut one stays grey like the
+   menu items under it. */
+.sidebar:not(.collapsed) .nav-section-label:not(.collapsed),
+.sidebar:not(.collapsed) .nav-section-label:not(.collapsed):hover { color: #22c55e; }
 .nav-section-chevron {
   width: 11px;
   height: 11px;
@@ -5717,7 +5721,7 @@ tfoot td {
   box-shadow: 0 0 8px #5b8bff;
 }
 [data-theme="dark"] .nav-item.active svg { color: #9cc0ff; }
-[data-theme="dark"] .nav-section-label { color: #22c55e; }
+[data-theme="dark"] .nav-section-label { color: rgba(255,255,255,0.55); }
 
 [data-theme="dark"] .sidebar-logo .brand-name { gap: 11px; }
 [data-theme="dark"] .logo-mark {
