@@ -16,6 +16,7 @@ const piState = {
   loaded: false,
   search: '',
   editId: null,
+  detailId: null,
   draft: null,
   pageSearch: '',
 };
@@ -55,37 +56,91 @@ function renderProductInfoTab() {
     <div id="pi-grid">${piState.loaded ? piGridHtml() : '<div class="empty-state"><h3>Loading</h3></div>'}</div>`;
 }
 
+// Two tables, active products first, so a closed product never sits in the
+// middle of the ones still being sold.
 function piGridHtml() {
   const products = piProducts();
   if (!products.length) {
     return `<div class="empty-state"><h3>No products</h3><p>${piState.search ? 'Nothing matches the search.' : 'Add a Product item first.'}</p></div>`;
   }
-  const canEdit = canManageInventoryStock();
-  return `<div class="pi-grid">${products.map((item) => {
-    const info = piState.info[item.id] || {};
-    const margin = piMargin(item);
-    const pages = info.pages || [];
-    return `<div class="pi-card${item.active === 0 ? ' pi-inactive' : ''}">
-      <div class="pi-card-head">
-        <div style="min-width:0">
-          <div class="pi-name">${escapeHtml(item.name)}</div>
-          <div class="text-xs text-muted">SKU <span class="font-mono">${escapeHtml(item.sku || '—')}</span>${info.product_no ? ` · Product No. <span class="font-mono">${escapeHtml(info.product_no)}</span>` : ''}${item.active === 0 ? ' · <span class="badge badge-gray">Not active</span>' : ''}</div>
-        </div>
-        ${canEdit ? `<button class="btn btn-secondary btn-sm" onclick="piOpenEditor('${escapeHtml(item.id)}')">Edit</button>` : ''}
-      </div>
-      <div class="pi-stats">
-        <div><span>Stock</span><b>${Number(item.stock || 0).toLocaleString()} ${escapeHtml(item.unit || '')}</b></div>
-        <div><span>Unit cost</span><b>${piMoney(item.cost)}</b></div>
-        <div><span>Selling price</span><b>${item.price === null || item.price === undefined ? '—' : piMoney(item.price)}</b></div>
-        <div><span>Margin</span><b class="${margin && margin.amount < 0 ? 'pi-neg' : 'pi-pos'}">${margin ? `${piMoney(margin.amount)} <small>${margin.pct.toFixed(0)}%</small>` : '—'}</b></div>
-      </div>
-      <div class="pi-row"><span class="pi-label">Ingredients</span><div class="pi-text">${info.ingredients ? escapeHtml(info.ingredients) : '<span class="text-muted">Not set</span>'}</div></div>
-      <div class="pi-row"><span class="pi-label">Supplier</span><div>${info.supplier_name ? escapeHtml(info.supplier_name) : '<span class="text-muted">Not set</span>'}${info.supplier_link ? ` · <a href="${escapeHtml(info.supplier_link)}" target="_blank" rel="noopener noreferrer">Open link ↗</a>` : ''}</div></div>
-      ${(info.cost_breakdown || []).length ? `<div class="pi-row"><span class="pi-label">Cost breakdown</span><div class="pi-breakdown">${info.cost_breakdown.map((c) => `<span>${escapeHtml(c.label || 'Cost')} <b>${piMoney(c.amount)}</b></span>`).join('')}</div></div>` : ''}
-      <div class="pi-row"><span class="pi-label">Sold on ${pages.length ? `(${pages.length})` : ''}</span><div>${pages.length ? pages.map((p) => `<span class="pi-chip">${escapeHtml(p)}</span>`).join('') : '<span class="text-muted">No pages selected</span>'}</div></div>
+  const active = products.filter((i) => i.active !== 0);
+  const inactive = products.filter((i) => i.active === 0);
+  return `
+    <div class="pi-section-title">Active <span class="badge badge-success">${active.length}</span></div>
+    ${piTableHtml(active, 'No active products.')}
+    <div class="pi-section-title">Not Active <span class="badge badge-gray">${inactive.length}</span></div>
+    ${piTableHtml(inactive, 'No inactive products.')}`;
+}
+
+function piTableHtml(products, emptyText) {
+  if (!products.length) {
+    return `<div class="card"><div class="card-body text-sm text-muted" style="text-align:center;">${escapeHtml(emptyText)}</div></div>`;
+  }
+  return `<div class="table-container"><table class="pi-table">
+    <thead><tr><th>Product</th><th>SKU</th><th>Product No.</th><th class="num">Stock</th><th class="num">Unit cost</th><th class="num">Selling price</th><th class="num">Margin</th><th>Supplier</th><th class="num">Pages</th></tr></thead>
+    <tbody>${products.map((item) => {
+      const info = piState.info[item.id] || {};
+      const margin = piMargin(item);
+      const pages = info.pages || [];
+      const id = escapeHtml(item.id);
+      return `<tr class="pi-row-link" tabindex="0" title="View details" onclick="piOpenDetail('${id}')" onkeydown="if (event.key === 'Enter') piOpenDetail('${id}')">
+        <td style="font-weight:500">${escapeHtml(item.name)}</td>
+        <td><span class="font-mono text-xs text-muted">${escapeHtml(item.sku || '—')}</span></td>
+        <td class="font-mono text-xs">${escapeHtml(info.product_no || '—')}</td>
+        <td class="num">${Number(item.stock || 0).toLocaleString()} ${escapeHtml(item.unit || '')}</td>
+        <td class="num">${piMoney(item.cost)}</td>
+        <td class="num">${item.price === null || item.price === undefined ? '—' : piMoney(item.price)}</td>
+        <td class="num ${margin && margin.amount < 0 ? 'pi-neg' : 'pi-pos'}">${margin ? `${piMoney(margin.amount)} <span class="text-xs text-muted">${margin.pct.toFixed(0)}%</span>` : '—'}</td>
+        <td>${info.supplier_name ? escapeHtml(info.supplier_name) : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${pages.length || '—'}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+// Read-only view of one product; Edit swaps it for the editor.
+function piDetailHtml(item) {
+  const info = piState.info[item.id] || {};
+  const margin = piMargin(item);
+  const pages = info.pages || [];
+  const breakdown = info.cost_breakdown || [];
+  const notSet = '<span class="text-muted">Not set</span>';
+  return `
+    <div class="text-xs text-muted" style="margin-bottom:12px;">SKU <span class="font-mono">${escapeHtml(item.sku || '—')}</span>${item.active === 0 ? ' · <span class="badge badge-gray">Not active</span>' : ''}</div>
+    <div class="pi-stats">
+      <div><span>Stock</span><b>${Number(item.stock || 0).toLocaleString()} ${escapeHtml(item.unit || '')}</b></div>
+      <div><span>Unit cost</span><b>${piMoney(item.cost)}</b></div>
+      <div><span>Selling price</span><b>${item.price === null || item.price === undefined ? '—' : piMoney(item.price)}</b></div>
+      <div><span>Margin</span><b class="${margin && margin.amount < 0 ? 'pi-neg' : 'pi-pos'}">${margin ? `${piMoney(margin.amount)} <small>${margin.pct.toFixed(0)}%</small>` : '—'}</b></div>
+    </div>
+    <div class="pi-detail">
+      <div class="pi-row"><span class="pi-label">Product No.</span><div class="font-mono">${info.product_no ? escapeHtml(info.product_no) : notSet}</div></div>
+      <div class="pi-row"><span class="pi-label">Ingredients</span><div class="pi-text">${info.ingredients ? escapeHtml(info.ingredients) : notSet}</div></div>
+      <div class="pi-row"><span class="pi-label">Supplier</span><div>${info.supplier_name ? escapeHtml(info.supplier_name) : notSet}${info.supplier_link ? ` · <a href="${escapeHtml(info.supplier_link)}" target="_blank" rel="noopener noreferrer">Open link ↗</a>` : ''}</div></div>
+      <div class="pi-row"><span class="pi-label">Cost breakdown</span><div>${breakdown.length
+        ? `<table class="pi-cost-table">${breakdown.map((c) => `<tr><td>${escapeHtml(c.label || 'Cost')}</td><td class="num">${piMoney(c.amount)}</td></tr>`).join('')}<tr class="pi-cost-total"><td>Total unit cost</td><td class="num">${piMoney(breakdown.reduce((sum, c) => sum + Number(c.amount || 0), 0))}</td></tr></table>`
+        : notSet}</div></div>
+      <div class="pi-row"><span class="pi-label">Pages (${pages.length})</span><div>${pages.length ? pages.map((p) => `<span class="pi-chip">${escapeHtml(p)}</span>`).join('') : '<span class="text-muted">No pages selected</span>'}</div></div>
       ${info.notes ? `<div class="pi-row"><span class="pi-label">Notes</span><div class="pi-text">${escapeHtml(info.notes)}</div></div>` : ''}
+      ${info.updated_at ? `<div class="pi-row"><span class="pi-label">Last updated</span><div class="text-sm text-muted">${escapeHtml(formatDateTime(String(info.updated_at)))}${info.updated_by_name ? ` by ${escapeHtml(info.updated_by_name)}` : ''}</div></div>` : ''}
     </div>`;
-  }).join('')}</div>`;
+}
+
+function piOpenDetail(itemId) {
+  const item = (DB.inventory || []).find((i) => i.id === itemId);
+  if (!item) return;
+  piState.detailId = itemId;
+  const title = document.getElementById('pi-detail-title');
+  if (title) title.textContent = item.name;
+  const body = document.getElementById('pi-detail-body');
+  if (body) body.innerHTML = piDetailHtml(item);
+  openModal('pi-detail-modal');
+}
+
+function piEditFromDetail() {
+  const itemId = piState.detailId;
+  closeModal('pi-detail-modal');
+  if (itemId) piOpenEditor(itemId);
 }
 
 function piRenderGrid() {
@@ -114,8 +169,19 @@ async function loadProductInfo() {
 /* ── Editor ─────────────────────────────────────────────────── */
 
 function piModalHtml() {
-  if (!canManageInventoryStock()) return '';
-  return `<div class="modal-overlay" id="pi-modal">
+  const canEdit = canManageInventoryStock();
+  const detail = `<div class="modal-overlay" id="pi-detail-modal">
+    <div class="modal modal-lg">
+      <div class="modal-header"><div class="modal-title" id="pi-detail-title">Product</div><button class="modal-close" onclick="closeModal('pi-detail-modal')">×</button></div>
+      <div class="modal-body" id="pi-detail-body"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('pi-detail-modal')">Close</button>
+        ${canEdit ? '<button class="btn btn-primary" onclick="piEditFromDetail()">Edit</button>' : ''}
+      </div>
+    </div>
+  </div>`;
+  if (!canEdit) return detail;
+  return `${detail}<div class="modal-overlay" id="pi-modal">
     <div class="modal modal-lg">
       <div class="modal-header"><div class="modal-title" id="pi-modal-title">Product information</div><button class="modal-close" onclick="closeModal('pi-modal')">×</button></div>
       <div class="modal-body" id="pi-modal-body"></div>
@@ -271,6 +337,7 @@ async function piSave() {
     await Promise.all([refreshInventoryFromBackend().catch(() => {}), loadProductInfo()]);
     if (typeof rerenderInventoryTables === 'function') rerenderInventoryTables();
     closeModal('pi-modal');
+    piOpenDetail(itemId);
     showToast('success', 'Product saved', (DB.inventory || []).find((i) => i.id === itemId)?.name || '');
   } catch (error) {
     showToast('error', 'Not saved', error.message || 'Request failed');

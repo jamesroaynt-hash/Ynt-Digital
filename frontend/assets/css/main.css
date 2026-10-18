@@ -7862,3 +7862,24 @@ tfoot td {
 .pi-pages { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; }
 .pi-page { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 @media (max-width: 640px) { .pi-grid { grid-template-columns: 1fr; } .pi-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pi-row-link { cursor: pointer; }
+.pi-row-link:hover td { background: var(--surface-2); }
+.pi-table td.num, .pi-table th.num, .pi-cost-table td.num { text-align: right; }
+.pi-detail { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.pi-cost-table { width: 100%; max-width: 360px; border-collapse: collapse; font-size: 13px; }
+.pi-cost-table td { padding: 3px 0; border-bottom: 1px solid var(--border); }
+.pi-cost-total td { font-weight: 700; border-bottom: none; }
+.pi-section-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; margin: 18px 0 8px; }
+.pi-section-title:first-child { margin-top: 0; }
+/* Same column widths in the Active and Not Active tables so they line up. */
+.pi-table { table-layout: fixed; width: 100%; min-width: 900px; }
+.pi-table th:nth-child(1) { width: 20%; }
+.pi-table th:nth-child(2) { width: 7%; }
+.pi-table th:nth-child(3) { width: 12%; }
+.pi-table th:nth-child(4) { width: 9%; }
+.pi-table th:nth-child(5) { width: 9%; }
+.pi-table th:nth-child(6) { width: 10%; }
+.pi-table th:nth-child(7) { width: 11%; }
+.pi-table th:nth-child(8) { width: 15%; }
+.pi-table th:nth-child(9) { width: 7%; }
+.pi-table td { overflow: hidden; text-overflow: ellipsis; }
