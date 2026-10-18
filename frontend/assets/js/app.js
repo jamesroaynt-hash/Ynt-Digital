@@ -14266,6 +14266,7 @@ function renderInventory() {
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Current Stock</label><input type="number" class="form-control" id="edit-inv-stock" placeholder="0" min="0"></div>
+          <div class="form-group"><label class="form-label">Reorder Point</label><input type="number" class="form-control" id="edit-inv-reorder" placeholder="0" min="0" title="Stock level that triggers a low-stock alert"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -14320,7 +14321,7 @@ function renderInventoryTable(items, pageScope) {
   const totalStock = totalBaseStock + totalRts;
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th title="Stock level that triggers a low-stock alert">Reorder Pt</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th><th>Status</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const rtsPcs = getRtsPcs(item);
@@ -14339,11 +14340,6 @@ function renderInventoryTable(items, pageScope) {
             <td><strong>${Number(item.stock || 0).toLocaleString()}</strong> ${item.unit}</td>
             <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
             <td${rtsPcs ? ` title="Stock ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
-            <td>
-              ${canManageInventoryStock()
-                ? `<input type="number" class="form-control" style="width:78px;padding:4px 8px;height:auto;font-size:13px" value="${item.reorder}" min="0" onchange="updateReorderPoint('${escapeHtml(item.id)}', this.value)" title="Editable reorder point">`
-                : `<span>${item.reorder}</span>`}
-            </td>
             <td>₱${item.cost}</td>
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
@@ -14360,7 +14356,7 @@ function renderInventoryTable(items, pageScope) {
               </div>
             </td>
           </tr>`;
-        }).join('') : '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
+        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
       ${items.length ? `<tfoot>
         <tr style="font-weight:700;border-top:2px solid var(--border)">
@@ -14368,7 +14364,7 @@ function renderInventoryTable(items, pageScope) {
           <td><strong>${totalBaseStock.toLocaleString()}</strong></td>
           <td>${totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—'}</td>
           <td><strong>${totalStock.toLocaleString()}</strong></td>
-          <td colspan="5"></td>
+          <td colspan="4"></td>
         </tr>
       </tfoot>` : ''}
     </table>`;
@@ -14432,6 +14428,7 @@ function openEditItemModal(itemId) {
   set('edit-inv-cost', item.cost != null ? item.cost : '');
   set('edit-inv-price', item.price != null ? item.price : '');
   set('edit-inv-stock', item.stock != null ? item.stock : '');
+  set('edit-inv-reorder', item.reorder != null ? item.reorder : '');
 }
 
 // Save edits made in the Edit Item modal.
@@ -14452,12 +14449,20 @@ async function saveEditItem() {
   const priceRaw = document.getElementById('edit-inv-price')?.value;
   const sell_price = priceRaw === '' || priceRaw == null ? null : (parseFloat(priceRaw) || 0);
   const stock = Math.max(0, parseInt(document.getElementById('edit-inv-stock')?.value || 0, 10) || 0);
+  const reorderRaw = document.getElementById('edit-inv-reorder')?.value;
+  const reorder = reorderRaw === '' || reorderRaw == null ? item.reorder : Math.max(0, parseInt(reorderRaw, 10) || 0);
 
   try {
     await authorizedJsonRequest(`/inventory/${encodeURIComponent(itemId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ name, sku, type, unit, cost_price: cost, sell_price, stock }),
     });
+    if (reorder !== item.reorder) {
+      await authorizedJsonRequest(`/inventory/${encodeURIComponent(itemId)}/reorder`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reorder_pt: reorder }),
+      });
+    }
     await refreshInventoryFromBackend();
   } catch (error) {
     showToast('error', 'Update failed', error.message || 'Could not update item.');
