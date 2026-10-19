@@ -757,24 +757,24 @@ async function loadRtsReturnRecords() {
     const bodyHtml = rows.map((r) => {
       const assigned = pageSku[r.page] || '';
       const skuCell = canEdit
-        ? `<input type="text" class="form-control" style="width:140px;padding:4px 8px;height:auto;font-size:12px" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
+        ? `<input type="text" class="form-control" style="width:110px;margin:0 auto;padding:4px 8px;height:auto;font-size:12px;text-align:center" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
         : `<span class="font-mono text-xs">${escapeHtml(assigned || r.derivedSku) || dash}</span>`;
       return `<tr>
       <td>${skuCell}</td>
       <td style="font-weight:500;">${escapeHtml(r.page)}</td>
-      <td style="text-align:right;"><strong>${r.pcs.toLocaleString()}</strong></td>
+      <td><strong>${r.pcs.toLocaleString()}</strong></td>
     </tr>`;
     }).join('');
     wrap.innerHTML = `<div class="card">
       <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records. Assign a SKU to route a page's pcs to a Product.</div></div></div>
       <div class="table-container">
         ${skuDatalist}
-        <table>
-          <thead><tr><th>SKU</th><th>PAGE NAME</th><th style="text-align:right;">RTS TOTAL PCS</th></tr></thead>
+        <table class="rts-return-table">
+          <thead><tr><th>SKU</th><th>PAGE NAME</th><th>RTS TOTAL PCS</th></tr></thead>
           <tbody>
             ${bodyHtml}
           </tbody>
-          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td style="text-align:right;">${total.toLocaleString()}</td></tr></tfoot>
+          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td>${total.toLocaleString()}</td></tr></tfoot>
         </table>
       </div>
     </div>`;

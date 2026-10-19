@@ -7913,3 +7913,7 @@ tfoot td {
 .oc-table td.num, .oc-table th.num { text-align: right; }
 .oc-table td { white-space: nowrap; }
 .oc-table td:nth-child(2), .oc-table td:nth-child(3) { white-space: normal; }
+
+/* RTS Return Stocks — a compact table, centered in its card, every column centered. */
+.rts-return-table { width: auto; min-width: min(640px, 100%); margin: 0 auto; }
+.rts-return-table th, .rts-return-table td { text-align: center; padding: 8px 20px; vertical-align: middle; }
