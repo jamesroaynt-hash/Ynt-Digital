@@ -1242,7 +1242,7 @@ function voLounge(s, root, L, kit) {
   const doorZ = z0 + VO_LOUNGE_D / 2;
   const doorIn = { x: innerX + inward * 0.7, z: doorZ };
   const slots = [];
-  const spot = (x, z, face, sit) => slots.push({ x, z, face, sit, exit: [doorIn, { x: spine, z: doorZ, line: side }] });
+  const spot = (x, z, face, sit, group) => slots.push({ x, z, face, sit, group, exit: [doorIn, { x: spine, z: doorZ, line: side }] });
 
   // Walls: black-framed glass all round, a gap for the doorway, and a solid
   // black panel behind the café for the TV.
@@ -1267,13 +1267,13 @@ function voLounge(s, root, L, kit) {
   voBlock(root, kit, kit.metal, 0.35, 0.4, 0.35, cafeX + 1.1, 1.25, z0 + 0.5);
   voBlock(root, kit, voMat('#e4e7e6'), 0.8, 2.0, 0.75, cafeX + 2.6, 1.0, z0 + 0.55);
   voBlock(root, kit, kit.darkMetal, 0.04, 0.6, 0.04, cafeX + 2.3, 1.2, z0 + 0.94);
-  [-1.2, -0.4, 0.4, 1.2].forEach((dx) => spot(cafeX + dx, z0 + 1.7, Math.PI, false));
+  [-1.2, -0.4, 0.4, 1.2].forEach((dx) => spot(cafeX + dx, z0 + 1.7, Math.PI, false, 'queue'));
   [cx + 1.8, cx + 4.0].forEach((tx) => {
     voCylinder(root, kit, kit.desk, 0.45, 0.05, 0.45, tx, 1.05, z0 + 2.1);
     voCylinder(root, kit, kit.darkMetal, 0.05, 1.0, 0.05, tx, 0.5, z0 + 2.1);
     [-0.75, 0.75].forEach((sx) => {
       voCylinder(root, kit, kit.ottoman, 0.2, 0.46, 0.2, tx + sx, 0.23, z0 + 2.1);
-      spot(tx + sx, z0 + 2.1, sx < 0 ? Math.PI / 2 : -Math.PI / 2, true);
+      spot(tx + sx, z0 + 2.1, sx < 0 ? Math.PI / 2 : -Math.PI / 2, true, 'stool');
     });
   });
 
@@ -1296,16 +1296,16 @@ function voLounge(s, root, L, kit) {
   voBlock(root, kit, kit.sofa, 3.1, 0.55, 0.25, cx, 0.6, z0 + 3.65);
   voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx - 1.55, 0.3, z0 + 4.0);
   voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx + 1.55, 0.3, z0 + 4.0);
-  [-1, 0, 1].forEach((k) => spot(cx + k * 0.95, z0 + 4.15, 0, true));
+  [-1, 0, 1].forEach((k) => spot(cx + k * 0.95, z0 + 4.15, 0, true, 'sofa'));
   voCylinder(root, kit, kit.desk, 0.65, 0.06, 0.65, cx, 0.42, rugZ);
   voCylinder(root, kit, kit.darkMetal, 0.06, 0.4, 0.06, cx, 0.2, rugZ);
   [-1, 1].forEach((dir) => {
     const ax = cx + dir * 2.05;
     voBlock(root, kit, kit.armchair, 0.85, 0.4, 0.85, ax, 0.2, rugZ);
     voBlock(root, kit, kit.armchair, 0.22, 0.5, 0.85, ax + dir * 0.32, 0.6, rugZ);
-    spot(ax - dir * 0.05, rugZ, dir < 0 ? Math.PI / 2 : -Math.PI / 2, true);
+    spot(ax - dir * 0.05, rugZ, dir < 0 ? Math.PI / 2 : -Math.PI / 2, true, 'armchair');
     voCylinder(root, kit, kit.ottoman, 0.28, 0.36, 0.28, cx + dir * 0.85, 0.18, rugZ + 1.2);
-    spot(cx + dir * 0.85, rugZ + 1.2, Math.PI, true);
+    spot(cx + dir * 0.85, rugZ + 1.2, Math.PI, true, 'ottoman');
   });
 
   // Table for four by the outer wall.
@@ -1318,16 +1318,30 @@ function voLounge(s, root, L, kit) {
     const z = tz + dz * 0.95;
     voBlock(root, kit, kit.chair, 0.42, 0.07, 0.42, x, 0.46, z);
     voBlock(root, kit, kit.darkMetal, 0.05, 0.42, 0.05, x, 0.22, z);
-    spot(x, z, face, true);
+    spot(x, z, face, true, 'table');
   });
   voPlant(root, kit, outerX, z0 + 2.9, 1.2);
   voPlant(root, kit, cx - inward * 3.4, z0 + 4.2, 1.1);
   voPlant(root, kit, cx + inward * 3.4, z0 + 4.2, 1.1);
   // More on break than there are seats: they stand about in front.
   for (let r = 0; r < 2; r += 1) {
-    for (let k = 0; k < 6; k += 1) spot(cx - inward * 0.2 + inward * (k - 2.5) * 0.8, z1 - 1.6 + r * 0.8, Math.PI, false);
+    for (let k = 0; k < 6; k += 1) spot(cx - inward * 0.2 + inward * (k - 2.5) * 0.8, z1 - 1.6 + r * 0.8, Math.PI, false, 'stand');
   }
-  s.breakSlots = slots;
+  // Who goes where on a break: seats first, taken round the room — sofa,
+  // armchair, café stool, ottoman, table, then the next of each — so a few
+  // people on break spread over different chairs. The coffee queue and
+  // standing room only fill once every seat is taken.
+  const byGroup = new Map();
+  slots.forEach((slot) => {
+    if (!byGroup.has(slot.group)) byGroup.set(slot.group, []);
+    byGroup.get(slot.group).push(slot);
+  });
+  const seated = [];
+  const seatGroups = ['sofa', 'armchair', 'stool', 'ottoman', 'table'];
+  for (let i = 0; seatGroups.some((g) => (byGroup.get(g) || [])[i]); i += 1) {
+    seatGroups.forEach((g) => { const slot = (byGroup.get(g) || [])[i]; if (slot) seated.push(slot); });
+  }
+  s.breakSlots = [...seated, ...(byGroup.get('queue') || []), ...(byGroup.get('stand') || [])];
 
   // The walkway's own end of the back wall: a printer and a palm.
   voBlock(root, kit, kit.offWhite, 0.7, 0.75, 0.55, L.cx - 0.55, 0.375, 0.45);
