@@ -7194,6 +7194,7 @@ tfoot td {
 }
 .topbar-eval-btn:hover { background: var(--surface-3); color: var(--text-primary); }
 .topbar-eval-btn svg { width: 15px; height: 15px; }
+.topbar-eval-btn.active { background: var(--surface-3); color: var(--text-primary); border-color: var(--accent); }
 /* The dot only appears while the window is open and something is still
    unrated, so it reads as "there is work" rather than decoration. */
 .topbar-eval-btn.has-dot::after {

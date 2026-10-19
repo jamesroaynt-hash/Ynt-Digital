@@ -164,6 +164,13 @@ function loadPage(page) {
   loginScreen.innerHTML = '';
   refreshSidebarAccess();
   refreshEvaluationTopbarButton().catch(() => {});
+  // The Virtual Office lives in the top bar rather than the sidebar; it shows
+  // for whoever may open it (HR and the super admin).
+  const voButton = document.getElementById('topbar-vo-btn');
+  if (voButton) {
+    voButton.style.display = canAccessPage('virtual-office') ? 'inline-flex' : 'none';
+    voButton.classList.toggle('active', page === 'virtual-office');
+  }
 
   // Render page content
   const renderFns = {
