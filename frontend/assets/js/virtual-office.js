@@ -589,6 +589,7 @@ function voLayout(departments) {
       deskZ: front ? 3.6 + pod * 3.4 : 2.8 + pod * 3.4,
       face: front ? Math.PI : 0,
       stand: true,
+      cluster: 'warehouse',
       exit: [{ x, z: aisleZ }, { x: whLaneX, z: aisleZ }, { x: whLaneX, z: backAisle }, { x: spineR, z: backAisle, line: 'R' }],
     });
   });
@@ -616,6 +617,7 @@ function voLayout(departments) {
       face: front ? Math.PI : 0,
       stand: false,
       office: true,
+      cluster: 'office',
       exit: [{ x, z: laneZ }, { x: doorX, z: laneZ }, { x: doorX, z: backAisle }, { x: spineL, z: backAisle, line: 'L' }],
     });
   });
@@ -635,6 +637,7 @@ function voLayout(departments) {
       face: 0,
       stand: false,
       hrOffice: true,
+      cluster: 'hr',
       exit: [{ x: doorX, z }, { x: doorX, z: backAisle }, { x: spineL, z: backAisle, line: 'L' }],
     });
   }
@@ -696,6 +699,7 @@ function voLayout(departments) {
           deskZ: cz,
           face: front ? Math.PI : 0,
           stand: false,
+          cluster: `bench${benches.length - 1}`,
           exit: [{ x, z: aisleZ }, { x: zone.spine, z: aisleZ, line: zone.side }],
         });
       });
@@ -812,6 +816,7 @@ function voBuildFloor(s) {
   s.seats.clear();
   s.plates.clear();
   s.counters.clear();
+  s.clusterLights = [];
 
   const departments = voDepartments(voState.people);
   s.rosterKey = departments.map(([d, m]) => `${d}:${m.map((p) => p.id).join(',')}`).join('|');
@@ -900,6 +905,7 @@ function voBuildFloor(s) {
     s.seats.set(seat.person.id, seat);
     seat.toChair = toChair;
   });
+  voClusterLights(s, root, L, kit);
   L.fillers.forEach((f) => {
     if (f.kind === 0) voBooth(root, kit, f.x, f.z);
     else if (f.kind === 1) voBookshelf(root, kit, f.x, f.z);
@@ -951,6 +957,85 @@ function voBuildFloor(s) {
 
   // Characters live outside the floor's rebuild; re-attach them.
   s.chars.forEach((c) => root.add(c.group));
+}
+
+// A pendant lamp over every desk cluster (each bench, the two offices, the
+// warehouse tables). It is on while anyone there is working, off once the
+// whole cluster is on break, out or not in yet (see voSyncClusterLights).
+function voClusterLights(s, root, L, kit) {
+  const T = THREE;
+  const clusters = new Map();
+  L.seats.forEach((seat) => {
+    if (!clusters.has(seat.cluster)) clusters.set(seat.cluster, []);
+    clusters.get(seat.cluster).push(seat);
+  });
+  const pool = voLightPoolTexture();
+  clusters.forEach((seats, key) => {
+    const xs = seats.map((seat) => seat.x);
+    const zs = seats.flatMap((seat) => [seat.z, seat.deskZ]);
+    const x0 = Math.min(...xs) - 0.5;
+    const x1 = Math.max(...xs) + 0.5;
+    const z0 = Math.min(...zs) - 0.5;
+    const z1 = Math.max(...zs) + 0.5;
+    const cx = (x0 + x1) / 2;
+    const cz = seats.some((seat) => seat.office || seat.hrOffice) ? seats[0].deskZ : (z0 + z1) / 2;
+    const len = Math.max(0.9, x1 - x0 - 0.6);
+
+    // The fixture: a slim bar on two cords; its underside glows when on.
+    const shade = new T.MeshLambertMaterial({ color: s.dark ? '#cbd5e1' : '#f8fafc', emissive: '#ffd27a', emissiveIntensity: 0 });
+    voBlock(root, kit, kit.darkMetal, len, 0.07, 0.2, cx, 2.5, cz);
+    voBlock(root, kit, shade, len - 0.06, 0.03, 0.16, cx, 2.455, cz);
+    [-1, 1].forEach((k) => voBlock(root, kit, kit.darkMetal, 0.015, 0.4, 0.015, cx + k * (len / 2 - 0.15), 2.74, cz));
+
+    // A warm pool of light on the floor and desks under it.
+    const glow = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({
+      map: pool, color: '#ffd89a', transparent: true, opacity: 0, depthWrite: false, blending: T.AdditiveBlending,
+    }));
+    glow.rotation.x = -Math.PI / 2;
+    glow.scale.set(x1 - x0 + 1.4, z1 - z0 + 1.4, 1);
+    glow.position.set(cx, 0.02, (z0 + z1) / 2);
+    glow.renderOrder = 1;
+    root.add(glow);
+
+    const light = new T.PointLight('#ffd9a0', 0, len / 2 + 3.5, 2);
+    light.position.set(cx, 2.3, cz);
+    root.add(light);
+
+    s.clusterLights.push({ key, ids: seats.map((seat) => seat.person.id), shade, glow, light, level: 0, target: 0 });
+  });
+}
+
+// Soft round falloff for a lamp's pool of light, shared by every lamp.
+function voLightPoolTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  return t;
+}
+
+// Lamps on where someone is working; the first paint snaps, later changes fade.
+function voSyncClusterLights(s, view, initial) {
+  if (!s.clusterLights) return;
+  const working = new Set(view.filter((p) => p.status === 'working').map((p) => p.id));
+  s.clusterLights.forEach((cl) => {
+    cl.target = cl.ids.some((id) => working.has(id)) ? 1 : 0;
+    if (initial) cl.level = cl.target;
+    voApplyClusterLight(cl);
+  });
+}
+
+function voApplyClusterLight(cl) {
+  cl.shade.emissiveIntensity = cl.level * 0.9;
+  cl.glow.material.opacity = cl.level * 0.26;
+  cl.glow.visible = cl.level > 0.01;
+  cl.light.intensity = cl.level * 1.1;
 }
 
 // One box, sized and placed, from the shared unit cube.
@@ -1868,6 +1953,7 @@ function voSyncPeople(initial = false) {
     voSetLabel(c, person);
   });
   voDrawTv(s, view);
+  voSyncClusterLights(s, view, initial || rebuilt);
   voApplyDaylight(s);
   // Accounts deactivated or gone from the roster lose their character outright.
   s.chars.forEach((c, id) => {
@@ -1934,6 +2020,13 @@ function voTick(s, dt) {
     c.group.rotation.y += diff * Math.min(1, dt * 10);
 
     voPose(c, s, dt, moving);
+  });
+
+  (s.clusterLights || []).forEach((cl) => {
+    if (cl.level === cl.target) return;
+    const step = dt * 1.5;
+    cl.level = Math.abs(cl.target - cl.level) <= step ? cl.target : cl.level + Math.sign(cl.target - cl.level) * step;
+    voApplyClusterLight(cl);
   });
 
   // Ease the camera toward a person someone clicked in the list.
@@ -2193,13 +2286,13 @@ function voSyncCounter(s, p) {
 function voApplyDaylight(s) {
   if (!s || !s.hemi) return;
   const h = voAt() / 60;
-  let hemi = 0.85;
+  let hemi = 0.76;
   let sun = 0.38;
   let sunColor = '#fff7ea';
   const night = h < 6 || h >= 19;
   if (night) { hemi = 0.5; sun = 0.1; sunColor = '#a9b8ff'; }
-  else if (h < 9) { hemi = 0.8; sun = 0.34; sunColor = '#ffe7c7'; }
-  else if (h >= 16.5) { hemi = 0.76; sun = 0.36; sunColor = '#ffc98f'; }
+  else if (h < 9) { hemi = 0.72; sun = 0.34; sunColor = '#ffe7c7'; }
+  else if (h >= 16.5) { hemi = 0.68; sun = 0.36; sunColor = '#ffc98f'; }
   s.hemi.intensity = hemi;
   s.sun.intensity = sun;
   s.sun.color.set(sunColor);
