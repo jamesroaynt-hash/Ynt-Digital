@@ -3437,7 +3437,7 @@ function csrRoutes(db) {
   const canEditDaily = (req) => Boolean(req.user);
   const denyViewOnly = (req, res) => {
     if (canEditDaily(req)) return false;
-    res.status(403).json({ error: 'The Daily CSR Report is view-only for your role.' });
+    res.status(403).json({ error: 'CSR Reports is view-only for your role.' });
     return true;
   };
   const reportDate = (value) => {

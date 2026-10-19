@@ -236,7 +236,7 @@ const pageNames = {
   'adspend-roas': 'ROAS Summary',
   'ads-manager': 'Ads Manager',
   csr: 'CSR Records',
-  'csr-daily-report': 'Daily CSR Report',
+  'csr-daily-report': 'CSR Reports',
   'sales-marketing-tracker': 'Sales Marketing Tracker',
   inventory: 'Stock',
   expenses: 'Expenses',
@@ -13363,7 +13363,7 @@ function renderCsrDailyReport() {
   return `
   <div class="csr-daily-page">
     <div class="page-header">
-      <div class="page-title"><h1>Daily CSR Report</h1><p>Daily CSR performance — everyone fills in their own card and anyone can update the product table.</p></div>
+      <div class="page-title"><h1>CSR Reports</h1><p>Daily CSR performance — everyone fills in their own card and anyone can update the product table.</p></div>
       <div class="page-actions">
         <div class="csr-daily-actions" id="csr-daily-actions"></div>
         <button class="btn btn-secondary btn-sm" onclick="jumpCsrDailyDate(1)">Yesterday</button>
