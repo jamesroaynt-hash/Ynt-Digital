@@ -1003,63 +1003,271 @@ function voWarehouseRoom(root, L, kit) {
   }
 }
 
+// Shapes every character shares (built once), and materials cached by colour,
+// so a full floor of people stays cheap.
+const voCharParts = { geo: null, mats: new Map() };
+
+function voCharGeo() {
+  if (voCharParts.geo) return voCharParts.geo;
+  const T = THREE;
+  voCharParts.geo = {
+    torso: new T.CapsuleGeometry(0.19, 0.28, 6, 16),
+    hips: new T.CylinderGeometry(0.17, 0.18, 0.16, 16),
+    limb: new T.CapsuleGeometry(0.064, 0.2, 4, 10),
+    arm: new T.CapsuleGeometry(0.056, 0.24, 4, 10),
+    hand: new T.SphereGeometry(0.058, 10, 8),
+    dome: new T.SphereGeometry(0.5, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    neck: new T.CylinderGeometry(0.06, 0.07, 0.12, 10),
+    head: new T.SphereGeometry(0.2, 22, 16),
+    ear: new T.SphereGeometry(0.042, 8, 6),
+    nose: new T.SphereGeometry(0.03, 8, 6),
+    eye: new T.SphereGeometry(0.036, 12, 8),
+    pupil: new T.SphereGeometry(0.021, 8, 6),
+    smile: new T.TorusGeometry(0.05, 0.011, 6, 12, Math.PI),
+    band: new T.TorusGeometry(0.215, 0.018, 6, 20, Math.PI),
+    lens: new T.TorusGeometry(0.042, 0.009, 6, 16),
+    hairCap: new T.SphereGeometry(0.216, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    ball: new T.SphereGeometry(0.5, 12, 9),
+    box: new T.BoxGeometry(1, 1, 1),
+    cyl: new T.CylinderGeometry(0.5, 0.5, 1, 14),
+  };
+  return voCharParts.geo;
+}
+
+function voCharMat(color) {
+  if (!voCharParts.mats.has(color)) voCharParts.mats.set(color, new THREE.MeshLambertMaterial({ color }));
+  return voCharParts.mats.get(color);
+}
+
+const VO_PANTS = ['#1e3a8a', '#334155', '#78716c', '#1f2937', '#3f3f46', '#57534e'];
+const VO_SHOES = ['#111827', '#7c2d12', '#f8fafc', '#374151'];
+// Departments that live on the phone wear headsets.
+const VO_HEADSET_DEPTS = ['CSR', 'RMO'];
+
+// A cartoon person, built facing +z: bendable legs and arms, a face with
+// eyes that blink, one of four hairstyles, an ID badge in the team colour,
+// and the kit of their job — a headset on the phones, a blazer and tie in
+// Management, a hard hat and hi-vis vest in Logistics, a clipboard in HR.
+// The look is picked from the person's id, so it is the same every day.
 function voMakeCharacter(person) {
   const T = THREE;
+  const G = voCharGeo();
+  const M = voCharMat;
   const h = voHash(person.id);
-  const shirt = VO_DEPT_COLOR[employeeDepartment(person)] || VO_DEPT_COLOR.Unassigned;
+  const dept = employeeDepartment(person);
+  const team = VO_DEPT_COLOR[dept] || VO_DEPT_COLOR.Unassigned;
+  const skin = M(VO_SKIN[h % VO_SKIN.length]);
+  const hair = M(VO_HAIR[(h >> 3) % VO_HAIR.length]);
+  const pants = M(VO_PANTS[(h >> 5) % VO_PANTS.length]);
+  const shoes = M(VO_SHOES[(h >> 7) % VO_SHOES.length]);
+  const dark = M('#111827');
+  const white = M('#ffffff');
+  const isManagement = dept === 'Management';
+  const isLogistics = dept === VO_WAREHOUSE_DEPT;
+  const top = M(isManagement ? '#1e293b' : isLogistics ? '#facc15' : team);
+  const sleeve = M(isManagement ? '#1e293b' : team);
+  const add = (parent, geo, mat, x, y, z, sx = 1, sy = 1, sz = 1) => {
+    const mesh = new T.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(sx, sy, sz);
+    parent.add(mesh);
+    return mesh;
+  };
+
   const group = new T.Group();
   const body = new T.Group();
   group.add(body);
 
-  const legMat = voMat('#1e293b');
-  const legs = [-0.11, 0.11].map((lx) => {
-    const pivot = new T.Group();
-    pivot.position.set(lx, 0.5, 0);
-    const leg = new T.Mesh(new T.CylinderGeometry(0.075, 0.075, 0.5, 8), legMat);
-    leg.position.y = -0.25;
-    pivot.add(leg);
-    body.add(pivot);
-    return pivot;
+  // Legs: hip → thigh → knee → shin → shoe.
+  const legs = [-1, 1].map((side) => {
+    const hip = new T.Group();
+    hip.position.set(side * 0.09, 0.6, 0);
+    body.add(hip);
+    add(hip, G.limb, pants, 0, -0.15, 0);
+    const knee = new T.Group();
+    knee.position.set(0, -0.29, 0);
+    hip.add(knee);
+    add(knee, G.limb, pants, 0, -0.14, 0);
+    add(knee, G.dome, shoes, 0, -0.3, 0.035, 0.15, 0.13, 0.25);
+    return { hip, knee };
   });
-  const torso = new T.Mesh(new T.CylinderGeometry(0.22, 0.27, 0.55, 14), voMat(shirt));
-  torso.position.y = 0.78;
-  body.add(torso);
-  const shoulders = new T.Mesh(new T.SphereGeometry(0.22, 14, 10), voMat(shirt));
-  shoulders.scale.set(1, 0.45, 1);
-  shoulders.position.y = 1.05;
-  body.add(shoulders);
-  const head = new T.Mesh(new T.SphereGeometry(0.24, 16, 12), voMat(VO_SKIN[h % VO_SKIN.length]));
-  head.position.y = 1.32;
+
+  // Hips, belt and buckle.
+  add(body, G.hips, pants, 0, 0.64, 0, 1, 1, 0.8);
+  add(body, G.box, dark, 0, 0.72, 0, 0.36, 0.04, 0.29);
+  add(body, G.box, M('#d4d4d8'), 0, 0.72, 0.147, 0.06, 0.035, 0.01);
+
+  // Torso, with a white collar at the neck.
+  add(body, G.torso, top, 0, 0.98, 0, 1, 1, 0.78);
+  [-1, 1].forEach((side) => {
+    const collar = add(body, G.box, white, side * 0.055, 1.29, 0.11, 0.09, 0.035, 0.03);
+    collar.rotation.z = side * -0.5;
+  });
+  if (isManagement) {
+    // Blazer: a white shirt front and a tie in the team colour.
+    add(body, G.box, white, 0, 1.15, 0.146, 0.1, 0.26, 0.01);
+    add(body, G.box, M(team), 0, 1.12, 0.153, 0.04, 0.22, 0.012);
+    add(body, G.box, M(team), 0, 1.245, 0.153, 0.06, 0.04, 0.014);
+  } else if (isLogistics) {
+    // Hi-vis vest: two reflective bands round the middle.
+    [0.92, 1.06].forEach((y) => add(body, G.cyl, M('#e5e7eb'), 0, y, 0, 0.4, 0.035, 0.31));
+  }
+  if (!isManagement) {
+    // ID lanyard and badge, the badge topped with the team colour.
+    [-1, 1].forEach((side) => {
+      const strap = add(body, G.box, M(team), side * 0.045, 1.2, 0.143, 0.018, 0.17, 0.01);
+      strap.rotation.z = side * 0.42;
+    });
+    add(body, G.box, white, 0, 1.06, 0.152, 0.085, 0.11, 0.01);
+    add(body, G.box, M(team), 0, 1.1, 0.158, 0.085, 0.03, 0.01);
+  }
+
+  // Arms: shoulder → sleeve → hand.
+  const arms = [-1, 1].map((side) => {
+    const shoulder = new T.Group();
+    shoulder.position.set(side * 0.255, 1.24, 0);
+    shoulder.rotation.z = side * 0.07;
+    body.add(shoulder);
+    add(shoulder, G.arm, sleeve, 0, -0.17, 0);
+    add(shoulder, G.hand, skin, 0, -0.38, 0);
+    return shoulder;
+  });
+  if (dept === 'Human Resources') {
+    // Clipboard in the left hand.
+    const board = add(arms[0], G.box, M('#a16207'), 0.02, -0.38, 0.09, 0.17, 0.23, 0.015);
+    board.rotation.x = -0.25;
+    const paper = add(arms[0], G.box, white, 0.02, -0.39, 0.098, 0.14, 0.18, 0.01);
+    paper.rotation.x = -0.25;
+  }
+
+  // Head.
+  add(body, G.neck, skin, 0, 1.36, 0);
+  const head = new T.Group();
+  head.position.set(0, 1.55, 0);
   body.add(head);
-  const hair = new T.Mesh(new T.SphereGeometry(0.25, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), voMat(VO_HAIR[(h >> 3) % VO_HAIR.length]));
-  hair.position.y = 1.35;
-  hair.rotation.x = -0.25;
-  body.add(hair);
-  const eyeMat = voMat('#111827');
-  [-0.08, 0.08].forEach((ex) => {
-    const eye = new T.Mesh(new T.SphereGeometry(0.03, 8, 6), eyeMat);
-    eye.position.set(ex, 1.34, 0.22);
-    body.add(eye);
+  add(head, G.head, skin, 0, 0, 0);
+  [-1, 1].forEach((side) => add(head, G.ear, skin, side * 0.2, -0.01, 0, 0.6, 1, 1));
+  add(head, G.nose, skin, 0, -0.025, 0.2);
+  const eyes = new T.Group();
+  head.add(eyes);
+  [-1, 1].forEach((side) => {
+    add(eyes, G.eye, white, side * 0.075, 0.03, 0.168, 1, 1.15, 0.6);
+    add(eyes, G.pupil, dark, side * 0.075, 0.025, 0.19);
   });
+  const smile = add(head, G.smile, M('#9f1239'), 0, -0.085, 0.172);
+  smile.rotation.set(-0.35, 0, Math.PI);
+  if ((h >> 11) % 4 === 0) {
+    // Glasses.
+    [-1, 1].forEach((side) => add(head, G.lens, dark, side * 0.075, 0.03, 0.2));
+    add(head, G.box, dark, 0, 0.035, 0.205, 0.06, 0.012, 0.01);
+  }
+
+  if (isLogistics) {
+    // Hard hat with a brim instead of hair showing.
+    add(head, G.hairCap, M('#facc15'), 0, 0.04, 0, 1.08, 1.05, 1.08);
+    add(head, G.cyl, M('#facc15'), 0, 0.05, 0.02, 0.5, 0.025, 0.52);
+  } else {
+    const style = (h >> 9) % 4;
+    const cap = add(head, G.hairCap, hair, 0, 0.025, -0.012);
+    cap.rotation.x = -0.22;
+    if (style === 1) {
+      // Long hair down the back.
+      add(head, G.box, hair, 0, -0.14, -0.1, 0.38, 0.36, 0.16);
+      [-1, 1].forEach((side) => add(head, G.box, hair, side * 0.17, -0.1, 0.02, 0.06, 0.3, 0.16));
+    } else if (style === 2) {
+      // Bun.
+      add(head, G.ball, hair, 0, 0.19, -0.13, 0.17, 0.17, 0.17);
+    } else if (style === 3) {
+      // Curls.
+      for (let i = 0; i < 7; i += 1) {
+        const a = (i / 7) * Math.PI * 2;
+        add(head, G.ball, hair, Math.cos(a) * 0.15, 0.15, Math.sin(a) * 0.15 - 0.02, 0.12, 0.12, 0.12);
+      }
+    }
+  }
+  if (VO_HEADSET_DEPTS.includes(dept)) {
+    // Headset: band over the top, ear cups, a mic boom to the mouth.
+    add(head, G.band, dark, 0, 0.02, 0);
+    [-1, 1].forEach((side) => {
+      const cup = add(head, G.cyl, dark, side * 0.215, -0.01, 0, 0.11, 0.05, 0.11);
+      cup.rotation.z = Math.PI / 2;
+    });
+    const boom = add(head, G.box, dark, -0.15, -0.09, 0.12, 0.015, 0.015, 0.17);
+    boom.rotation.y = 0.75;
+    add(head, G.ball, dark, -0.07, -0.1, 0.19, 0.035, 0.035, 0.035);
+  }
 
   const label = voNameSprite(person.name, person.status);
-  label.position.y = 1.85;
+  label.position.y = 2.0;
   group.add(label);
 
-  return { group, body, legs, label, path: [], status: null, face: 0, leaving: false, walkT: h % 7 };
+  return {
+    group, body, legs, arms, head, eyes, label,
+    path: [], status: null, face: 0, leaving: false,
+    walkT: h % 7, blinkAt: 1 + (h % 40) / 10, blinkTill: 0,
+  };
+}
+
+// The pose for this frame: walking swings arms against legs and bends the
+// knees; seated folds hips and knees (typing at a desk, relaxed in the
+// lounge); standing packs parcels at a warehouse table or idles.
+function voPose(c, s, dt, moving) {
+  const [l, r] = c.legs;
+  const kind = c.rest?.kind;
+  const sitting = !moving && c.rest?.sit;
+  if (moving) {
+    c.walkT += dt * 9;
+    const swing = Math.sin(c.walkT) * 0.55;
+    l.hip.rotation.x = swing;
+    r.hip.rotation.x = -swing;
+    l.knee.rotation.x = Math.max(0, Math.sin(c.walkT + Math.PI / 2)) * 0.8;
+    r.knee.rotation.x = Math.max(0, Math.sin(c.walkT - Math.PI / 2)) * 0.8;
+    c.arms[0].rotation.x = -swing * 0.8;
+    c.arms[1].rotation.x = swing * 0.8;
+    c.body.position.y = Math.abs(Math.sin(c.walkT)) * 0.04;
+  } else if (sitting) {
+    l.hip.rotation.x = -1.5;
+    r.hip.rotation.x = -1.5;
+    l.knee.rotation.x = 1.5;
+    r.knee.rotation.x = 1.5;
+    c.body.position.y = -0.13;
+    if (kind === 'desk') {
+      c.arms.forEach((arm, i) => { arm.rotation.x = -1.15 + Math.sin(s.clock * 13 + i * 2) * 0.05; });
+    } else {
+      c.arms.forEach((arm) => { arm.rotation.x = -0.35; });
+    }
+  } else {
+    l.hip.rotation.x = 0;
+    r.hip.rotation.x = 0;
+    l.knee.rotation.x = 0;
+    r.knee.rotation.x = 0;
+    c.body.position.y = 0;
+    if (kind === 'pack') {
+      c.arms.forEach((arm, i) => { arm.rotation.x = -0.95 + Math.sin(s.clock * 4 + i * Math.PI) * 0.22; });
+    } else {
+      c.arms.forEach((arm, i) => { arm.rotation.x = Math.sin(s.clock * 1.5 + c.walkT + i) * 0.05; });
+    }
+  }
+  // Look about a little while still; blink every few seconds.
+  c.head.rotation.y = moving ? 0 : Math.sin(s.clock * 0.6 + c.walkT) * 0.18;
+  if (s.clock > c.blinkAt) {
+    c.blinkTill = s.clock + 0.12;
+    c.blinkAt = s.clock + 2.5 + ((c.walkT * 1000) % 30) / 10;
+  }
+  c.eyes.scale.y = s.clock < c.blinkTill ? 0.15 : 1;
 }
 
 // Where a status sends someone, as a resting point with its way out.
 function voDestination(s, person, slotIndex) {
   if (person.status === 'working') {
     const seat = s.seats.get(person.id);
-    if (seat) return { x: seat.x, z: seat.z, face: seat.face, exit: seat.exit, sit: !seat.stand };
+    if (seat) return { x: seat.x, z: seat.z, face: seat.face, exit: seat.exit, sit: !seat.stand, kind: seat.stand ? 'pack' : 'desk' };
   }
   if (person.status === 'lunch' || person.status === 'break') {
     const slot = s.breakSlots[slotIndex % s.breakSlots.length];
-    return { x: slot.x, z: slot.z, face: slot.face, exit: slot.exit, sit: slot.sit };
+    return { x: slot.x, z: slot.z, face: slot.face, exit: slot.exit, sit: slot.sit, kind: slot.sit ? 'lounge' : 'stand' };
   }
-  return { ...s.door, sit: false };
+  return { ...s.door, sit: false, kind: 'stand' };
 }
 
 // A walk from one resting point to another: out along the first's exits to a
@@ -1167,7 +1375,7 @@ function voSetLabel(c, person) {
   c.label.material.map.dispose();
   c.label.material.dispose();
   c.label = voNameSprite(person.name, person.status);
-  c.label.position.y = 1.85;
+  c.label.position.y = 2.0;
   c.group.add(c.label);
 }
 
@@ -1204,24 +1412,7 @@ function voTick(s, dt) {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     c.group.rotation.y += diff * Math.min(1, dt * 10);
 
-    const sitting = !moving && c.rest?.sit;
-    if (moving) {
-      c.walkT += dt * 9;
-      const swing = Math.sin(c.walkT) * 0.6;
-      c.legs[0].rotation.x = swing;
-      c.legs[1].rotation.x = -swing;
-      c.body.position.y = Math.abs(Math.sin(c.walkT)) * 0.05;
-    } else if (sitting) {
-      c.legs[0].rotation.x = -1.4;
-      c.legs[1].rotation.x = -1.4;
-      c.body.position.y = -0.04;
-    } else {
-      c.legs[0].rotation.x = 0;
-      c.legs[1].rotation.x = 0;
-      c.body.position.y = 0;
-    }
-    // A slow breathing bob so the floor never looks frozen.
-    c.body.scale.y = 1 + Math.sin(s.clock * 2 + c.walkT) * (moving ? 0 : 0.012);
+    voPose(c, s, dt, moving);
   });
 
   // Ease the camera toward a person someone clicked in the list.
