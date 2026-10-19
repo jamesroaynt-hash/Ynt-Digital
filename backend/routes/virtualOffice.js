@@ -8,6 +8,8 @@ const express = require('express');
 // this one.
 
 const MANILA_TIMEZONE = 'Asia/Manila';
+// How a character is drawn. Picked by HR per person; unset is a neutral look.
+const VO_AVATARS = new Set(['male', 'female']);
 
 function manilaNow(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -54,7 +56,7 @@ module.exports = function virtualOfficeRoutes(db) {
       // The super admin is the one watching, not a seat on the floor — the
       // Employee Tracker leaves them off its roster the same way.
       const people = await db.prepare(`
-        SELECT u.id, u.full_name, u.username, u.role,
+        SELECT u.id, u.full_name, u.username, u.role, u.avatar_gender,
                a.time_in, a.break_out, a.break_in, a.break2_out, a.break2_in, a.time_out
         FROM users u
         LEFT JOIN attendance_records a ON a.user_id = u.id AND a.work_date = ?
@@ -68,9 +70,29 @@ module.exports = function virtualOfficeRoutes(db) {
           id: row.id,
           name: row.full_name || row.username,
           role: row.role || null,
+          avatar_gender: VO_AVATARS.has(row.avatar_gender) ? row.avatar_gender : null,
           ...officeStatus(row),
         })),
       });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // HR (or the super admin) picks how someone's character looks.
+  router.put('/avatar/:userId', async (req, res) => {
+    try {
+      const userId = Number(req.params.userId);
+      if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user.' });
+      const raw = req.body?.gender;
+      const gender = raw === null || raw === '' ? null : String(raw).trim().toLowerCase();
+      if (gender !== null && !VO_AVATARS.has(gender)) {
+        return res.status(400).json({ error: 'Avatar must be male, female or empty.' });
+      }
+      const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+      if (!user) return res.status(404).json({ error: 'User not found.' });
+      await db.prepare('UPDATE users SET avatar_gender = ? WHERE id = ?').run(gender, userId);
+      res.json({ id: userId, avatar_gender: gender });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

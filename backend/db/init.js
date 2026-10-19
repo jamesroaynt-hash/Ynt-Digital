@@ -462,6 +462,8 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'include_in_payroll', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'users', 'exclude_from_evaluation', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'users', 'is_super_admin', 'INTEGER NOT NULL DEFAULT 0');
+  // Virtual Office look, set by HR: 'male', 'female', or NULL (neutral).
+  ensureColumn(db, 'users', 'avatar_gender', 'TEXT');
   // The "Admin User" account is the super admin. Marked only while nobody is,
   // so a later change of super admin is never undone on restart.
   if (!db.prepare('SELECT 1 FROM users WHERE is_super_admin = 1').get()) {
@@ -1080,6 +1082,8 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'users', 'include_in_payroll', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'users', 'exclude_from_evaluation', 'INTEGER NOT NULL DEFAULT 0');
   await ensureColumnAsync(db, 'users', 'is_super_admin', 'INTEGER NOT NULL DEFAULT 0');
+  // Virtual Office look, set by HR: 'male', 'female', or NULL (neutral).
+  await ensureColumnAsync(db, 'users', 'avatar_gender', 'TEXT');
   // The "Admin User" account is the super admin. Marked only while nobody is,
   // so a later change of super admin is never undone on restart.
   if (!(await db.prepare('SELECT 1 FROM users WHERE is_super_admin = 1').get())) {

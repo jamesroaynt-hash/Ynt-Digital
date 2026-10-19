@@ -75,3 +75,25 @@ test('status follows the punches', () => {
   assert.deepEqual(officeStatus({ time_in: '08:00', break_out: '12:00', break_in: '13:00', break2_out: '15:00' }), { status: 'break', since: '15:00' });
   assert.deepEqual(officeStatus({ time_in: '08:00', break2_out: '10:00', break2_in: '10:15', break_out: '12:00', break_in: '13:00', time_out: '17:00' }), { status: 'left', since: '17:00' });
 });
+
+test('HR sets the avatar look; anything but male, female or empty is refused', async () => {
+  const { ids, server } = await startApp();
+  const base = `http://127.0.0.1:${server.address().port}/api/virtual-office`;
+  const put = (as, id, gender) => fetch(`${base}/avatar/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-test-user': as },
+    body: JSON.stringify({ gender }),
+  }).then(async (res) => ({ status: res.status, data: await res.json() }));
+  const roster = (as) => fetch(base, { headers: { 'x-test-user': as } }).then((res) => res.json());
+  try {
+    assert.equal((await put('hr', ids.csr, 'female')).status, 200);
+    assert.equal((await roster('hr')).people.find((p) => p.id === ids.csr).avatar_gender, 'female');
+    assert.equal((await put('hr', ids.csr, 'robot')).status, 400);
+    assert.equal((await put('ops', ids.csr, 'male')).status, 403);
+    assert.equal((await put('hr', 99999, 'male')).status, 404);
+    assert.equal((await put('hr', ids.csr, null)).status, 200);
+    assert.equal((await roster('hr')).people.find((p) => p.id === ids.csr).avatar_gender, null);
+  } finally {
+    server.close();
+  }
+});

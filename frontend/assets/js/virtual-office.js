@@ -55,6 +55,9 @@ const VO_MAX_PER_BENCH = 16;
 const VO_WALL_H = 2.8;
 const VO_DESK_W = 1.7;      // packing table width in the warehouse
 const VO_WAREHOUSE_DEPT = 'Logistics';
+// Management works in the two glass offices in the back-left corner.
+const VO_OFFICE_DEPT = 'Management';
+const VO_OFFICE_SEATS = 12; // six round each office table
 const VO_KRAFT = '#c8a165'; // parcel-box cardboard
 
 const voState = {
@@ -207,11 +210,19 @@ function voRenderSide() {
       ${members.map((m) => {
         const s = VO_STATUS[m.status] || VO_STATUS.not_in;
         const inside = ['working', 'lunch', 'break'].includes(m.status);
-        return `<button class="vo-person${voState.focusId === m.id ? ' active' : ''}${inside ? '' : ' away'}" ${inside ? `onclick="voFocus(${Number(m.id)})"` : 'disabled'}>
-          <i style="background:${s.color}"></i>
-          <span class="vo-person-name">${escapeHtml(m.name)}</span>
-          <span class="vo-person-status">${s.label}${m.since ? ` <small>${escapeHtml(voFormatSince(m))}</small>` : ''}</span>
-        </button>`;
+        const id = Number(m.id);
+        const look = m.avatar_gender || '';
+        // Clicking the look already set clears it back to neutral.
+        const avatar = [['male', 'M', 'Male'], ['female', 'F', 'Female']].map(([g, t, label]) => `
+          <button class="${look === g ? 'on' : ''}" title="Character: ${label}${look === g ? ' (click to clear)' : ''}" onclick="voSetAvatar(${id}, '${look === g ? '' : g}')">${t}</button>`).join('');
+        return `<div class="vo-person-row${voState.focusId === m.id ? ' active' : ''}${inside ? '' : ' away'}">
+          <button class="vo-person" ${inside ? `onclick="voFocus(${id})"` : 'disabled'}>
+            <i style="background:${s.color}"></i>
+            <span class="vo-person-name">${escapeHtml(m.name)}</span>
+            <span class="vo-person-status">${s.label}${m.since ? ` <small>${escapeHtml(voFormatSince(m))}</small>` : ''}</span>
+          </button>
+          <span class="vo-avatar">${avatar}</span>
+        </div>`;
       }).join('')}
     </div>`).join('');
   side.innerHTML = `
@@ -378,6 +389,32 @@ function voLayout(departments) {
   });
   const whUsedCols = Math.min(whCols, Math.ceil(logistics.length / 2));
 
+  // Management takes the office tables, six to a room; anyone past twelve
+  // falls back to a bench. Out of an office: round the table on the lane
+  // behind or in front of the chairs, through the doorway at the room's
+  // right, to the left spine.
+  const roomW = VO_ZONE_W / 2;
+  const office = (departments.find(([d]) => d === VO_OFFICE_DEPT) || [null, []])[1];
+  office.slice(0, VO_OFFICE_SEATS).forEach((person, i) => {
+    const room = Math.floor(i / 6);
+    const j = i % 6;
+    const front = j % 2 === 1;
+    const rcz = back / 2 + 0.3;
+    const x = roomW * room + roomW / 2 + ((j >> 1) - 1) * 0.9;
+    const doorX = roomW * (room + 1) - 0.8;
+    const laneZ = front ? back - 0.75 : 1.4;
+    seats.push({
+      person,
+      x,
+      z: rcz + (front ? 0.95 : -0.95),
+      deskZ: rcz,
+      face: front ? Math.PI : 0,
+      stand: false,
+      office: true,
+      exit: [{ x, z: laneZ }, { x: doorX, z: laneZ }, { x: doorX, z: backAisle }, { x: spineL, z: backAisle, line: 'L' }],
+    });
+  });
+
   // Benches: one per department (split past VO_MAX_PER_BENCH people).
   const zones = [
     { side: 'L', spine: spineL, edge: xL - 0.6, dir: -1, rows: [{ used: 0, blocks: [] }] },
@@ -385,8 +422,9 @@ function voLayout(departments) {
   ];
   const room = VO_ZONE_W - 1.2;
   const benches = [];
-  departments.forEach(([dept, members]) => {
+  departments.forEach(([dept, everyone]) => {
     if (dept === VO_WAREHOUSE_DEPT) return;
+    const members = dept === VO_OFFICE_DEPT ? everyone.slice(VO_OFFICE_SEATS) : everyone;
     for (let start = 0; start < members.length; start += VO_MAX_PER_BENCH) {
       const group = members.slice(start, start + VO_MAX_PER_BENCH);
       const cols = Math.max(2, Math.ceil(group.length / 2));
@@ -591,6 +629,7 @@ function voBuildFloor(s) {
   L.seats.forEach((seat) => {
     const toChair = Math.sign(seat.z - seat.deskZ);
     if (seat.stand) voPackingTable(root, seat, toChair, kit);
+    else if (seat.office) s.monitors.set(seat.person.id, voLaptop(root, seat, toChair, kit));
     else s.monitors.set(seat.person.id, voSeat(root, seat, toChair, kit));
     s.seats.set(seat.person.id, seat);
   });
@@ -776,6 +815,19 @@ function voBookshelf(root, kit, x, z) {
   }
 }
 
+// A laptop on an office table (its screen is returned and lights while the
+// person works there).
+function voLaptop(root, seat, toChair, kit) {
+  const z = seat.deskZ + toChair * 0.3;
+  voBlock(root, kit, kit.metal, 0.34, 0.02, 0.24, seat.x, 0.79, z);
+  const screen = new THREE.Mesh(kit.unit, new THREE.MeshLambertMaterial({ color: '#2e3b40', emissive: '#000000' }));
+  screen.scale.set(0.34, 0.22, 0.015);
+  screen.position.set(seat.x, 0.9, z - toChair * 0.12);
+  screen.rotation.x = toChair * 0.25;
+  root.add(screen);
+  return screen;
+}
+
 // A whiteboard with a few marker scribbles.
 function voWhiteboard(root, kit, x, y, z, rotY, seed = 0) {
   const g = new THREE.Group();
@@ -821,12 +873,17 @@ function voGlass(root, kit, x0, z0, x1, z1, h = 2.3) {
   }
 }
 
-// Two glass meeting rooms in the back-left corner: an oval table, chairs, a
-// whiteboard, and the room's name on its back wall.
+// Management's two glass offices in the back-left corner: an oval table with
+// six chairs, a whiteboard, a doorway at each room's right, and the team's
+// name across the back wall.
 function voMeetingRooms(root, L, kit) {
   const roomW = VO_ZONE_W / 2;
-  voGlass(root, kit, 0, L.back, VO_ZONE_W, L.back);
+  [0, 1].forEach((i) => {
+    voGlass(root, kit, roomW * i, L.back, roomW * (i + 1) - 1.3, L.back);
+    voGlass(root, kit, roomW * (i + 1) - 0.3, L.back, roomW * (i + 1), L.back);
+  });
   voGlass(root, kit, roomW, 0, roomW, L.back);
+  voWallText(root, VO_OFFICE_DEPT.toUpperCase(), VO_DEPT_COLOR[VO_OFFICE_DEPT], 0.36, VO_ZONE_W / 2, 2.5, 0.02);
   voGlass(root, kit, VO_ZONE_W, 0, VO_ZONE_W, L.back);
   [0, 1].forEach((i) => {
     const cx = roomW * i + roomW / 2;
@@ -845,7 +902,6 @@ function voMeetingRooms(root, L, kit) {
       });
     });
     voWhiteboard(root, kit, cx, 1.45, 0.03, 0, i + 2);
-    voWallText(root, `MEETING ROOM ${i + 1}`, '#2f4f45', 0.32, cx, 2.35, 0.02);
     voPlant(root, kit, roomW * i + 0.55, L.back - 0.6, 1.1);
   });
 }
@@ -1052,6 +1108,7 @@ function voCharGeo() {
     band: new T.TorusGeometry(0.215, 0.018, 6, 20, Math.PI),
     lens: new T.TorusGeometry(0.042, 0.009, 6, 16),
     hairCap: new T.SphereGeometry(0.216, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    skirt: new T.CylinderGeometry(0.17, 0.27, 0.32, 18),
     ball: new T.SphereGeometry(0.5, 12, 9),
     box: new T.BoxGeometry(1, 1, 1),
     cyl: new T.CylinderGeometry(0.5, 0.5, 1, 14),
@@ -1070,10 +1127,14 @@ const VO_SHOES = ['#111827', '#7c2d12', '#f8fafc', '#374151'];
 const VO_HEADSET_DEPTS = ['CSR', 'RMO'];
 
 // A cartoon person, built facing +z: bendable legs and arms, a face with
-// eyes that blink, one of four hairstyles, an ID badge in the team colour,
+// eyes that blink, a hairstyle, an ID badge in the team colour,
 // and the kit of their job — a headset on the phones, a blazer and tie in
 // Management, a hard hat and hi-vis vest in Logistics, a clipboard in HR.
 // The look is picked from the person's id, so it is the same every day.
+// HR sets each person's avatar to male or female (see voSetAvatar): female
+// picks long hair, a bun or a ponytail, lashes, earrings and sometimes a
+// skirt; male short, curly or side-parted hair, broader shoulders and
+// sometimes a beard. Unset stays neutral: short or curly hair, no extras.
 function voMakeCharacter(person) {
   const T = THREE;
   const G = voCharGeo();
@@ -1089,6 +1150,7 @@ function voMakeCharacter(person) {
   const white = M('#ffffff');
   const isManagement = dept === 'Management';
   const isLogistics = dept === VO_WAREHOUSE_DEPT;
+  const look = person.avatar_gender === 'male' || person.avatar_gender === 'female' ? person.avatar_gender : null;
   const top = M(isManagement ? '#1e293b' : isLogistics ? '#facc15' : team);
   const sleeve = M(isManagement ? '#1e293b' : team);
   const add = (parent, geo, mat, x, y, z, sx = 1, sy = 1, sz = 1) => {
@@ -1123,7 +1185,12 @@ function voMakeCharacter(person) {
   add(body, G.box, M('#d4d4d8'), 0, 0.72, 0.147, 0.06, 0.035, 0.01);
 
   // Torso, with a white collar at the neck.
-  add(body, G.torso, top, 0, 0.98, 0, 1, 1, 0.78);
+  const build = look === 'female' ? 0.93 : look === 'male' ? 1.06 : 1;
+  add(body, G.torso, top, 0, 0.98, 0, build, 1, 0.78);
+  if (look === 'female' && !isLogistics && (h >> 13) % 2 === 0) {
+    // Skirt over the hips, in the trousers' colour.
+    add(body, G.skirt, pants, 0, 0.53, 0, 1, 1, 0.85);
+  }
   [-1, 1].forEach((side) => {
     const collar = add(body, G.box, white, side * 0.055, 1.29, 0.11, 0.09, 0.035, 0.03);
     collar.rotation.z = side * -0.5;
@@ -1150,7 +1217,7 @@ function voMakeCharacter(person) {
   // Arms: shoulder → sleeve → hand.
   const arms = [-1, 1].map((side) => {
     const shoulder = new T.Group();
-    shoulder.position.set(side * 0.255, 1.24, 0);
+    shoulder.position.set(side * 0.255 * build, 1.24, 0);
     shoulder.rotation.z = side * 0.07;
     body.add(shoulder);
     add(shoulder, G.arm, sleeve, 0, -0.17, 0);
@@ -1179,8 +1246,16 @@ function voMakeCharacter(person) {
     add(eyes, G.eye, white, side * 0.075, 0.03, 0.168, 1, 1.15, 0.6);
     add(eyes, G.pupil, dark, side * 0.075, 0.025, 0.19);
   });
-  const smile = add(head, G.smile, M('#8a3b3b'), 0, -0.085, 0.172);
+  const smile = add(head, G.smile, M(look === 'female' ? '#b4505a' : '#8a3b3b'), 0, -0.085, 0.172);
   smile.rotation.set(-0.35, 0, Math.PI);
+  if (look === 'female') {
+    // Lashes and small gold earrings.
+    [-1, 1].forEach((side) => {
+      const lash = add(head, G.box, dark, side * 0.08, 0.075, 0.178, 0.065, 0.012, 0.01);
+      lash.rotation.z = side * -0.25;
+      add(head, G.ball, M('#d4a017'), side * 0.2, -0.07, 0.01, 0.028, 0.028, 0.028);
+    });
+  }
   if ((h >> 11) % 4 === 0) {
     // Glasses.
     [-1, 1].forEach((side) => add(head, G.lens, dark, side * 0.075, 0.03, 0.2));
@@ -1192,7 +1267,9 @@ function voMakeCharacter(person) {
     add(head, G.hairCap, M('#facc15'), 0, 0.04, 0, 1.08, 1.05, 1.08);
     add(head, G.cyl, M('#facc15'), 0, 0.05, 0.02, 0.5, 0.025, 0.52);
   } else {
-    const style = (h >> 9) % 4;
+    // 0 short · 1 long · 2 bun · 3 curls · 4 ponytail · 5 side part
+    const styles = look === 'female' ? [1, 2, 4] : look === 'male' ? [0, 3, 5] : [0, 3];
+    const style = styles[(h >> 9) % styles.length];
     const cap = add(head, G.hairCap, hair, 0, 0.025, -0.012);
     cap.rotation.x = -0.22;
     if (style === 1) {
@@ -1208,8 +1285,20 @@ function voMakeCharacter(person) {
         const a = (i / 7) * Math.PI * 2;
         add(head, G.ball, hair, Math.cos(a) * 0.15, 0.15, Math.sin(a) * 0.15 - 0.02, 0.12, 0.12, 0.12);
       }
+    } else if (style === 4) {
+      voPonytail(head, G, hair, add);
+    } else if (style === 5) {
+      // Side part: a swept fringe.
+      const fringe = add(head, G.box, hair, -0.06, 0.14, 0.14, 0.2, 0.06, 0.1);
+      fringe.rotation.z = 0.3;
+    }
+    if (look === 'male' && (h >> 13) % 3 === 0) {
+      // Beard, with the smile brought out in front of it.
+      add(head, G.ball, hair, 0, -0.12, 0.07, 0.3, 0.17, 0.23);
+      smile.position.set(0, -0.075, 0.195);
     }
   }
+  if (isLogistics && look === 'female') voPonytail(head, G, hair, add);
   if (VO_HEADSET_DEPTS.includes(dept)) {
     // Headset: band over the top, ear cups, a mic boom to the mouth.
     add(head, G.band, dark, 0, 0.02, 0);
@@ -1227,10 +1316,16 @@ function voMakeCharacter(person) {
   group.add(label);
 
   return {
-    group, body, legs, arms, head, eyes, label,
+    look, group, body, legs, arms, head, eyes, label,
     path: [], status: null, face: 0, leaving: false,
     walkT: h % 7, blinkAt: 1 + (h % 40) / 10, blinkTill: 0,
   };
+}
+
+function voPonytail(head, G, hair, add) {
+  add(head, G.ball, hair, 0, 0.04, -0.2, 0.15, 0.15, 0.15);
+  const tail = add(head, G.box, hair, 0, -0.11, -0.25, 0.1, 0.26, 0.1);
+  tail.rotation.x = 0.3;
 }
 
 // The pose for this frame: walking swings arms against legs and bends the
@@ -1345,6 +1440,18 @@ function voSyncPeople(initial = false) {
     const slotIndex = onBreak ? slotOf.get(person.id) : null;
     const present = ['working', 'lunch', 'break'].includes(person.status);
     let c = s.chars.get(person.id);
+    if (c && c.look !== (person.avatar_gender || null)) {
+      // HR changed this person's look: a new character takes the old one's
+      // place, mid-walk and all.
+      const next = voMakeCharacter(person);
+      next.group.position.copy(c.group.position);
+      next.group.rotation.y = c.group.rotation.y;
+      Object.assign(next, { path: c.path, rest: c.rest, status: c.status, slot: c.slot, leaving: c.leaving, face: c.face });
+      s.root.remove(c.group);
+      s.root.add(next.group);
+      s.chars.set(person.id, next);
+      c = next;
+    }
     const monitor = s.monitors.get(person.id);
     if (monitor) monitor.material.emissive.set(person.status === 'working' ? '#3f9f92' : '#000000');
 
@@ -1524,6 +1631,26 @@ function voBindControls(s) {
   }, { passive: false });
 }
 
+// HR picks a person's character look. Shown at once; put back if the save
+// fails.
+async function voSetAvatar(id, gender) {
+  const person = voState.people.find((p) => Number(p.id) === Number(id));
+  if (!person) return;
+  const before = person.avatar_gender || null;
+  const apply = (value) => {
+    person.avatar_gender = value;
+    voRenderSide();
+    if (voState.scene) voSyncPeople();
+  };
+  apply(gender || null);
+  try {
+    await authorizedJsonRequest(`/virtual-office/avatar/${Number(id)}`, { method: 'PUT', body: JSON.stringify({ gender: gender || null }) });
+  } catch (error) {
+    apply(before);
+    showToast('error', 'Avatar not saved', error.message || 'Try again.');
+  }
+}
+
 function voFocus(id) {
   const s = voState.scene;
   voState.focusId = id;
@@ -1560,3 +1687,4 @@ function voDisposeScene() {
 
 window.renderVirtualOfficePage = renderVirtualOfficePage;
 window.initVirtualOfficePage = initVirtualOfficePage;
+window.voSetAvatar = voSetAvatar;
