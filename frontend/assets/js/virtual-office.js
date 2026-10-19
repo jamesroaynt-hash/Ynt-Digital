@@ -45,13 +45,15 @@ const VO_HAIR = ['#2b1b0e', '#4a2c17', '#111111', '#6b3e1f', '#3b2a1a'];
 // zone, the lounge (the break room), a second desk zone. A row of rooms runs
 // along the back wall: meeting rooms, the café counter, the warehouse.
 const VO_ZONE_W = 12;
-const VO_LOUNGE_W = 9;
+const VO_WALK_W = 3;        // the walkway between the two desk zones
+const VO_LOUNGE_D = 9.4;    // depth of the lounge room
 const VO_BACK_MIN = 5.6;    // depth of the back row of rooms
 const VO_ROW_D = 2.6;       // one bench row: chairs, table, chairs
 const VO_AISLE = 1.4;
 const VO_FRONT_WALK = 1.8;
 const VO_SEAT_W = 1.25;     // bench length per person
 const VO_MAX_PER_BENCH = 16;
+const VO_LEFT_ROWS = 4;     // bench rows on the left before the right takes any
 const VO_WALL_H = 2.8;
 const VO_DESK_W = 1.7;      // packing table width in the warehouse
 const VO_WAREHOUSE_DEPT = 'Logistics';
@@ -556,9 +558,9 @@ function voTileTexture(dark) {
 // the walkway ("spine") at the zone's lounge edge. Spines and the front
 // walkway are the only routes across the floor (see voRoute).
 function voLayout(departments) {
-  const W = VO_ZONE_W * 2 + VO_LOUNGE_W;
+  const W = VO_ZONE_W * 2 + VO_WALK_W;
   const xL = VO_ZONE_W;
-  const xR = VO_ZONE_W + VO_LOUNGE_W;
+  const xR = VO_ZONE_W + VO_WALK_W;
   const spineL = xL + 0.7;
   const spineR = xR - 0.7;
 
@@ -617,10 +619,23 @@ function voLayout(departments) {
   });
 
   // Benches: one per department (split past VO_MAX_PER_BENCH people).
+  // Benches fill the left side row after row. The right side opens with the
+  // lounge (the break room, a glass room under the warehouse) and only takes
+  // benches, below the lounge, once the left side has VO_LEFT_ROWS rows.
+  const pitch = VO_ROW_D + VO_AISLE;
+  const loungeRows = Math.ceil((VO_LOUNGE_D + 0.4) / pitch);
   const zones = [
-    { side: 'L', spine: spineL, edge: xL - 0.6, dir: -1, rows: [{ used: 0, blocks: [] }] },
-    { side: 'R', spine: spineR, edge: xR + 0.6, dir: 1, rows: [{ used: 0, blocks: [] }] },
+    { side: 'L', spine: spineL, edge: xL - 0.6, dir: -1, startZ: back + VO_AISLE, rows: [{ used: 0, blocks: [] }] },
+    { side: 'R', spine: spineR, edge: xR + 0.6, dir: 1, startZ: back + VO_AISLE + loungeRows * pitch, rows: [{ used: 0, blocks: [] }] },
   ];
+  const lounge = {
+    side: 'R',
+    spine: spineR,
+    x0: xR + 0.3,
+    x1: W - 0.3,
+    z0: back + VO_AISLE,
+    z1: back + VO_AISLE + VO_LOUNGE_D,
+  };
   const room = VO_ZONE_W - 1.2;
   const benches = [];
   departments.forEach(([dept, everyone]) => {
@@ -633,14 +648,16 @@ function voLayout(departments) {
       const singleRow = group.length <= 6;
       const cols = singleRow ? Math.max(2, group.length) : Math.ceil(group.length / 2);
       const width = cols * VO_SEAT_W + 0.75; // table margins and the team wall
-      const load = (z) => (z.rows.length - 1) * VO_ZONE_W + z.rows[z.rows.length - 1].used;
-      const zone = load(zones[0]) <= load(zones[1]) ? zones[0] : zones[1];
+      const left = zones[0];
+      const leftLast = left.rows[left.rows.length - 1];
+      const leftFits = !(leftLast.used && leftLast.used + width > room) || left.rows.length < VO_LEFT_ROWS;
+      const zone = leftFits ? left : zones[1];
       let row = zone.rows[zone.rows.length - 1];
       if (row.used && row.used + width > room) { row = { used: 0, blocks: [] }; zone.rows.push(row); }
       const r = zone.rows.length - 1;
       const x0 = zone.dir === -1 ? zone.edge - row.used - width : zone.edge + row.used;
       row.used += width + 0.9;
-      const cz = back + VO_AISLE + r * (VO_ROW_D + VO_AISLE) + VO_ROW_D / 2;
+      const cz = zone.startZ + r * pitch + VO_ROW_D / 2;
       const bench = { dept, x0, x1: x0 + width, cz, cols, zone: zone.side };
       row.blocks.push(bench);
       benches.push(bench);
@@ -666,8 +683,10 @@ function voLayout(departments) {
   // Whatever each row leaves free on the wall side becomes booths, shelves
   // and plants.
   const fillers = [];
+  const usedRows = (zone) => zone.rows.filter((row) => row.used).length;
   zones.forEach((zone) => zone.rows.forEach((row, r) => {
-    const cz = back + VO_AISLE + r * (VO_ROW_D + VO_AISLE) + VO_ROW_D / 2;
+    if (!row.used && zone.side === 'R') return;
+    const cz = zone.startZ + r * pitch + VO_ROW_D / 2;
     const free = room - (row.used ? row.used - 0.9 : 0) - 0.3;
     const count = Math.floor(free / 1.7);
     for (let k = 0; k < count; k += 1) {
@@ -676,13 +695,17 @@ function voLayout(departments) {
     }
   }));
 
-  const rows = Math.max(zones[0].rows.length, zones[1].rows.length);
-  const D = Math.max(back + VO_AISLE + rows * (VO_ROW_D + VO_AISLE), back + 11.8) + VO_FRONT_WALK;
+  const rows = Math.max(1, usedRows(zones[0]));
+  const D = Math.max(
+    zones[0].startZ + rows * pitch,
+    usedRows(zones[1]) ? zones[1].startZ + usedRows(zones[1]) * pitch : 0,
+    lounge.z1 + 0.6,
+  ) + VO_FRONT_WALK;
   return {
     W, D, back, backAisle, xL, xR, spineL, spineR,
     frontZ: D - VO_FRONT_WALK / 2,
-    cx: xL + VO_LOUNGE_W / 2,
-    seats, benches, fillers, rows,
+    cx: xL + VO_WALK_W / 2,
+    seats, benches, fillers, rows, lounge,
     whStart, whCols, whUsedCols, pods,
   };
 }
@@ -818,6 +841,8 @@ function voBuildFloor(s) {
     glass: new T.MeshLambertMaterial({ color: '#e3f2ec', transparent: true, opacity: 0.3, depthWrite: false }),
     wall: voMat(s.dark ? '#a69d8c' : '#f6eddd'),
     wallEdge: voMat(s.dark ? '#8a826f' : '#e9dbc0'),
+    glassDark: new T.MeshLambertMaterial({ color: '#1f2937', transparent: true, opacity: 0.22, depthWrite: false }),
+    frameDark: voMat('#111827'),
   };
   s.kit = kit;
 
@@ -1102,19 +1127,19 @@ function voWindow(root, kit, z) {
 }
 
 // Glass partition from (x0, z0) to (x1, z1) with a dark frame top and bottom.
-function voGlass(root, kit, x0, z0, x1, z1, h = 2.3) {
+function voGlass(root, kit, x0, z0, x1, z1, h = 2.3, finish = { glass: kit.glass, frame: kit.frame }) {
   const len = Math.hypot(x1 - x0, z1 - z0);
   const along = Math.abs(x1 - x0) > Math.abs(z1 - z0);
   const cx = (x0 + x1) / 2;
   const cz = (z0 + z1) / 2;
   const [w, d] = along ? [len, 0.05] : [0.05, len];
-  voBlock(root, kit, kit.glass, w, h, d, cx, h / 2, cz);
-  voBlock(root, kit, kit.frame, along ? len : 0.07, 0.06, along ? 0.07 : len, cx, h, cz);
-  voBlock(root, kit, kit.frame, along ? len : 0.07, 0.05, along ? 0.07 : len, cx, 0.025, cz);
+  voBlock(root, kit, finish.glass, w, h, d, cx, h / 2, cz);
+  voBlock(root, kit, finish.frame, along ? len : 0.07, 0.06, along ? 0.07 : len, cx, h, cz);
+  voBlock(root, kit, finish.frame, along ? len : 0.07, 0.05, along ? 0.07 : len, cx, 0.025, cz);
   const posts = Math.max(1, Math.round(len / 2));
   for (let i = 0; i <= posts; i += 1) {
     const t = i / posts;
-    voBlock(root, kit, kit.frame, 0.06, h, 0.06, x0 + (x1 - x0) * t, h / 2, z0 + (z1 - z0) * t);
+    voBlock(root, kit, finish.frame, 0.06, h, 0.06, x0 + (x1 - x0) * t, h / 2, z0 + (z1 - z0) * t);
   }
 }
 
@@ -1151,80 +1176,113 @@ function voMeetingRooms(root, L, kit) {
   });
 }
 
-// The lounge, which is the break room: a café counter on the back wall, high
+// The lounge, which is the break room: a room of black-framed glass under
+// the warehouse, its doorway on the walkway side. A black panel holds the TV
+// over the café counter and fridge; then high
 // tables, a sofa and armchairs round a coffee table on a rug, and a table for
 // four. Every seat in it is a break spot; past those, people stand.
 function voLounge(s, root, L, kit) {
-  const { cx, back: b } = L;
+  const { x0, x1, z0, z1, side, spine } = L.lounge;
+  const cx = (x0 + x1) / 2;
+  const finish = { glass: kit.glassDark, frame: kit.frameDark };
+  // The doorway faces the walkway; plants go on the far (outer) side.
+  const innerX = side === 'L' ? x1 : x0;
+  const inward = side === 'L' ? -1 : 1;
+  const outerX = side === 'L' ? x0 + 0.6 : x1 - 0.6;
+  const doorZ = z0 + VO_LOUNGE_D / 2;
+  const doorIn = { x: innerX + inward * 0.7, z: doorZ };
   const slots = [];
-  const spot = (x, z, face, sit) => slots.push({ x, z, face, sit, exit: [{ x: x <= cx ? L.spineL : L.spineR, z, line: x <= cx ? 'L' : 'R' }] });
+  const spot = (x, z, face, sit) => slots.push({ x, z, face, sit, exit: [doorIn, { x: spine, z: doorZ, line: side }] });
 
-  voTv(s, root, kit, cx);
-  voBlock(root, kit, kit.counter, 4.4, 1.0, 0.8, cx, 0.5, 0.45);
-  voBlock(root, kit, kit.desk, 4.5, 0.06, 0.85, cx, 1.02, 0.45);
-  voBlock(root, kit, kit.black, 0.45, 0.55, 0.4, cx - 1.3, 1.32, 0.35);
-  voBlock(root, kit, kit.metal, 0.35, 0.4, 0.35, cx + 0.2, 1.25, 0.35);
-  voBlock(root, kit, voMat('#e4e7e6'), 0.8, 2.0, 0.75, cx + 3.0, 1.0, 0.45);
-  voBlock(root, kit, kit.darkMetal, 0.04, 0.6, 0.04, cx + 2.7, 1.2, 0.84);
-  [-1.2, -0.4, 0.4, 1.2].forEach((dx) => spot(cx + dx, 1.6, Math.PI, false));
-  [-2, 2].forEach((dx) => {
-    voCylinder(root, kit, kit.desk, 0.45, 0.05, 0.45, cx + dx, 1.05, 3.0);
-    voCylinder(root, kit, kit.darkMetal, 0.05, 1.0, 0.05, cx + dx, 0.5, 3.0);
+  // Walls: black-framed glass all round, a gap for the doorway, and a solid
+  // black panel behind the café for the TV.
+  voGlass(root, kit, x0, z0, x1, z0, 2.3, finish);
+  voBlock(root, kit, kit.frameDark, 4.8, 2.3, 0.1, cx - 2.2, 1.15, z0 + 0.06);
+  voGlass(root, kit, x0, z1, x1, z1, 2.3, finish);
+  voGlass(root, kit, innerX, z0, innerX, doorZ - 0.75, 2.3, finish);
+  voGlass(root, kit, innerX, doorZ + 0.75, innerX, z1, 2.3, finish);
+  voGlass(root, kit, side === 'L' ? x0 : x1, z0, side === 'L' ? x0 : x1, z1, 2.3, finish);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, VO_LOUNGE_D), kit.rug);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(cx, 0.004, (z0 + z1) / 2);
+  floor.material = voMat(s.dark ? '#3c4743' : '#e9f1ec');
+  root.add(floor);
+
+  // Café: counter and coffee machine under the TV, the fridge at the end.
+  const cafeX = cx - 2.2;
+  voTv(s, root, kit, cafeX, z0 + 0.12, 1.85);
+  voBlock(root, kit, kit.counter, 4.0, 1.0, 0.8, cafeX, 0.5, z0 + 0.55);
+  voBlock(root, kit, kit.desk, 4.1, 0.06, 0.85, cafeX, 1.02, z0 + 0.55);
+  voBlock(root, kit, kit.black, 0.45, 0.55, 0.4, cafeX - 1.3, 1.32, z0 + 0.5);
+  voBlock(root, kit, kit.metal, 0.35, 0.4, 0.35, cafeX + 1.1, 1.25, z0 + 0.5);
+  voBlock(root, kit, voMat('#e4e7e6'), 0.8, 2.0, 0.75, cafeX + 2.6, 1.0, z0 + 0.55);
+  voBlock(root, kit, kit.darkMetal, 0.04, 0.6, 0.04, cafeX + 2.3, 1.2, z0 + 0.94);
+  [-1.2, -0.4, 0.4, 1.2].forEach((dx) => spot(cafeX + dx, z0 + 1.7, Math.PI, false));
+  [cx + 1.8, cx + 4.0].forEach((tx) => {
+    voCylinder(root, kit, kit.desk, 0.45, 0.05, 0.45, tx, 1.05, z0 + 2.1);
+    voCylinder(root, kit, kit.darkMetal, 0.05, 1.0, 0.05, tx, 0.5, z0 + 2.1);
     [-0.75, 0.75].forEach((sx) => {
-      voCylinder(root, kit, kit.ottoman, 0.2, 0.46, 0.2, cx + dx + sx, 0.23, 3.0);
-      spot(cx + dx + sx, 3.0, sx < 0 ? Math.PI / 2 : -Math.PI / 2, true);
+      voCylinder(root, kit, kit.ottoman, 0.2, 0.46, 0.2, tx + sx, 0.23, z0 + 2.1);
+      spot(tx + sx, z0 + 2.1, sx < 0 ? Math.PI / 2 : -Math.PI / 2, true);
     });
   });
 
-  // Planter of shrubs between the café and the lounge.
-  voBlock(root, kit, kit.pot, 3.6, 0.45, 0.45, cx, 0.22, b + 1.75);
+  // Planter of shrubs behind the sofa.
+  voBlock(root, kit, kit.pot, 3.6, 0.45, 0.45, cx, 0.22, z0 + 3.15);
   for (let i = 0; i < 6; i += 1) {
     const ball = new THREE.Mesh(kit.ball, i % 2 ? kit.leafLight : kit.leaf);
     ball.scale.setScalar(0.5);
-    ball.position.set(cx - 1.5 + i * 0.6, 0.6, b + 1.75);
+    ball.position.set(cx - 1.5 + i * 0.6, 0.6, z0 + 3.15);
     root.add(ball);
   }
 
-  const rug = new THREE.Mesh(new THREE.CircleGeometry(3.1, 40), kit.rug);
+  const rugZ = z0 + 5.4;
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(2.8, 40), kit.rug);
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(cx, 0.01, b + 4.1);
+  rug.position.set(cx, 0.01, rugZ);
   root.add(rug);
   // Sofa facing the room.
-  voBlock(root, kit, kit.sofa, 3.1, 0.42, 0.9, cx, 0.21, b + 2.65);
-  voBlock(root, kit, kit.sofa, 3.1, 0.55, 0.25, cx, 0.6, b + 2.3);
-  voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx - 1.55, 0.3, b + 2.65);
-  voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx + 1.55, 0.3, b + 2.65);
-  [-1, 0, 1].forEach((k) => spot(cx + k * 0.95, b + 2.8, 0, true));
-  voCylinder(root, kit, kit.desk, 0.65, 0.06, 0.65, cx, 0.42, b + 4.1);
-  voCylinder(root, kit, kit.darkMetal, 0.06, 0.4, 0.06, cx, 0.2, b + 4.1);
-  [-1, 1].forEach((side) => {
-    const ax = cx + side * 2.05;
-    voBlock(root, kit, kit.armchair, 0.85, 0.4, 0.85, ax, 0.2, b + 4.1);
-    voBlock(root, kit, kit.armchair, 0.22, 0.5, 0.85, ax + side * 0.32, 0.6, b + 4.1);
-    spot(ax - side * 0.05, b + 4.1, side < 0 ? Math.PI / 2 : -Math.PI / 2, true);
-    voCylinder(root, kit, kit.ottoman, 0.28, 0.36, 0.28, cx + side * 0.85, 0.18, b + 5.35);
-    spot(cx + side * 0.85, b + 5.35, Math.PI, true);
+  voBlock(root, kit, kit.sofa, 3.1, 0.42, 0.9, cx, 0.21, z0 + 4.0);
+  voBlock(root, kit, kit.sofa, 3.1, 0.55, 0.25, cx, 0.6, z0 + 3.65);
+  voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx - 1.55, 0.3, z0 + 4.0);
+  voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx + 1.55, 0.3, z0 + 4.0);
+  [-1, 0, 1].forEach((k) => spot(cx + k * 0.95, z0 + 4.15, 0, true));
+  voCylinder(root, kit, kit.desk, 0.65, 0.06, 0.65, cx, 0.42, rugZ);
+  voCylinder(root, kit, kit.darkMetal, 0.06, 0.4, 0.06, cx, 0.2, rugZ);
+  [-1, 1].forEach((dir) => {
+    const ax = cx + dir * 2.05;
+    voBlock(root, kit, kit.armchair, 0.85, 0.4, 0.85, ax, 0.2, rugZ);
+    voBlock(root, kit, kit.armchair, 0.22, 0.5, 0.85, ax + dir * 0.32, 0.6, rugZ);
+    spot(ax - dir * 0.05, rugZ, dir < 0 ? Math.PI / 2 : -Math.PI / 2, true);
+    voCylinder(root, kit, kit.ottoman, 0.28, 0.36, 0.28, cx + dir * 0.85, 0.18, rugZ + 1.2);
+    spot(cx + dir * 0.85, rugZ + 1.2, Math.PI, true);
   });
-  voPlant(root, kit, cx - 3.2, b + 2.4, 1.3);
-  voPlant(root, kit, cx + 3.2, b + 2.4, 1.3);
 
-  // Table for four.
-  voBlock(root, kit, kit.desk, 1.3, 0.07, 1.3, cx, 0.74, b + 8.1);
-  voCylinder(root, kit, kit.darkMetal, 0.06, 0.72, 0.06, cx, 0.36, b + 8.1);
+  // Table for four by the outer wall.
+  const tx = side === 'L' ? x0 + 1.7 : x1 - 1.7;
+  const tz = z1 - 1.4;
+  voBlock(root, kit, kit.desk, 1.3, 0.07, 1.3, tx, 0.74, tz);
+  voCylinder(root, kit, kit.darkMetal, 0.06, 0.72, 0.06, tx, 0.36, tz);
   [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -1, 0], [0, 1, Math.PI]].forEach(([dx, dz, face]) => {
-    const x = cx + dx * 0.95;
-    const z = b + 8.1 + dz * 0.95;
+    const x = tx + dx * 0.95;
+    const z = tz + dz * 0.95;
     voBlock(root, kit, kit.chair, 0.42, 0.07, 0.42, x, 0.46, z);
     voBlock(root, kit, kit.darkMetal, 0.05, 0.42, 0.05, x, 0.22, z);
     spot(x, z, face, true);
   });
-  voPlant(root, kit, cx - 2.6, b + 8.1, 1.1);
-  voPlant(root, kit, cx + 2.6, b + 8.1, 1.1);
+  voPlant(root, kit, outerX, z0 + 2.9, 1.2);
+  voPlant(root, kit, cx - inward * 3.4, z0 + 4.2, 1.1);
+  voPlant(root, kit, cx + inward * 3.4, z0 + 4.2, 1.1);
   // More on break than there are seats: they stand about in front.
   for (let r = 0; r < 2; r += 1) {
-    for (let k = 0; k < 7; k += 1) spot(cx - 2.4 + k * 0.8, b + 9.7 + r * 0.8, Math.PI, false);
+    for (let k = 0; k < 6; k += 1) spot(cx - inward * 0.2 + inward * (k - 2.5) * 0.8, z1 - 1.6 + r * 0.8, Math.PI, false);
   }
   s.breakSlots = slots;
+
+  // The walkway's own end of the back wall: a printer and a palm.
+  voBlock(root, kit, kit.offWhite, 0.7, 0.75, 0.55, L.cx - 0.55, 0.375, 0.45);
+  voBlock(root, kit, kit.black, 0.6, 0.05, 0.45, L.cx - 0.55, 0.78, 0.45);
+  voPlant(root, kit, L.cx + 0.7, 0.55, 1.1);
 }
 
 // A packing table at a Logistics seat: tabletop, a parcel being packed, a tape
@@ -1959,15 +2017,15 @@ function voResetView() {
 /* ─── FLOOR EXTRAS: TV, desk plates, work counters ─────────────── */
 
 // The lounge TV on the café wall: floor-wide numbers, redrawn each poll.
-function voTv(s, root, kit, cx) {
-  voBlock(root, kit, kit.black, 2.7, 1.05, 0.06, cx, 2.12, 0.04);
+function voTv(s, root, kit, cx, z = 0, y = 2.12) {
+  voBlock(root, kit, kit.black, 2.7, 1.05, 0.06, cx, y, z + 0.04);
   const canvas = document.createElement('canvas');
   canvas.width = 768;
   canvas.height = 288;
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.56, 0.96), new THREE.MeshBasicMaterial({ map: texture }));
-  screen.position.set(cx, 2.12, 0.075);
+  screen.position.set(cx, y, z + 0.075);
   root.add(screen);
   s.tv = { canvas, texture };
 }
