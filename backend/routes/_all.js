@@ -3249,12 +3249,15 @@ function csrRoutes(db) {
       const everyone = confirmedOrdersWhere(req.query, null, false);
       const { effStatus, manilaDay } = everyone;
       // A number too short to be a phone groups everything that is missing one.
-      let scoped = `${everyone.where} AND LENGTH(${PHONE_DIGITS}) >= 10`;
+      // Delivered orders are done and paid, so they never count toward or show
+      // in a duplicate — only the orders still worth catching do.
+      const notDelivered = `COALESCE(${effStatus}, '') <> 'delivered'`;
+      let scoped = `${everyone.where} AND LENGTH(${PHONE_DIGITS}) >= 10 AND ${notDelivered}`;
       const params = [...everyone.params];
       if (names || scope.system) {
         const theirs = confirmedOrdersWhere(req.query, names, scope.system);
         scoped += ` AND ${PHONE_KEY} IN (
-          SELECT ${PHONE_KEY} FROM pos_orders ${theirs.where} AND LENGTH(${PHONE_DIGITS}) >= 10)`;
+          SELECT ${PHONE_KEY} FROM pos_orders ${theirs.where} AND LENGTH(${PHONE_DIGITS}) >= 10 AND ${notDelivered})`;
         params.push(...theirs.params);
       }
       // One page's orders for a number on one Manila day. Blank pages and rows
