@@ -7917,3 +7917,37 @@ tfoot td {
 /* RTS Return Stocks — a compact table, centered in its card, every column centered. */
 .rts-return-table { width: auto; min-width: min(640px, 100%); margin: 0 auto; }
 .rts-return-table th, .rts-return-table td { text-align: center; padding: 8px 20px; vertical-align: middle; }
+
+/* Virtual Office — 3D floor on the left, the live roster on the right. */
+.vo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.vo-stage-card { padding: 0; overflow: hidden; }
+.vo-stage { position: relative; height: min(68vh, 640px); min-height: 360px; }
+.vo-stage canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+.vo-stage canvas:active { cursor: grabbing; }
+.vo-stage-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); padding: 16px; text-align: center; }
+.vo-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
+.vo-legend i, .vo-dept-head i, .vo-person i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; flex-shrink: 0; }
+.vo-hint { margin-left: auto; }
+.vo-side { padding: 0; max-height: calc(min(68vh, 640px) + 42px); overflow-y: auto; }
+.vo-side-head { padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.vo-side-empty { padding: 24px 16px; text-align: center; color: var(--text-muted); }
+.vo-counts { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--border); }
+.vo-count { padding: 10px 4px; text-align: center; }
+.vo-count b { display: block; font-size: 18px; }
+.vo-count span { font-size: 10px; color: var(--text-muted); line-height: 1.2; display: block; }
+.vo-dept { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.vo-dept-head { display: flex; align-items: center; padding: 4px 16px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.vo-dept-head span { margin-left: auto; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.vo-person { display: flex; align-items: center; gap: 2px; width: 100%; padding: 6px 16px; background: none; border: 0; text-align: left; cursor: pointer; color: var(--text-primary); font: inherit; font-size: 13px; }
+.vo-person:hover:not(:disabled), .vo-person.active { background: var(--surface-3); }
+.vo-person:disabled { cursor: default; }
+.vo-person.away { opacity: 0.55; }
+.vo-person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vo-person-status { font-size: 11px; color: var(--text-muted); text-align: right; white-space: nowrap; }
+.vo-person-status small { display: block; font-size: 10px; }
+@media (max-width: 900px) {
+  .vo-layout { grid-template-columns: minmax(0, 1fr); }
+  .vo-stage { height: 56vh; }
+  .vo-side { max-height: none; }
+  .vo-hint { margin-left: 0; }
+}

@@ -9,8 +9,8 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
   Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
@@ -171,6 +171,7 @@ function loadPage(page) {
     summary: renderSummaryPage,
     'hr-dashboard': renderHrDashboardPage,
     'employee-tracker': renderEmployeeTracker,
+    'virtual-office': lazyPage('renderVirtualOfficePage'),
     'evaluation-kpi': renderEvaluationKpi,
     attendance: renderAttendance,
     'marketing-center': renderMarketingCenter,
@@ -224,6 +225,7 @@ const pageNames = {
   summary: 'Summary',
   'hr-dashboard': 'HR Dashboard',
   'employee-tracker': 'Employee Tracker',
+  'virtual-office': 'Virtual Office',
   'evaluation-kpi': 'Monthly Evaluation / KPI',
   attendance: 'Time & Attendance',
   'marketing-center': 'Marketing',
@@ -17325,7 +17327,7 @@ const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // HR access is HR's, Operation's and the super admin's, so the HR pages leave
 // the other Administrators' menu too (the server refuses them as well).
 const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
-  'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
+  'hr-dashboard', 'employee-tracker', 'virtual-office', 'attendance-log', 'schedule', 'hr',
   'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'hr-reports',
   'learning-manage', 'learning-reports'];
 
@@ -19692,6 +19694,7 @@ function initPage(page) {
   if (page === 'learning-manage') window.initTrainingManagePage?.().catch(() => {});
   if (page === 'learning-reports') window.initTrainingReportsPage?.().catch(() => {});
   if (page === 'ops-calendar') window.initOpsCalendarPage?.().catch(() => {});
+  if (page === 'virtual-office') window.initVirtualOfficePage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});

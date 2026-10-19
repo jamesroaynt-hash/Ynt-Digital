@@ -348,6 +348,7 @@ async function createApp() {
   app.use('/api/training', authMiddleware, require('./routes/training')(db));
   app.use('/api/ops-calendar', authMiddleware, require('./routes/opsCalendar')(db));
   app.use('/api/daily-summary', authMiddleware, require('./routes/dailySummary')(db));
+  app.use('/api/virtual-office', authMiddleware, require('./routes/virtualOffice')(db));
   app.use('/api/marketing', authMiddleware, require('./routes/marketing')(db));
   app.use('/api/pickups', authMiddleware, require('./routes/pickups')(db));
   app.use('/api/scans', authMiddleware, require('./routes/scans')(db));
