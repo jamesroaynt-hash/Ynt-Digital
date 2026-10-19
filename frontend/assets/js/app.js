@@ -762,8 +762,19 @@ async function loadRtsReturnRecords() {
     const skuDatalist = `<datalist id="rts-sku-options">${skuOptions.map((s) => `<option value="${escapeHtml(s)}"></option>`).join('')}</datalist>`;
 
     const dash = '<span class="text-xs text-muted">—</span>';
-    const total = rows.reduce((s, r) => s + r.pcs, 0);
-    const bodyHtml = rows.map((r) => {
+    // A page is Not Active when every product its SKU points at is a
+    // Product marked Not Active (the Stock page's Not Active tab). Pages
+    // with no SKU, or an SKU matching an active product, stay on the left.
+    const activeBySku = new Map();
+    (DB.inventory || []).filter((it) => it.type === 'Product' && it.sku).forEach((it) => {
+      const sku = String(it.sku).trim().toLowerCase();
+      activeBySku.set(sku, activeBySku.get(sku) || it.active !== 0);
+    });
+    const pageIsInactive = (r) => {
+      const skus = String(pageSku[r.page] || r.derivedSku || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+      return skus.length > 0 && skus.every((sku) => activeBySku.has(sku) && !activeBySku.get(sku));
+    };
+    const rowHtml = (r) => {
       const assigned = pageSku[r.page] || '';
       const skuCell = canEdit
         ? `<input type="text" class="form-control" style="width:110px;margin:0 auto;padding:4px 8px;height:auto;font-size:12px;text-align:center" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
@@ -773,18 +784,30 @@ async function loadRtsReturnRecords() {
       <td style="font-weight:500;">${escapeHtml(r.page)}</td>
       <td><strong>${r.pcs.toLocaleString()}</strong></td>
     </tr>`;
-    }).join('');
+    };
+    const panel = (title, hint, list) => {
+      const total = list.reduce((sum, r) => sum + r.pcs, 0);
+      return `<div class="rts-return-panel">
+        <div class="rts-return-panel-head"><strong>${title}</strong> <span class="text-muted">(${list.length})</span><div class="text-xs text-muted">${hint}</div></div>
+        <table class="rts-return-table">
+          <thead><tr><th>SKU</th><th>PAGE NAME</th><th>RTS TOTAL PCS</th></tr></thead>
+          <tbody>
+            ${list.length ? list.map(rowHtml).join('') : `<tr><td colspan="3" style="padding:20px;color:var(--text-muted);">No pages here.</td></tr>`}
+          </tbody>
+          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td>${total.toLocaleString()}</td></tr></tfoot>
+        </table>
+      </div>`;
+    };
+    const inactiveRows = rows.filter(pageIsInactive);
+    const activeRows = rows.filter((r) => !pageIsInactive(r));
     wrap.innerHTML = `<div class="card">
       <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records. Assign a SKU to route a page's pcs to a Product.</div></div></div>
       <div class="table-container">
         ${skuDatalist}
-        <table class="rts-return-table">
-          <thead><tr><th>SKU</th><th>PAGE NAME</th><th>RTS TOTAL PCS</th></tr></thead>
-          <tbody>
-            ${bodyHtml}
-          </tbody>
-          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td>${total.toLocaleString()}</td></tr></tfoot>
-        </table>
+        <div class="rts-return-split">
+          ${panel('Active', 'Pages selling an active product, or with no SKU yet.', activeRows)}
+          ${panel('Not Active', 'Pages whose SKU is a Not Active product.', inactiveRows)}
+        </div>
       </div>
     </div>`;
   } catch (error) {

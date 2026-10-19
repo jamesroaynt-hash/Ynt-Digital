@@ -7918,6 +7918,13 @@ tfoot td {
 /* RTS Return Stocks — a compact table, centered in its card, every column centered. */
 .rts-return-table { width: auto; min-width: min(640px, 100%); margin: 0 auto; }
 .rts-return-table th, .rts-return-table td { text-align: center; padding: 8px 20px; vertical-align: middle; }
+/* Active pages on the left, Not Active on the right; stacked on narrow screens. */
+.rts-return-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 12px; }
+.rts-return-panel { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.rts-return-panel-head { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.rts-return-split .rts-return-table { width: 100%; min-width: 0; }
+.rts-return-split .rts-return-table th, .rts-return-split .rts-return-table td { padding: 8px 10px; }
+@media (max-width: 1000px) { .rts-return-split { grid-template-columns: minmax(0, 1fr); } }
 
 /* Virtual Office — 3D floor on the left, the live roster on the right. */
 .vo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
