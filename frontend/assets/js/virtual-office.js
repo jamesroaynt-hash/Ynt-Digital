@@ -27,15 +27,15 @@ const VO_STATUS = {
 };
 // Team colour: shirts, the bench divider and the team's wall.
 const VO_DEPT_COLOR = {
-  Management: '#7c3aed',
-  'Human Resources': '#db2777',
-  Operations: '#0891b2',
-  'Sales & Marketing': '#ea580c',
-  CSR: '#2563eb',
-  RMO: '#16a34a',
-  Logistics: '#ca8a04',
-  Trainee: '#64748b',
-  Unassigned: '#475569',
+  Management: '#7a6aa6',
+  'Human Resources': '#c0687f',
+  Operations: '#3f8f88',
+  'Sales & Marketing': '#d0814f',
+  CSR: '#4f74ad',
+  RMO: '#5f9a63',
+  Logistics: '#c79a3e',
+  Trainee: '#7d8794',
+  Unassigned: '#66707c',
 };
 const VO_SKIN = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
 const VO_HAIR = ['#2b1b0e', '#4a2c17', '#111111', '#6b3e1f', '#3b2a1a'];
@@ -315,29 +315,26 @@ function voTeamWallTexture(name, color, aspect) {
   return texture;
 }
 
-// Light wood planks for the floor, drawn once and tiled.
-function voPlankTexture(dark) {
+// Beige office tiles for the floor: a two-tone checker with grout lines,
+// drawn once (2 × 2 tiles) and repeated.
+function voTileTexture(dark) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
-  const tones = dark ? ['#7a5c3e', '#80613f', '#755839', '#7d5f41'] : ['#dcb683', '#d6ad78', '#e0bd8c', '#d1a670'];
-  for (let row = 0; row < 8; row += 1) {
-    let x = -((row * 53) % 256);
-    while (x < 256) {
-      const len = 96 + ((row * 37 + x) % 3) * 40;
-      ctx.fillStyle = tones[(row + Math.abs(x)) % tones.length];
-      ctx.fillRect(x, row * 32, len, 32);
-      ctx.fillStyle = dark ? 'rgba(0,0,0,0.25)' : 'rgba(150,110,60,0.25)';
-      ctx.fillRect(x, row * 32, 2, 32);
-      x += len;
+  const [a, b, grout] = dark ? ['#4b4337', '#433c31', '#3a342b'] : ['#ecdbbf', '#e2cdab', '#d4bd98'];
+  for (let i = 0; i < 2; i += 1) {
+    for (let j = 0; j < 2; j += 1) {
+      ctx.fillStyle = (i + j) % 2 ? b : a;
+      ctx.fillRect(i * 128, j * 128, 128, 128);
     }
-    ctx.fillStyle = dark ? 'rgba(0,0,0,0.3)' : 'rgba(150,110,60,0.3)';
-    ctx.fillRect(0, row * 32, 256, 2);
   }
+  ctx.fillStyle = grout;
+  [0, 128].forEach((v) => { ctx.fillRect(v, 0, 3, 256); ctx.fillRect(0, v, 256, 3); });
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
   return texture;
 }
 
@@ -457,14 +454,14 @@ function voBuildScene() {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setSize(stage.clientWidth, stage.clientHeight, false);
-  renderer.setClearColor(dark ? '#0b1220' : '#eef1f8');
+  renderer.setClearColor(dark ? '#1b2723' : '#d3e3da');
   stage.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   // Orthographic, for the clean isometric look of an office floor plan.
   const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 600);
-  scene.add(new THREE.HemisphereLight('#ffffff', dark ? '#334155' : '#cbbfae', 0.75));
-  const sun = new THREE.DirectionalLight('#ffffff', 0.45);
+  scene.add(new THREE.HemisphereLight('#ffffff', dark ? '#334155' : '#d9cdb8', 0.85));
+  const sun = new THREE.DirectionalLight('#fff7ea', 0.38);
   sun.position.set(20, 30, 26);
   scene.add(sun);
 
@@ -536,43 +533,54 @@ function voBuildFloor(s) {
     tape: voMat('#e8d5a8'),
     metal: voMat(s.dark ? '#64748b' : '#94a3b8'),
     darkMetal: voMat('#475569'),
-    frame: voMat('#334155'),
-    orange: voMat('#f97316'),
-    yellow: voMat('#facc15'),
-    wood: voMat('#b7894f'),
-    white: voMat('#f8fafc'),
-    offWhite: voMat('#e2e8f0'),
+    frame: voMat(s.dark ? '#5e7470' : '#8fa8a3'),
+    orange: voMat('#d9844a'),
+    yellow: voMat('#e6c25a'),
+    wood: voMat('#8b5a3c'),
+    white: voMat('#f6efe2'),
+    desk: voMat(s.dark ? '#b89c74' : '#e8d1aa'),
+    deskLeg: voMat('#bfa27a'),
+    partition: voMat(s.dark ? '#6f8784' : '#93aca7'),
+    chair: voMat('#3d4850'),
+    counter: voMat('#c39466'),
+    skirting: voMat(s.dark ? '#6b6253' : '#e3d3b6'),
+    pane: new T.MeshLambertMaterial({ color: '#f5ac83', emissive: '#f08a5a', emissiveIntensity: 0.15 }),
+    paneLight: voMat('#fbcfae'),
+    offWhite: voMat('#d9d1c2'),
     black: voMat('#1f2937'),
-    concrete: voMat(s.dark ? '#2b3443' : '#d6d6da'),
-    booth: voMat('#6d72f0'),
-    boothSeat: voMat('#fbbf24'),
-    sofa: voMat('#c2410c'),
-    armchair: voMat('#3b5bdb'),
-    rug: voMat(s.dark ? '#475569' : '#e7e5e4'),
-    folders: ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'].map(voMat),
+    concrete: voMat(s.dark ? '#3b3a36' : '#ddd7cc'),
+    booth: voMat('#6f9e98'),
+    boothSeat: voMat('#d9b25b'),
+    sofa: voMat('#e3967b'),
+    armchair: voMat('#b49fd4'),
+    ottoman: voMat('#9fd0b0'),
+    rug: voMat(s.dark ? '#4a5a55' : '#cfe3da'),
+    folders: ['#d97a5a', '#6aa39a', '#e3b85c', '#8a7fbf', '#c95f5f'].map(voMat),
     mug: voMat('#f1f5f9'),
-    leaf: voMat('#15803d'),
-    leafLight: voMat('#22c55e'),
-    pot: voMat('#f5f5f4'),
-    glass: new T.MeshLambertMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.28, depthWrite: false }),
-    wall: voMat(s.dark ? '#94a3b8' : '#f8fafc'),
-    wallEdge: voMat(s.dark ? '#64748b' : '#e2e8f0'),
+    leaf: voMat('#4a9466'),
+    leafLight: voMat('#6db585'),
+    pot: voMat('#b5723f'),
+    glass: new T.MeshLambertMaterial({ color: '#e3f2ec', transparent: true, opacity: 0.3, depthWrite: false }),
+    wall: voMat(s.dark ? '#a69d8c' : '#f6eddd'),
+    wallEdge: voMat(s.dark ? '#8a826f' : '#e9dbc0'),
   };
 
-  // Floor slab: wood planks on top, a darker edge all round.
-  const planks = voPlankTexture(s.dark);
-  planks.repeat.set(W / 4, D / 4);
-  const edge = voMat(s.dark ? '#5b4630' : '#c9a476');
+  // Floor slab: office tiles on top, a darker edge all round.
+  const tiles = voTileTexture(s.dark);
+  tiles.repeat.set(W / 2.4, D / 2.4);
+  const edge = voMat(s.dark ? '#5b5040' : '#d8bf98');
   const slab = new T.Mesh(new T.BoxGeometry(W, 0.35, D),
-    [edge, edge, new T.MeshLambertMaterial({ map: planks }), edge, edge, edge]);
+    [edge, edge, new T.MeshLambertMaterial({ map: tiles }), edge, edge, edge]);
   slab.position.set(W / 2, -0.175, D / 2);
   root.add(slab);
 
   // Two tall walls, back and left, with a cap along the top.
-  voBlock(root, kit, kit.wall, W + 0.2, VO_WALL_H, 0.2, W / 2 - 0.1, VO_WALL_H / 2, -0.1);
-  voBlock(root, kit, kit.wall, 0.2, VO_WALL_H, D, -0.1, VO_WALL_H / 2, D / 2);
-  voBlock(root, kit, kit.wallEdge, W + 0.2, 0.06, 0.24, W / 2 - 0.1, VO_WALL_H, -0.1);
-  voBlock(root, kit, kit.wallEdge, 0.24, 0.06, D, -0.1, VO_WALL_H, D / 2);
+  voBlock(root, kit, kit.wall, W + 0.35, VO_WALL_H, 0.35, W / 2 - 0.175, VO_WALL_H / 2, -0.175);
+  voBlock(root, kit, kit.wall, 0.35, VO_WALL_H, D, -0.175, VO_WALL_H / 2, D / 2);
+  voBlock(root, kit, kit.wallEdge, W + 0.37, 0.06, 0.37, W / 2 - 0.175, VO_WALL_H + 0.03, -0.175);
+  voBlock(root, kit, kit.wallEdge, 0.37, 0.06, D, -0.175, VO_WALL_H + 0.03, D / 2);
+  voBlock(root, kit, kit.skirting, W, 0.12, 0.03, W / 2, 0.06, 0.015);
+  voBlock(root, kit, kit.skirting, 0.03, 0.12, D, 0.015, 0.06, D / 2);
 
   voMeetingRooms(root, L, kit);
   voLounge(s, root, L, kit);
@@ -592,14 +600,17 @@ function voBuildFloor(s) {
     else voPlant(root, kit, f.x, f.z, 1.3);
   });
 
-  // Whiteboards on the left wall, one per bench row.
+  // The left wall: a peach window beside each bench row, a whiteboard
+  // between every other pair.
   for (let r = 0; r < L.rows; r += 1) {
     const cz = back + VO_AISLE + r * (VO_ROW_D + VO_AISLE) + VO_ROW_D / 2;
-    voWhiteboard(root, kit, 0.03, 1.55, cz, Math.PI / 2, r);
+    voWindow(root, kit, cz);
+    if (r % 2 === 1) voWhiteboard(root, kit, 0.03, 1.55, cz - (VO_ROW_D + VO_AISLE) / 2, Math.PI / 2, r);
   }
+  voWindow(root, kit, D - 1.6);
 
   // The way in: an open front edge with a welcome mat and two plants.
-  const mat = voTextTexture('YNT DIGITAL', { color: '#ffffff', bg: '#7c3aed', size: 56 });
+  const mat = voTextTexture('YNT DIGITAL', { color: '#f6eddd', bg: '#2f4f45', size: 56 });
   const welcome = new T.Mesh(new T.PlaneGeometry(0.55 * mat.aspect, 0.55), new T.MeshBasicMaterial({ map: mat.texture, transparent: true }));
   welcome.rotation.x = -Math.PI / 2;
   welcome.position.set(L.cx, 0.01, D - 0.45);
@@ -670,18 +681,18 @@ function voParcels(parent, kit, boxes) {
   parent.add(tape);
 }
 
-// A long white bench table with a low divider in the team colour down its
+// A long light-wood bench table with a teal-grey cubicle divider down its
 // middle, and the team's feature wall standing at its +x end.
 function voBench(root, bench, kit) {
   const color = VO_DEPT_COLOR[bench.dept] || VO_DEPT_COLOR.Unassigned;
   const len = bench.cols * VO_SEAT_W + 0.2;
   const tx = bench.x0 + 0.15 + len / 2;
-  voBlock(root, kit, kit.white, len, 0.06, 1.05, tx, 0.74, bench.cz);
+  voBlock(root, kit, kit.desk, len, 0.07, 1.05, tx, 0.74, bench.cz);
   for (let c = 0; c <= bench.cols; c += 2) {
     const lx = bench.x0 + 0.2 + Math.min(c * VO_SEAT_W, len - 0.1);
-    voBlock(root, kit, kit.offWhite, 0.05, 0.72, 0.95, lx, 0.36, bench.cz);
+    voBlock(root, kit, kit.deskLeg, 0.05, 0.72, 0.95, lx, 0.36, bench.cz);
   }
-  voBlock(root, kit, voMat(color), len - 0.1, 0.32, 0.04, tx, 0.93, bench.cz);
+  voBlock(root, kit, kit.partition, len - 0.1, 0.5, 0.05, tx, 1.02, bench.cz);
 
   const wallD = VO_ROW_D - 0.2;
   const wallH = 2.1;
@@ -693,14 +704,14 @@ function voBench(root, bench, kit) {
   root.add(wall);
 }
 
-// A bench seat: white chair, monitor (returned, it lights while someone works
+// A bench seat: dark chair, monitor (returned, it lights while someone works
 // there), keyboard, a stack of files and a mug, picked from the person's id
 // so a desk looks the same every day.
 function voSeat(root, seat, toChair, kit) {
   const g = new THREE.Group();
   g.position.set(seat.x, 0, seat.deskZ);
   root.add(g);
-  const monitor = new THREE.Mesh(kit.unit, new THREE.MeshLambertMaterial({ color: '#1f2937', emissive: '#000000' }));
+  const monitor = new THREE.Mesh(kit.unit, new THREE.MeshLambertMaterial({ color: '#2e3b40', emissive: '#000000' }));
   monitor.scale.set(0.55, 0.34, 0.04);
   monitor.position.set(0, 1.02, toChair * 0.12);
   g.add(monitor);
@@ -717,8 +728,8 @@ function voSeat(root, seat, toChair, kit) {
   const chair = new THREE.Group();
   chair.position.set(seat.x, 0, seat.z);
   root.add(chair);
-  voBlock(chair, kit, kit.white, 0.46, 0.06, 0.44, 0, 0.46, 0);
-  voBlock(chair, kit, kit.white, 0.46, 0.42, 0.05, 0, 0.72, toChair * 0.21);
+  voBlock(chair, kit, kit.chair, 0.46, 0.07, 0.44, 0, 0.46, 0);
+  voBlock(chair, kit, kit.chair, 0.46, 0.44, 0.06, 0, 0.73, toChair * 0.21);
   voBlock(chair, kit, kit.darkMetal, 0.05, 0.42, 0.05, 0, 0.22, 0);
   voBlock(chair, kit, kit.darkMetal, 0.38, 0.03, 0.38, 0, 0.02, 0);
   return monitor;
@@ -779,6 +790,20 @@ function voWhiteboard(root, kit, x, y, z, rotY, seed = 0) {
   }
 }
 
+// A peach-lit window set into the left wall, cream frame and sill.
+function voWindow(root, kit, z) {
+  const g = new THREE.Group();
+  g.position.set(0.02, 1.6, z);
+  g.rotation.y = Math.PI / 2;
+  root.add(g);
+  voBlock(g, kit, kit.white, 1.5, 1.2, 0.05, 0, 0, 0.02);
+  voBlock(g, kit, kit.pane, 1.3, 1.0, 0.04, 0, 0, 0.05);
+  voBlock(g, kit, kit.paneLight, 1.3, 0.12, 0.02, 0, 0.18, 0.075);
+  voBlock(g, kit, kit.paneLight, 1.3, 0.06, 0.02, 0, -0.12, 0.075);
+  voBlock(g, kit, kit.white, 0.05, 1.0, 0.03, 0, 0, 0.08);
+  voBlock(g, kit, kit.white, 1.6, 0.06, 0.16, 0, -0.62, 0.08);
+}
+
 // Glass partition from (x0, z0) to (x1, z1) with a dark frame top and bottom.
 function voGlass(root, kit, x0, z0, x1, z1, h = 2.3) {
   const len = Math.hypot(x1 - x0, z1 - z0);
@@ -806,7 +831,7 @@ function voMeetingRooms(root, L, kit) {
   [0, 1].forEach((i) => {
     const cx = roomW * i + roomW / 2;
     const cz = L.back / 2 + 0.3;
-    voCylinder(root, kit, kit.white, 1.5, 0.06, 0.55, cx, 0.74, cz);
+    voCylinder(root, kit, kit.desk, 1.5, 0.07, 0.55, cx, 0.74, cz);
     voCylinder(root, kit, kit.darkMetal, 0.08, 0.72, 0.08, cx - 0.8, 0.36, cz);
     voCylinder(root, kit, kit.darkMetal, 0.08, 0.72, 0.08, cx + 0.8, 0.36, cz);
     [-1, 0, 1].forEach((k) => {
@@ -820,7 +845,7 @@ function voMeetingRooms(root, L, kit) {
       });
     });
     voWhiteboard(root, kit, cx, 1.45, 0.03, 0, i + 2);
-    voWallText(root, `MEETING ROOM ${i + 1}`, '#64748b', 0.32, cx, 2.35, 0.02);
+    voWallText(root, `MEETING ROOM ${i + 1}`, '#2f4f45', 0.32, cx, 2.35, 0.02);
     voPlant(root, kit, roomW * i + 0.55, L.back - 0.6, 1.1);
   });
 }
@@ -833,25 +858,25 @@ function voLounge(s, root, L, kit) {
   const slots = [];
   const spot = (x, z, face, sit) => slots.push({ x, z, face, sit, exit: [{ x: x <= cx ? L.spineL : L.spineR, z, line: x <= cx ? 'L' : 'R' }] });
 
-  voWallText(root, 'BREAK ROOM', '#d97706', 0.5, cx, 2.25, 0.02);
-  voBlock(root, kit, kit.wood, 4.4, 1.0, 0.8, cx, 0.5, 0.45);
-  voBlock(root, kit, kit.white, 4.5, 0.06, 0.85, cx, 1.02, 0.45);
+  voWallText(root, 'BREAK ROOM', '#2f4f45', 0.5, cx, 2.25, 0.02);
+  voBlock(root, kit, kit.counter, 4.4, 1.0, 0.8, cx, 0.5, 0.45);
+  voBlock(root, kit, kit.desk, 4.5, 0.06, 0.85, cx, 1.02, 0.45);
   voBlock(root, kit, kit.black, 0.45, 0.55, 0.4, cx - 1.3, 1.32, 0.35);
   voBlock(root, kit, kit.metal, 0.35, 0.4, 0.35, cx + 0.2, 1.25, 0.35);
-  voBlock(root, kit, kit.white, 0.8, 2.0, 0.75, cx + 3.0, 1.0, 0.45);
+  voBlock(root, kit, voMat('#e4e7e6'), 0.8, 2.0, 0.75, cx + 3.0, 1.0, 0.45);
   voBlock(root, kit, kit.darkMetal, 0.04, 0.6, 0.04, cx + 2.7, 1.2, 0.84);
   [-1.2, -0.4, 0.4, 1.2].forEach((dx) => spot(cx + dx, 1.6, Math.PI, false));
   [-2, 2].forEach((dx) => {
-    voCylinder(root, kit, kit.white, 0.45, 0.05, 0.45, cx + dx, 1.05, 3.0);
+    voCylinder(root, kit, kit.desk, 0.45, 0.05, 0.45, cx + dx, 1.05, 3.0);
     voCylinder(root, kit, kit.darkMetal, 0.05, 1.0, 0.05, cx + dx, 0.5, 3.0);
     [-0.75, 0.75].forEach((sx) => {
-      voCylinder(root, kit, kit.armchair, 0.2, 0.46, 0.2, cx + dx + sx, 0.23, 3.0);
+      voCylinder(root, kit, kit.ottoman, 0.2, 0.46, 0.2, cx + dx + sx, 0.23, 3.0);
       spot(cx + dx + sx, 3.0, sx < 0 ? Math.PI / 2 : -Math.PI / 2, true);
     });
   });
 
   // Planter of shrubs between the café and the lounge.
-  voBlock(root, kit, kit.wood, 3.6, 0.45, 0.45, cx, 0.22, b + 1.75);
+  voBlock(root, kit, kit.pot, 3.6, 0.45, 0.45, cx, 0.22, b + 1.75);
   for (let i = 0; i < 6; i += 1) {
     const ball = new THREE.Mesh(kit.ball, i % 2 ? kit.leafLight : kit.leaf);
     ball.scale.setScalar(0.5);
@@ -869,26 +894,26 @@ function voLounge(s, root, L, kit) {
   voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx - 1.55, 0.3, b + 2.65);
   voBlock(root, kit, kit.sofa, 0.25, 0.6, 0.9, cx + 1.55, 0.3, b + 2.65);
   [-1, 0, 1].forEach((k) => spot(cx + k * 0.95, b + 2.8, 0, true));
-  voCylinder(root, kit, kit.white, 0.65, 0.06, 0.65, cx, 0.42, b + 4.1);
+  voCylinder(root, kit, kit.desk, 0.65, 0.06, 0.65, cx, 0.42, b + 4.1);
   voCylinder(root, kit, kit.darkMetal, 0.06, 0.4, 0.06, cx, 0.2, b + 4.1);
   [-1, 1].forEach((side) => {
     const ax = cx + side * 2.05;
     voBlock(root, kit, kit.armchair, 0.85, 0.4, 0.85, ax, 0.2, b + 4.1);
     voBlock(root, kit, kit.armchair, 0.22, 0.5, 0.85, ax + side * 0.32, 0.6, b + 4.1);
     spot(ax - side * 0.05, b + 4.1, side < 0 ? Math.PI / 2 : -Math.PI / 2, true);
-    voCylinder(root, kit, kit.armchair, 0.28, 0.36, 0.28, cx + side * 0.85, 0.18, b + 5.35);
+    voCylinder(root, kit, kit.ottoman, 0.28, 0.36, 0.28, cx + side * 0.85, 0.18, b + 5.35);
     spot(cx + side * 0.85, b + 5.35, Math.PI, true);
   });
   voPlant(root, kit, cx - 3.2, b + 2.4, 1.3);
   voPlant(root, kit, cx + 3.2, b + 2.4, 1.3);
 
   // Table for four.
-  voBlock(root, kit, kit.white, 1.3, 0.06, 1.3, cx, 0.74, b + 8.1);
+  voBlock(root, kit, kit.desk, 1.3, 0.07, 1.3, cx, 0.74, b + 8.1);
   voCylinder(root, kit, kit.darkMetal, 0.06, 0.72, 0.06, cx, 0.36, b + 8.1);
   [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -1, 0], [0, 1, Math.PI]].forEach(([dx, dz, face]) => {
     const x = cx + dx * 0.95;
     const z = b + 8.1 + dz * 0.95;
-    voBlock(root, kit, kit.white, 0.42, 0.06, 0.42, x, 0.46, z);
+    voBlock(root, kit, kit.chair, 0.42, 0.07, 0.42, x, 0.46, z);
     voBlock(root, kit, kit.darkMetal, 0.05, 0.42, 0.05, x, 0.22, z);
     spot(x, z, face, true);
   });
@@ -1039,7 +1064,7 @@ function voCharMat(color) {
   return voCharParts.mats.get(color);
 }
 
-const VO_PANTS = ['#1e3a8a', '#334155', '#78716c', '#1f2937', '#3f3f46', '#57534e'];
+const VO_PANTS = ['#3d4a5c', '#4a4f57', '#7a6a58', '#2f3a40', '#5b5148', '#44525a'];
 const VO_SHOES = ['#111827', '#7c2d12', '#f8fafc', '#374151'];
 // Departments that live on the phone wear headsets.
 const VO_HEADSET_DEPTS = ['CSR', 'RMO'];
@@ -1154,7 +1179,7 @@ function voMakeCharacter(person) {
     add(eyes, G.eye, white, side * 0.075, 0.03, 0.168, 1, 1.15, 0.6);
     add(eyes, G.pupil, dark, side * 0.075, 0.025, 0.19);
   });
-  const smile = add(head, G.smile, M('#9f1239'), 0, -0.085, 0.172);
+  const smile = add(head, G.smile, M('#8a3b3b'), 0, -0.085, 0.172);
   smile.rotation.set(-0.35, 0, Math.PI);
   if ((h >> 11) % 4 === 0) {
     // Glasses.
@@ -1321,7 +1346,7 @@ function voSyncPeople(initial = false) {
     const present = ['working', 'lunch', 'break'].includes(person.status);
     let c = s.chars.get(person.id);
     const monitor = s.monitors.get(person.id);
-    if (monitor) monitor.material.emissive.set(person.status === 'working' ? (s.dark ? '#1d4ed8' : '#60a5fa') : '#000000');
+    if (monitor) monitor.material.emissive.set(person.status === 'working' ? '#3f9f92' : '#000000');
 
     if (!present) {
       // Timed out while we watched: walk out the front, then go.
