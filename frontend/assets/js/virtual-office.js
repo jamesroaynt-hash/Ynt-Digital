@@ -47,6 +47,8 @@ const VO_FAR_DESK = 2.8;
 const VO_FAR_CHAIR = 3.5;
 const VO_BACK_LANE = 4.4;   // |z| of the walkway behind a cluster
 const VO_POD_GAP = 2.0;
+const VO_WAREHOUSE_DEPT = 'Logistics';
+const VO_KRAFT = '#c8a165'; // parcel-box cardboard
 
 const voState = {
   people: [],
@@ -278,10 +280,14 @@ function voLayout(departments) {
   let topX = 0;
   let bottomX = 0;
   departments.forEach(([dept, members]) => {
-    // At least two desks wide, so the team's name fits in front of it.
+    const warehouse = dept === VO_WAREHOUSE_DEPT;
+    // At least two desks wide, so the team's name fits in front of it. The
+    // warehouse also needs floor for pallets and a forklift past its tables.
     const cols = Math.max(2, Math.ceil(members.length / 2));
-    const width = cols * VO_DESK_W;
-    const side = topX <= bottomX ? -1 : 1; // -1 above the corridor, +1 below
+    const width = warehouse ? Math.max(cols * VO_DESK_W + 6, 9) : cols * VO_DESK_W;
+    // -1 above the corridor (against the tall back wall), +1 below. The
+    // warehouse's racks are tall, so it always takes the back wall.
+    const side = warehouse ? -1 : (topX <= bottomX ? -1 : 1);
     const x0 = side === -1 ? topX : bottomX;
     if (side === -1) topX += width + VO_POD_GAP; else bottomX += width + VO_POD_GAP;
     const seats = members.map((person, i) => {
@@ -302,9 +308,11 @@ function voLayout(departments) {
         deskZ: side * (far ? VO_FAR_DESK : VO_NEAR_DESK),
         face: far ? (side === -1 ? 0 : Math.PI) : (side === -1 ? Math.PI : 0),
         exit,
+        // Logistics works on its feet at packing tables.
+        stand: warehouse,
       };
     });
-    pods.push({ dept, side, x0, width, seats });
+    pods.push({ dept, side, x0, width, seats, warehouse, deskSpan: cols * VO_DESK_W });
   });
   const floorEnd = Math.max(topX, bottomX, 6);
   return { pods, floorEnd };
@@ -404,13 +412,29 @@ function voBuildFloor(s) {
   corridor.position.set((minX + breakX0) / 2, 0.005, 0);
   root.add(corridor);
 
-  // Low walls on the long sides only, so the camera always sees in.
+  // A full-height back wall with windows; the front wall
+  // stays low so the camera always sees in.
   const wallMat = voMat(s.dark ? '#334155' : '#dbe3ee');
-  [-1, 1].forEach((side) => {
-    const wall = new T.Mesh(new T.BoxGeometry(maxX - minX, 0.6, 0.15), wallMat);
-    wall.position.set((minX + maxX) / 2, 0.3, side * depth / 2);
+  [[-1, 2.8], [1, 0.6]].forEach(([side, height]) => {
+    const wall = new T.Mesh(new T.BoxGeometry(maxX - minX, height, 0.15), wallMat);
+    wall.position.set((minX + maxX) / 2, height / 2, side * depth / 2);
     root.add(wall);
   });
+  const windowMat = new T.MeshLambertMaterial({ color: s.dark ? '#1e3a5f' : '#bfdbfe', emissive: s.dark ? '#0b1a2e' : '#1e3a8a', emissiveIntensity: 0.15 });
+  const windowGeo = new T.PlaneGeometry(2.2, 1.1);
+  const warehouseSpans = pods.filter((p) => p.warehouse).map((p) => [p.x0 - 0.5, p.x0 + p.width + 0.5]);
+  for (let wx = minX + 2; wx < maxX - 1.5; wx += 4) {
+    if (warehouseSpans.some(([a, b]) => wx > a - 1.1 && wx < b + 1.1)) continue;
+    const pane = new T.Mesh(windowGeo, windowMat);
+    pane.position.set(wx, 1.95, -depth / 2 + 0.08);
+    root.add(pane);
+  }
+  const brand = voTextTexture('YNT DIGITAL', { color: '#ffffff', bg: '#7c3aed', size: 56 });
+  // The company name as a welcome mat just inside the door.
+  const brandSign = new T.Mesh(new T.PlaneGeometry(0.5 * brand.aspect, 0.5), new T.MeshBasicMaterial({ map: brand.texture, transparent: true }));
+  brandSign.rotation.x = -Math.PI / 2;
+  brandSign.position.set(doorX + 0.4 + 0.25 * brand.aspect, 0.015, 0);
+  root.add(brandSign);
 
   const deskMat = voMat(s.dark ? '#a8a29e' : '#d6c3a5');
   const legMat = voMat('#64748b');
@@ -420,23 +444,55 @@ function voBuildFloor(s) {
   const monitorGeo = new T.BoxGeometry(0.6, 0.38, 0.05);
   const seatGeo = new T.BoxGeometry(0.5, 0.08, 0.5);
   const backGeo = new T.BoxGeometry(0.5, 0.5, 0.07);
+  // Shared pieces for the props, so a big floor stays a handful of geometries.
+  const kit = {
+    unit: new T.BoxGeometry(1, 1, 1),
+    cyl: new T.CylinderGeometry(0.5, 0.5, 1, 10),
+    ball: new T.SphereGeometry(0.5, 10, 8),
+    kraft: voMat(VO_KRAFT),
+    tape: voMat('#e8d5a8'),
+    metal: voMat(s.dark ? '#64748b' : '#94a3b8'),
+    darkMetal: voMat('#475569'),
+    orange: voMat('#f97316'),
+    yellow: voMat('#facc15'),
+    wood: voMat('#a16207'),
+    white: voMat('#f8fafc'),
+    black: voMat('#1f2937'),
+    concrete: voMat(s.dark ? '#2b3443' : '#d4d4d8'),
+    folders: ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'].map(voMat),
+    mug: voMat('#f1f5f9'),
+    leaf: voMat('#16a34a'),
+    pot: voMat('#b45309'),
+  };
 
   pods.forEach((pod) => {
     const color = VO_DEPT_COLOR[pod.dept] || VO_DEPT_COLOR.Unassigned;
     // A team-coloured rug under the cluster, and the team's name on a sign
     // floating above it.
-    const rugDepth = VO_FAR_CHAIR - VO_NEAR_CHAIR + 1.2;
-    const rug = new T.Mesh(new T.PlaneGeometry(pod.width + 0.6, rugDepth),
-      new T.MeshLambertMaterial({ color, transparent: true, opacity: s.dark ? 0.22 : 0.14 }));
-    rug.rotation.x = -Math.PI / 2;
-    rug.position.set(pod.x0 + pod.width / 2, 0.01, pod.side * (VO_NEAR_CHAIR + VO_FAR_CHAIR) / 2);
-    root.add(rug);
+    if (pod.warehouse) {
+      voWarehouse(root, pod, depth, kit);
+    } else {
+      const rugDepth = VO_FAR_CHAIR - VO_NEAR_CHAIR + 1.2;
+      const rug = new T.Mesh(new T.PlaneGeometry(pod.width + 0.6, rugDepth),
+        new T.MeshLambertMaterial({ color, transparent: true, opacity: s.dark ? 0.22 : 0.14 }));
+      rug.rotation.x = -Math.PI / 2;
+      rug.position.set(pod.x0 + pod.width / 2, 0.01, pod.side * (VO_NEAR_CHAIR + VO_FAR_CHAIR) / 2);
+      root.add(rug);
+      voWallStorage(root, pod, depth, kit);
+    }
 
     // On the cluster's far edge as the camera sees it, so it hangs above the
     // team rather than over their names.
-    root.add(voSign(pod.dept, color, pod.x0 + pod.width / 2, pod.side === -1 ? -VO_BACK_LANE : 0.9));
+    root.add(voSign(pod.warehouse ? `${pod.dept} · Warehouse` : pod.dept, color,
+      pod.x0 + (pod.warehouse ? pod.deskSpan : pod.width) / 2, pod.side === -1 ? -VO_BACK_LANE : 0.9));
 
     pod.seats.forEach((seat) => {
+      const toChair = Math.sign(seat.z - seat.deskZ);
+      if (seat.stand) {
+        voPackingTable(root, seat, toChair, kit);
+        s.seats.set(seat.person.id, seat);
+        return;
+      }
       const desk = new T.Group();
       const top = new T.Mesh(deskGeo, deskMat);
       top.position.y = 0.74;
@@ -448,9 +504,9 @@ function voBuildFloor(s) {
       });
       const monitor = new T.Mesh(monitorGeo, new T.MeshLambertMaterial({ color: '#1f2937', emissive: '#000000' }));
       // The monitor sits on the far half of the desk, facing the chair.
-      const toChair = Math.sign(seat.z - seat.deskZ);
       monitor.position.set(0, 1.02, -toChair * 0.18);
       desk.add(monitor);
+      voDeskProps(desk, toChair, voHash(seat.person.id), kit);
       desk.position.set(seat.x, 0, seat.deskZ);
       root.add(desk);
       s.monitors.set(seat.person.id, monitor);
@@ -554,6 +610,203 @@ function voBuildFloor(s) {
   s.chars.forEach((c) => root.add(c.group));
 }
 
+// One box, sized and placed, from the shared unit cube.
+function voBlock(parent, kit, mat, w, h, d, x, y, z) {
+  const mesh = new THREE.Mesh(kit.unit, mat);
+  mesh.scale.set(w, h, d);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+  return mesh;
+}
+
+// Many parcel boxes in one draw call. Each entry is [x, y, z, w, h, d], with y
+// the box's base.
+function voParcels(parent, kit, boxes) {
+  if (!boxes.length) return;
+  const mesh = new THREE.InstancedMesh(kit.unit, kit.kraft, boxes.length);
+  const tape = new THREE.InstancedMesh(kit.unit, kit.tape, boxes.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  boxes.forEach(([x, y, z, w, h, d], i) => {
+    mesh.setMatrixAt(i, m.compose(new THREE.Vector3(x, y + h / 2, z), q, new THREE.Vector3(w, h, d)));
+    // A strip of tape over the top, the thing that makes it read as a parcel.
+    tape.setMatrixAt(i, m.compose(new THREE.Vector3(x, y + h + 0.005, z), q, new THREE.Vector3(w * 0.18, 0.012, d * 1.01)));
+  });
+  parent.add(mesh);
+  parent.add(tape);
+}
+
+// What sits on an office desk: keyboard, a stack of files, a mug, now and then
+// a little plant. Picked from the person's id so a desk looks the same daily.
+function voDeskProps(desk, toChair, h, kit) {
+  voBlock(desk, kit, kit.black, 0.5, 0.025, 0.16, 0, 0.79, toChair * 0.12);
+  const side = h % 2 ? 1 : -1;
+  const files = 2 + (h % 3);
+  for (let i = 0; i < files; i += 1) {
+    const folder = voBlock(desk, kit, kit.folders[(h + i) % kit.folders.length], 0.3, 0.03, 0.22, side * 0.55, 0.795 + i * 0.032, -toChair * 0.05);
+    folder.rotation.y = (((h >> i) % 5) - 2) * 0.08;
+  }
+  const mug = new THREE.Mesh(kit.cyl, kit.mug);
+  mug.scale.set(0.09, 0.11, 0.09);
+  mug.position.set(-side * 0.5, 0.835, toChair * 0.1);
+  desk.add(mug);
+  if (h % 4 === 0) {
+    const pot = new THREE.Mesh(kit.cyl, kit.pot);
+    pot.scale.set(0.12, 0.12, 0.12);
+    pot.position.set(-side * 0.62, 0.84, -toChair * 0.2);
+    desk.add(pot);
+    const leaves = new THREE.Mesh(kit.ball, kit.leaf);
+    leaves.scale.setScalar(0.22);
+    leaves.position.set(-side * 0.62, 0.98, -toChair * 0.2);
+    desk.add(leaves);
+  }
+}
+
+// Storage along the wall behind an office cluster: filing cabinets and
+// shelves of binders, with a few parcels waiting to go out. Tall against the
+// back wall; kept low on the camera side so nothing blocks the view.
+function voWallStorage(root, pod, depth, kit) {
+  const wallZ = pod.side * (depth / 2 - 0.45);
+  const front = -pod.side; // the side of the unit that faces into the room
+  const tall = pod.side === -1;
+  const parcels = [];
+  let x = pod.x0 + 0.4;
+  let i = 0;
+  while (x + 0.8 <= pod.x0 + pod.width + 0.3) {
+    if (i % 3 === 2) {
+      // A gap with a little pile of parcels.
+      parcels.push([x + 0.35, 0, wallZ, 0.55, 0.4, 0.45], [x + 0.3, 0.4, wallZ, 0.4, 0.3, 0.35]);
+    } else if (i % 2 === 0) {
+      // Filing cabinet: grey body, drawer fronts, little handles.
+      const h = tall ? 1.3 : 0.9;
+      voBlock(root, kit, kit.metal, 0.7, h, 0.55, x + 0.35, h / 2, wallZ);
+      const drawers = tall ? 4 : 3;
+      for (let d = 0; d < drawers; d += 1) {
+        const y = (h / drawers) * (d + 0.5);
+        voBlock(root, kit, kit.darkMetal, 0.6, h / drawers - 0.05, 0.02, x + 0.35, y, wallZ + front * 0.28);
+        voBlock(root, kit, kit.white, 0.16, 0.03, 0.03, x + 0.35, y + 0.05, wallZ + front * 0.3);
+      }
+    } else {
+      // Shelf of binders.
+      const h = tall ? 1.8 : 0.9;
+      const shelves = tall ? 3 : 2;
+      voBlock(root, kit, kit.wood, 0.06, h, 0.45, x + 0.03, h / 2, wallZ);
+      voBlock(root, kit, kit.wood, 0.06, h, 0.45, x + 0.77, h / 2, wallZ);
+      for (let sh = 0; sh <= shelves; sh += 1) {
+        const y = (h / shelves) * sh;
+        voBlock(root, kit, kit.wood, 0.8, 0.04, 0.45, x + 0.4, Math.min(y, h - 0.02), wallZ);
+        if (sh === shelves) break;
+        const bh = (h / shelves) * 0.72;
+        for (let b = 0; b < 7; b += 1) {
+          if ((sh * 7 + b + i) % 9 === 8) continue;
+          voBlock(root, kit, kit.folders[(b + sh + i) % kit.folders.length], 0.07, bh, 0.34,
+            x + 0.13 + b * 0.09, y + 0.02 + bh / 2, wallZ);
+        }
+      }
+    }
+    x += 0.9;
+    i += 1;
+  }
+  voParcels(root, kit, parcels);
+}
+
+// A packing table at a Logistics seat: tabletop, a parcel being packed, a tape
+// dispenser and a short stack ready to go underneath.
+function voPackingTable(root, seat, toChair, kit) {
+  const table = new THREE.Group();
+  voBlock(table, kit, kit.wood, VO_DESK_W - 0.15, 0.08, 0.75, 0, 0.86, 0);
+  [[-0.7, -0.3], [0.7, -0.3], [-0.7, 0.3], [0.7, 0.3]].forEach(([lx, lz]) => {
+    voBlock(table, kit, kit.darkMetal, 0.06, 0.82, 0.06, lx, 0.41, lz);
+  });
+  voBlock(table, kit, kit.darkMetal, VO_DESK_W - 0.25, 0.04, 0.6, 0, 0.25, 0);
+  voBlock(table, kit, kit.orange, 0.12, 0.08, 0.06, -0.55, 0.94, toChair * 0.2);
+  table.position.set(seat.x, 0, seat.deskZ);
+  root.add(table);
+  const h = voHash(seat.person.id);
+  voParcels(root, kit, [
+    [seat.x + 0.1, 0.9, seat.deskZ, 0.5, 0.32, 0.4],
+    [seat.x + 0.55, 0.9, seat.deskZ - toChair * 0.1, 0.3, 0.2 + (h % 3) * 0.04, 0.28],
+    [seat.x - 0.4, 0.27, seat.deskZ, 0.45, 0.3, 0.4],
+  ]);
+}
+
+// The Logistics floor as a warehouse: concrete, yellow safety lines, pallet
+// racks full of parcels against the back wall, loaded pallets and a forklift
+// on the open floor past the packing tables.
+function voWarehouse(root, pod, depth, kit) {
+  const T = THREE;
+  const x1 = pod.x0 + pod.width;
+  const floorDepth = depth / 2 - 0.9;
+  const concrete = new T.Mesh(new T.PlaneGeometry(pod.width + 1.2, floorDepth), kit.concrete);
+  concrete.rotation.x = -Math.PI / 2;
+  concrete.position.set(pod.x0 + pod.width / 2, 0.008, -(0.85 + floorDepth / 2));
+  root.add(concrete);
+  // Safety lines: one along the corridor, one in front of the racks.
+  [-0.95, -(depth / 2 - 1.3)].forEach((z) => {
+    const line = new T.Mesh(new T.PlaneGeometry(pod.width + 1.2, 0.08), kit.yellow);
+    line.rotation.x = -Math.PI / 2;
+    line.position.set(pod.x0 + pod.width / 2, 0.012, z);
+    root.add(line);
+  });
+
+  // Pallet racks: orange uprights, steel beams, three levels of parcels.
+  const rackZ = -(depth / 2 - 0.65);
+  const bay = 2.2;
+  const parcels = [];
+  for (let bx = pod.x0; bx + bay <= x1 + 0.6; bx += bay) {
+    [bx, bx + bay].forEach((ux) => {
+      voBlock(root, kit, kit.orange, 0.08, 2.5, 0.08, ux, 1.25, rackZ - 0.4);
+      voBlock(root, kit, kit.orange, 0.08, 2.5, 0.08, ux, 1.25, rackZ + 0.4);
+    });
+    [0.08, 0.9, 1.7].forEach((ly, level) => {
+      voBlock(root, kit, kit.darkMetal, bay, 0.07, 0.9, bx + bay / 2, ly, rackZ);
+      for (let k = 0; k < 3; k += 1) {
+        const seed = voHash(`${bx}:${level}:${k}`);
+        if (seed % 7 === 0) continue;
+        const w = 0.5 + (seed % 3) * 0.08;
+        const h = 0.35 + (seed % 4) * 0.08;
+        parcels.push([bx + 0.4 + k * 0.7, ly + 0.035, rackZ + ((seed % 3) - 1) * 0.08, w, h, 0.6]);
+        if (seed % 2) parcels.push([bx + 0.4 + k * 0.7, ly + 0.035 + h, rackZ, w * 0.7, 0.22, 0.45]);
+      }
+    });
+  }
+
+  // Loaded pallets on the open floor past the packing tables.
+  const open0 = pod.x0 + pod.deskSpan + 0.8;
+  [[open0 + 0.6, -1.9], [open0 + 0.6, -3.3], [open0 + 2.1, -3.3]].forEach(([px, pz], n) => {
+    voBlock(root, kit, kit.wood, 1.1, 0.12, 1.1, px, 0.06, pz);
+    for (let k = 0; k < 4; k += 1) {
+      const layers = 1 + ((n + k) % 3);
+      for (let l = 0; l < layers; l += 1) {
+        parcels.push([px + (k % 2 ? 0.26 : -0.26), 0.12 + l * 0.34, pz + (k < 2 ? 0.26 : -0.26), 0.48, 0.34, 0.48]);
+      }
+    }
+  });
+  voParcels(root, kit, parcels);
+
+  // Forklift, parked forks-first toward the racks.
+  const lift = new T.Group();
+  voBlock(lift, kit, kit.yellow, 0.9, 0.55, 1.3, 0, 0.45, 0);
+  voBlock(lift, kit, kit.black, 0.85, 0.08, 0.5, 0, 0.78, 0.25);
+  voBlock(lift, kit, kit.darkMetal, 0.06, 1.1, 0.06, -0.35, 1.2, 0.05);
+  voBlock(lift, kit, kit.darkMetal, 0.06, 1.1, 0.06, 0.35, 1.2, 0.05);
+  voBlock(lift, kit, kit.darkMetal, 0.8, 0.05, 0.8, 0, 1.75, 0.35);
+  voBlock(lift, kit, kit.darkMetal, 0.08, 1.8, 0.1, -0.22, 0.9, -0.72);
+  voBlock(lift, kit, kit.darkMetal, 0.08, 1.8, 0.1, 0.22, 0.9, -0.72);
+  voBlock(lift, kit, kit.metal, 0.08, 0.05, 0.75, -0.18, 0.12, -1.12);
+  voBlock(lift, kit, kit.metal, 0.08, 0.05, 0.75, 0.18, 0.12, -1.12);
+  [[-0.47, 0.4], [0.47, 0.4], [-0.47, -0.4], [0.47, -0.4]].forEach(([wx, wz]) => {
+    const wheel = new T.Mesh(kit.cyl, kit.black);
+    wheel.scale.set(0.36, 0.14, 0.36);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(wx, 0.18, wz);
+    lift.add(wheel);
+  });
+  lift.position.set(Math.min(open0 + 3.8, x1 - 0.6), 0, -2.3);
+  lift.rotation.y = 0.35;
+  root.add(lift);
+}
+
 function voMakeCharacter(person) {
   const T = THREE;
   const h = voHash(person.id);
@@ -604,7 +857,7 @@ function voMakeCharacter(person) {
 function voDestination(s, person, slotIndex) {
   if (person.status === 'working') {
     const seat = s.seats.get(person.id);
-    if (seat) return { x: seat.x, z: seat.z, face: seat.face, exit: seat.exit, sit: true };
+    if (seat) return { x: seat.x, z: seat.z, face: seat.face, exit: seat.exit, sit: !seat.stand };
   }
   if (person.status === 'lunch' || person.status === 'break') {
     const slot = s.breakSlots[slotIndex % s.breakSlots.length];
