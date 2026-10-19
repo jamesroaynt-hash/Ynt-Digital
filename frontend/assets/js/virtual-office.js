@@ -59,7 +59,9 @@ const VO_DESK_W = 1.7;      // packing table width in the warehouse
 const VO_WAREHOUSE_DEPT = 'Logistics';
 // Management works in the two glass offices in the back-left corner.
 const VO_OFFICE_DEPT = 'Management';
-const VO_OFFICE_SEATS = 12; // six round each office table
+const VO_OFFICE_SEATS = 6;  // round the first office's table
+// HR has the second glass office to itself: one desk, one chair, file shelves.
+const VO_HR_DEPT = 'Human Resources';
 const VO_KRAFT = '#c8a165'; // parcel-box cardboard
 // Break limits (attendance policy: a 1-hour lunch, a 15-minute break).
 const VO_LUNCH_LIMIT = 60;
@@ -592,7 +594,7 @@ function voLayout(departments) {
   });
   const whUsedCols = Math.min(whCols, Math.ceil(logistics.length / 2));
 
-  // Management takes the office tables, six to a room; anyone past twelve
+  // Management takes the first office's table, six round it; anyone past six
   // falls back to a bench. Out of an office: round the table on the lane
   // behind or in front of the chairs, through the doorway at the room's
   // right, to the left spine.
@@ -617,6 +619,25 @@ function voLayout(departments) {
       exit: [{ x, z: laneZ }, { x: doorX, z: laneZ }, { x: doorX, z: backAisle }, { x: spineL, z: backAisle, line: 'L' }],
     });
   });
+  // The first HR person works at the desk in the second office, facing the
+  // room; more HR than that sit at a bench.
+  const hr = (departments.find(([d]) => d === VO_HR_DEPT) || [null, []])[1];
+  if (hr.length) {
+    const x = roomW * 1.5;
+    const deskZ = back / 2 + 0.6;
+    const z = deskZ - 0.75;
+    const doorX = roomW * 2 - 0.8;
+    seats.push({
+      person: hr[0],
+      x,
+      z,
+      deskZ,
+      face: 0,
+      stand: false,
+      hrOffice: true,
+      exit: [{ x: doorX, z }, { x: doorX, z: backAisle }, { x: spineL, z: backAisle, line: 'L' }],
+    });
+  }
 
   // Benches: one per department (split past VO_MAX_PER_BENCH people).
   // Benches fill the left side row after row. The right side opens with the
@@ -640,7 +661,8 @@ function voLayout(departments) {
   const benches = [];
   departments.forEach(([dept, everyone]) => {
     if (dept === VO_WAREHOUSE_DEPT) return;
-    const members = dept === VO_OFFICE_DEPT ? everyone.slice(VO_OFFICE_SEATS) : everyone;
+    const members = dept === VO_OFFICE_DEPT ? everyone.slice(VO_OFFICE_SEATS)
+      : dept === VO_HR_DEPT ? everyone.slice(1) : everyone;
     for (let start = 0; start < members.length; start += VO_MAX_PER_BENCH) {
       const group = members.slice(start, start + VO_MAX_PER_BENCH);
       // Up to six sit in one row facing the camera, so their faces show;
@@ -873,6 +895,7 @@ function voBuildFloor(s) {
     const toChair = Math.sign(seat.z - seat.deskZ);
     if (seat.stand) voPackingTable(root, seat, toChair, kit);
     else if (seat.office) s.monitors.set(seat.person.id, voLaptop(root, seat, toChair, kit));
+    else if (seat.hrOffice) s.monitors.set(seat.person.id, voSeat(root, seat, toChair, kit));
     else s.monitors.set(seat.person.id, voSeat(root, seat, toChair, kit));
     s.seats.set(seat.person.id, seat);
     seat.toChair = toChair;
@@ -1153,27 +1176,54 @@ function voMeetingRooms(root, L, kit) {
     voGlass(root, kit, roomW * (i + 1) - 0.3, L.back, roomW * (i + 1), L.back);
   });
   voGlass(root, kit, roomW, 0, roomW, L.back);
-  voWallText(root, VO_OFFICE_DEPT.toUpperCase(), VO_DEPT_COLOR[VO_OFFICE_DEPT], 0.36, VO_ZONE_W / 2, 2.5, 0.02);
   voGlass(root, kit, VO_ZONE_W, 0, VO_ZONE_W, L.back);
-  [0, 1].forEach((i) => {
-    const cx = roomW * i + roomW / 2;
-    const cz = L.back / 2 + 0.3;
-    voCylinder(root, kit, kit.desk, 1.5, 0.07, 0.55, cx, 0.74, cz);
-    voCylinder(root, kit, kit.darkMetal, 0.08, 0.72, 0.08, cx - 0.8, 0.36, cz);
-    voCylinder(root, kit, kit.darkMetal, 0.08, 0.72, 0.08, cx + 0.8, 0.36, cz);
-    [-1, 0, 1].forEach((k) => {
-      [-1, 1].forEach((side) => {
-        const chair = new THREE.Group();
-        chair.position.set(cx + k * 0.9, 0, cz + side * 0.95);
-        root.add(chair);
-        voBlock(chair, kit, kit.offWhite, 0.42, 0.06, 0.42, 0, 0.46, 0);
-        voBlock(chair, kit, kit.offWhite, 0.42, 0.4, 0.05, 0, 0.7, side * 0.2);
-        voBlock(chair, kit, kit.darkMetal, 0.05, 0.42, 0.05, 0, 0.22, 0);
-      });
+  voWallText(root, VO_OFFICE_DEPT.toUpperCase(), VO_DEPT_COLOR[VO_OFFICE_DEPT], 0.32, roomW / 2, 2.5, 0.02);
+  voWallText(root, VO_HR_DEPT.toUpperCase(), VO_DEPT_COLOR[VO_HR_DEPT], 0.32, roomW * 1.5, 2.5, 0.02);
+
+  // Management: an oval table with six chairs and a whiteboard.
+  const cx = roomW / 2;
+  const cz = L.back / 2 + 0.3;
+  voCylinder(root, kit, kit.desk, 1.5, 0.07, 0.55, cx, 0.74, cz);
+  voCylinder(root, kit, kit.darkMetal, 0.08, 0.72, 0.08, cx - 0.8, 0.36, cz);
+  voCylinder(root, kit, kit.darkMetal, 0.08, 0.72, 0.08, cx + 0.8, 0.36, cz);
+  [-1, 0, 1].forEach((k) => {
+    [-1, 1].forEach((side) => {
+      const chair = new THREE.Group();
+      chair.position.set(cx + k * 0.9, 0, cz + side * 0.95);
+      root.add(chair);
+      voBlock(chair, kit, kit.offWhite, 0.42, 0.06, 0.42, 0, 0.46, 0);
+      voBlock(chair, kit, kit.offWhite, 0.42, 0.4, 0.05, 0, 0.7, side * 0.2);
+      voBlock(chair, kit, kit.darkMetal, 0.05, 0.42, 0.05, 0, 0.22, 0);
     });
-    voWhiteboard(root, kit, cx, 1.45, 0.03, 0, i + 2);
-    voPlant(root, kit, roomW * i + 0.55, L.back - 0.6, 1.1);
   });
+  voWhiteboard(root, kit, cx, 1.45, 0.03, 0, 2);
+  voPlant(root, kit, 0.55, L.back - 0.6, 1.1);
+
+  // HR: one desk facing the room (the seat itself is drawn with the other
+  // seats), file shelves and a filing cabinet along the back wall either
+  // side of the whiteboard.
+  const hx = roomW * 1.5;
+  const deskZ = L.back / 2 + 0.6;
+  voBlock(root, kit, kit.desk, 1.6, 0.07, 0.8, hx, 0.74, deskZ);
+  voBlock(root, kit, kit.deskLeg, 0.05, 0.72, 0.7, hx - 0.75, 0.36, deskZ);
+  voBlock(root, kit, kit.deskLeg, 0.05, 0.72, 0.7, hx + 0.75, 0.36, deskZ);
+  voBlock(root, kit, kit.deskLeg, 1.5, 0.5, 0.04, hx, 0.47, deskZ + 0.37);
+  voWhiteboard(root, kit, hx, 1.55, 0.03, 0, 3);
+  voBookshelf(root, kit, roomW + 0.95, 0.3);
+  voFilingCabinet(root, kit, roomW * 2 - 1.55, 0.35);
+  voFilingCabinet(root, kit, roomW * 2 - 0.85, 0.35);
+  voPlant(root, kit, roomW + 0.55, L.back - 0.6, 1.1);
+}
+
+// A grey four-drawer filing cabinet against a wall, facing the room.
+function voFilingCabinet(root, kit, x, z) {
+  const h = 1.25;
+  voBlock(root, kit, kit.metal, 0.62, h, 0.55, x, h / 2, z);
+  for (let d = 0; d < 4; d += 1) {
+    const y = (h / 4) * (d + 0.5);
+    voBlock(root, kit, kit.darkMetal, 0.54, h / 4 - 0.05, 0.02, x, y, z + 0.28);
+    voBlock(root, kit, kit.white, 0.16, 0.03, 0.03, x, y + 0.05, z + 0.3);
+  }
 }
 
 // The lounge, which is the break room: a room of black-framed glass under
