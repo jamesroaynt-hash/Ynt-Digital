@@ -59,6 +59,14 @@ const VO_WAREHOUSE_DEPT = 'Logistics';
 const VO_OFFICE_DEPT = 'Management';
 const VO_OFFICE_SEATS = 12; // six round each office table
 const VO_KRAFT = '#c8a165'; // parcel-box cardboard
+// Break limits (attendance policy: a 1-hour lunch, a 15-minute break).
+const VO_LUNCH_LIMIT = 60;
+const VO_BREAK_LIMIT = 15;
+// Zoomed in closer than this (view height in floor units), every name tag,
+// desk plate and work counter shows; further out only the ones that need
+// attention do.
+const VO_DETAIL_VIEW = 17;
+const VO_IN = ['working', 'lunch', 'break'];
 
 const voState = {
   people: [],
@@ -69,6 +77,10 @@ const voState = {
   scene: null,
   timer: null,
   focusId: null,
+  cardId: null,
+  kpis: null,
+  // Minutes after midnight being replayed, or null for live.
+  replay: null,
 };
 
 function voReady() {
@@ -91,23 +103,103 @@ function voHash(text) {
   return h;
 }
 
-// Minutes since an HH:MM Manila punch, against the server's HH:MM "now".
-function voMinutesSince(since, now) {
-  if (!since || !now) return null;
-  const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
-  return Math.max(0, toMin(now) - toMin(since));
+// HH:MM → minutes after midnight, and back.
+function voToMin(t) {
+  const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+function voClock(minutes) {
+  const m = Math.max(0, Math.round(minutes));
+  return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+function voDuration(mins) {
+  return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+}
+
+// The moment being shown: the replay time, or the server's "now".
+function voAt() {
+  return voState.replay !== null ? voState.replay : (voToMin(voState.time) ?? 0);
+}
+
+// Where someone was at a given minute, from the day's punches — the same
+// rules as the server's officeStatus, replayed.
+function voStatusAt(p, at) {
+  const punch = (key) => {
+    const v = p.punches?.[key];
+    return v && voToMin(v) <= at ? v : null;
+  };
+  const r = {
+    time_in: punch('time_in'), break_out: punch('break_out'), break_in: punch('break_in'),
+    break2_out: punch('break2_out'), break2_in: punch('break2_in'), time_out: punch('time_out'),
+  };
+  if (!r.time_in) return { status: 'not_in', since: null };
+  if (r.time_out) return { status: 'left', since: r.time_out };
+  if (r.break_out && !r.break_in) return { status: 'lunch', since: r.break_out };
+  if (r.break2_out && !r.break2_in) return { status: 'break', since: r.break2_out };
+  const back = [r.time_in, r.break_in, r.break2_in].filter(Boolean).sort();
+  return { status: 'working', since: back[back.length - 1] };
+}
+
+// Minutes a break ran (still running counts up to `at`), or null if it was
+// not taken by then.
+function voBreakMinutes(out, back, at) {
+  const o = voToMin(out);
+  if (o === null || o > at) return null;
+  const b = voToMin(back);
+  return (b !== null && b <= at ? b : at) - o;
+}
+
+// What the day looks like for someone at a minute: late, absent, rest day,
+// on leave, and each break with how far over its limit it ran.
+function voFlags(p, view, at) {
+  const f = {};
+  const timeIn = voToMin(p.punches?.time_in);
+  const shift = voToMin(p.shift?.start);
+  const inBy = timeIn !== null && timeIn <= at;
+  if (p.standing === 'on_leave') f.leave = p.leave_type || 'Leave';
+  else if (p.standing === 'rest_day' && !inBy) f.rest = true;
+  else if (inBy && shift !== null && timeIn > shift) f.late = timeIn - shift;
+  else if (!inBy && shift !== null && at > shift) f.absent = true;
+  const lunch = voBreakMinutes(p.punches?.break_out, p.punches?.break_in, at);
+  const brk = voBreakMinutes(p.punches?.break2_out, p.punches?.break2_in, at);
+  if (lunch !== null) { f.lunch = lunch; if (lunch > VO_LUNCH_LIMIT) f.overLunch = lunch - VO_LUNCH_LIMIT; }
+  if (brk !== null) { f.brk = brk; if (brk > VO_BREAK_LIMIT) f.overBreak = brk - VO_BREAK_LIMIT; }
+  // Over the limit right now, on the break that is still open.
+  if (view.status === 'lunch' && f.overLunch) f.overNow = f.overLunch;
+  if (view.status === 'break' && f.overBreak) f.overNow = f.overBreak;
+  return f;
+}
+
+// Everyone as of the moment shown: live from the server, or replayed.
+function voView() {
+  const live = voState.replay === null;
+  const at = voAt();
+  return voState.people.map((p) => {
+    const view = live ? { status: p.status, since: p.since } : voStatusAt(p, at);
+    return { ...p, ...view, flags: voFlags(p, view, at) };
+  });
+}
+
+// The note on a name tag: an open over-break in red, a late time-in in amber.
+function voTagNote(p) {
+  const f = p.flags || {};
+  if (f.overNow) return { note: `${voDuration(p.status === 'lunch' ? f.lunch : f.brk)} ${p.status === 'lunch' ? 'lunch' : 'break'}`, tone: 'alert' };
+  if (f.late && p.status === 'working') return { note: `Late ${voDuration(f.late)}`, tone: 'warn' };
+  return { note: '', tone: '' };
 }
 
 function voFormatSince(person) {
   if (!person.since) return '';
-  const mins = voMinutesSince(person.since, voState.time);
-  const ago = mins === null ? '' : mins < 60 ? ` · ${mins}m` : ` · ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+  const mins = Math.max(0, voAt() - (voToMin(person.since) ?? voAt()));
   const verb = person.status === 'left' ? 'out at' : 'since';
-  return `${verb} ${person.since}${person.status === 'left' ? '' : ago}`;
+  return `${verb} ${person.since}${person.status === 'left' ? '' : ` · ${voDuration(mins)}`}`;
 }
 
-// Departments in org order, each with its people sorted by name, so a seat
-// stays put from one refresh to the next.
+// Departments in org order. Inside a team: the seat order HR set, then team
+// leads, then by name — so seat 1, next to the team wall, is the lead unless
+// HR says otherwise, and a seat stays put from one refresh to the next.
 function voDepartments(people) {
   const groups = new Map();
   people.forEach((person) => {
@@ -116,9 +208,13 @@ function voDepartments(people) {
     groups.get(dept).push(person);
   });
   const rank = (name) => { const i = DEPARTMENT_ORDER.indexOf(name); return i === -1 ? DEPARTMENT_ORDER.length : i; };
+  const order = (p) => (p.desk_order === null || p.desk_order === undefined ? 1e6 : Number(p.desk_order));
+  const lead = (p) => (/\bTL\b/i.test(String(p.role || '')) ? 0 : 1);
   return [...groups.entries()]
     .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
-    .map(([name, members]) => [name, members.sort((a, b) => String(a.name).localeCompare(String(b.name)))]);
+    .map(([name, members]) => [name, members.sort((a, b) => order(a) - order(b)
+      || lead(a) - lead(b)
+      || String(a.name).localeCompare(String(b.name)))]);
 }
 
 /* ─── PAGE ─────────────────────────────────────────────────── */
@@ -131,18 +227,28 @@ function renderVirtualOfficePage() {
       <p>Who is at their desk, on break or gone for the day — live from Time &amp; Attendance.</p>
     </div>
     <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="voExportDay()">Export day (CSV)</button>
       <button class="btn btn-secondary btn-sm" onclick="voResetView()">Reset view</button>
       <button class="btn btn-secondary btn-sm" onclick="voRefresh()">Refresh</button>
     </div>
   </div>
   <div class="vo-layout">
     <div class="card vo-stage-card">
-      <div class="vo-stage" id="vo-stage">
-        <div class="vo-stage-msg" id="vo-stage-msg">Loading the office…</div>
+      <div class="vo-stage-wrap">
+        <div class="vo-stage" id="vo-stage">
+          <div class="vo-stage-msg" id="vo-stage-msg">Loading the office…</div>
+        </div>
+        <div class="vo-card hidden" id="vo-card"></div>
+      </div>
+      <div class="vo-replay">
+        <button class="vo-live on" id="vo-live" onclick="voSetReplay(null)" title="Back to now">● Live</button>
+        <input type="range" id="vo-replay" min="360" max="1380" step="5" value="1380" oninput="voSetReplay(Number(this.value))" aria-label="Replay the day">
+        <span class="vo-replay-time" id="vo-replay-time">Now</span>
       </div>
       <div class="vo-legend">
         ${['working', 'lunch', 'break'].map((s) => `<span><i style="background:${VO_STATUS[s].color}"></i>${VO_STATUS[s].label}</span>`).join('')}
-        <span class="vo-hint">Drag to turn · scroll or pinch to zoom · click a name to find them</span>
+        <span><i style="background:#dc2626"></i>Over break / absent</span>
+        <span class="vo-hint">Drag to turn · scroll or pinch to zoom · click someone for details</span>
       </div>
     </div>
     <div class="card vo-side" id="vo-side"></div>
@@ -179,17 +285,34 @@ async function voLoad() {
     voState.people = Array.isArray(data?.people) ? data.people : [];
     voState.date = data?.date || '';
     voState.time = data?.time || '';
+    voState.kpis = data?.kpis || null;
     voState.error = '';
   } catch (error) {
     voState.error = error.message || 'Could not load attendance.';
   }
   voState.loading = false;
+  voSyncReplayControl();
   voRenderSide();
+  voRenderCard();
   if (voState.scene) voSyncPeople();
 }
 
 function voRefresh() {
   voLoad().catch(() => {});
+}
+
+// A short badge for the day's standing and work, shown on a list row.
+function voBadges(m) {
+  const f = m.flags || {};
+  const out = [];
+  if (f.overNow) out.push(`<b class="vo-badge is-alert">${voDuration(f.overNow)} over</b>`);
+  if (f.absent) out.push('<b class="vo-badge is-alert">Absent</b>');
+  if (f.late) out.push(`<b class="vo-badge is-warn">Late ${voDuration(f.late)}</b>`);
+  if (f.rest) out.push('<b class="vo-badge is-muted">Rest day</b>');
+  if (f.leave) out.push(`<b class="vo-badge is-muted">${escapeHtml(f.leave)}</b>`);
+  if (m.output?.confirmed) out.push(`<b class="vo-badge is-good" title="Orders confirmed today">✓ ${m.output.confirmed}</b>`);
+  if (m.output?.rts_scans) out.push(`<b class="vo-badge is-good" title="RTS parcels scanned today">↩ ${m.output.rts_scans}</b>`);
+  return out.join('');
 }
 
 function voRenderSide() {
@@ -199,35 +322,61 @@ function voRenderSide() {
     side.innerHTML = `<div class="vo-side-empty" style="color:var(--danger)">${escapeHtml(voState.error)}</div>`;
     return;
   }
-  const people = voState.people;
+  const people = voView();
   const count = (s) => people.filter((p) => p.status === s).length;
   const tiles = ['working', 'lunch', 'break', 'left', 'not_in'].map((s) => `
     <div class="vo-count"><b style="color:${VO_STATUS[s].color}">${count(s)}</b><span>${VO_STATUS[s].label}</span></div>`).join('');
+
+  // What HR should look at first: over break now, absent, late, and breaks
+  // that already ran over today.
+  const pick = (test) => people.filter(test);
+  const name = (p, extra) => `<button class="vo-attn-name" onclick="voFocus(${Number(p.id)})">${escapeHtml(p.name)}${extra ? ` <small>${extra}</small>` : ''}</button>`;
+  const groups = [
+    ['Over break now', 'alert', pick((p) => p.flags.overNow), (p) => `${voDuration(p.status === 'lunch' ? p.flags.lunch : p.flags.brk)} ${p.status === 'lunch' ? 'lunch' : 'break'}`],
+    ['Absent', 'alert', pick((p) => p.flags.absent), (p) => (p.shift?.start ? `shift ${p.shift.start}` : '')],
+    ['Late today', 'warn', pick((p) => p.flags.late), (p) => `${voDuration(p.flags.late)} · in ${p.punches.time_in}`],
+    ['Ran over a break', 'warn', pick((p) => !p.flags.overNow && (p.flags.overLunch || p.flags.overBreak)),
+      (p) => [p.flags.overLunch && `lunch +${p.flags.overLunch}m`, p.flags.overBreak && `break +${p.flags.overBreak}m`].filter(Boolean).join(' · ')],
+  ].filter(([, , list]) => list.length);
+  const attention = groups.length
+    ? groups.map(([title, tone, list, extra]) => `
+      <div class="vo-attn is-${tone}">
+        <div class="vo-attn-title">${title} <span>${list.length}</span></div>
+        <div class="vo-attn-list">${list.map((p) => name(p, extra(p))).join('')}</div>
+      </div>`).join('')
+    : '<div class="vo-attn is-good"><div class="vo-attn-title">All good so far ✓</div></div>';
+
   const depts = voDepartments(people).map(([dept, members]) => `
     <div class="vo-dept">
       <div class="vo-dept-head"><i style="background:${VO_DEPT_COLOR[dept] || VO_DEPT_COLOR.Unassigned}"></i>${escapeHtml(dept)}
-        <span>${members.filter((m) => ['working', 'lunch', 'break'].includes(m.status)).length}/${members.length} in</span></div>
+        <span>${members.filter((m) => VO_IN.includes(m.status)).length}/${members.length} in</span></div>
       ${members.map((m) => {
         const s = VO_STATUS[m.status] || VO_STATUS.not_in;
-        const inside = ['working', 'lunch', 'break'].includes(m.status);
+        const inside = VO_IN.includes(m.status);
         const id = Number(m.id);
         const look = m.avatar_gender || '';
         // Clicking the look already set clears it back to neutral.
         const avatar = [['male', 'M', 'Male'], ['female', 'F', 'Female']].map(([g, t, label]) => `
           <button class="${look === g ? 'on' : ''}" title="Character: ${label}${look === g ? ' (click to clear)' : ''}" onclick="voSetAvatar(${id}, '${look === g ? '' : g}')">${t}</button>`).join('');
+        const dot = m.flags.overNow || m.flags.absent ? '#dc2626' : s.color;
         return `<div class="vo-person-row${voState.focusId === m.id ? ' active' : ''}${inside ? '' : ' away'}">
-          <button class="vo-person" ${inside ? `onclick="voFocus(${id})"` : 'disabled'}>
-            <i style="background:${s.color}"></i>
-            <span class="vo-person-name">${escapeHtml(m.name)}</span>
+          <button class="vo-person" onclick="voFocus(${id})">
+            <i style="background:${dot}"></i>
+            <span class="vo-person-main">
+              <span class="vo-person-name">${escapeHtml(m.name)}</span>
+              <span class="vo-badges">${voBadges(m)}</span>
+            </span>
             <span class="vo-person-status">${s.label}${m.since ? ` <small>${escapeHtml(voFormatSince(m))}</small>` : ''}</span>
           </button>
           <span class="vo-avatar">${avatar}</span>
         </div>`;
       }).join('')}
     </div>`).join('');
+  const when = voState.replay !== null ? `Replay · ${voClock(voState.replay)}` : `Today${voState.time ? ` · ${escapeHtml(voState.time)}` : ''}`;
   side.innerHTML = `
-    <div class="vo-side-head">Today${voState.time ? ` · ${escapeHtml(voState.time)}` : ''}</div>
+    <div class="vo-side-head">${when}</div>
     <div class="vo-counts">${tiles}</div>
+    <div class="vo-attention">${attention}</div>
     <div class="vo-depts">${depts || '<div class="vo-side-empty">No active accounts.</div>'}</div>`;
 }
 
@@ -271,8 +420,13 @@ function voTextTexture(text, { color = '#0f172a', bg = 'rgba(255,255,255,0.92)',
   return { texture, aspect: width / height };
 }
 
-function voNameSprite(name, status) {
-  const { texture, aspect } = voTextTexture(name, { dot: (VO_STATUS[status] || VO_STATUS.working).color });
+// A name tag; with a note ("65m lunch", "Late 12m") it reads "Name · note",
+// red for an alert, amber for a heads-up.
+function voNameSprite(name, status, note = '', tone = '') {
+  const tones = { alert: ['#fee2e2', '#991b1b'], warn: ['#fef3c7', '#92400e'] };
+  const [bg, color] = tones[tone] || ['rgba(255,255,255,0.92)', '#0f172a'];
+  const dot = tone === 'alert' ? '#dc2626' : (VO_STATUS[status] || VO_STATUS.working).color;
+  const { texture, aspect } = voTextTexture(note ? `${name} · ${note}` : name, { dot, bg, color });
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
   // Sized every frame against the zoom (voTick), so names stay readable.
   sprite.userData.aspect = aspect;
@@ -427,7 +581,10 @@ function voLayout(departments) {
     const members = dept === VO_OFFICE_DEPT ? everyone.slice(VO_OFFICE_SEATS) : everyone;
     for (let start = 0; start < members.length; start += VO_MAX_PER_BENCH) {
       const group = members.slice(start, start + VO_MAX_PER_BENCH);
-      const cols = Math.max(2, Math.ceil(group.length / 2));
+      // Up to six sit in one row facing the camera, so their faces show;
+      // bigger teams fill both sides of the bench.
+      const singleRow = group.length <= 6;
+      const cols = singleRow ? Math.max(2, group.length) : Math.ceil(group.length / 2);
       const width = cols * VO_SEAT_W + 0.75; // table margins and the team wall
       const load = (z) => (z.rows.length - 1) * VO_ZONE_W + z.rows[z.rows.length - 1].used;
       const zone = load(zones[0]) <= load(zones[1]) ? zones[0] : zones[1];
@@ -441,9 +598,10 @@ function voLayout(departments) {
       row.blocks.push(bench);
       benches.push(bench);
       group.forEach((person, i) => {
-        const col = Math.floor(i / 2);
-        const front = i % 2 === 1;
-        const x = x0 + 0.25 + (col + 0.5) * VO_SEAT_W;
+        const col = singleRow ? i : Math.floor(i / 2);
+        const front = !singleRow && i % 2 === 1;
+        // Seat 1 (the team lead, unless HR moved them) is next to the team wall.
+        const x = x0 + 0.25 + (cols - 1 - col + 0.5) * VO_SEAT_W;
         const aisleZ = front ? cz + VO_ROW_D / 2 + VO_AISLE / 2 : cz - VO_ROW_D / 2 - VO_AISLE / 2;
         seats.push({
           person,
@@ -498,15 +656,19 @@ function voBuildScene() {
   const scene = new THREE.Scene();
   // Orthographic, for the clean isometric look of an office floor plan.
   const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 600);
-  scene.add(new THREE.HemisphereLight('#ffffff', dark ? '#334155' : '#d9cdb8', 0.85));
+  const hemi = new THREE.HemisphereLight('#ffffff', dark ? '#334155' : '#d9cdb8', 0.85);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight('#fff7ea', 0.38);
   sun.position.set(20, 30, 26);
   scene.add(sun);
 
   const s = {
-    renderer, scene, camera, stage, dark,
+    renderer, scene, camera, stage, dark, hemi, sun,
     chars: new Map(),
     monitors: new Map(),
+    plates: new Map(),
+    counters: new Map(),
+    hoverId: null,
     seats: new Map(),
     breakSlots: [],
     door: null,
@@ -534,6 +696,7 @@ function voBuildScene() {
   window.addEventListener('resize', s.onResize);
 
   voSyncPeople(true);
+  voApplyDaylight(s);
   const loop = (now) => {
     if (!renderer.domElement.isConnected) { voDisposeScene(); return; }
     const dt = Math.min(0.05, (now - s.last) / 1000);
@@ -555,6 +718,8 @@ function voBuildFloor(s) {
   while (root.children.length) root.remove(root.children[0]);
   s.monitors.clear();
   s.seats.clear();
+  s.plates.clear();
+  s.counters.clear();
 
   const departments = voDepartments(voState.people);
   s.rosterKey = departments.map(([d, m]) => `${d}:${m.map((p) => p.id).join(',')}`).join('|');
@@ -602,6 +767,7 @@ function voBuildFloor(s) {
     wall: voMat(s.dark ? '#a69d8c' : '#f6eddd'),
     wallEdge: voMat(s.dark ? '#8a826f' : '#e9dbc0'),
   };
+  s.kit = kit;
 
   // Floor slab: office tiles on top, a darker edge all round.
   const tiles = voTileTexture(s.dark);
@@ -632,6 +798,7 @@ function voBuildFloor(s) {
     else if (seat.office) s.monitors.set(seat.person.id, voLaptop(root, seat, toChair, kit));
     else s.monitors.set(seat.person.id, voSeat(root, seat, toChair, kit));
     s.seats.set(seat.person.id, seat);
+    seat.toChair = toChair;
   });
   L.fillers.forEach((f) => {
     if (f.kind === 0) voBooth(root, kit, f.x, f.z);
@@ -914,7 +1081,7 @@ function voLounge(s, root, L, kit) {
   const slots = [];
   const spot = (x, z, face, sit) => slots.push({ x, z, face, sit, exit: [{ x: x <= cx ? L.spineL : L.spineR, z, line: x <= cx ? 'L' : 'R' }] });
 
-  voWallText(root, 'BREAK ROOM', '#2f4f45', 0.5, cx, 2.25, 0.02);
+  voTv(s, root, kit, cx);
   voBlock(root, kit, kit.counter, 4.4, 1.0, 0.8, cx, 0.5, 0.45);
   voBlock(root, kit, kit.desk, 4.5, 0.06, 0.85, cx, 1.02, 0.45);
   voBlock(root, kit, kit.black, 0.45, 0.55, 0.4, cx - 1.3, 1.32, 0.35);
@@ -1405,6 +1572,7 @@ function voRoute(from, to, frontZ) {
 function voSyncPeople(initial = false) {
   const s = voState.scene;
   if (!s) return;
+  const view = voView();
   const departments = voDepartments(voState.people);
   const rosterKey = departments.map(([d, m]) => `${d}:${m.map((p) => p.id).join(',')}`).join('|');
   // A new floor moves desks, so everyone already inside walks to the new spot.
@@ -1419,7 +1587,7 @@ function voSyncPeople(initial = false) {
   const onBreakNow = (p) => p.status === 'lunch' || p.status === 'break';
   const slotOf = new Map();
   const taken = new Set();
-  voState.people.forEach((p) => {
+  view.forEach((p) => {
     const c = s.chars.get(p.id);
     if (onBreakNow(p) && c && onBreakNow(c) && Number.isInteger(c.slot) && !taken.has(c.slot)) {
       slotOf.set(p.id, c.slot);
@@ -1427,7 +1595,7 @@ function voSyncPeople(initial = false) {
     }
   });
   let nextFree = 0;
-  voState.people.forEach((p) => {
+  view.forEach((p) => {
     if (!onBreakNow(p) || slotOf.has(p.id)) return;
     while (taken.has(nextFree)) nextFree += 1;
     slotOf.set(p.id, nextFree);
@@ -1435,7 +1603,9 @@ function voSyncPeople(initial = false) {
   });
 
   const inside = new Set();
-  voState.people.forEach((person) => {
+  view.forEach((person) => {
+    voSyncPlate(s, person);
+    voSyncCounter(s, person);
     const onBreak = onBreakNow(person);
     const slotIndex = onBreak ? slotOf.get(person.id) : null;
     const present = ['working', 'lunch', 'break'].includes(person.status);
@@ -1472,6 +1642,7 @@ function voSyncPeople(initial = false) {
       c = voMakeCharacter(person);
       s.chars.set(person.id, c);
       s.root.add(c.group);
+      voSetLabel(c, person);
       if (initial) {
         // First paint: everyone already where they belong, no parade.
         c.group.position.set(dest.x, 0, dest.z);
@@ -1493,20 +1664,28 @@ function voSyncPeople(initial = false) {
       c.status = person.status;
       c.rest = dest;
       c.slot = slotIndex;
-      voSetLabel(c, person);
     }
+    voSetLabel(c, person);
   });
+  voDrawTv(s, view);
+  voApplyDaylight(s);
   // Accounts deactivated or gone from the roster lose their character outright.
   s.chars.forEach((c, id) => {
     if (!inside.has(id) && !c.leaving) { s.root.remove(c.group); s.chars.delete(id); }
   });
 }
 
+// Rebuilt only when what it says changes: status, or its note.
 function voSetLabel(c, person) {
+  const { note, tone } = voTagNote(person);
+  const key = `${person.name}|${person.status}|${note}|${tone}`;
+  if (c.labelKey === key) return;
+  c.labelKey = key;
+  c.alert = tone === 'alert';
   c.group.remove(c.label);
   c.label.material.map.dispose();
   c.label.material.dispose();
-  c.label = voNameSprite(person.name, person.status);
+  c.label = voNameSprite(person.name, person.status, note, tone);
   c.label.position.y = 2.0;
   c.group.add(c.label);
 }
@@ -1514,8 +1693,18 @@ function voSetLabel(c, person) {
 function voTick(s, dt) {
   // Name tags keep one size on screen: a share of the current view height.
   const tag = s.orbit.radius * 0.036;
+  const detail = s.orbit.radius < VO_DETAIL_VIEW;
+  s.plates.forEach((plate) => {
+    plate.sprite.scale.set(tag * 0.8 * plate.aspect, tag * 0.8, 1);
+    plate.sprite.visible = plate.shown && (detail || plate.alert);
+  });
+  s.counters.forEach((counter, id) => {
+    counter.sprite.scale.set(tag * 0.75 * counter.aspect, tag * 0.75, 1);
+    counter.sprite.visible = counter.shown && (detail || id === s.hoverId || id === voState.focusId);
+  });
   s.chars.forEach((c, id) => {
     c.label.scale.set(tag * c.label.userData.aspect, tag, 1);
+    c.label.visible = detail || c.alert || id === s.hoverId || id === voState.focusId;
     const pos = c.group.position;
     let moving = false;
     let budget = VO_WALK_SPEED * dt;
@@ -1587,9 +1776,12 @@ function voBindControls(s) {
   const clampView = (v) => Math.min(VO_MAX_VIEW, Math.max(5, v));
   el.style.touchAction = 'none';
   el.addEventListener('contextmenu', (e) => e.preventDefault());
+  let press = null;
+  let hoverAt = 0;
   el.addEventListener('pointerdown', (e) => {
     el.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    press = pointers.size === 1 ? { x: e.clientX, y: e.clientY } : null;
     panning = e.button === 2 || e.shiftKey;
     s.focusTo = null;
     if (pointers.size === 2) {
@@ -1599,7 +1791,15 @@ function voBindControls(s) {
   });
   el.addEventListener('pointermove', (e) => {
     const prev = pointers.get(e.pointerId);
-    if (!prev) return;
+    if (!prev) {
+      // Not dragging: who is under the cursor (checked a few times a second).
+      if (e.pointerType === 'mouse' && performance.now() - hoverAt > 90) {
+        hoverAt = performance.now();
+        s.hoverId = voPick(s, e);
+        el.style.cursor = s.hoverId ? 'pointer' : '';
+      }
+      return;
+    }
     const dx = e.clientX - prev.x;
     const dy = e.clientY - prev.y;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1622,7 +1822,15 @@ function voBindControls(s) {
     o.phi = Math.min(1.3, Math.max(0.35, o.phi - dy * 0.005));
   });
   const end = (e) => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = 0; };
-  el.addEventListener('pointerup', end);
+  el.addEventListener('pointerup', (e) => {
+    // A press that did not drag is a click: open whoever was clicked.
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6) {
+      const id = voPick(s, e);
+      if (id) voOpenCard(id);
+    }
+    press = null;
+    end(e);
+  });
   el.addEventListener('pointercancel', end);
   el.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -1640,6 +1848,7 @@ async function voSetAvatar(id, gender) {
   const apply = (value) => {
     person.avatar_gender = value;
     voRenderSide();
+    voRenderCard();
     if (voState.scene) voSyncPeople();
   };
   apply(gender || null);
@@ -1654,19 +1863,323 @@ async function voSetAvatar(id, gender) {
 function voFocus(id) {
   const s = voState.scene;
   voState.focusId = id;
-  if (s) s.focusTo = id;
-  voRenderSide();
+  if (s && s.chars.has(id)) s.focusTo = id;
+  voOpenCard(id);
 }
 
 function voResetView() {
   const s = voState.scene;
   voState.focusId = null;
+  voCloseCard();
   if (s && s.home) {
     s.focusTo = null;
     Object.assign(s.orbit, { ...s.home, target: s.home.target.clone() });
   }
   voRenderSide();
 }
+
+/* ─── FLOOR EXTRAS: TV, desk plates, work counters ─────────────── */
+
+// The lounge TV on the café wall: floor-wide numbers, redrawn each poll.
+function voTv(s, root, kit, cx) {
+  voBlock(root, kit, kit.black, 2.7, 1.05, 0.06, cx, 2.12, 0.04);
+  const canvas = document.createElement('canvas');
+  canvas.width = 768;
+  canvas.height = 288;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.56, 0.96), new THREE.MeshBasicMaterial({ map: texture }));
+  screen.position.set(cx, 2.12, 0.075);
+  root.add(screen);
+  s.tv = { canvas, texture };
+}
+
+function voDrawTv(s, view) {
+  if (!s.tv) return;
+  const { canvas, texture } = s.tv;
+  const ctx = canvas.getContext('2d');
+  const k = voState.kpis || {};
+  const num = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString());
+  ctx.fillStyle = '#1f3a33';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = '800 30px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#f6eddd';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText('BREAK ROOM', 28, 34);
+  ctx.textAlign = 'right';
+  ctx.font = '600 24px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#a7c4bb';
+  ctx.fillText(voState.replay !== null ? `Replay ${voClock(voState.replay)}` : `Today ${voState.time || ''}`, canvas.width - 28, 34);
+  const inside = view.filter((p) => VO_IN.includes(p.status)).length;
+  const tiles = [
+    ['In office', `${inside}/${view.length}`],
+    ['Orders today', num(k.orders_today)],
+    ['Confirmed today', num(k.confirmed_today)],
+    ['Pickups today', num(k.pickups_today)],
+    ['Delivered this month', num(k.delivered_month)],
+    ['RTS rate this month', k.rts_rate_month === undefined || k.rts_rate_month === null ? '—' : `${Number(k.rts_rate_month).toFixed(1)}%`],
+  ];
+  const w = (canvas.width - 28 * 2 - 16 * 2) / 3;
+  tiles.forEach(([label, value], i) => {
+    const x = 28 + (i % 3) * (w + 16);
+    const y = 66 + Math.floor(i / 3) * 108;
+    ctx.fillStyle = '#2b4d44';
+    ctx.fillRect(x, y, w, 96);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 42px Inter, system-ui, sans-serif';
+    ctx.fillText(value, x + 18, y + 40);
+    ctx.fillStyle = '#a7c4bb';
+    ctx.font = '600 20px Inter, system-ui, sans-serif';
+    ctx.fillText(label, x + 18, y + 76);
+  });
+  texture.needsUpdate = true;
+}
+
+// A desk with nobody at it says whose it is and why: absent (red), on leave,
+// rest day, at lunch, out at 17:02, not in yet.
+function voSyncPlate(s, p) {
+  const seat = s.seats.get(p.id);
+  if (!seat) return;
+  const f = p.flags || {};
+  let text = '';
+  let alert = false;
+  if (p.status !== 'working') {
+    if (f.absent) { text = 'Absent'; alert = true; }
+    else if (f.leave) text = /leave/i.test(f.leave) ? f.leave : `${f.leave} leave`;
+    else if (f.rest) text = 'Rest day';
+    else if (p.status === 'lunch') text = 'At lunch';
+    else if (p.status === 'break') text = 'On break';
+    else if (p.status === 'left') text = `Out ${p.since}`;
+    else text = 'Not in yet';
+  }
+  const key = `${text}|${alert}`;
+  const old = s.plates.get(p.id);
+  if (old && old.key === key) return;
+  if (old) { s.root.remove(old.sprite); old.sprite.material.map.dispose(); old.sprite.material.dispose(); }
+  if (!text) { s.plates.delete(p.id); return; }
+  const first = String(p.name || '').split(/\s+/)[0];
+  const tex = voTextTexture(`${first} · ${text}`, { bg: alert ? '#fecaca' : '#f1ece2', color: alert ? '#991b1b' : '#475569', size: 30 });
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex.texture, transparent: true, depthTest: false }));
+  sprite.renderOrder = 8;
+  sprite.position.set(seat.x, seat.stand ? 1.2 : 1.3, seat.deskZ + (seat.toChair || 1) * 0.3);
+  s.root.add(sprite);
+  s.plates.set(p.id, { sprite, key, aspect: tex.aspect, shown: true, alert });
+}
+
+// What someone at their desk has done today, over their monitor: orders
+// confirmed (✓), or RTS parcels scanned in the warehouse (↩).
+function voSyncCounter(s, p) {
+  const seat = s.seats.get(p.id);
+  if (!seat) return;
+  const warehouse = employeeDepartment(p) === VO_WAREHOUSE_DEPT;
+  const n = Number((warehouse ? p.output?.rts_scans : p.output?.confirmed) || 0);
+  const text = n && p.status === 'working' ? `${warehouse ? '↩' : '✓'} ${n}` : '';
+  const old = s.counters.get(p.id);
+  if (old && old.key === text) return;
+  if (old) { s.root.remove(old.sprite); old.sprite.material.map.dispose(); old.sprite.material.dispose(); }
+  if (!text) { s.counters.delete(p.id); return; }
+  const tex = voTextTexture(text, { bg: '#2f4f45', color: '#ffffff', size: 30, weight: 800 });
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex.texture, transparent: true, depthTest: false }));
+  sprite.renderOrder = 9;
+  sprite.position.set(seat.x, seat.stand ? 1.45 : 1.42, seat.deskZ);
+  s.root.add(sprite);
+  s.counters.set(p.id, { sprite, key: text, aspect: tex.aspect, shown: true });
+}
+
+// The light follows the clock being shown: soft morning, bright midday, a
+// golden late afternoon, and night with dark windows and glowing screens.
+function voApplyDaylight(s) {
+  if (!s || !s.hemi) return;
+  const h = voAt() / 60;
+  let hemi = 0.85;
+  let sun = 0.38;
+  let sunColor = '#fff7ea';
+  const night = h < 6 || h >= 19;
+  if (night) { hemi = 0.5; sun = 0.1; sunColor = '#a9b8ff'; }
+  else if (h < 9) { hemi = 0.8; sun = 0.34; sunColor = '#ffe7c7'; }
+  else if (h >= 16.5) { hemi = 0.76; sun = 0.36; sunColor = '#ffc98f'; }
+  s.hemi.intensity = hemi;
+  s.sun.intensity = sun;
+  s.sun.color.set(sunColor);
+  if (s.kit?.pane) {
+    s.kit.pane.color.set(night ? '#3c4a72' : '#f5ac83');
+    s.kit.pane.emissive.set(night ? '#1c2747' : '#f08a5a');
+  }
+  s.renderer.setClearColor(night ? (s.dark ? '#111a17' : '#9fb5aa') : (s.dark ? '#1b2723' : '#d3e3da'));
+}
+
+/* ─── PEOPLE: picking, the card, seats ─────────────────────────── */
+
+// Whoever is under the pointer, or null.
+function voPick(s, e) {
+  const rect = s.renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  s.ray = s.ray || new THREE.Raycaster();
+  s.ray.setFromCamera(ndc, s.camera);
+  const groups = [];
+  s.chars.forEach((c, id) => { c.group.userData.personId = id; groups.push(c.group); });
+  let obj = s.ray.intersectObjects(groups, true)[0]?.object;
+  while (obj && obj.userData.personId === undefined) obj = obj.parent;
+  return obj ? obj.userData.personId : null;
+}
+
+function voOpenCard(id) {
+  voState.cardId = id;
+  voState.focusId = id;
+  voRenderCard();
+  voRenderSide();
+}
+
+function voCloseCard() {
+  voState.cardId = null;
+  voRenderCard();
+}
+
+// The person card over the floor: where they are, their day against the
+// schedule, both breaks, today's work, lates this month, their look and seat.
+function voRenderCard() {
+  const el = document.getElementById('vo-card');
+  if (!el) return;
+  const p = voView().find((x) => Number(x.id) === Number(voState.cardId));
+  if (!p) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  const id = Number(p.id);
+  const dept = employeeDepartment(p);
+  const status = VO_STATUS[p.status] || VO_STATUS.not_in;
+  const f = p.flags || {};
+  const pu = p.punches || {};
+  const team = (voDepartments(voState.people).find(([d]) => d === dept) || [null, []])[1];
+  const seatNo = team.findIndex((m) => Number(m.id) === id);
+  const span = (a, b, mins, over) => (a
+    ? `${a} – ${b || 'now'} · ${voDuration(mins || 0)}${over ? ` <b class="vo-badge is-alert">+${voDuration(over)}</b>` : ''}`
+    : '—');
+  const standing = f.absent ? '<b class="vo-badge is-alert">Absent</b>'
+    : f.leave ? `<b class="vo-badge is-muted">${escapeHtml(f.leave)}</b>`
+    : f.rest ? '<b class="vo-badge is-muted">Rest day</b>'
+    : f.late ? `<b class="vo-badge is-warn">Late ${voDuration(f.late)}</b>`
+    : pu.time_in ? '<b class="vo-badge is-good">On time</b>' : '';
+  const warehouse = dept === VO_WAREHOUSE_DEPT;
+  const work = warehouse
+    ? ['RTS parcels scanned today', p.output?.rts_scans || 0]
+    : ['Orders confirmed today', p.output?.confirmed || 0];
+  const look = p.avatar_gender || '';
+  const avatar = [['male', 'Male'], ['female', 'Female']].map(([g, label]) => `
+    <button class="${look === g ? 'on' : ''}" onclick="voSetAvatar(${id}, '${look === g ? '' : g}')">${label}</button>`).join('');
+  el.innerHTML = `
+    <div class="vo-card-head">
+      <div>
+        <div class="vo-card-name">${escapeHtml(p.name)}</div>
+        <div class="vo-card-sub"><i style="background:${VO_DEPT_COLOR[dept] || VO_DEPT_COLOR.Unassigned}"></i>${escapeHtml(dept)}${p.role ? ` · ${escapeHtml(p.role)}` : ''}</div>
+      </div>
+      <button class="vo-card-close" onclick="voCloseCard()" aria-label="Close">&times;</button>
+    </div>
+    <div class="vo-card-status"><i style="background:${f.overNow || f.absent ? '#dc2626' : status.color}"></i>${status.label}${p.since ? ` <small>${escapeHtml(voFormatSince(p))}</small>` : ''} ${standing}</div>
+    <dl class="vo-card-rows">
+      <dt>Shift</dt><dd>${p.shift ? `${escapeHtml(p.shift.start)}${p.shift.end ? ` – ${escapeHtml(p.shift.end)}` : ''}` : 'No schedule today'}</dd>
+      <dt>Time in</dt><dd>${pu.time_in || '—'}</dd>
+      <dt>Lunch</dt><dd>${span(pu.break_out, pu.break_in, f.lunch, f.overLunch)}</dd>
+      <dt>15-min break</dt><dd>${span(pu.break2_out, pu.break2_in, f.brk, f.overBreak)}</dd>
+      <dt>Time out</dt><dd>${pu.time_out || '—'}</dd>
+      <dt>${work[0]}</dt><dd><b>${Number(work[1]).toLocaleString()}</b></dd>
+      <dt>Lates this month</dt><dd>${Number(p.lates_this_month || 0)}</dd>
+    </dl>
+    <div class="vo-card-tools">
+      <div><span>Character</span><span class="vo-seg">${avatar}</span></div>
+      ${seatNo >= 0 && team.length > 1 ? `<div><span>Seat ${seatNo + 1} of ${team.length}</span><span class="vo-seg">
+        <button onclick="voMoveSeat(${id}, -1)" ${seatNo === 0 ? 'disabled' : ''} title="Toward the team wall">◀ Move</button>
+        <button onclick="voMoveSeat(${id}, 1)" ${seatNo === team.length - 1 ? 'disabled' : ''} title="Away from the team wall">Move ▶</button>
+      </span></div>` : ''}
+    </div>`;
+}
+
+// HR moves someone one seat along their team (seat 1 is next to the team
+// wall). The whole team's order is saved; shown at once, put back on failure.
+async function voMoveSeat(id, dir) {
+  const person = voState.people.find((p) => Number(p.id) === Number(id));
+  if (!person) return;
+  const dept = employeeDepartment(person);
+  const team = (voDepartments(voState.people).find(([d]) => d === dept) || [null, []])[1];
+  const i = team.findIndex((m) => Number(m.id) === Number(id));
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= team.length) return;
+  const order = team.map((m) => Number(m.id));
+  [order[i], order[j]] = [order[j], order[i]];
+  const before = new Map(team.map((m) => [Number(m.id), m.desk_order]));
+  const apply = (orderOf) => {
+    team.forEach((m) => { m.desk_order = orderOf(Number(m.id)); });
+    voRenderSide();
+    voRenderCard();
+    if (voState.scene) voSyncPeople();
+  };
+  apply((mid) => order.indexOf(mid));
+  try {
+    await authorizedJsonRequest('/virtual-office/seats', { method: 'PUT', body: JSON.stringify({ ids: order }) });
+  } catch (error) {
+    apply((mid) => before.get(mid) ?? null);
+    showToast('error', 'Seat not saved', error.message || 'Try again.');
+  }
+}
+
+/* ─── REPLAY, EXPORT ───────────────────────────────────────────── */
+
+// Scrub back through the day; anything at or past now is live again.
+function voSetReplay(value) {
+  const now = voToMin(voState.time) ?? 0;
+  voState.replay = value === null || value >= now ? null : value;
+  voSyncReplayControl();
+  voRenderSide();
+  voRenderCard();
+  if (voState.scene) voSyncPeople();
+}
+
+function voSyncReplayControl() {
+  const range = document.getElementById('vo-replay');
+  const label = document.getElementById('vo-replay-time');
+  const live = document.getElementById('vo-live');
+  if (!range || !label || !live) return;
+  const now = voToMin(voState.time) ?? 1380;
+  range.max = String(Math.max(Number(range.min) + 5, now));
+  if (voState.replay === null) range.value = range.max;
+  label.textContent = voState.replay === null ? `Now${voState.time ? ` · ${voState.time}` : ''}` : `Replay · ${voClock(voState.replay)}`;
+  live.classList.toggle('on', voState.replay === null);
+}
+
+// Today's attendance as a spreadsheet: shift, punches, lateness, both
+// breaks with how far over they ran, and the day's work.
+function voExportDay() {
+  const at = voToMin(voState.time) ?? 0;
+  const standingLabel = {
+    late: 'Late', on_time: 'On time', absent: 'Absent', expected: 'Not in yet',
+    rest_day: 'Rest day', on_leave: 'On leave', unscheduled: 'No schedule',
+  };
+  const header = ['Name', 'Department', 'Role', 'Shift start', 'Shift end', 'Time in', 'Late (min)',
+    'Lunch out', 'Lunch in', 'Lunch (min)', 'Over lunch (min)', 'Break out', 'Break in', 'Break (min)', 'Over break (min)',
+    'Time out', 'Status now', 'Day', 'Orders confirmed', 'RTS scans', 'Lates this month'];
+  const rows = voDepartments(voState.people).flatMap(([dept, members]) => members.map((p) => {
+    const f = voFlags(p, { status: p.status, since: p.since }, at);
+    const pu = p.punches || {};
+    return [p.name, dept, p.role || '', p.shift?.start || '', p.shift?.end || '', pu.time_in || '', f.late || '',
+      pu.break_out || '', pu.break_in || '', f.lunch ?? '', f.overLunch || '', pu.break2_out || '', pu.break2_in || '', f.brk ?? '', f.overBreak || '',
+      pu.time_out || '', (VO_STATUS[p.status] || VO_STATUS.not_in).label, standingLabel[p.standing] || '',
+      p.output?.confirmed || 0, p.output?.rts_scans || 0, p.lates_this_month || 0];
+  }));
+  const cell = (v) => {
+    const t = String(v ?? '');
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const csv = [header, ...rows].map((r) => r.map(cell).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `virtual-office-${voState.date || 'today'}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 
 function voDisposeScene() {
   const s = voState.scene;
@@ -1688,3 +2201,8 @@ function voDisposeScene() {
 window.renderVirtualOfficePage = renderVirtualOfficePage;
 window.initVirtualOfficePage = initVirtualOfficePage;
 window.voSetAvatar = voSetAvatar;
+window.voSetReplay = voSetReplay;
+window.voOpenCard = voOpenCard;
+window.voCloseCard = voCloseCard;
+window.voMoveSeat = voMoveSeat;
+window.voExportDay = voExportDay;

@@ -11,7 +11,7 @@ const { SqliteClient } = require('../db/client');
 const { initializeDatabaseAsync } = require('../db/init');
 const virtualOfficeRoutes = require('../routes/virtualOffice');
 
-const { officeStatus } = virtualOfficeRoutes;
+const { officeStatus, dayStanding } = virtualOfficeRoutes;
 
 async function startApp() {
   const db = new SqliteClient(':memory:');
@@ -93,6 +93,49 @@ test('HR sets the avatar look; anything but male, female or empty is refused', a
     assert.equal((await put('hr', 99999, 'male')).status, 404);
     assert.equal((await put('hr', ids.csr, null)).status, 200);
     assert.equal((await roster('hr')).people.find((p) => p.id === ids.csr).avatar_gender, null);
+  } finally {
+    server.close();
+  }
+});
+
+test('the day is read against the schedule: leave, rest day, late, absent', () => {
+  const base = { shiftStart: '09:00', restDay: false, leaveType: null, nowTime: '10:00' };
+  assert.equal(dayStanding({ ...base, record: { time_in: '08:55' } }).standing, 'on_time');
+  assert.deepEqual(dayStanding({ ...base, record: { time_in: '09:12' } }), { standing: 'late', late_minutes: 12 });
+  assert.equal(dayStanding({ ...base, record: null }).standing, 'absent');
+  assert.equal(dayStanding({ ...base, record: null, nowTime: '08:30' }).standing, 'expected');
+  assert.equal(dayStanding({ ...base, record: null, restDay: true }).standing, 'rest_day');
+  assert.equal(dayStanding({ ...base, record: null, leaveType: 'Sick' }).standing, 'on_leave');
+  assert.equal(dayStanding({ ...base, shiftStart: null, record: null }).standing, 'unscheduled');
+});
+
+test('roster carries schedule, leave, output and floor numbers; HR fixes seat order', async () => {
+  const { db, ids, server, call } = await startApp();
+  const base = `http://127.0.0.1:${server.address().port}/api/virtual-office`;
+  try {
+    const { date } = (await call('hr')).data;
+    db.prepare("INSERT INTO user_schedules (user_id, schedule_date, shift_start, shift_end) VALUES (?, ?, '00:00', '23:59')").run(ids.csr, date);
+    db.prepare("INSERT INTO attendance_records (user_id, work_date, time_in) VALUES (?, ?, '07:30')").run(ids.csr, date);
+    db.prepare("INSERT INTO leave_requests (user_id, leave_date_from, leave_date_to, leave_type, status) VALUES (?, ?, ?, 'Sick', 'approved')").run(ids.ops, date, date);
+    db.prepare("INSERT INTO scan_records (scan_ref, tracking_no, scan_date, scan_type, scanned_by) VALUES ('R1', 'T1', ?, 'RTS', ?)").run(date, ids.csr);
+    const { data } = await call('hr');
+    const csr = data.people.find((p) => p.id === ids.csr);
+    assert.equal(csr.standing, 'late');
+    assert.deepEqual(csr.shift, { start: '00:00', end: '23:59' });
+    assert.equal(csr.punches.time_in, '07:30');
+    assert.equal(csr.output.rts_scans, 0); // output is cached for a minute; first poll ran before the scan
+    assert.equal(data.people.find((p) => p.id === ids.ops).standing, 'on_leave');
+    assert.ok(data.kpis && typeof data.kpis.rts_rate_month === 'number');
+
+    const put = (body, as = 'hr') => fetch(`${base}/seats`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-test-user': as }, body: JSON.stringify(body),
+    }).then((r) => r.status);
+    assert.equal(await put({ ids: [ids.csr, ids.hr] }), 200);
+    assert.equal(await put({ ids: [ids.csr, ids.csr] }), 400);
+    assert.equal(await put({ ids: [ids.csr] }, 'ops'), 403);
+    const after = (await call('hr')).data.people;
+    assert.equal(after.find((p) => p.id === ids.csr).desk_order, 0);
+    assert.equal(after.find((p) => p.id === ids.hr).desk_order, 1);
   } finally {
     server.close();
   }
