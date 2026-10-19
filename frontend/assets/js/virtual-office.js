@@ -480,6 +480,53 @@ function voTeamWallTexture(name, color, aspect) {
   return texture;
 }
 
+// One palm frond as a texture: a midrib with narrow leaflets down both
+// sides, longest in the middle, on a transparent background.
+function voFrondTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#5f7f3a';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(64, 256);
+  ctx.lineTo(64, 6);
+  ctx.stroke();
+  const greens = ['#3f7a3a', '#4f8f43', '#5fa04c', '#467f3c'];
+  for (let i = 0; i < 26; i += 1) {
+    const t = i / 26;
+    const y = 250 - t * 240;
+    const len = Math.sin(Math.PI * (0.12 + t * 0.88)) * 58 + 6;
+    [-1, 1].forEach((side) => {
+      ctx.strokeStyle = greens[(i + (side > 0 ? 1 : 0)) % greens.length];
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(64, y);
+      ctx.quadraticCurveTo(64 + side * len * 0.6, y - 10, 64 + side * len, y - 22);
+      ctx.stroke();
+    });
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  return texture;
+}
+
+// The frond's shape: a long strip based at the origin, rising along +y and
+// curving toward +z, so tilted outward it arches over and droops.
+function voFrondGeometry() {
+  const geo = new THREE.PlaneGeometry(0.5, 1.1, 1, 8);
+  geo.translate(0, 0.55, 0);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i += 1) {
+    const y = pos.getY(i) / 1.1;
+    pos.setZ(i, 0.45 * y * y);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 // Beige office tiles for the floor: a two-tone checker with grout lines,
 // drawn once (2 × 2 tiles) and repeated.
 function voTileTexture(dark) {
@@ -763,6 +810,11 @@ function voBuildFloor(s) {
     leaf: voMat('#4a9466'),
     leafLight: voMat('#6db585'),
     pot: voMat('#b5723f'),
+    potWhite: voMat(s.dark ? '#d6d3cc' : '#f4f1ea'),
+    soil: voMat('#5b4636'),
+    stem: voMat('#7c9a52'),
+    frond: new T.MeshLambertMaterial({ map: voFrondTexture(), alphaTest: 0.45, side: T.DoubleSide }),
+    frondGeo: voFrondGeometry(),
     glass: new T.MeshLambertMaterial({ color: '#e3f2ec', transparent: true, opacity: 0.3, depthWrite: false }),
     wall: voMat(s.dark ? '#a69d8c' : '#f6eddd'),
     wallEdge: voMat(s.dark ? '#8a826f' : '#e9dbc0'),
@@ -941,15 +993,41 @@ function voSeat(root, seat, toChair, kit) {
   return monitor;
 }
 
+// An areca palm in a white pot: a handful of thin stems fanning out of the
+// soil, each ending in arching feathery fronds. Each plant is turned and
+// sized a little differently, picked from where it stands.
 function voPlant(root, kit, x, z, size = 1) {
-  voCylinder(root, kit, kit.pot, 0.2 * size, 0.42 * size, 0.2 * size, x, 0.21 * size, z);
-  const leaves = [[0, 0.75, 0, 0.42], [0.14, 1.05, 0.05, 0.3], [-0.12, 1.0, -0.08, 0.28]];
-  leaves.forEach(([dx, y, dz, r], i) => {
-    const ball = new THREE.Mesh(kit.ball, i ? kit.leafLight : kit.leaf);
-    ball.scale.setScalar(r * 2 * size);
-    ball.position.set(x + dx * size, y * size, z + dz * size);
-    root.add(ball);
-  });
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.scale.setScalar(size);
+  root.add(g);
+  voCylinder(g, kit, kit.potWhite, 0.2, 0.46, 0.2, 0, 0.23, 0);
+  voCylinder(g, kit, kit.potWhite, 0.225, 0.05, 0.225, 0, 0.46, 0);
+  voCylinder(g, kit, kit.soil, 0.19, 0.02, 0.19, 0, 0.48, 0);
+  const seed = voHash(`${x.toFixed(2)}:${z.toFixed(2)}`);
+  const stems = 6;
+  for (let i = 0; i < stems; i += 1) {
+    const yaw = (i / stems) * Math.PI * 2 + (seed % 360) * (Math.PI / 180);
+    const lean = 0.08 + ((seed >> i) % 4) * 0.04;
+    const height = 0.95 + ((seed >> (i + 2)) % 5) * 0.12;
+    // The stem, leaning out a little from the pot's centre.
+    const stem = new THREE.Group();
+    stem.position.set(0, 0.48, 0);
+    stem.rotation.set(0, yaw, 0);
+    g.add(stem);
+    const tilt = new THREE.Group();
+    tilt.rotation.x = lean;
+    stem.add(tilt);
+    voCylinder(tilt, kit, kit.stem, 0.012, height, 0.012, 0, height / 2, 0);
+    // Two fronds off the top of each stem, arching outward and down.
+    [0, 1].forEach((k) => {
+      const frond = new THREE.Mesh(kit.frondGeo, kit.frond);
+      frond.position.set(0, height * (0.78 + k * 0.22), 0);
+      frond.rotation.set(0.3 + k * 0.3 + ((seed >> (i + k)) % 3) * 0.07, (k ? 0.5 : -0.4), 0, 'YXZ');
+      frond.scale.setScalar(0.85 + ((seed >> (i * 2 + k)) % 4) * 0.08);
+      tilt.add(frond);
+    });
+  }
 }
 
 // A purple phone booth, open to the front, with a yellow bench inside.
