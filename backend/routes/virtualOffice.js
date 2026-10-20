@@ -72,8 +72,8 @@ module.exports = function virtualOfficeRoutes(db) {
         'SELECT id, role, is_super_admin FROM users WHERE id = ? AND is_active = 1'
       ).get(Number(req.user?.id) || 0);
       const role = String(user?.role || '').trim().toLowerCase();
-      if (!user || (role !== 'hr' && Number(user.is_super_admin) !== 1)) {
-        return res.status(403).json({ error: 'The Virtual Office is for HR and the super admin only.' });
+      if (!user || (!['hr', 'administrator', 'admin'].includes(role) && Number(user.is_super_admin) !== 1)) {
+        return res.status(403).json({ error: 'The Virtual Office is for HR and Administrators only.' });
       }
       return next();
     } catch (error) {

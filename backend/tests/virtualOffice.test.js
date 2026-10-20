@@ -39,13 +39,13 @@ async function startApp() {
   return { db, ids, server, call };
 }
 
-test('only HR and the super admin open the Virtual Office', async () => {
+test('only HR, Administrators and the super admin open the Virtual Office', async () => {
   const { server, call } = await startApp();
   try {
     assert.equal((await call('hr')).status, 200);
     assert.equal((await call('ops')).status, 403);
     assert.equal((await call('csr')).status, 403);
-    assert.equal((await call('admin')).status, 403);
+    assert.equal((await call('admin')).status, 200);
   } finally {
     server.close();
   }

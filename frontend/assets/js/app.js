@@ -17355,9 +17355,10 @@ function getDefaultPageForCurrentUser() {
 const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // Of those, the super admin's alone: other Administrators do not get them.
 // HR access is HR's, Operation's and the super admin's, so the HR pages leave
-// the other Administrators' menu too (the server refuses them as well).
+// the other Administrators' menu too (the server refuses them as well). The
+// Virtual Office is the exception: every Administrator gets it.
 const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
-  'hr-dashboard', 'employee-tracker', 'virtual-office', 'attendance-log', 'schedule', 'hr',
+  'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
   'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'hr-reports',
   'learning-manage', 'learning-reports'];
 
