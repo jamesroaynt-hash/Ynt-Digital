@@ -4530,8 +4530,14 @@ const DEPARTMENT_BY_ROLE = {
 // Read in org order rather than alphabetically; anything unmapped sorts last.
 const DEPARTMENT_ORDER = ['Management', 'Human Resources', 'Operations', 'Sales & Marketing', 'CSR', 'RMO', 'Logistics', 'Trainee', 'Unassigned'];
 
+// The departments a Trainee can be placed in, picked on their account.
+const TRAINEE_DEPARTMENTS = ['CSR', 'RMO', 'Logistics', 'Sales & Marketing', 'Human Resources', 'Operations'];
+
 function employeeDepartment(employee) {
-  return DEPARTMENT_BY_ROLE[navAccessKey(normalizeRoleName(employee?.role))] || 'Unassigned';
+  const department = DEPARTMENT_BY_ROLE[navAccessKey(normalizeRoleName(employee?.role))] || 'Unassigned';
+  // A Trainee with a department sits with that team, not in a Trainee group.
+  if (department === 'Trainee' && TRAINEE_DEPARTMENTS.includes(employee?.trainee_department)) return employee.trainee_department;
+  return department;
 }
 
 // Roster split into departments, in DEPARTMENT_ORDER, keeping only the ones
@@ -7187,11 +7193,19 @@ function renderManageUsers() {
             </div>
             <div class="form-group">
               <label class="form-label">Role <span class="required">*</span></label>
-              <select id="manage-user-role" class="form-control">
+              <select id="manage-user-role" class="form-control" onchange="syncManageUserDepartmentField()">
                 <option value="Administrator">Admin</option>
                 ${ROLE_OPTIONS.map((role) => `<option value="${role}">${role}</option>`).join('')}
               </select>
             </div>
+          </div>
+          <div class="form-group" id="manage-user-department-group" style="display:none;">
+            <label class="form-label">Trainee Department</label>
+            <select id="manage-user-department" class="form-control">
+              <option value="">— Not set (Trainee group) —</option>
+              ${TRAINEE_DEPARTMENTS.map((dept) => `<option value="${dept}">${dept}</option>`).join('')}
+            </select>
+            <div class="field-help">The team this trainee sits with in the Employee Tracker and Virtual Office.</div>
           </div>
           <div class="form-grid-2">
             <div class="form-group">
@@ -20032,7 +20046,7 @@ function renderManagedUsersTable() {
               <div class="text-xs text-muted">ID ${user.id}${App.user?.id === user.id ? ' • Signed in' : ''}</div>
             </td>
             <td class="font-mono text-sm">${escapeHtml(user.username)}</td>
-            <td><span class="badge ${getUserRoleBadgeClass(user.role)}">${escapeHtml(formatRoleLabel(user.role))}</span></td>
+            <td><span class="badge ${getUserRoleBadgeClass(user.role)}">${escapeHtml(formatRoleLabel(user.role))}</span>${user.trainee_department ? `<div class="text-xs text-muted">${escapeHtml(user.trainee_department)}</div>` : ''}</td>
             <td class="text-sm text-secondary">${escapeHtml(formatDateTime(user.created_at))}</td>
             <td class="text-sm text-secondary">${escapeHtml(formatDateTime(user.updated_at))}</td>
             <td>
@@ -21859,6 +21873,9 @@ function setManageUserModalState(mode, user = null) {
   if (nameEl) nameEl.value = user?.full_name || '';
   if (usernameEl) usernameEl.value = user?.username || '';
   if (roleEl) roleEl.innerHTML = getRoleOptionsMarkup(user?.role || 'Trainee');
+  const departmentEl = document.getElementById('manage-user-department');
+  if (departmentEl) departmentEl.value = TRAINEE_DEPARTMENTS.includes(user?.trainee_department) ? user.trainee_department : '';
+  syncManageUserDepartmentField();
   if (birthdayEl) birthdayEl.value = user?.birthday || '';
   if (addressEl) addressEl.value = user?.address || '';
   if (phoneEl) phoneEl.value = user?.phone_number || '';
@@ -21868,6 +21885,13 @@ function setManageUserModalState(mode, user = null) {
     passwordEl.value = '';
     passwordEl.placeholder = isCreateMode ? 'Enter password' : 'Leave blank to keep current password';
   }
+}
+
+// The department picker only matters for a Trainee.
+function syncManageUserDepartmentField() {
+  const group = document.getElementById('manage-user-department-group');
+  const role = document.getElementById('manage-user-role')?.value;
+  if (group) group.style.display = role === 'Trainee' ? '' : 'none';
 }
 
 function openManageUserCreator() {
@@ -21966,6 +21990,7 @@ async function handleManageUserSave(event) {
   const fullName = document.getElementById('manage-user-full-name')?.value.trim();
   const username = document.getElementById('manage-user-username')?.value.trim();
   const role = document.getElementById('manage-user-role')?.value || 'Trainee';
+  const traineeDepartment = role === 'Trainee' ? (document.getElementById('manage-user-department')?.value || '') : '';
   const birthday = document.getElementById('manage-user-birthday')?.value || '';
   const address = document.getElementById('manage-user-address')?.value.trim() || '';
   const phoneNumber = document.getElementById('manage-user-phone-number')?.value.trim() || '';
@@ -21983,6 +22008,7 @@ async function handleManageUserSave(event) {
       full_name: fullName,
       username,
       role,
+      trainee_department: traineeDepartment,
       birthday,
       address,
       phone_number: phoneNumber,

@@ -140,3 +140,14 @@ test('roster carries schedule, leave, output and floor numbers; HR fixes seat or
     server.close();
   }
 });
+
+test('a trainee carries the department they sit with', async () => {
+  const { db, server, call } = await startApp();
+  try {
+    const id = Number(db.prepare("INSERT INTO users (username, password, full_name, role, trainee_department) VALUES ('tr1', 'x', 'New Trainee', 'Trainee', 'CSR')").run().lastInsertRowid);
+    const { data } = await call('hr');
+    assert.equal(data.people.find((p) => p.id === id).trainee_department, 'CSR');
+  } finally {
+    server.close();
+  }
+});

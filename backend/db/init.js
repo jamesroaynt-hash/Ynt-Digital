@@ -466,6 +466,8 @@ function runMigrations(db) {
   ensureColumn(db, 'users', 'avatar_gender', 'TEXT');
   // Seat order inside the team in the Virtual Office, set by HR (NULL = by name).
   ensureColumn(db, 'users', 'desk_order', 'INTEGER');
+  // The department a Trainee sits with (CSR, RMO…); NULL for every other role.
+  ensureColumn(db, 'users', 'trainee_department', 'TEXT');
   // The "Admin User" account is the super admin. Marked only while nobody is,
   // so a later change of super admin is never undone on restart.
   if (!db.prepare('SELECT 1 FROM users WHERE is_super_admin = 1').get()) {
@@ -1088,6 +1090,8 @@ async function runPostgresMigrations(db) {
   await ensureColumnAsync(db, 'users', 'avatar_gender', 'TEXT');
   // Seat order inside the team in the Virtual Office, set by HR (NULL = by name).
   await ensureColumnAsync(db, 'users', 'desk_order', 'INTEGER');
+  // The department a Trainee sits with (CSR, RMO…); NULL for every other role.
+  await ensureColumnAsync(db, 'users', 'trainee_department', 'TEXT');
   // The "Admin User" account is the super admin. Marked only while nobody is,
   // so a later change of super admin is never undone on restart.
   if (!(await db.prepare('SELECT 1 FROM users WHERE is_super_admin = 1').get())) {

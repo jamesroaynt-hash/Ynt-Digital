@@ -97,6 +97,15 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     return canonicalRoles.get(value.toLowerCase()) || fallback;
   }
 
+  // A Trainee is filed under the department they train in; any other role
+  // takes its department from the role, so the field is cleared.
+  const TRAINEE_DEPARTMENTS = ['CSR', 'RMO', 'Logistics', 'Sales & Marketing', 'Human Resources', 'Operations'];
+  function traineeDepartment(role, value) {
+    if (role !== 'Trainee') return null;
+    const wanted = String(value || '').trim().toLowerCase();
+    return TRAINEE_DEPARTMENTS.find((dept) => dept.toLowerCase() === wanted) || null;
+  }
+
   async function getActiveAdminCount() {
     const row = await db.prepare(`
       SELECT COUNT(*) AS count
@@ -164,6 +173,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     const phoneNumber = String(req.body?.phone_number || '').trim();
     const emailAddress = String(req.body?.email_address || '').trim();
     const fbAccountName = String(req.body?.fb_account_name || '').trim();
+    const department = traineeDepartment(role, req.body?.trainee_department);
 
     if (!username || !password || !fullName) {
       return res.status(400).json({ error: 'Username, password, and full name are required' });
@@ -176,12 +186,12 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
 
     const hashedPassword = bcrypt.hashSync(password, 10);
     const insert = db.prepare(`
-      INSERT INTO users (username, password, full_name, role, birthday, address, phone_number, email_address, fb_account_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (username, password, full_name, role, birthday, address, phone_number, email_address, fb_account_name, trainee_department)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = await insert.run(username, hashedPassword, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null);
+    const result = await insert.run(username, hashedPassword, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, department);
 
-    const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const user = await db.prepare('SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, trainee_department FROM users WHERE id = ?').get(result.lastInsertRowid);
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
 
     res.status(201).json({
@@ -197,6 +207,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
         daily_rate: user.daily_rate,
+        trainee_department: user.trainee_department || null,
       },
     });
   });
@@ -304,7 +315,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
       : status === 'all' ? ''
       : 'WHERE is_active = 1';
     const users = await db.prepare(`
-      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active, created_at, updated_at
+      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, trainee_department, is_active, created_at, updated_at
       FROM users
       ${where}
       ORDER BY
@@ -353,6 +364,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
     const phoneNumber = String(req.body?.phone_number || '').trim();
     const emailAddress = String(req.body?.email_address || '').trim();
     const fbAccountName = String(req.body?.fb_account_name || '').trim();
+    const department = traineeDepartment(role, req.body?.trainee_department);
 
     if (!username || !fullName) {
       return res.status(400).json({ error: 'Username and full name are required' });
@@ -378,13 +390,14 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
           phone_number = ?,
           email_address = ?,
           fb_account_name = ?,
+          trainee_department = ?,
           password = COALESCE(?, password),
           updated_at = datetime('now')
       WHERE id = ?
-    `).run(username, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, nextPassword, userId);
+    `).run(username, fullName, role, birthday || null, address || null, phoneNumber || null, emailAddress || null, fbAccountName || null, department, nextPassword, userId);
 
     const user = await db.prepare(`
-      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, is_active, created_at, updated_at
+      SELECT id, username, full_name, role, birthday, address, phone_number, email_address, fb_account_name, daily_rate, trainee_department, is_active, created_at, updated_at
       FROM users
       WHERE id = ?
     `).get(userId);
@@ -401,6 +414,7 @@ module.exports = function authRoutes(db, jwt, bcrypt, JWT_SECRET, { tokenBlockli
         email_address: user.email_address,
         fb_account_name: user.fb_account_name,
         daily_rate: user.daily_rate,
+        trainee_department: user.trainee_department || null,
       },
       meta: { is_active: user.is_active, created_at: user.created_at, updated_at: user.updated_at },
     });

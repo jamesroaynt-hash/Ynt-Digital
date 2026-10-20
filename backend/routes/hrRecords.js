@@ -153,7 +153,7 @@ module.exports = function hrRecordsRoutes(db) {
   router.get('/people', wrap(async (req, res) => {
     const people = await db.prepare(`
       SELECT id, username, full_name, role, is_active, is_super_admin, birthday, address,
-             phone_number, email_address, fb_account_name, daily_rate, day_off, created_at
+             phone_number, email_address, fb_account_name, daily_rate, day_off, trainee_department, created_at
       FROM users
       ORDER BY full_name COLLATE NOCASE ASC
     `).all();

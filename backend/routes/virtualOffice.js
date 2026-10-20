@@ -154,7 +154,7 @@ module.exports = function virtualOfficeRoutes(db) {
       // The super admin is the one watching, not a seat on the floor — the
       // Employee Tracker leaves them off its roster the same way.
       const people = await db.prepare(`
-        SELECT u.id, u.full_name, u.username, u.role, u.avatar_gender, u.desk_order, u.day_off,
+        SELECT u.id, u.full_name, u.username, u.role, u.trainee_department, u.avatar_gender, u.desk_order, u.day_off,
                a.time_in, a.break_out, a.break_in, a.break2_out, a.break2_in, a.time_out,
                s.shift_start, s.shift_end
         FROM users u
@@ -192,6 +192,7 @@ module.exports = function virtualOfficeRoutes(db) {
             id,
             name: row.full_name || row.username,
             role: row.role || null,
+            trainee_department: row.trainee_department || null,
             avatar_gender: VO_AVATARS.has(row.avatar_gender) ? row.avatar_gender : null,
             desk_order: row.desk_order === null || row.desk_order === undefined ? null : Number(row.desk_order),
             ...officeStatus(row),
