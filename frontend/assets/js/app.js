@@ -682,6 +682,7 @@ function rerenderInventoryTables() {
     const container = document.querySelector(`#${id} .table-container`);
     if (container) container.innerHTML = renderInventoryTable(items);
   });
+  renderInventoryStockChart();
 }
 
 // RTS Return tab: per-page ITEM NAME | RTS STOCKS, derived from RTS Scan Records.
@@ -14419,32 +14420,19 @@ function renderInventoryDashboard(lowStock, canEditStock) {
     { tone: 'red', label: 'Low Stock', value: lowStock.length, meta: 'below reorder point' },
     { tone: 'amber', label: 'Stock on Hand', value: units.toLocaleString(), meta: `${formatPHP(value)} at cost` },
   ];
-  const actions = [
-    canEditStock && { icon: 'add', title: 'Add Item', desc: 'Create a new product or supply.', run: "openModal('add-inventory-modal')" },
-    canEditStock && { icon: 'update', title: 'Stocks Update', desc: 'Add, remove or set an item’s stock.', run: 'openStockModal()' },
-    canEditStock && { icon: 'import', title: 'Import CSV', desc: 'Bulk add or update items from a file.', run: "startCsvImport('inventory')" },
-    { icon: 'active', title: 'Active Stock', desc: 'Stock levels of the products being sold.', run: "openInventoryTab('tab-active')" },
-    { icon: 'products', title: 'Products', desc: 'Ingredients, supplier, costing and pages.', run: "openInventoryTab('tab-products')" },
-    { icon: 'supplies', title: 'Supplies', desc: 'Packaging and materials on hand.', run: "openInventoryTab('tab-supplies')" },
-    { icon: 'rts', title: 'RTS Return', desc: 'Returned pcs per page and their SKU.', run: "openInventoryTab('tab-rts-return')" },
-    { icon: 'history', title: 'Stock History', desc: 'Every stock change, newest first.', run: "openInventoryTab('tab-stock-history')" },
-    canAccessPage('ops-calendar') && { icon: 'calendar', title: 'Supplier Orders', desc: 'Track incoming orders from suppliers.', run: "navigateTo('ops-calendar')" },
-  ].filter(Boolean);
   return `
   <div class="stats-grid" style="margin-bottom:20px;">
     ${cards.map((c) => `<div class="stat-card ${c.tone}"><div class="stat-card-accent"></div><div class="stat-label">${escapeHtml(c.label)}</div><div class="stat-value">${escapeHtml(String(c.value))}</div><div class="stat-meta">${escapeHtml(c.meta)}</div></div>`).join('')}
   </div>
 
-  <div class="card" style="margin-bottom:20px;">
-    <div class="card-header"><div><div class="card-title">Quick Actions</div><div class="card-subtitle">Jump straight to what you need.</div></div></div>
-    <div class="card-body">
-      <div class="qe-grid">
-        ${actions.map((a) => `<button type="button" class="qe-card inv-qe-card" onclick="${a.run}">
-          <span class="inv-qe-icon">${INV_TAB_ICONS[a.icon]}</span>
-          <span class="qe-title">${escapeHtml(a.title)}</span>
-          <span class="qe-desc">${escapeHtml(a.desc)}</span>
-        </button>`).join('')}
-      </div>
+  <div class="inv-dash-grid" style="margin-bottom:20px;">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Stock by Product</div><div class="card-subtitle">Active products with the most on hand: stock plus RTS pcs not yet moved.</div></div></div>
+      <div class="card-body"><div id="inv-chart-stock-wrap" style="position:relative;height:320px;"><canvas id="inv-chart-stock" role="img" aria-label="Stock and RTS pcs per active product"></canvas></div><div class="text-xs text-muted" id="inv-chart-stock-note" style="margin-top:8px;"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">Stock Movement</div><div class="card-subtitle">Pcs added and removed per day, last 30 days (from Stock History).</div></div></div>
+      <div class="card-body"><div style="position:relative;height:320px;"><canvas id="inv-chart-movement" role="img" aria-label="Pcs added and removed per day over the last 30 days"></canvas></div><div class="text-xs text-muted" id="inv-chart-movement-note" style="margin-top:8px;"></div></div>
     </div>
   </div>
 
@@ -14466,6 +14454,124 @@ function renderInventoryDashboard(lowStock, canEditStock) {
       <div class="card-body" id="inv-dash-deliveries"><div class="text-muted text-sm">Loading…</div></div>
     </div>
   </div>`;
+}
+
+// Stock page dashboard charts. Stock and RTS pcs share a unit, so they stack on
+// one axis; blue/orange is the validated pair from MKT_CHART_COLORS. Stock in /
+// out reuse the validated green/red cash-flow pair.
+let invStockChart = null;
+let invMovementChart = null;
+const INV_CHART_TOP = 12;
+
+function renderInventoryStockChart() {
+  const canvas = document.getElementById('inv-chart-stock');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const colors = mktChartColors();
+  const lookups = computeRtsPcsLookups();
+  const rows = (DB.inventory || [])
+    .filter((i) => i.type === 'Product' && i.active !== 0)
+    .map((i) => ({ name: i.name || i.sku || '—', unit: i.unit || 'pcs', stock: Number(i.stock || 0), rts: itemRtsPcs(i, lookups) }))
+    .filter((r) => r.stock + r.rts > 0)
+    .sort((a, b) => (b.stock + b.rts) - (a.stock + a.rts))
+    .slice(0, INV_CHART_TOP);
+  const wrap = document.getElementById('inv-chart-stock-wrap');
+  if (wrap) wrap.style.height = `${Math.max(200, rows.length * 26 + 60)}px`;
+  const bar = { borderRadius: 4, borderSkipped: 'start', borderColor: 'transparent', borderWidth: { right: 2 } };
+  invStockChart = upsertChart(invStockChart, canvas, rows.length > 0, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => r.name),
+      datasets: [
+        { label: 'Stock', data: rows.map((r) => r.stock), backgroundColor: colors.sales, ...bar },
+        { label: 'RTS pcs', data: rows.map((r) => r.rts), backgroundColor: colors.spend, ...bar },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      barPercentage: 0.7,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', align: 'end', labels: { color: colors.label, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle', padding: 14 } },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.dataset.label}: ${Number(item.parsed.x).toLocaleString()} ${rows[item.dataIndex]?.unit || ''}`,
+            footer: (items) => `Total: ${(rows[items[0].dataIndex].stock + rows[items[0].dataIndex].rts).toLocaleString()}`,
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, beginAtZero: true, border: { display: false }, grid: { color: colors.grid }, ticks: { color: colors.tick } },
+        y: { stacked: true, grid: { display: false }, ticks: { color: colors.label, autoSkip: false } },
+      },
+    },
+  });
+  const note = document.getElementById('inv-chart-stock-note');
+  if (note) note.textContent = rows.length ? '' : 'No active products with stock yet.';
+}
+
+// Stock History is stored in UTC; a day here is a Manila day.
+function invLogManilaDay(createdAt) {
+  const raw = String(createdAt || '');
+  const date = new Date(/[TZ]/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Date(date.getTime() + 8 * 3600000).toISOString().slice(0, 10);
+}
+
+async function renderInventoryMovementChart() {
+  const canvas = document.getElementById('inv-chart-movement');
+  if (!canvas || typeof Chart === 'undefined' || !getApiBase() || !getAuthToken()) return;
+  let logs = [];
+  try {
+    logs = await authorizedJsonRequest(`/inventory/logs?limit=1000&_=${Date.now()}`);
+  } catch {
+    return;
+  }
+  const target = document.getElementById('inv-chart-movement');
+  if (!target || !Array.isArray(logs)) return;
+  const today = manilaToday();
+  const days = [];
+  for (let n = 29; n >= 0; n -= 1) {
+    days.push(new Date(new Date(`${today}T00:00:00Z`).getTime() - n * 86400000).toISOString().slice(0, 10));
+  }
+  const totals = new Map(days.map((d) => [d, { in: 0, out: 0 }]));
+  logs.forEach((log) => {
+    const bucket = totals.get(invLogManilaDay(log.created_at));
+    if (!bucket) return;
+    const change = Number(log.qty_change || 0);
+    if (change > 0) bucket.in += change; else bucket.out += -change;
+  });
+  const hasData = [...totals.values()].some((t) => t.in || t.out);
+  const note = document.getElementById('inv-chart-movement-note');
+  if (note) note.textContent = hasData ? '' : 'No stock changes in the last 30 days.';
+  const colors = mktChartColors();
+  const dayLabel = (d) => new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  invMovementChart = upsertChart(invMovementChart, target, hasData, {
+    type: 'bar',
+    data: {
+      labels: days.map(dayLabel),
+      datasets: [
+        { label: 'Stock in', data: days.map((d) => totals.get(d).in), backgroundColor: EXP_CASHFLOW_IN, borderRadius: 4, borderSkipped: 'bottom' },
+        { label: 'Stock out', data: days.map((d) => totals.get(d).out), backgroundColor: EXP_CASHFLOW_OUT, borderRadius: 4, borderSkipped: 'bottom' },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      barPercentage: 0.74,
+      categoryPercentage: 0.66,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', align: 'end', labels: { color: colors.label, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle', padding: 14 } },
+        tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${Number(item.parsed.y).toLocaleString()} pcs` } },
+      },
+      scales: {
+        y: { beginAtZero: true, border: { display: false }, grid: { color: colors.grid }, ticks: { color: colors.tick, precision: 0 } },
+        x: { grid: { display: false }, ticks: { color: colors.tick, maxRotation: 0, autoSkipPadding: 12 } },
+      },
+    },
+  });
 }
 
 async function loadInventoryDashboardDeliveries() {
@@ -20166,6 +20272,8 @@ function initPage(page) {
     loadInventoryDashboardDeliveries().catch(() => {});
     loadRtsReturnRecords().catch(() => {});
     loadStockHistory().catch(() => {});
+    renderInventoryStockChart();
+    renderInventoryMovementChart().catch(() => {});
     refreshRtsPcsByProduct()
       .then((ok) => {
         if (!ok || App.currentPage !== 'inventory') return;
