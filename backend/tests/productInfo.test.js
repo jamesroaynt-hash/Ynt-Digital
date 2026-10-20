@@ -47,3 +47,35 @@ test('product info saves the sheet and writes the unit cost and price back to th
     server.close();
   }
 });
+
+test('moving RTS pcs adds them to the SKU\'s stock once', async () => {
+  const db = new SqliteClient(':memory:');
+  await initializeDatabaseAsync(db);
+  db.prepare("INSERT INTO inventory (item_id, name, sku, type, stock, cost_price) VALUES ('P1', 'Paragis Coffee', '001', 'Product', 10, 40)").run();
+  db.prepare("INSERT INTO rts_page_sku (page_name, sku) VALUES ('Paragis Page', '001')").run();
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => { req.user = { id: 1, role: req.headers['x-role'] || 'Logistics' }; next(); });
+  app.use('/api/inventory', inventoryRoutes(db));
+  const server = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
+  const base = `http://127.0.0.1:${server.address().port}/api/inventory`;
+  const call = async (method, path, body, role) => {
+    const res = await fetch(`${base}${path}`, { method, headers: { 'Content-Type': 'application/json', ...(role ? { 'x-role': role } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, data: await res.json() };
+  };
+  try {
+    const move = { page_name: 'Paragis Page', pcs: 4, moved_before: 0 };
+    assert.equal((await call('POST', '/rts-move', move, 'CSR')).status, 403);
+    assert.equal((await call('POST', '/rts-move', { ...move, page_name: 'No SKU Page' })).status, 400);
+    const done = await call('POST', '/rts-move', move);
+    assert.equal(done.data.new_stock, 14);
+    // The same click again from a stale screen is refused.
+    assert.equal((await call('POST', '/rts-move', move)).status, 409);
+    const { data } = await call('GET', '/rts-moves');
+    assert.deepEqual(data.map((r) => [r.page_name, Number(r.pcs)]), [['Paragis Page', 4]]);
+    const log = await db.prepare("SELECT qty_change FROM inventory_logs WHERE item_id = 'P1'").get();
+    assert.equal(log.qty_change, 4);
+  } finally {
+    server.close();
+  }
+});

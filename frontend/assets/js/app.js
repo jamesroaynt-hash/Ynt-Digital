@@ -567,12 +567,39 @@ async function refreshRtsPcsByProduct() {
       if (page) pageList.push(page);
     });
   }
+  // Pcs already moved into actual stock come off the page's RTS pcs, from its
+  // biggest product first, so the Total Stock column never counts them twice.
+  await loadRtsMoves();
+  Object.entries(pageProductMap).forEach(([page, pm]) => {
+    let left = Number(DB.rtsMovedByPage[page] || 0);
+    Object.keys(pm).sort((a, b) => pm[b] - pm[a]).forEach((key) => {
+      const take = Math.min(left, pm[key]);
+      pm[key] -= take;
+      left -= take;
+    });
+  });
   DB.rtsPcsByPageProduct = pageProductMap;
   DB.rtsScanPages = pageList.filter((p) => p && p !== 'Unknown').sort();
   DB.rtsProductNames = [...nameSet].filter(Boolean).sort((a, b) => a.localeCompare(b));
 
   await loadRtsPageSkuMap();
   return true;
+}
+
+// Pcs moved from each page's RTS into actual stock (page -> pcs).
+async function loadRtsMoves() {
+  try {
+    const rows = await authorizedJsonRequest(`/inventory/rts-moves?_=${Date.now()}`);
+    const map = {};
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row && row.page_name) map[row.page_name] = Number(row.pcs || 0);
+    });
+    DB.rtsMovedByPage = map;
+    return true;
+  } catch {
+    DB.rtsMovedByPage = DB.rtsMovedByPage || {};
+    return false;
+  }
 }
 
 // Page → SKU assignments for RTS Return. Once a page is mapped to a SKU, that
@@ -745,8 +772,13 @@ async function loadRtsReturnRecords() {
       });
       pageAgg.set(pg, cur);
     });
+    await loadRtsMoves();
+    const movedByPage = DB.rtsMovedByPage || {};
     const rows = [...pageAgg.values()]
-      .map((r) => ({ page: r.page, derivedSku: [...r.skus].join(', '), pcs: r.pcs }))
+      .map((r) => {
+        const moved = Number(movedByPage[r.page] || 0);
+        return { page: r.page, derivedSku: [...r.skus].join(', '), moved, pcs: Math.max(0, r.pcs - moved) };
+      })
       .sort((a, b) => String(a.page).localeCompare(String(b.page)));
 
     if (!rows.length) {
@@ -779,10 +811,17 @@ async function loadRtsReturnRecords() {
       const skuCell = canEdit
         ? `<input type="text" class="form-control" style="width:110px;margin:0 auto;padding:4px 8px;height:auto;font-size:12px;text-align:center" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
         : `<span class="font-mono text-xs">${escapeHtml(assigned || r.derivedSku) || dash}</span>`;
+      const movedNote = r.moved ? `<div class="text-xs text-muted">${r.moved.toLocaleString()} moved to stock</div>` : '';
+      const moveCell = canEdit
+        ? `<td>${r.pcs > 0
+          ? `<button class="btn btn-secondary btn-sm" ${assigned ? '' : 'disabled title="Assign a SKU first"'} onclick="moveRtsToStock('${encodeURIComponent(r.page)}', ${r.pcs}, ${r.moved})">Move to Stock</button>`
+          : dash}</td>`
+        : '';
       return `<tr>
       <td>${skuCell}</td>
       <td style="font-weight:500;">${escapeHtml(r.page)}</td>
-      <td><strong>${r.pcs.toLocaleString()}</strong></td>
+      <td><strong>${r.pcs.toLocaleString()}</strong>${movedNote}</td>
+      ${moveCell}
     </tr>`;
     };
     const panel = (title, hint, list) => {
@@ -790,18 +829,18 @@ async function loadRtsReturnRecords() {
       return `<div class="rts-return-panel">
         <div class="rts-return-panel-head"><strong>${title}</strong> <span class="text-muted">(${list.length})</span><div class="text-xs text-muted">${hint}</div></div>
         <table class="rts-return-table">
-          <thead><tr><th>SKU</th><th>PAGE NAME</th><th>RTS TOTAL PCS</th></tr></thead>
+          <thead><tr><th>SKU</th><th>PAGE NAME</th><th>RTS TOTAL PCS</th>${canEdit ? '<th></th>' : ''}</tr></thead>
           <tbody>
-            ${list.length ? list.map(rowHtml).join('') : `<tr><td colspan="3" style="padding:20px;color:var(--text-muted);">No pages here.</td></tr>`}
+            ${list.length ? list.map(rowHtml).join('') : `<tr><td colspan="${canEdit ? 4 : 3}" style="padding:20px;color:var(--text-muted);">No pages here.</td></tr>`}
           </tbody>
-          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td>${total.toLocaleString()}</td></tr></tfoot>
+          <tfoot><tr style="font-weight:700;border-top:1px solid var(--border);"><td colspan="2">Total</td><td>${total.toLocaleString()}</td>${canEdit ? '<td></td>' : ''}</tr></tfoot>
         </table>
       </div>`;
     };
     const inactiveRows = rows.filter(pageIsInactive);
     const activeRows = rows.filter((r) => !pageIsInactive(r));
     wrap.innerHTML = `<div class="card">
-      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records. Assign a SKU to route a page's pcs to a Product.</div></div></div>
+      <div class="card-header"><div><div class="card-title">RTS Return Stocks</div><div class="card-subtitle">RTS total pcs per page, from scan records. Assign a SKU to route a page's pcs to a Product; Move to Stock adds them to that Product's actual stock.</div></div></div>
       <div class="table-container">
         ${skuDatalist}
         <div class="rts-return-split">
@@ -836,6 +875,39 @@ async function saveRtsPageSku(pageEnc, sku) {
   } catch (error) {
     showToast('error', 'Save failed', error.message || 'Could not save RTS SKU.');
   }
+}
+
+// Move a page's RTS pcs into the actual stock of the Product its SKU points at.
+async function moveRtsToStock(pageEnc, available, movedBefore) {
+  if (!canManageInventoryStock()) {
+    showToast('warning', 'Not allowed', 'Only administrators and logistics staff can move RTS pcs.');
+    return;
+  }
+  const pageName = decodeURIComponent(pageEnc);
+  const sku = (DB.rtsPageSku || {})[pageName] || '';
+  const answer = prompt(`Move how many RTS pcs from ${pageName} into ${sku}'s actual stock? (${available} available)`, String(available));
+  if (answer === null) return;
+  const pcs = Number(String(answer).trim());
+  if (!Number.isInteger(pcs) || pcs <= 0 || pcs > available) {
+    showToast('error', 'Invalid quantity', `Enter a whole number from 1 to ${available}.`);
+    return;
+  }
+  try {
+    const result = await authorizedJsonRequest('/inventory/rts-move', {
+      method: 'POST',
+      body: JSON.stringify({ page_name: pageName, pcs, moved_before: movedBefore }),
+    });
+    showToast('success', 'Moved to stock', `${pcs.toLocaleString()} pcs → ${result?.name || sku} (stock now ${Number(result?.new_stock || 0).toLocaleString()})`);
+  } catch (error) {
+    showToast('error', 'Move failed', error.message || 'Could not move RTS pcs.');
+  }
+  await Promise.all([
+    refreshInventoryFromBackend().catch(() => {}),
+    refreshRtsPcsByProduct().catch(() => {}),
+  ]);
+  rerenderInventoryTables();
+  loadRtsReturnRecords().catch(() => {});
+  loadStockHistory().catch(() => {});
 }
 
 async function loadPosOrdersDashboard() {
@@ -1876,6 +1948,7 @@ const DB = {
   csrAgentNames: [],
   inventory: [],
   rtsPcsByProduct: {},
+  rtsMovedByPage: {},
   expenses: [],
   // All-time expense total from the server. DB.expenses is only the newest
   // page, so the stat cards read this instead of summing the loaded rows.

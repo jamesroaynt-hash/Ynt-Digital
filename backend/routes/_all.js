@@ -1927,6 +1927,42 @@ function inventoryRoutes(db, { dispatch } = {}) {
     res.json({ success: true, page_name, sku });
   });
 
+  // Pcs already moved from each page's RTS into actual stock.
+  r.get('/rts-moves', async (req, res) => {
+    res.json(await db.prepare('SELECT page_name, SUM(pcs) AS pcs FROM rts_stock_moves GROUP BY page_name').all());
+  });
+
+  // Move a page's RTS pcs into the actual stock of the Product its SKU points
+  // at. moved_before is what the caller saw already moved for the page, so a
+  // second click from a stale screen is refused instead of adding twice.
+  r.post('/rts-move', requireInventoryWrite, async (req, res) => {
+    const page_name = String(req.body?.page_name || '').trim();
+    const pcs = Number(req.body?.pcs);
+    if (!page_name) return res.status(400).json({ error: 'page_name required' });
+    if (!Number.isInteger(pcs) || pcs <= 0 || pcs > 100000) return res.status(400).json({ error: 'Enter a whole number of pcs above 0.' });
+    const map = await db.prepare('SELECT sku FROM rts_page_sku WHERE page_name = ?').get(page_name);
+    const sku = String(map?.sku || '').trim();
+    if (!sku) return res.status(400).json({ error: 'Assign a SKU to this page first.' });
+    const moved = await db.prepare('SELECT COALESCE(SUM(pcs), 0) AS pcs FROM rts_stock_moves WHERE page_name = ?').get(page_name);
+    if (Number(moved?.pcs || 0) !== Number(req.body?.moved_before || 0)) {
+      return res.status(409).json({ error: 'These RTS pcs changed since the page loaded. Refresh and try again.' });
+    }
+    const item = await db.prepare(`
+      SELECT item_id, name, stock FROM inventory
+      WHERE type = 'Product' AND LOWER(TRIM(sku)) = LOWER(?)
+      ORDER BY active DESC LIMIT 1
+    `).get(sku);
+    if (!item) return res.status(404).json({ error: `No Product has SKU ${sku}.` });
+    const before = Number(item.stock || 0);
+    const after = before + pcs;
+    await db.prepare(`UPDATE inventory SET stock=?, updated_at=datetime('now') WHERE item_id=?`).run(after, item.item_id);
+    await db.prepare(`INSERT INTO inventory_logs (item_id,action,qty_before,qty_change,qty_after,notes,created_by) VALUES (?,?,?,?,?,?,?)`)
+      .run(item.item_id, 'add', before, pcs, after, `RTS pcs moved to stock from ${page_name}`, req.user?.id || 1);
+    await db.prepare('INSERT INTO rts_stock_moves (page_name, sku, item_id, pcs, created_by) VALUES (?, ?, ?, ?, ?)')
+      .run(page_name, sku, item.item_id, pcs, req.user?.id || null);
+    res.json({ success: true, page_name, pcs, item_id: item.item_id, name: item.name, new_stock: after });
+  });
+
   /* ── Product information (Products tab) ─────────────────────
      Ingredients, supplier, unit cost breakdown, selling price and the pages
      that sell the item. The breakdown's total is written back to the item's
