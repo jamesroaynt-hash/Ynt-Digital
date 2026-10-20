@@ -9,7 +9,7 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
+  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
   HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
@@ -19,7 +19,7 @@ const NAV_ACCESS = {
   'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
   RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
   'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Logistics: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
   'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
 };
@@ -177,6 +177,7 @@ function loadPage(page) {
     home: renderHome,
     summary: renderSummaryPage,
     'hr-dashboard': renderHrDashboardPage,
+    'stock-dashboard': renderStockDashboardPage,
     'employee-tracker': renderEmployeeTracker,
     'virtual-office': lazyPage('renderVirtualOfficePage'),
     'evaluation-kpi': renderEvaluationKpi,
@@ -231,6 +232,7 @@ const pageNames = {
   home: 'Home',
   summary: 'Summary',
   'hr-dashboard': 'HR Dashboard',
+  'stock-dashboard': 'Stock Dashboard',
   'employee-tracker': 'Employee Tracker',
   'virtual-office': 'Virtual Office',
   'evaluation-kpi': 'Monthly Evaluation / KPI',
@@ -4535,6 +4537,109 @@ async function loadHrDashboardStats() {
 
   const wrap = document.getElementById('hr-dash-stats');
   if (wrap) wrap.innerHTML = renderHrDashboardStatCards(stats);
+  return stats;
+}
+
+// ─── STOCK DASHBOARD ───────────────────────────────────────
+// Logistics' counterpart to the HR Dashboard: four stock counters and a quick
+// encode grid. A link with `tab` opens that tab of the Stock page.
+const STOCK_QUICK_LINKS = [
+  { page: 'inventory', tab: 'tab-active', title: 'Active Stock', desc: 'Stock levels of the products being sold.' },
+  { page: 'inventory', tab: 'tab-rts-return', title: 'RTS Return', desc: 'Returned pcs per page; move them to actual stock.' },
+  { page: 'inventory', tab: 'tab-supplies', title: 'Supplies', desc: 'Packaging and materials on hand.' },
+  { page: 'inventory', tab: 'tab-products', title: 'Products', desc: 'Ingredients, supplier, costing and pages.' },
+  { page: 'inventory', tab: 'tab-stock-history', title: 'Stock History', desc: 'Every stock change, newest first.' },
+  { page: 'rts-scanning', title: 'RTS Scanning', desc: 'Scan returned parcels as they come back.' },
+  { page: 'daily-pickup', title: 'Daily Pickup', desc: 'Parcels handed to the couriers today.' },
+  { page: 'scanning', title: 'Scanning', desc: 'Scan outgoing parcels.' },
+  { page: 'ops-calendar', title: 'Supplier Orders', desc: 'Track incoming orders from suppliers.' },
+  { page: 'expenses', title: 'Expenses', desc: 'Record and review spending.' },
+];
+
+function renderStockDashboardPage() {
+  const links = STOCK_QUICK_LINKS.filter((link) => canAccessPage(link.page));
+  return `
+  <div class="page-header">
+    <div class="page-title">
+      <h1>Stock Dashboard</h1>
+      <p>Quick encode for the most-used stock and logistics actions.</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadStockDashboardStats()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="stats-grid" id="stock-dash-stats">
+    ${renderStockDashboardStatCards(null)}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Quick Encode</div>
+        <div class="card-subtitle">Jump straight to the screen you need.</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="qe-grid">
+        ${links.map((link) => `
+          <button type="button" class="qe-card" onclick="${link.tab
+            ? `openStockDashboardTab('${link.tab}')`
+            : `navigateTo('${link.page}')`}">
+            <span class="qe-title">${escapeHtml(link.title)}</span>
+            <span class="qe-desc">${escapeHtml(link.desc)}</span>
+          </button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+// Opens the Stock page on one of its tabs.
+function openStockDashboardTab(tab) {
+  navigateTo('inventory');
+  if (App.currentPage === 'inventory') openInventoryTab(tab);
+}
+
+// `stats` is null on first paint (and whenever a fetch fails) — the tiles keep
+// their shape and show an em dash, as on the HR Dashboard.
+function renderStockDashboardStatCards(stats) {
+  const num = (value) => (stats && Number.isFinite(value) ? value.toLocaleString() : '—');
+  const cards = [
+    { tone: 'blue', label: 'Active Products', value: num(stats?.products), meta: stats ? `${stats.supplies.toLocaleString()} supplies` : 'being sold' },
+    { tone: 'green', label: 'Stock on Hand', value: num(stats?.units), meta: stats ? `${formatPHP(stats.value)} at cost` : 'stock + RTS pcs' },
+    { tone: 'red', label: 'Low Stock', value: num(stats?.low), meta: 'below reorder point' },
+    { tone: 'amber', label: 'RTS Pcs to Move', value: num(stats?.rts), meta: 'not yet in actual stock' },
+  ];
+  return cards.map((card) => `
+    <div class="stat-card ${card.tone}">
+      <div class="stat-card-accent"></div>
+      <div class="stat-label">${escapeHtml(card.label)}</div>
+      <div class="stat-value">${escapeHtml(card.value)}</div>
+      <div class="stat-meta">${escapeHtml(card.meta)}</div>
+    </div>`).join('');
+}
+
+// Same numbers the Stock page uses: stock + RTS pcs (scanned minus moved) per
+// active product, low = below its reorder point.
+async function loadStockDashboardStats() {
+  await Promise.all([
+    refreshInventoryFromBackend().catch(() => {}),
+    refreshRtsPcsByProduct().catch(() => {}),
+  ]);
+  const items = DB.inventory || [];
+  const products = items.filter((i) => i.type === 'Product' && i.active !== 0);
+  const lookups = computeRtsPcsLookups();
+  const stats = {
+    products: products.length,
+    supplies: items.filter((i) => i.type === 'Supply').length,
+    units: products.reduce((sum, i) => sum + inventoryEffectiveStock(i, lookups), 0),
+    value: products.reduce((sum, i) => sum + Number(i.stock || 0) * Number(i.cost || 0), 0),
+    low: products.filter((i) => inventoryEffectiveStock(i, lookups) < i.reorder).length,
+    rts: Object.values(DB.rtsPcsByPageProduct || {})
+      .reduce((sum, pm) => sum + Object.values(pm).reduce((s, v) => s + Number(v || 0), 0), 0),
+  };
+  const wrap = document.getElementById('stock-dash-stats');
+  if (wrap) wrap.innerHTML = renderStockDashboardStatCards(stats);
   return stats;
 }
 
@@ -19796,6 +19901,10 @@ function initPage(page) {
 
   if (page === 'hr-dashboard') {
     loadHrDashboardStats().catch(() => {});
+  }
+
+  if (page === 'stock-dashboard') {
+    loadStockDashboardStats().catch(() => {});
   }
 
   if (page === 'employee-tracker') {
