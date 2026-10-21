@@ -4687,6 +4687,14 @@ const EMPLOYEE_TRACKER_METRICS = [
     // is read a month at a time: every one of those days in the month.
     weekdays: [1],
   },
+  {
+    id: 'discordlive',
+    tab: 'Discord Live',
+    title: 'Discord Live Attendance',
+    hint: 'Did the employee join the Discord live? One click per employee per day — click an active state again to clear it. 📝 adds a note for that day.',
+    yes: 'Joined',
+    no: 'Not Joined',
+  },
 ];
 
 // Accounts carry a role but no department column, so the tracker derives the
