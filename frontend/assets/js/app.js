@@ -9,19 +9,19 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'profile'],
-  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
+  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'file-uploads', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'profile'],
-  CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'profile'],
-  RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'profile'],
-  Logistics: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'profile'],
-  'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'profile'],
+  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
+  'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
+  RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  Logistics: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'file-uploads', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -209,6 +209,7 @@ function loadPage(page) {
     'learning-reports': lazyPage('renderTrainingReportsPage'),
     'daily-pickup': renderDailyPickup,
     'ops-calendar': lazyPage('renderOpsCalendarPage'),
+    'file-uploads': lazyPage('renderFileUploadsPage'),
     'rts-scanning': renderRTSScanning,
     calculators: renderCalculators,
     'rts-rate': renderRTSRate,
@@ -264,6 +265,7 @@ const pageNames = {
   'learning-reports': 'Training Reports',
   'daily-pickup': 'Pickup',
   'ops-calendar': 'Supplier Order Calendar',
+  'file-uploads': 'File Uploads',
   'rts-scanning': 'RTS Scan',
   calculators: 'Calculators',
   'rts-rate': 'Sale Report',
@@ -17669,7 +17671,7 @@ function getAccessiblePagesForCurrentUser() {
   const role = normalizeRoleName(App.user.role);
   const pages = NAV_ACCESS[role]
     || NAV_ACCESS_BY_KEY[navAccessKey(role)]
-    || ['home', 'rts-rate', 'data-report', 'learning', 'learning-leaderboard'];
+    || ['home', 'rts-rate', 'data-report', 'learning', 'learning-leaderboard', 'file-uploads'];
   if (isAdminUser()) {
     return isSuperAdminUser() ? pages : pages.filter((page) => !SUPER_ADMIN_PAGES.includes(page));
   }
@@ -20027,6 +20029,7 @@ function initPage(page) {
   if (page === 'learning-manage') window.initTrainingManagePage?.().catch(() => {});
   if (page === 'learning-reports') window.initTrainingReportsPage?.().catch(() => {});
   if (page === 'ops-calendar') window.initOpsCalendarPage?.().catch(() => {});
+  if (page === 'file-uploads') window.initFileUploadsPage?.().catch(() => {});
   if (page === 'virtual-office') window.initVirtualOfficePage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
