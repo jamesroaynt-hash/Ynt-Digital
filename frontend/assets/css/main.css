@@ -7210,6 +7210,83 @@ tfoot td {
   border: 2px solid var(--surface);
 }
 
+/* ── Top bar: tool links dropdown ──────────────────────────────────────── */
+.topbar-tools { position: relative; display: inline-flex; }
+.topbar-tools-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  width: 260px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.topbar-tools-menu[hidden] { display: none; }
+.tool-links-head {
+  padding: 6px 8px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tool-links-empty { padding: 8px; font-size: 12.5px; color: var(--text-muted); }
+.tool-link-row { display: flex; align-items: center; gap: 2px; }
+.tool-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.tool-link:hover { background: var(--surface-3); }
+.tool-link-icon {
+  flex: 0 0 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--surface-3);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.tool-link-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-link-remove {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.tool-link-remove:hover { background: var(--surface-3); color: var(--danger); }
+.tool-links-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border-strong);
+}
+.tool-links-form-row { display: flex; gap: 6px; }
+.tool-links-form-row input[name="icon"] { flex: 0 0 58px; text-align: center; }
+.tool-links-form .form-control { height: 32px; font-size: 12.5px; }
+
 /* ── Evaluation: total percentage per criteria ──────────────────────────── */
 .eval-weight-grid {
   display: grid;

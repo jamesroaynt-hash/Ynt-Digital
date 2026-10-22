@@ -164,6 +164,7 @@ function loadPage(page) {
   loginScreen.innerHTML = '';
   refreshSidebarAccess();
   refreshEvaluationTopbarButton().catch(() => {});
+  refreshToolLinksTopbar().catch(() => {});
   // The Virtual Office lives in the top bar rather than the sidebar; it shows
   // for whoever may open it (HR and the super admin).
   const voButton = document.getElementById('topbar-vo-btn');
@@ -6720,6 +6721,117 @@ async function submitEvaluation() {
     refreshEvaluationTopbarButton({ force: true }).catch(() => {});
   } catch (error) {
     showToast('error', 'Could not submit', error.message || 'The evaluation was not saved.');
+  }
+}
+
+// Tool links: a top-bar dropdown of outside sites. Everyone sees the links the
+// super admin added; the super admin also gets an add form and remove buttons.
+// Hidden for others while the list is empty.
+let _toolLinks = [];
+let _toolLinksCheckedAt = 0;
+const TOOL_LINKS_TTL_MS = 5 * 60 * 1000;
+
+async function refreshToolLinksTopbar({ force = false } = {}) {
+  const wrap = document.getElementById('topbar-tools');
+  if (!wrap) return;
+  if (!App.user) { wrap.style.display = 'none'; return; }
+  if (force || Date.now() - _toolLinksCheckedAt >= TOOL_LINKS_TTL_MS) {
+    _toolLinksCheckedAt = Date.now();
+    try {
+      const result = await authorizedJsonRequest('/tool-links');
+      _toolLinks = Array.isArray(result?.rows) ? result.rows : [];
+    } catch {
+      // Keep whatever was loaded last.
+    }
+  }
+  wrap.style.display = (_toolLinks.length || isSuperAdminUser()) ? '' : 'none';
+  const menu = document.getElementById('topbar-tools-menu');
+  if (menu && !menu.hidden) renderToolLinksMenu();
+}
+
+function toolLinkIcon(link) {
+  const icon = String(link.icon || '').trim();
+  return escapeHtml(icon || String(link.name || '?').trim().charAt(0).toUpperCase());
+}
+
+function renderToolLinksMenu() {
+  const menu = document.getElementById('topbar-tools-menu');
+  if (!menu) return;
+  const admin = isSuperAdminUser();
+  const items = _toolLinks.map((link) => `
+    <div class="tool-link-row">
+      <a class="tool-link" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" role="menuitem" title="${escapeHtml(link.url)}">
+        <span class="tool-link-icon">${toolLinkIcon(link)}</span>
+        <span class="tool-link-name">${escapeHtml(link.name)}</span>
+      </a>
+      ${admin ? `<button class="tool-link-remove" type="button" title="Remove" aria-label="Remove ${escapeHtml(link.name)}" onclick="removeToolLink(${Number(link.id)})">&times;</button>` : ''}
+    </div>`).join('');
+  menu.innerHTML = `
+    <div class="tool-links-head">Tool Links</div>
+    ${items || '<div class="tool-links-empty">No links yet.</div>'}
+    ${admin ? `
+      <form class="tool-links-form" onsubmit="addToolLink(event)">
+        <div class="tool-links-form-row">
+          <input class="form-control" name="icon" maxlength="8" placeholder="Icon" title="Optional: an emoji or a letter">
+          <input class="form-control" name="name" maxlength="80" placeholder="Name" required>
+        </div>
+        <input class="form-control" name="url" maxlength="2000" placeholder="https://site.com" required>
+        <button class="btn btn-primary btn-sm" type="submit">Add link</button>
+      </form>` : ''}`;
+}
+
+function setToolLinksMenuOpen(open) {
+  const menu = document.getElementById('topbar-tools-menu');
+  const button = document.getElementById('topbar-tools-btn');
+  if (!menu) return;
+  menu.hidden = !open;
+  button?.setAttribute('aria-expanded', String(open));
+  button?.classList.toggle('active', open);
+  if (open) renderToolLinksMenu();
+}
+
+function toggleToolLinksMenu(event) {
+  event?.stopPropagation();
+  const menu = document.getElementById('topbar-tools-menu');
+  setToolLinksMenuOpen(!!menu?.hidden);
+}
+
+document.addEventListener('click', (event) => {
+  const wrap = document.getElementById('topbar-tools');
+  if (wrap && !wrap.contains(event.target)) setToolLinksMenuOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') setToolLinksMenuOpen(false);
+});
+
+async function addToolLink(event) {
+  event.preventDefault();
+  // form.elements, not form.name: that is the form's own name attribute.
+  const fields = event.target.elements;
+  const body = {
+    icon: fields.namedItem('icon').value,
+    name: fields.namedItem('name').value,
+    url: fields.namedItem('url').value,
+    sort_order: _toolLinks.length,
+  };
+  try {
+    const result = await authorizedJsonRequest('/tool-links', { method: 'POST', body: JSON.stringify(body) });
+    _toolLinks = result?.rows || [];
+    renderToolLinksMenu();
+  } catch (error) {
+    showToast('error', 'Could not add link', error.message || 'Try again.');
+  }
+}
+
+async function removeToolLink(id) {
+  const link = _toolLinks.find((l) => Number(l.id) === Number(id));
+  if (!confirm(`Remove "${link?.name || 'this link'}" for everyone?`)) return;
+  try {
+    const result = await authorizedJsonRequest(`/tool-links/${id}`, { method: 'DELETE' });
+    _toolLinks = result?.rows || [];
+    renderToolLinksMenu();
+  } catch (error) {
+    showToast('error', 'Could not remove link', error.message || 'Try again.');
   }
 }
 

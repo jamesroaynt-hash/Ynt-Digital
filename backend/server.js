@@ -362,6 +362,7 @@ async function createApp() {
   app.use('/api/announcements', authMiddleware, require('./routes/announcements')(db));
   app.use('/api/chat', authMiddleware, require('./routes/chat')(db));
   app.use('/api/uploads', authMiddleware, require('./routes/fileUploads')(db));
+  app.use('/api/tool-links', authMiddleware, require('./routes/toolLinks')(db));
   // Meta Ads module. The OAuth callback is public (Meta redirects the browser to
   // it); its signed state ties it back to the user who started the flow.
   const metaAdsRouter = require('./routes/metaAds')(db, { onSyncFinished: () => backupScheduler.schedule() });
