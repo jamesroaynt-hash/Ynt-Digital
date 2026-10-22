@@ -7251,6 +7251,8 @@ tfoot td {
 }
 .tool-link:hover { background: var(--surface-3); }
 .tool-link-icon {
+  position: relative;
+  overflow: hidden;
   flex: 0 0 26px;
   height: 26px;
   display: inline-flex;
@@ -7261,6 +7263,15 @@ tfoot td {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+/* The favicon covers the letter; if it fails to load it is removed. */
+.tool-link-icon img {
+  position: absolute;
+  inset: 3px;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  background: var(--surface-3);
 }
 .tool-link-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-link-remove {
@@ -7283,8 +7294,6 @@ tfoot td {
   padding: 8px;
   border-top: 1px solid var(--border-strong);
 }
-.tool-links-form-row { display: flex; gap: 6px; }
-.tool-links-form-row input[name="icon"] { flex: 0 0 58px; text-align: center; }
 .tool-links-form .form-control { height: 32px; font-size: 12.5px; }
 
 /* ── Evaluation: total percentage per criteria ──────────────────────────── */

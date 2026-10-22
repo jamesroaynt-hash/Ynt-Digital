@@ -6749,9 +6749,16 @@ async function refreshToolLinksTopbar({ force = false } = {}) {
   if (menu && !menu.hidden) renderToolLinksMenu();
 }
 
+// The icon is generated: the site's own favicon, or the name's first letter
+// when the site has none (the img removes itself and the letter shows).
 function toolLinkIcon(link) {
-  const icon = String(link.icon || '').trim();
-  return escapeHtml(icon || String(link.name || '?').trim().charAt(0).toUpperCase());
+  const letter = escapeHtml(String(link.name || '?').trim().charAt(0).toUpperCase());
+  let host = '';
+  try { host = new URL(link.url).hostname; } catch { host = ''; }
+  const favicon = host
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" loading="lazy" onerror="this.remove()">`
+    : '';
+  return `${letter}${favicon}`;
 }
 
 function renderToolLinksMenu() {
@@ -6771,10 +6778,7 @@ function renderToolLinksMenu() {
     ${items || '<div class="tool-links-empty">No links yet.</div>'}
     ${admin ? `
       <form class="tool-links-form" onsubmit="addToolLink(event)">
-        <div class="tool-links-form-row">
-          <input class="form-control" name="icon" maxlength="8" placeholder="Icon" title="Optional: an emoji or a letter">
-          <input class="form-control" name="name" maxlength="80" placeholder="Name" required>
-        </div>
+        <input class="form-control" name="name" maxlength="80" placeholder="Name" required>
         <input class="form-control" name="url" maxlength="2000" placeholder="https://site.com" required>
         <button class="btn btn-primary btn-sm" type="submit">Add link</button>
       </form>` : ''}`;
@@ -6809,7 +6813,6 @@ async function addToolLink(event) {
   // form.elements, not form.name: that is the form's own name attribute.
   const fields = event.target.elements;
   const body = {
-    icon: fields.namedItem('icon').value,
     name: fields.namedItem('name').value,
     url: fields.namedItem('url').value,
     sort_order: _toolLinks.length,
