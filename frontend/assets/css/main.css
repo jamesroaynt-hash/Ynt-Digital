@@ -7178,10 +7178,11 @@ tfoot td {
 .topbar-eval-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
   position: relative;
+  width: 34px;
   height: 34px;
-  padding: 0 12px;
+  padding: 0;
   font-family: inherit;
   font-size: 12.5px;
   font-weight: 500;
@@ -7208,7 +7209,6 @@ tfoot td {
   background: var(--danger);
   border: 2px solid var(--surface);
 }
-@media (max-width: 720px) { .topbar-eval-btn span { display: none; } }
 
 /* ── Evaluation: total percentage per criteria ──────────────────────────── */
 .eval-weight-grid {
