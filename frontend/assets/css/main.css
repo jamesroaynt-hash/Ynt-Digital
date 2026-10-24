@@ -8155,6 +8155,10 @@ tfoot td {
 .perf-group td { background: var(--surface-2); font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
 .perf-kpi-table tr.perf-person-start td { border-top: 2px solid var(--border); }
 .perf-actual { width: 110px; padding-top: 4px; padding-bottom: 4px; }
+.perf-actual.perf-hit { border-color: var(--success); }
+.perf-actual.perf-miss { border-color: var(--warning); }
+.perf-date-nav { display: flex; align-items: center; gap: 6px; }
+.perf-date-nav .form-control { width: auto; }
 .perf-h { margin: 20px 0 10px; font-size: 14px; color: var(--text-primary); }
 .perf-item-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .perf-item-row .form-control { width: auto; }

@@ -7,7 +7,10 @@
 //     person's own extra KPI (user_id set).
 //   kpi_user_overrides — per-person tweak of a department KPI: hide it or give
 //     that person a different target.
-//   kpi_results — the actual number HR enters per person, KPI and period.
+//   kpi_results — the actual number HR enters per person, KPI and month.
+//   kpi_daily — for a "daily" KPI (e.g. CSR total orders): HR's number per
+//     person per day; the month's actual is their sum, and the monthly target
+//     is split over the person's scheduled days to give a daily target.
 // Kept in its own file like the other module schemas; idempotent on SQLite and
 // Postgres.
 
@@ -63,12 +66,29 @@ function performanceStatements(db) {
       UNIQUE (period, user_id, item_id)
     )`,
     'CREATE INDEX IF NOT EXISTS idx_kpi_results_period ON kpi_results(period, user_id)',
+    `CREATE TABLE IF NOT EXISTS kpi_daily (
+      id ${id},
+      work_date TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      item_id INTEGER NOT NULL,
+      value ${real},
+      updated_by INTEGER,
+      updated_at ${ts},
+      UNIQUE (work_date, user_id, item_id)
+    )`,
   ];
 }
 
 async function ensurePerformanceSchema(db) {
   for (const sql of performanceStatements(db)) {
     await db.exec(sql);
+  }
+  // entry: 'monthly' (one number a month) or 'daily' (summed from kpi_daily).
+  if (db.type === 'postgres') {
+    await db.exec("ALTER TABLE kpi_items ADD COLUMN IF NOT EXISTS entry TEXT NOT NULL DEFAULT 'monthly'");
+  } else {
+    const columns = await db.prepare('PRAGMA table_info(kpi_items)').all();
+    if (!columns.some((c) => c.name === 'entry')) await db.exec("ALTER TABLE kpi_items ADD COLUMN entry TEXT NOT NULL DEFAULT 'monthly'");
   }
 }
 

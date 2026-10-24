@@ -5,7 +5,9 @@
        Self-Care and WAM, worked out from Time & Attendance and the Employee
        Tracker marks, per 15-day half or whole month.
      KPI (Category 3) — each department's KPI template with per-person
-       tweaks; HR types in each person's actual number per month.
+       tweaks; HR types in each person's actual number per month, or for a
+       daily KPI (CSR total orders) a number every day on Daily Entry — the
+       month adds those up against the target, split into a daily target.
    Backed by /api/performance. HR, Operation and the super admin only.
    Loaded before app.js; it leans on app.js globals (escapeHtml,
    authorizedJsonRequest, showToast, manilaToday, DEPARTMENT_ORDER) read at
@@ -24,6 +26,7 @@ const perfState = {
   tab: 'compliance',
   compliancePeriod: '',
   kpiMonth: '',
+  dailyDate: '',
   setupDepartment: '',
   setup: null,
 };
@@ -44,6 +47,7 @@ async function initPerformancePage() {
   const today = manilaToday();
   if (!perfState.compliancePeriod) perfState.compliancePeriod = `${today.slice(0, 7)}-H${Number(today.slice(8, 10)) <= 15 ? 1 : 2}`;
   if (!perfState.kpiMonth) perfState.kpiMonth = today.slice(0, 7);
+  if (!perfState.dailyDate) perfState.dailyDate = today;
   renderPerfTabs();
   await perfLoadTab();
 }
@@ -51,7 +55,7 @@ async function initPerformancePage() {
 function renderPerfTabs() {
   const wrap = document.getElementById('perf-tabs');
   if (!wrap) return;
-  const tabs = [['compliance', 'Compliance'], ['kpi', 'KPI'], ['setup', 'KPI Setup']];
+  const tabs = [['compliance', 'Compliance'], ['kpi', 'KPI'], ['daily', 'Daily Entry'], ['setup', 'KPI Setup']];
   wrap.innerHTML = tabs.map(([id, label]) =>
     `<button class="filter-pill ${perfState.tab === id ? 'active' : ''}" type="button" onclick="perfSetTab('${id}')">${label}</button>`).join('');
 }
@@ -64,6 +68,7 @@ function perfSetTab(tab) {
 
 function perfLoadTab() {
   if (perfState.tab === 'kpi') return perfLoadKpi();
+  if (perfState.tab === 'daily') return perfLoadDaily();
   if (perfState.tab === 'setup') return perfLoadSetup();
   return perfLoadCompliance();
 }
@@ -169,7 +174,7 @@ async function perfLoadKpi() {
       <div class="card-header">
         <div>
           <div class="card-title">KPI · Category 3</div>
-          <div class="card-subtitle">Type each person's actual number for the month; it saves when you leave the box. Reaching the target = 100% (capped). "Lower is better" KPIs score 100% at or under target. The total is weighted by each KPI's weight.</div>
+          <div class="card-subtitle">Type each person's actual number for the month; it saves when you leave the box. Daily KPIs add up from Daily Entry. Reaching the target = 100% (capped). "Lower is better" KPIs score 100% at or under target. The total is weighted by each KPI's weight.</div>
         </div>
         <select class="form-control perf-select" onchange="perfState.kpiMonth = this.value; perfLoadKpi();">${options}</select>
       </div>
@@ -181,9 +186,11 @@ async function perfLoadKpi() {
             ${index === 0 ? `<td rowspan="${p.kpis.length}"><strong>${escapeHtml(p.name)}</strong></td>` : ''}
             <td>${escapeHtml(k.label)}${k.personal ? ' <span class="badge badge-gray">personal</span>' : ''}${k.direction === 'lower' ? ' <span class="text-xs text-muted">(lower is better)</span>' : ''}</td>
             <td>${unit(k, k.target)}</td>
-            <td><input class="form-control perf-actual" type="number" step="any" inputmode="decimal" value="${k.actual ?? ''}"
+            <td>${k.entry === 'daily'
+              ? `<strong>${k.actual ?? 0}</strong> <span class="text-xs text-muted" title="Summed from Daily Entry">· ${k.days_entered} day${k.days_entered === 1 ? '' : 's'} entered · ${k.daily_target}/day</span>`
+              : `<input class="form-control perf-actual" type="number" step="any" inputmode="decimal" value="${k.actual ?? ''}"
               aria-label="${escapeHtml(`${p.name} — ${k.label} actual`)}"
-              onchange="perfSaveActual(${Number(p.id)}, ${Number(k.item_id)}, this.value)"></td>
+              onchange="perfSaveActual(${Number(p.id)}, ${Number(k.item_id)}, this.value)">`}</td>
             <td>${perfScoreBadge(k.score)}</td>
             ${index === 0 ? `<td rowspan="${p.kpis.length}">${perfScoreBadge(p.total)}</td>` : ''}
           </tr>`).join('')).join('')}
@@ -200,6 +207,72 @@ async function perfSaveActual(userId, itemId, value) {
       body: JSON.stringify({ period: perfState.kpiMonth, user_id: userId, item_id: itemId, actual: value === '' ? null : Number(value) }),
     });
     perfLoadKpi();
+  } catch (error) {
+    showToast('error', 'Not saved', error.message);
+  }
+}
+
+// ─── Daily Entry (daily KPIs, e.g. CSR total orders) ─────────
+async function perfLoadDaily() {
+  let data;
+  try {
+    data = await authorizedJsonRequest(`/performance/kpi/daily?date=${encodeURIComponent(perfState.dailyDate)}`);
+  } catch (error) {
+    perfError(error);
+    return;
+  }
+  if (perfState.tab !== 'daily') return;
+  const groups = perfGroupByDepartment(data.rows || []);
+  const label = new Date(`${data.date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  perfBody(`
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Daily Entry · ${escapeHtml(label)}</div>
+          <div class="card-subtitle">Type each person's number for the day (e.g. total orders); it saves when you leave the box. Daily target = monthly target ÷ the person's scheduled days this month.</div>
+        </div>
+        <div class="perf-date-nav">
+          <button class="et-nav" type="button" onclick="perfShiftDaily(-1)" aria-label="Previous day">←</button>
+          <input class="form-control" type="date" value="${data.date}" onchange="if (this.value) { perfState.dailyDate = this.value; perfLoadDaily(); }">
+          <button class="et-nav" type="button" onclick="perfShiftDaily(1)" aria-label="Next day">→</button>
+        </div>
+      </div>
+      ${groups.length ? `<div class="table-container"><table class="perf-kpi-table">
+        <thead><tr><th>Employee</th><th>KPI</th><th>Daily target</th><th>This day</th><th>Month so far</th></tr></thead>
+        ${groups.map(([department, people]) => `<tbody>
+          <tr class="perf-group"><td colspan="5">${escapeHtml(department)}</td></tr>
+          ${people.map((p) => p.kpis.map((k, index) => {
+            const hit = k.value === null ? '' : (k.direction === 'lower' ? k.value <= k.daily_target : k.value >= k.daily_target) ? 'perf-hit' : 'perf-miss';
+            return `<tr${index === 0 ? ' class="perf-person-start"' : ''}>
+            ${index === 0 ? `<td rowspan="${p.kpis.length}"><strong>${escapeHtml(p.name)}</strong></td>` : ''}
+            <td>${escapeHtml(k.label)}</td>
+            <td>${k.daily_target}${k.unit ? ` ${escapeHtml(k.unit)}` : ''}</td>
+            <td><input class="form-control perf-actual ${hit}" type="number" step="any" inputmode="decimal" value="${k.value ?? ''}"
+              aria-label="${escapeHtml(`${p.name} — ${k.label} on ${data.date}`)}"
+              onchange="perfSaveDaily(${Number(p.id)}, ${Number(k.item_id)}, this.value)"></td>
+            <td>${k.month_total} / ${k.target}${k.unit ? ` ${escapeHtml(k.unit)}` : ''} <span class="text-xs text-muted">· ${k.days_entered} of ${k.work_days} days</span></td>
+          </tr>`;
+          }).join('')).join('')}
+        </tbody>`).join('')}
+      </table></div>` : `<div class="empty-state"><h3>No daily KPIs yet</h3><p>On KPI Setup, add a KPI (e.g. CSR "Total orders") and set it to <strong>Daily entry</strong>.</p>
+        <button class="btn btn-primary btn-sm" onclick="perfSetTab('setup')">Open KPI Setup</button></div>`}
+    </div>`);
+}
+
+function perfShiftDaily(direction) {
+  const date = new Date(`${perfState.dailyDate}T00:00:00`);
+  date.setDate(date.getDate() + direction);
+  perfState.dailyDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  perfLoadDaily();
+}
+
+async function perfSaveDaily(userId, itemId, value) {
+  try {
+    await authorizedJsonRequest('/performance/kpi/daily', {
+      method: 'PUT',
+      body: JSON.stringify({ date: perfState.dailyDate, user_id: userId, item_id: itemId, value: value === '' ? null : Number(value) }),
+    });
+    perfLoadDaily();
   } catch (error) {
     showToast('error', 'Not saved', error.message);
   }
@@ -228,12 +301,16 @@ function perfItemFields(prefix, item = {}) {
       <option value="higher" ${item.direction !== 'lower' ? 'selected' : ''}>Higher is better</option>
       <option value="lower" ${item.direction === 'lower' ? 'selected' : ''}>Lower is better</option>
     </select>
-    <input class="form-control perf-f-num" id="${prefix}-weight" type="number" step="any" min="0" placeholder="Weight" title="Weight" value="${item.weight ?? 1}">`;
+    <input class="form-control perf-f-num" id="${prefix}-weight" type="number" step="any" min="0" placeholder="Weight" title="Weight" value="${item.weight ?? 1}">
+    <select class="form-control perf-f-dir" id="${prefix}-entry" title="Monthly target; daily entry splits it per day">
+      <option value="monthly" ${item.entry !== 'daily' ? 'selected' : ''}>Monthly number</option>
+      <option value="daily" ${item.entry === 'daily' ? 'selected' : ''}>Daily entry</option>
+    </select>`;
 }
 
 function perfReadItem(prefix) {
   const val = (field) => document.getElementById(`${prefix}-${field}`)?.value ?? '';
-  return { label: val('label').trim(), target: val('target'), unit: val('unit').trim(), direction: val('direction'), weight: val('weight') };
+  return { label: val('label').trim(), target: val('target'), unit: val('unit').trim(), direction: val('direction'), weight: val('weight'), entry: val('entry') };
 }
 
 function renderPerfSetup() {
@@ -249,7 +326,7 @@ function renderPerfSetup() {
     <div class="card">
       <div class="card-header"><div>
         <div class="card-title">KPI Setup</div>
-        <div class="card-subtitle">Each department's KPIs apply to everyone in it. Below, adjust one person: switch a KPI off for them, give them their own target, or add a personal KPI.</div>
+        <div class="card-subtitle">Each department's KPIs apply to everyone in it. The target is monthly; "Daily entry" KPIs (e.g. CSR total orders) are typed in every day on Daily Entry and split the target per day. Below, adjust one person: switch a KPI off for them, give them their own target, or add a personal KPI.</div>
       </div></div>
       <div class="card-body">
         <div class="et-tabs">${pills}</div>
