@@ -8103,7 +8103,7 @@ tfoot td {
 .fu-new-folder[hidden] { display: none; }
 .fu-new-folder .form-control { flex: 1 1 220px; min-width: 0; max-width: 320px; }
 .fu-folder-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.fu-page-field { flex: 1 1 260px; min-width: 0; }
+.fu-page-field { flex: 0 1 280px; min-width: 0; }
 .fu-drop {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   min-height: 180px; padding: 24px 16px; text-align: center; cursor: pointer;

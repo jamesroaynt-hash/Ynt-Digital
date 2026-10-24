@@ -15,6 +15,7 @@ const fuState = {
   status: null,
   folders: [],
   pages: [],
+  folderPages: {},
   category: 'Page Details',
   page: '',
   queue: [],
@@ -42,6 +43,7 @@ async function initFileUploadsPage() {
     fuState.status = status;
     fuApplyFolders(status.folders);
     fuState.pages = Array.isArray(pages?.pages) ? pages.pages : [];
+    fuState.folderPages = pages?.by_folder && typeof pages.by_folder === 'object' ? pages.by_folder : {};
   } catch (error) {
     const body = document.getElementById('fu-body');
     if (body) body.innerHTML = `<div class="card"><div class="empty-state"><h3>Could not load</h3><p>${escapeHtml(error.message || 'error')}</p></div></div>`;
@@ -99,6 +101,7 @@ async function fuReloadFolders() {
   const data = await authorizedJsonRequest('/uploads/folders');
   fuApplyFolders(data?.folders);
   renderFuFolders();
+  renderFuPageOptions();
   fuRefreshHint();
   fuLoadFiles();
 }
@@ -148,6 +151,18 @@ async function fuDeleteFolder(id) {
   }
 }
 
+// The Page dropdown shows the pages already in the chosen folder; a folder
+// with nothing in it yet offers every page so the first upload has choices.
+function fuPageOptions() {
+  const inFolder = fuState.folderPages[fuState.category] || [];
+  return inFolder.length ? inFolder : fuState.pages;
+}
+
+function renderFuPageOptions() {
+  const list = document.getElementById('fu-page-list');
+  if (list) list.innerHTML = fuPageOptions().map((p) => `<option value="${escapeHtml(p)}"></option>`).join('');
+}
+
 function renderFuBody() {
   const body = document.getElementById('fu-body');
   const s = fuState.status;
@@ -162,10 +177,9 @@ function renderFuBody() {
     return;
   }
 
-  const options = fuState.pages.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('');
 
   body.innerHTML = `
-    <div class="card">
+    <div class="card"><div class="card-body">
       <div class="fu-controls">
         <div class="form-group">
           <label class="form-label">Folder</label>
@@ -175,7 +189,7 @@ function renderFuBody() {
           <label class="form-label" for="fu-page">Page</label>
           <input class="form-control" id="fu-page" list="fu-page-list" placeholder="Pick or type a page name"
             value="${escapeHtml(fuState.page)}" oninput="fuSetPage(this.value)" autocomplete="off">
-          <datalist id="fu-page-list">${options}</datalist>
+          <datalist id="fu-page-list"></datalist>
         </div>
       </div>
       <div class="fu-drop" id="fu-drop" tabindex="0" role="button" aria-label="Drop files or click to choose"
@@ -188,12 +202,13 @@ function renderFuBody() {
         <input type="file" id="fu-file" multiple hidden onchange="fuAddFiles(this.files); this.value='';">
       </div>
       <div id="fu-queue"></div>
-    </div>
+    </div></div>
     <div class="card" style="margin-top:20px;">
       <div class="card-header"><div class="card-title" id="fu-files-title">Files</div></div>
       <div id="fu-files"><div class="empty-state"><p>Loading</p></div></div>
     </div>`;
   renderFuFolders();
+  renderFuPageOptions();
   renderFuQueue();
 }
 
@@ -214,7 +229,14 @@ function fuSetFolder(id) {
   const folder = fuState.folders.find((f) => Number(f.id) === Number(id));
   if (!folder) return;
   fuState.category = folder.name;
+  const inFolder = fuState.folderPages[folder.name] || [];
+  if (fuState.page && inFolder.length && !inFolder.includes(fuState.page)) {
+    fuState.page = '';
+    const input = document.getElementById('fu-page');
+    if (input) input.value = '';
+  }
   renderFuFolders();
+  renderFuPageOptions();
   fuRefreshHint();
   fuLoadFiles();
 }
@@ -287,6 +309,8 @@ async function fuRunQueue() {
         item.status = 'done';
         uploaded += 1;
         if (!fuState.pages.includes(item.page)) fuState.pages.push(item.page);
+        const inFolder = (fuState.folderPages[item.category] ||= []);
+        if (!inFolder.includes(item.page)) inFolder.push(item.page);
       } catch (error) {
         item.status = 'error';
         item.error = error.message || 'Upload failed';

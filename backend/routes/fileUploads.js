@@ -137,15 +137,22 @@ function fileUploadsRoutes(db) {
   });
 
   // Page names the dropdown offers: every page POS has orders for, plus any
-  // typed in for an earlier upload.
+  // typed in for an earlier upload. by_folder lists the pages each folder
+  // already holds, so the dropdown can narrow to the chosen folder.
   router.get('/pages', async (req, res) => {
     try {
       const rows = await db.prepare(
         "SELECT DISTINCT page_name FROM pos_orders WHERE page_name IS NOT NULL AND TRIM(page_name) != '' ORDER BY page_name"
       ).all();
-      const used = await db.prepare('SELECT DISTINCT page_name FROM file_uploads').all();
+      const used = await db.prepare('SELECT DISTINCT category, page_name FROM file_uploads').all();
       const names = new Set([...rows, ...used].map((r) => String(r.page_name).trim()).filter(Boolean));
-      res.json({ pages: [...names].sort((a, b) => a.localeCompare(b)) });
+      const byFolder = {};
+      for (const r of used) {
+        const page = String(r.page_name || '').trim();
+        if (page) (byFolder[r.category] ||= []).push(page);
+      }
+      for (const list of Object.values(byFolder)) list.sort((a, b) => a.localeCompare(b));
+      res.json({ pages: [...names].sort((a, b) => a.localeCompare(b)), by_folder: byFolder });
     } catch (error) {
       sendError(res, error);
     }
