@@ -421,7 +421,9 @@ async function fuLoadFiles() {
         <tr>
           <td>${r.link_url
             ? `<a href="${escapeHtml(r.link_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.file_name)}</a>`
-            : `<a href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})">${escapeHtml(r.file_name)}</a>`}</td>
+            : r.thumb_url
+              ? `<a href="#" class="fu-thumb-link" title="${escapeHtml(r.file_name)}" onclick="event.preventDefault(); fuOpen(${Number(r.id)})"><img class="fu-thumb" src="${escapeHtml(r.thumb_url)}" alt="${escapeHtml(r.file_name)}" loading="lazy"></a>`
+              : `<a href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})">${escapeHtml(r.file_name)}</a>`}</td>
           <td>${escapeHtml(r.page_name !== r.category ? r.page_name : '—')}</td>
           <td>${r.link_url ? 'Link' : fuFormatSize(r.size_bytes)}</td>
           <td>${escapeHtml(r.uploaded_by_name || '—')}</td>

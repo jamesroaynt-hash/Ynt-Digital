@@ -74,6 +74,22 @@ async function signedUrl(path, { expiresIn = 600, download = false } = {}) {
   return download ? `${url}&download=` : url;
 }
 
+// Several signed URLs in one request (thumbnails for a whole list). Returns a
+// Map of path → URL; a path Supabase couldn't sign is simply left out.
+async function signedUrls(paths, { expiresIn = 3600 } = {}) {
+  const result = new Map();
+  if (!paths.length) return result;
+  const data = await storageRequest(`${baseUrl()}/storage/v1/object/sign/${BUCKET}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn, paths }),
+  });
+  for (const item of Array.isArray(data) ? data : []) {
+    if (item?.path && item.signedURL) result.set(item.path, `${baseUrl()}/storage/v1${item.signedURL}`);
+  }
+  return result;
+}
+
 async function removeObject(path) {
   return storageRequest(`${baseUrl()}/storage/v1/object/${BUCKET}`, {
     method: 'DELETE',
@@ -82,4 +98,4 @@ async function removeObject(path) {
   });
 }
 
-module.exports = { BUCKET, MAX_FILE_BYTES, configured, uploadObject, signedUrl, removeObject };
+module.exports = { BUCKET, MAX_FILE_BYTES, configured, uploadObject, signedUrl, signedUrls, removeObject };

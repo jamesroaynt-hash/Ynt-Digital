@@ -153,12 +153,25 @@ function fileUploadsRoutes(db) {
       if (page) { where.push('page_name = ?'); params.push(page); }
       const user = await currentUser(req);
       const rows = await db.prepare(`
-        SELECT id, category, page_name, file_name, mime_type, size_bytes, link_url, uploaded_by, uploaded_by_name, created_at
+        SELECT id, category, page_name, file_name, object_path, mime_type, size_bytes, link_url, uploaded_by, uploaded_by_name, created_at
         FROM file_uploads ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY id DESC LIMIT 200
       `).all(...params);
+      // Product Feedback images are shown as pictures, so they get a signed
+      // thumbnail URL; if signing fails the list still loads with names.
+      const thumbPaths = rows
+        .filter((r) => !r.link_url && r.page_name === 'Product Feedback' && String(r.mime_type || '').startsWith('image/'))
+        .map((r) => r.object_path);
+      let thumbs = new Map();
+      if (thumbPaths.length && storage.configured()) {
+        thumbs = await storage.signedUrls(thumbPaths).catch(() => new Map());
+      }
       res.json({
-        rows: rows.map((r) => ({ ...r, can_delete: isManager(user) || Number(r.uploaded_by) === Number(user?.id) })),
+        rows: rows.map(({ object_path: objectPath, ...r }) => ({
+          ...r,
+          thumb_url: thumbs.get(objectPath) || null,
+          can_delete: isManager(user) || Number(r.uploaded_by) === Number(user?.id),
+        })),
       });
     } catch (error) {
       sendError(res, error);
