@@ -136,28 +136,6 @@ function fileUploadsRoutes(db) {
     }
   });
 
-  // Page names the dropdown offers: every page POS has orders for, plus any
-  // typed in for an earlier upload. by_folder lists the pages each folder
-  // already holds, so the dropdown can narrow to the chosen folder.
-  router.get('/pages', async (req, res) => {
-    try {
-      const rows = await db.prepare(
-        "SELECT DISTINCT page_name FROM pos_orders WHERE page_name IS NOT NULL AND TRIM(page_name) != '' ORDER BY page_name"
-      ).all();
-      const used = await db.prepare('SELECT DISTINCT category, page_name FROM file_uploads').all();
-      const names = new Set([...rows, ...used].map((r) => String(r.page_name).trim()).filter(Boolean));
-      const byFolder = {};
-      for (const r of used) {
-        const page = String(r.page_name || '').trim();
-        if (page) (byFolder[r.category] ||= []).push(page);
-      }
-      for (const list of Object.values(byFolder)) list.sort((a, b) => a.localeCompare(b));
-      res.json({ pages: [...names].sort((a, b) => a.localeCompare(b)), by_folder: byFolder });
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
-
   router.get('/', async (req, res) => {
     try {
       const where = [];
@@ -186,17 +164,19 @@ function fileUploadsRoutes(db) {
     try {
       if (!storage.configured()) return res.status(409).json({ error: 'File storage is not set up yet. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server.' });
       const category = text(req.query.category);
-      const pageName = cleanName(req.query.page, 120);
+      // Page is optional now that folders are picked directly; without one the
+      // file sits at the folder's top level and page_name repeats the folder.
+      const pageName = cleanName(req.query.page, 120) || category;
       const fileName = cleanName(decodeURIComponent(String(req.headers['x-file-name'] || '')), 250);
       const mimeType = text(req.headers['x-file-type'], 120) || 'application/octet-stream';
       const folder = category ? await db.prepare('SELECT name FROM file_upload_folders WHERE name = ?').get(category) : null;
       if (!folder) return res.status(400).json({ error: 'Pick a folder' });
-      if (!pageName) return res.status(400).json({ error: 'Pick a page' });
       if (!fileName) return res.status(400).json({ error: 'File name is missing' });
       if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'File is empty' });
 
       // A short random prefix keeps two uploads of "photo.jpg" from colliding.
-      const objectPath = `${keySegment(category)}/${keySegment(pageName)}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}-${keySegment(fileName)}`;
+      const folderKey = pageName === category ? keySegment(category) : `${keySegment(category)}/${keySegment(pageName)}`;
+      const objectPath = `${folderKey}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}-${keySegment(fileName)}`;
       await storage.uploadObject(objectPath, req.body, mimeType);
 
       const user = await currentUser(req);
