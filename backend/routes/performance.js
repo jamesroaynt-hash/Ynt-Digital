@@ -394,6 +394,26 @@ module.exports = function performanceRoutes(db) {
     }).filter((team) => team.members);
   }
 
+  // The KPIs with this month's target where one was set for the month.
+  async function itemsForMonth(month) {
+    const [items, targets] = await Promise.all([
+      activeItems(),
+      db.prepare('SELECT item_id, target FROM kpi_period_targets WHERE period = ?').all(month),
+    ]);
+    const byItem = new Map(targets.map((t) => [Number(t.item_id), Number(t.target)]));
+    return items.map((item) => (byItem.has(item.id) ? { ...item, target: byItem.get(item.id), month_target: true } : item));
+  }
+
+  // The team's daily target: the sum of its members' daily targets.
+  function byPersonDailyTarget(byPerson, itemId, daysFor) {
+    let total = 0;
+    for (const [personId, kpis] of byPerson) {
+      const mine = kpis.find((k) => k.id === itemId);
+      if (mine) total += mine.target / daysFor(personId).days;
+    }
+    return total;
+  }
+
   async function overrideMap() {
     const overrides = await db.prepare('SELECT user_id, item_id, hidden, target FROM kpi_user_overrides').all();
     return new Map(overrides.map((o) => [`${o.user_id}|${o.item_id}`, o]));
@@ -536,7 +556,7 @@ module.exports = function performanceRoutes(db) {
     const period = MONTH_PATTERN.test(String(req.query.period || '')) ? req.query.period : manilaToday().slice(0, 7);
     const [people, items, overrideBy, results, daysFor] = await Promise.all([
       roster(),
-      activeItems(),
+      itemsForMonth(period),
       overrideMap(),
       db.prepare('SELECT user_id, item_id, actual, note FROM kpi_results WHERE period = ?').all(period),
       workDays(period),
@@ -589,7 +609,7 @@ module.exports = function performanceRoutes(db) {
     const month = date.slice(0, 7);
     const [people, items, overrideBy, daysFor, entries, orders] = await Promise.all([
       roster(),
-      activeItems(),
+      itemsForMonth(month),
       overrideMap(),
       workDays(month),
       db.prepare('SELECT user_id, item_id, value FROM kpi_daily WHERE work_date = ?').all(date),
@@ -606,14 +626,20 @@ module.exports = function performanceRoutes(db) {
       const work = daysFor(person.id);
       const kpis = byPerson.get(person.id).map((item) => {
         const sum = sums.get(`${person.id}|${item.id}`);
+        const dailyTarget = item.target / work.days;
+        const value = valueBy.has(`${person.id}|${item.id}`) ? valueBy.get(`${person.id}|${item.id}`) : null;
+        const monthTotal = sum ? sum.total : 0;
         return {
           item_id: item.id, label: item.label, unit: item.unit, direction: item.direction, source: item.source,
           target: item.target,
           team_target: item.team_target,
-          daily_target: Math.round((item.target / work.days) * 100) / 100,
+          daily_target: Math.round(dailyTarget * 100) / 100,
           work_days: work.days,
-          value: valueBy.has(`${person.id}|${item.id}`) ? valueBy.get(`${person.id}|${item.id}`) : null,
-          month_total: sum ? sum.total : 0,
+          value,
+          // Uncapped: over 100% means they beat the day's / month's target.
+          daily_pct: value === null ? null : paceScore(value, dailyTarget, item.direction),
+          month_total: monthTotal,
+          monthly_pct: paceScore(monthTotal, item.target, item.direction),
           days_entered: sum ? sum.days : 0,
         };
       });
@@ -625,9 +651,40 @@ module.exports = function performanceRoutes(db) {
         for (const [personId, kpis] of byPerson) {
           if (kpis.some((k) => k.id === team.item_id)) day += Number(valueBy.get(`${personId}|${team.item_id}`) || 0);
         }
-        return { ...team, day: Math.round(day * 100) / 100 };
+        const dailyTarget = byPersonDailyTarget(byPerson, team.item_id, daysFor);
+        return {
+          ...team,
+          day: Math.round(day * 100) / 100,
+          daily_target: Math.round(dailyTarget * 100) / 100,
+          daily_pct: paceScore(day, dailyTarget, team.direction),
+          monthly_pct: paceScore(team.total, team.target, team.direction),
+        };
       });
-    res.json({ date, month, rows, teams });
+    // Every daily KPI with its month target, so the KPI tab can set it even
+    // before anyone is in the department.
+    const targets = dailyItems.filter((item) => !item.user_id).map((item) => ({
+      item_id: item.id, department: item.department, label: item.label, unit: item.unit,
+      target: item.target, split: item.split, month_target: !!item.month_target,
+      members: [...byPerson.values()].filter((kpis) => kpis.some((k) => k.id === item.id)).length,
+    }));
+    res.json({ date, month, rows, teams, targets });
+  }));
+
+  // Sets (or with a blank target clears) a KPI's target for one month.
+  router.put('/kpi/period-target', wrap(async (req, res) => {
+    const itemId = Number(req.body?.item_id);
+    const period = String(req.body?.period || '');
+    if (!itemId || !MONTH_PATTERN.test(period)) return res.status(400).json({ error: 'item_id and period (YYYY-MM) are required' });
+    const target = num(req.body?.target);
+    if (target === null) {
+      await db.prepare('DELETE FROM kpi_period_targets WHERE item_id = ? AND period = ?').run(itemId, period);
+    } else {
+      await db.prepare(`
+        INSERT INTO kpi_period_targets (item_id, period, target, updated_by) VALUES (?, ?, ?, ?)
+        ON CONFLICT (item_id, period) DO UPDATE SET target = excluded.target, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP
+      `).run(itemId, period, target, req.currentUser.id);
+    }
+    res.json({ ok: true });
   }));
 
   router.put('/kpi/daily', wrap(async (req, res) => {
