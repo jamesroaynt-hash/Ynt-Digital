@@ -84,11 +84,15 @@ async function ensurePerformanceSchema(db) {
     await db.exec(sql);
   }
   // entry: 'monthly' (one number a month) or 'daily' (summed from kpi_daily).
+  // split: 1 = the target is the whole department's, shared out per person.
+  const added = [['entry', "TEXT NOT NULL DEFAULT 'monthly'"], ['split', 'INTEGER NOT NULL DEFAULT 0']];
   if (db.type === 'postgres') {
-    await db.exec("ALTER TABLE kpi_items ADD COLUMN IF NOT EXISTS entry TEXT NOT NULL DEFAULT 'monthly'");
+    for (const [name, definition] of added) await db.exec(`ALTER TABLE kpi_items ADD COLUMN IF NOT EXISTS ${name} ${definition}`);
   } else {
     const columns = await db.prepare('PRAGMA table_info(kpi_items)').all();
-    if (!columns.some((c) => c.name === 'entry')) await db.exec("ALTER TABLE kpi_items ADD COLUMN entry TEXT NOT NULL DEFAULT 'monthly'");
+    for (const [name, definition] of added) {
+      if (!columns.some((c) => c.name === name)) await db.exec(`ALTER TABLE kpi_items ADD COLUMN ${name} ${definition}`);
+    }
   }
 }
 

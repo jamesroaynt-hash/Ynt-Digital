@@ -8158,6 +8158,7 @@ tfoot td {
 .perf-actual.perf-hit { border-color: var(--success); }
 .perf-actual.perf-miss { border-color: var(--warning); }
 .perf-date-nav { display: flex; align-items: center; gap: 6px; }
+.perf-team { margin-left: 14px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-primary); }
 .perf-date-nav .form-control { width: auto; }
 .perf-h { margin: 20px 0 10px; font-size: 14px; color: var(--text-primary); }
 .perf-item-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }

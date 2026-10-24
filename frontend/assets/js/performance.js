@@ -114,6 +114,14 @@ function perfGroupByDepartment(rows) {
   return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
+// Department header line for whole-department KPIs: team sum vs team target.
+function perfTeamLine(teams, department, { day = false } = {}) {
+  const mine = (teams || []).filter((t) => t.department === department);
+  if (!mine.length) return '';
+  return mine.map((t) => `<span class="perf-team">${escapeHtml(t.label)}: <strong>${t.total}</strong> / ${t.target}${t.unit ? ` ${escapeHtml(t.unit)}` : ''}
+    ${day ? ` · today ${t.day}` : ''} ${perfScoreBadge(t.score)}</span>`).join('');
+}
+
 // ─── Compliance (Category 2) ────────────────────────────────
 async function perfLoadCompliance() {
   let data;
@@ -181,11 +189,11 @@ async function perfLoadKpi() {
       ${groups.length ? `<div class="table-container"><table class="perf-kpi-table">
         <thead><tr><th>Employee</th><th>KPI</th><th>Target</th><th>Actual</th><th>Score</th><th>Total</th></tr></thead>
         ${groups.map(([department, people]) => `<tbody>
-          <tr class="perf-group"><td colspan="6">${escapeHtml(department)}</td></tr>
+          <tr class="perf-group"><td colspan="6">${escapeHtml(department)} ${perfTeamLine(data.teams, department)}</td></tr>
           ${people.map((p) => p.kpis.map((k, index) => `<tr${index === 0 ? ' class="perf-person-start"' : ''}>
             ${index === 0 ? `<td rowspan="${p.kpis.length}"><strong>${escapeHtml(p.name)}</strong></td>` : ''}
             <td>${escapeHtml(k.label)}${k.personal ? ' <span class="badge badge-gray">personal</span>' : ''}${k.direction === 'lower' ? ' <span class="text-xs text-muted">(lower is better)</span>' : ''}</td>
-            <td>${unit(k, k.target)}</td>
+            <td>${unit(k, k.target)}${k.team_target != null ? ` <span class="text-xs text-muted">of ${k.team_target}</span>` : ''}</td>
             <td>${k.entry === 'daily'
               ? `<strong>${k.actual ?? 0}</strong> <span class="text-xs text-muted" title="Summed from Daily Entry">· ${k.days_entered} day${k.days_entered === 1 ? '' : 's'} entered · ${k.daily_target}/day</span>`
               : `<input class="form-control perf-actual" type="number" step="any" inputmode="decimal" value="${k.actual ?? ''}"
@@ -240,7 +248,7 @@ async function perfLoadDaily() {
       ${groups.length ? `<div class="table-container"><table class="perf-kpi-table">
         <thead><tr><th>Employee</th><th>KPI</th><th>Daily target</th><th>This day</th><th>Month so far</th></tr></thead>
         ${groups.map(([department, people]) => `<tbody>
-          <tr class="perf-group"><td colspan="5">${escapeHtml(department)}</td></tr>
+          <tr class="perf-group"><td colspan="5">${escapeHtml(department)} ${perfTeamLine(data.teams, department, { day: true })}</td></tr>
           ${people.map((p) => p.kpis.map((k, index) => {
             const hit = k.value === null ? '' : (k.direction === 'lower' ? k.value <= k.daily_target : k.value >= k.daily_target) ? 'perf-hit' : 'perf-miss';
             return `<tr${index === 0 ? ' class="perf-person-start"' : ''}>
@@ -302,6 +310,10 @@ function perfItemFields(prefix, item = {}) {
       <option value="lower" ${item.direction === 'lower' ? 'selected' : ''}>Lower is better</option>
     </select>
     <input class="form-control perf-f-num" id="${prefix}-weight" type="number" step="any" min="0" placeholder="Weight" title="Weight" value="${item.weight ?? 1}">
+    ${prefix.startsWith('perf-new-') || item.user_id ? '' : `<select class="form-control perf-f-dir" id="${prefix}-split" title="Whose target is it?">
+      <option value="each" ${item.split ? '' : 'selected'}>Target per person</option>
+      <option value="team" ${item.split ? 'selected' : ''}>Whole-department target (split)</option>
+    </select>`}
     <select class="form-control perf-f-dir" id="${prefix}-entry" title="Monthly target; daily entry splits it per day">
       <option value="monthly" ${item.entry !== 'daily' ? 'selected' : ''}>Monthly number</option>
       <option value="daily" ${item.entry === 'daily' ? 'selected' : ''}>Daily entry</option>
@@ -310,7 +322,7 @@ function perfItemFields(prefix, item = {}) {
 
 function perfReadItem(prefix) {
   const val = (field) => document.getElementById(`${prefix}-${field}`)?.value ?? '';
-  return { label: val('label').trim(), target: val('target'), unit: val('unit').trim(), direction: val('direction'), weight: val('weight'), entry: val('entry') };
+  return { label: val('label').trim(), target: val('target'), unit: val('unit').trim(), direction: val('direction'), weight: val('weight'), entry: val('entry'), split: val('split') };
 }
 
 function renderPerfSetup() {
@@ -326,7 +338,7 @@ function renderPerfSetup() {
     <div class="card">
       <div class="card-header"><div>
         <div class="card-title">KPI Setup</div>
-        <div class="card-subtitle">Each department's KPIs apply to everyone in it. The target is monthly; "Daily entry" KPIs (e.g. CSR total orders) are typed in every day on Daily Entry and split the target per day. Below, adjust one person: switch a KPI off for them, give them their own target, or add a personal KPI.</div>
+        <div class="card-subtitle">Each department's KPIs apply to everyone in it. The target is monthly. "Whole-department target" shares it out over the people in the department (e.g. CSR's monthly orders ÷ the CSRs). "Daily entry" KPIs are typed in every day on Daily Entry, with each person's share split per scheduled day. Below, adjust one person: switch a KPI off for them, give them their own target, or add a personal KPI.</div>
       </div></div>
       <div class="card-body">
         <div class="et-tabs">${pills}</div>

@@ -7,9 +7,11 @@ const express = require('express');
 //   KPI (Category 3): department KPI templates with per-person tweaks; HR
 //     enters each person's actual number per month (ad budget and ROAS run
 //     monthly). A ratio such as ROAS is just a KPI with its target, e.g. 3.
-//     A "daily" KPI (CSR total orders) is typed in by HR every day; its month
-//     actual is the sum, and the monthly target ÷ the person's scheduled days
-//     is their daily target.
+//     A department KPI can be the whole team's target (split): e.g. CSR's
+//     monthly orders target is shared out over the CSRs. A "daily" KPI (CSR
+//     total orders) is typed in by HR every day; its month actual is the sum,
+//     and the person's monthly share ÷ their scheduled days is their daily
+//     target.
 // HR's, Operation's and the super admin's alone — the same gate as the rest of
 // HR (routes/hr.js, routes/hrRecords.js).
 const HR_MANAGER_ROLES = new Set(['hr', 'operation', 'operations']);
@@ -319,20 +321,51 @@ module.exports = function performanceRoutes(db) {
       weight: Number(r.weight) || 0,
       position: Number(r.position) || 0,
       entry: r.entry === 'daily' ? 'daily' : 'monthly',
+      split: Number(r.split) === 1 && !r.user_id,
     }));
   }
 
-  // A person's KPIs: their department's (minus hidden, with their own target
-  // if set) plus their personal ones.
-  function personKpis(person, items, overrideBy) {
-    const out = [];
+  // Every person's KPIs with the target that applies to them: their
+  // department's (minus hidden, their own target if set) plus their personal
+  // ones. A split (whole-department) target is shared out: what's left after
+  // the people with their own target, divided evenly over everyone else.
+  function resolveKpis(people, items, overrideBy) {
+    const byPerson = new Map(people.map((p) => [p.id, []]));
     for (const item of items) {
-      if (item.user_id ? item.user_id !== person.id : item.department !== person.department) continue;
-      const override = overrideBy.get(`${person.id}|${item.id}`);
-      if (override && Number(override.hidden) === 1) continue;
-      out.push({ ...item, target: override?.target != null ? Number(override.target) : item.target });
+      const members = people.filter((p) => {
+        if (item.user_id ? item.user_id !== p.id : item.department !== p.department) return false;
+        return Number(overrideBy.get(`${p.id}|${item.id}`)?.hidden) !== 1;
+      });
+      const own = (p) => overrideBy.get(`${p.id}|${item.id}`)?.target;
+      let share = item.target;
+      if (item.split) {
+        const fixed = members.filter((p) => own(p) != null);
+        const rest = members.length - fixed.length;
+        const left = Math.max(0, item.target - fixed.reduce((sum, p) => sum + Number(own(p)), 0));
+        share = rest ? Math.round((left / rest) * 100) / 100 : 0;
+      }
+      for (const p of members) {
+        byPerson.get(p.id).push({ ...item, team_target: item.split ? item.target : null, target: own(p) != null ? Number(own(p)) : share });
+      }
     }
-    return out;
+    return byPerson;
+  }
+
+  // Team lines for split KPIs: the department's target against everyone's sum.
+  function teamTotals(items, byPerson, actualOf) {
+    return items.filter((item) => item.split).map((item) => {
+      let total = 0;
+      let members = 0;
+      for (const [personId, kpis] of byPerson) {
+        if (!kpis.some((k) => k.id === item.id)) continue;
+        members += 1;
+        total += Number(actualOf(personId, item) || 0);
+      }
+      return {
+        department: item.department, item_id: item.id, label: item.label, unit: item.unit, direction: item.direction,
+        target: item.target, total: Math.round(total * 100) / 100, members, score: kpiScore(total, item.target, item.direction),
+      };
+    }).filter((team) => team.members);
   }
 
   async function overrideMap() {
@@ -384,6 +417,7 @@ module.exports = function performanceRoutes(db) {
       direction: body.direction === 'lower' ? 'lower' : 'higher',
       weight: Math.max(0, num(body.weight) ?? 1),
       entry: body.entry === 'daily' ? 'daily' : 'monthly',
+      split: body.split === true || body.split === 1 || body.split === '1' || body.split === 'team' ? 1 : 0,
     };
   }
 
@@ -396,9 +430,10 @@ module.exports = function performanceRoutes(db) {
     if (!department === !userId) return res.status(400).json({ error: 'Pick a department or a person' });
     const max = await db.prepare('SELECT COALESCE(MAX(position), 0) AS p FROM kpi_items').get();
     const result = await db.prepare(`
-      INSERT INTO kpi_items (department, user_id, label, unit, target, direction, weight, entry, position)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(userId ? null : department, userId, item.label, item.unit, item.target, item.direction, item.weight, item.entry, Number(max?.p || 0) + 1);
+      INSERT INTO kpi_items (department, user_id, label, unit, target, direction, weight, entry, split, position)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId ? null : department, userId, item.label, item.unit, item.target, item.direction, item.weight, item.entry,
+      userId ? 0 : item.split, Number(max?.p || 0) + 1);
     res.status(201).json({ id: Number(result.lastInsertRowid) || null });
   }));
 
@@ -406,8 +441,10 @@ module.exports = function performanceRoutes(db) {
     const item = cleanItem(req.body || {});
     if (!item.label) return res.status(400).json({ error: 'KPI name is required' });
     const result = await db.prepare(`
-      UPDATE kpi_items SET label = ?, unit = ?, target = ?, direction = ?, weight = ?, entry = ? WHERE id = ? AND is_active = 1
-    `).run(item.label, item.unit, item.target, item.direction, item.weight, item.entry, Number(req.params.id));
+      UPDATE kpi_items SET label = ?, unit = ?, target = ?, direction = ?, weight = ?, entry = ?,
+        split = CASE WHEN user_id IS NULL THEN ? ELSE 0 END
+      WHERE id = ? AND is_active = 1
+    `).run(item.label, item.unit, item.target, item.direction, item.weight, item.entry, item.split, Number(req.params.id));
     if (!Number(result?.changes)) return res.status(404).json({ error: 'KPI not found' });
     res.json({ ok: true });
   }));
@@ -450,15 +487,20 @@ module.exports = function performanceRoutes(db) {
       workDays(period),
     ]);
     const resultBy = new Map(results.map((r) => [`${r.user_id}|${r.item_id}`, r]));
+    const byPerson = resolveKpis(people, items, overrideBy);
+    const actualOf = (personId, item) => (item.entry === 'daily'
+      ? sums.get(`${personId}|${item.id}`)?.total ?? null
+      : (resultBy.get(`${personId}|${item.id}`)?.actual == null ? null : Number(resultBy.get(`${personId}|${item.id}`).actual)));
     const rows = people.map((person) => {
-      const kpis = personKpis(person, items, overrideBy).map((item) => {
+      const kpis = byPerson.get(person.id).map((item) => {
         const result = resultBy.get(`${person.id}|${item.id}`);
         const daily = item.entry === 'daily' ? sums.get(`${person.id}|${item.id}`) : null;
         const actual = item.entry === 'daily' ? (daily ? daily.total : null) : (result?.actual == null ? null : Number(result.actual));
         const work = daysFor(person.id);
         return {
           item_id: item.id, label: item.label, unit: item.unit, direction: item.direction, weight: item.weight, entry: item.entry,
-          personal: !!item.user_id, target: item.target, actual, note: result?.note || '', score: kpiScore(actual, item.target, item.direction),
+          personal: !!item.user_id, target: item.target, team_target: item.team_target, actual, note: result?.note || '',
+          score: kpiScore(actual, item.target, item.direction),
           ...(item.entry === 'daily' ? {
             daily_target: Math.round((item.target / work.days) * 100) / 100,
             work_days: work.days,
@@ -471,7 +513,7 @@ module.exports = function performanceRoutes(db) {
       const total = weightSum ? Math.round((scored.reduce((sum, k) => sum + k.score * k.weight, 0) / weightSum) * 10) / 10 : null;
       return { ...person, kpis, total };
     });
-    res.json({ period, ...periodRange(period), rows });
+    res.json({ period, ...periodRange(period), rows, teams: teamTotals(items, byPerson, actualOf) });
   }));
 
   // HR's daily screen: everyone with a daily KPI, that day's number, their
@@ -488,13 +530,16 @@ module.exports = function performanceRoutes(db) {
       db.prepare('SELECT user_id, item_id, value FROM kpi_daily WHERE work_date = ?').all(date),
     ]);
     const valueBy = new Map(entries.map((e) => [`${e.user_id}|${e.item_id}`, e.value == null ? null : Number(e.value)]));
+    const dailyItems = items.filter((item) => item.entry === 'daily');
+    const byPerson = resolveKpis(people, dailyItems, overrideBy);
     const rows = people.map((person) => {
       const work = daysFor(person.id);
-      const kpis = personKpis(person, items, overrideBy).filter((item) => item.entry === 'daily').map((item) => {
+      const kpis = byPerson.get(person.id).map((item) => {
         const sum = sums.get(`${person.id}|${item.id}`);
         return {
           item_id: item.id, label: item.label, unit: item.unit, direction: item.direction,
           target: item.target,
+          team_target: item.team_target,
           daily_target: Math.round((item.target / work.days) * 100) / 100,
           work_days: work.days,
           value: valueBy.has(`${person.id}|${item.id}`) ? valueBy.get(`${person.id}|${item.id}`) : null,
@@ -504,7 +549,15 @@ module.exports = function performanceRoutes(db) {
       });
       return { ...person, kpis };
     }).filter((person) => person.kpis.length);
-    res.json({ date, month, rows });
+    const teams = teamTotals(dailyItems, byPerson, (personId, item) => sums.get(`${personId}|${item.id}`)?.total ?? 0)
+      .map((team) => {
+        let day = 0;
+        for (const [personId, kpis] of byPerson) {
+          if (kpis.some((k) => k.id === team.item_id)) day += Number(valueBy.get(`${personId}|${team.item_id}`) || 0);
+        }
+        return { ...team, day: Math.round(day * 100) / 100 };
+      });
+    res.json({ date, month, rows, teams });
   }));
 
   router.put('/kpi/daily', wrap(async (req, res) => {
