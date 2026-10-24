@@ -3,11 +3,15 @@ const crypto = require('crypto');
 const storage = require('../services/supabaseStorage');
 
 // File Uploads: drag files onto the dashboard and they're stored in Supabase
-// Storage, one folder per page under each user-made folder (category):
-//   Page Details/<page>/…   Customer Feedbacks/<page>/…   <any new folder>/<page>/…
+// Storage under a user-made folder (category), split into two sections kept
+// in page_name:
+//   <folder>/Product Info/…   <folder>/Product Feedback/…
+// (files from before sections sit under an older page name or the folder top.)
 // Every signed-in user may upload, view and create a folder; a file is deleted
 // by whoever uploaded it, an Administrator or the super admin, and a folder is
 // renamed or deleted (only while empty) by its creator or those same managers.
+
+const SECTIONS = ['Product Info', 'Product Feedback'];
 
 function text(value, max = 200) {
   const raw = String(value ?? '').trim();
@@ -65,6 +69,7 @@ function fileUploadsRoutes(db) {
       res.json({
         configured: storage.configured(),
         categories: folders.map((f) => f.name),
+        sections: SECTIONS,
         folders,
         max_file_mb: storage.MAX_FILE_BYTES / 1024 / 1024,
       });
@@ -164,26 +169,24 @@ function fileUploadsRoutes(db) {
     try {
       if (!storage.configured()) return res.status(409).json({ error: 'File storage is not set up yet. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server.' });
       const category = text(req.query.category);
-      // Page is optional now that folders are picked directly; without one the
-      // file sits at the folder's top level and page_name repeats the folder.
-      const pageName = cleanName(req.query.page, 120) || category;
+      const section = text(req.query.section);
       const fileName = cleanName(decodeURIComponent(String(req.headers['x-file-name'] || '')), 250);
       const mimeType = text(req.headers['x-file-type'], 120) || 'application/octet-stream';
       const folder = category ? await db.prepare('SELECT name FROM file_upload_folders WHERE name = ?').get(category) : null;
       if (!folder) return res.status(400).json({ error: 'Pick a folder' });
+      if (!SECTIONS.includes(section)) return res.status(400).json({ error: 'Pick Product Info or Product Feedback' });
       if (!fileName) return res.status(400).json({ error: 'File name is missing' });
       if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'File is empty' });
 
       // A short random prefix keeps two uploads of "photo.jpg" from colliding.
-      const folderKey = pageName === category ? keySegment(category) : `${keySegment(category)}/${keySegment(pageName)}`;
-      const objectPath = `${folderKey}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}-${keySegment(fileName)}`;
+      const objectPath = `${keySegment(category)}/${keySegment(section)}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}-${keySegment(fileName)}`;
       await storage.uploadObject(objectPath, req.body, mimeType);
 
       const user = await currentUser(req);
       const result = await db.prepare(`
         INSERT INTO file_uploads (category, page_name, file_name, object_path, mime_type, size_bytes, uploaded_by, uploaded_by_name)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(category, pageName, fileName, objectPath, mimeType, req.body.length, user?.id || null, user?.full_name || user?.username || null);
+      `).run(category, section, fileName, objectPath, mimeType, req.body.length, user?.id || null, user?.full_name || user?.username || null);
       res.status(201).json({ id: Number(result.lastInsertRowid) || null });
     } catch (error) {
       sendError(res, error);

@@ -8101,6 +8101,7 @@ tfoot td {
 .fu-new-folder[hidden] { display: none; }
 .fu-new-folder .form-control { flex: 1 1 220px; min-width: 0; max-width: 320px; }
 
+.fu-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .fu-folder-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .fu-folder-select { width: 280px; max-width: 100%; }
 .fu-drop {

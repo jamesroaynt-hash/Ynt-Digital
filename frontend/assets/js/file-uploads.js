@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════
    FILE UPLOADS — drag files in, they're stored in Supabase Storage
    Folders are made by users (Page Details and Customer Feedbacks to start)
-   and picked from one dropdown; files go straight into the chosen folder.
+   and picked from one dropdown; inside each, a file is filed under
+   Product Info or Product Feedback.
    Backed by /api/uploads. Every signed-in user uploads and views; the
    uploader or an Administrator deletes. Anyone creates a folder; its
    creator or an Administrator renames it or deletes it once empty.
@@ -14,6 +15,7 @@ const fuState = {
   status: null,
   folders: [],
   category: 'Page Details',
+  section: 'Product Info',
   queue: [],
   uploading: false,
   files: [],
@@ -163,6 +165,10 @@ function renderFuBody() {
           <label class="form-label" for="fu-folder">Folder</label>
           <div id="fu-folders"></div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <div class="fu-pills" id="fu-sections"></div>
+        </div>
       </div>
       <div class="fu-drop" id="fu-drop" tabindex="0" role="button" aria-label="Drop files or click to choose"
         onclick="document.getElementById('fu-file').click()"
@@ -180,13 +186,33 @@ function renderFuBody() {
       <div id="fu-files"><div class="empty-state"><p>Loading</p></div></div>
     </div>`;
   renderFuFolders();
+  renderFuSections();
   renderFuQueue();
+}
+
+function fuSections() {
+  return fuState.status?.sections || ['Product Info', 'Product Feedback'];
+}
+
+function renderFuSections() {
+  const wrap = document.getElementById('fu-sections');
+  if (!wrap) return;
+  wrap.innerHTML = fuSections().map((name, index) =>
+    `<button class="filter-pill ${fuState.section === name ? 'active' : ''}" type="button" onclick="fuSetSection(${index})">${escapeHtml(name)}</button>`).join('');
+}
+
+function fuSetSection(index) {
+  const name = fuSections()[index];
+  if (!name) return;
+  fuState.section = name;
+  renderFuSections();
+  fuRefreshHint();
 }
 
 function fuDropHint() {
   const max = fuState.status?.max_file_mb || 50;
   if (!fuState.category) return 'Create a folder first.';
-  return `Goes to ${escapeHtml(fuState.category)} — or click to choose. Up to ${max} MB each.`;
+  return `Goes to ${escapeHtml(fuState.category)} / ${escapeHtml(fuState.section)} — or click to choose. Up to ${max} MB each.`;
 }
 
 function fuRefreshHint() {
@@ -234,6 +260,7 @@ function fuAddFiles(fileList) {
     fuState.queue.push({
       file,
       category: fuState.category,
+      section: fuState.section,
       status: tooBig ? 'error' : 'waiting',
       progress: 0,
       error: tooBig ? `Larger than ${maxMb} MB` : '',
@@ -274,7 +301,7 @@ async function fuRunQueue() {
 // XMLHttpRequest rather than fetch: it reports upload progress.
 function fuUploadOne(item) {
   return new Promise((resolve, reject) => {
-    const params = new URLSearchParams({ category: item.category });
+    const params = new URLSearchParams({ category: item.category, section: item.section });
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${getApiBase()}/uploads?${params}`);
     xhr.setRequestHeader('Authorization', `Bearer ${getAuthToken()}`);
@@ -325,7 +352,7 @@ function renderFuQueue() {
       <div class="fu-item" data-fu-index="${index}">
         <div class="fu-item-main">
           <div class="fu-item-name">${escapeHtml(q.file.name)}</div>
-          <div class="fu-item-meta">${escapeHtml(q.category)} · ${fuFormatSize(q.file.size)}</div>
+          <div class="fu-item-meta">${escapeHtml(q.category)} / ${escapeHtml(q.section)} · ${fuFormatSize(q.file.size)}</div>
           ${q.status === 'uploading' ? `<div class="fu-bar"><span style="width:${q.progress}%"></span></div>` : ''}
         </div>
         ${badge}
@@ -359,16 +386,13 @@ async function fuLoadFiles() {
     wrap.innerHTML = '<div class="empty-state"><p>Nothing uploaded here yet.</p></div>';
     return;
   }
-  // Files from before folders replaced pages still carry a page; show the
-  // column only when one does.
-  const showPage = fuState.files.some((r) => r.page_name && r.page_name !== r.category);
   wrap.innerHTML = `
     <div class="fu-table-scroll"><table class="fu-table">
-      <thead><tr><th>File</th>${showPage ? '<th>Page</th>' : ''}<th>Size</th><th>Uploaded by</th><th>When</th><th></th></tr></thead>
+      <thead><tr><th>File</th><th>Category</th><th>Size</th><th>Uploaded by</th><th>When</th><th></th></tr></thead>
       <tbody>${fuState.files.map((r) => `
         <tr>
           <td><a href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})">${escapeHtml(r.file_name)}</a></td>
-          ${showPage ? `<td>${escapeHtml(r.page_name !== r.category ? r.page_name : '')}</td>` : ''}
+          <td>${escapeHtml(r.page_name !== r.category ? r.page_name : '—')}</td>
           <td>${fuFormatSize(r.size_bytes)}</td>
           <td>${escapeHtml(r.uploaded_by_name || '—')}</td>
           <td>${escapeHtml(fuFormatWhen(r.created_at))}</td>
