@@ -1696,6 +1696,7 @@ const { ensureProductInfoSchema } = require('./productInfoSchema');
 const { ensureOpsCalendarSchema } = require('./opsCalendarSchema');
 const { ensureToolLinksSchema } = require('./toolLinksSchema');
 const { ensureFileUploadsSchema } = require('./fileUploadsSchema');
+const { ensurePerformanceSchema } = require('./performanceSchema');
 
 function initializeDatabase(db) {
   runSqlFile(db, 'schema.sql');
@@ -1718,6 +1719,7 @@ async function initializeDatabaseAsync(db) {
   await ensureOpsCalendarSchema(db);
   await ensureFileUploadsSchema(db);
   await ensureToolLinksSchema(db);
+  await ensurePerformanceSchema(db);
 }
 
 async function runSqlFileAsync(db, filename) {

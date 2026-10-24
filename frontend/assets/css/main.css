@@ -8148,3 +8148,23 @@ tfoot td {
 .fu-tile:hover .fu-tile-actions, .fu-tile:focus-within .fu-tile-actions { opacity: 1; }
 .fu-tile-actions .btn { flex: 1; justify-content: center; padding-left: 4px; padding-right: 4px; }
 @media (hover: none) { .fu-tile-actions { opacity: 1; } }
+
+/* ─── PERFORMANCE (Compliance / KPI) ───────────────────────── */
+.perf-tabs { margin-bottom: 16px; }
+.perf-select { width: auto; min-width: 220px; max-width: 100%; }
+.perf-group td { background: var(--surface-2); font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+.perf-kpi-table tr.perf-person-start td { border-top: 2px solid var(--border); }
+.perf-actual { width: 110px; padding-top: 4px; padding-bottom: 4px; }
+.perf-h { margin: 20px 0 10px; font-size: 14px; color: var(--text-primary); }
+.perf-item-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.perf-item-row .form-control { width: auto; }
+.perf-f-label { flex: 2 1 200px; min-width: 0; }
+.perf-f-num { flex: 0 1 100px; min-width: 70px; }
+.perf-f-unit { flex: 0 1 120px; min-width: 80px; }
+.perf-f-dir { flex: 0 1 160px; }
+.perf-add-row { padding-top: 8px; border-top: 1px dashed var(--border); }
+.perf-person { padding: 12px 0; border-top: 1px solid var(--border); }
+.perf-person-name { font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+.perf-ov-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 6px; }
+.perf-ov-use { display: flex; align-items: center; gap: 6px; flex: 1 1 200px; min-width: 0; font-size: 13px; }
+.perf-add-personal summary { cursor: pointer; color: var(--accent); font-size: 13px; margin: 6px 0; }

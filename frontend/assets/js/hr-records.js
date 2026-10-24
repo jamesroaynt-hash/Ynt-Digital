@@ -1719,7 +1719,7 @@ async function initHrReportsPage() {
     leaveBy.set(Number(leave.user_id), entry);
   });
 
-  const tracker = hrrTrackerCompliance(from, to);
+  const tracker = await hrrTrackerCompliance(from, to);
   const totals = payroll.reduce((sum, row) => ({
     gross: sum.gross + Number(row.gross_pay || 0),
     advances: sum.advances + Number(row.cash_advances || 0),
@@ -1766,7 +1766,7 @@ async function initHrReportsPage() {
         </tr>`;
       }).join('')}</tbody>
     </table></div>
-    <p class="text-xs text-muted" style="margin-top:10px;">Standup / EOD / Self-Care read the Employee Tracker marks saved on this device (attended or late ÷ days marked, rest days left out). Lates only count days with a schedule.</p>
+    <p class="text-xs text-muted" style="margin-top:10px;">Standup / EOD / Self-Care read the Employee Tracker marks (attended or late ÷ days marked, rest days left out). Lates only count days with a schedule.</p>
     </div>
   </div>
 
@@ -1780,24 +1780,21 @@ async function initHrReportsPage() {
   </div>`;
 }
 
-// Compliance from the tracker's local marks: attended (or late) over the days
-// that were marked at all, rest days aside. The tracker is device-local, so
-// this is only as complete as the marks on this browser.
-function hrrTrackerCompliance(from, to) {
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(typeof EMPLOYEE_TRACKER_KEY === 'string' ? EMPLOYEE_TRACKER_KEY : 'ynt_employee_tracker') || '{}') || {}; } catch { saved = {}; }
+// Compliance from the Employee Tracker marks saved on the server: attended (or
+// late) over the days that were marked at all, rest days aside.
+async function hrrTrackerCompliance(from, to) {
+  const data = await authorizedJsonRequest(`/performance/tracker?from=${from}&to=${to}`).catch(() => null);
+  const tally = {};
+  (data?.marks || []).forEach((mark) => {
+    if (!['standup', 'eod', 'selfcare'].includes(mark.metric) || !mark.state || mark.state === 'rest') return;
+    const byUser = tally[mark.user_id] || (tally[mark.user_id] = {});
+    const entry = byUser[mark.metric] || (byUser[mark.metric] = { good: 0, counted: 0 });
+    entry.counted += 1;
+    if (mark.state === 'yes' || mark.state === 'late') entry.good += 1;
+  });
   const out = {};
-  ['standup', 'eod', 'selfcare'].forEach((metric) => {
-    Object.entries(saved[metric] || {}).forEach(([userId, days]) => {
-      let good = 0;
-      let counted = 0;
-      Object.entries(days || {}).forEach(([day, state]) => {
-        if (day < from || day > to || state === 'rest') return;
-        counted += 1;
-        if (state === 'yes' || state === 'late') good += 1;
-      });
-      if (counted) (out[Number(userId)] || (out[Number(userId)] = {}))[metric] = Math.round((good / counted) * 100);
-    });
+  Object.entries(tally).forEach(([userId, metrics]) => {
+    out[Number(userId)] = Object.fromEntries(Object.entries(metrics).map(([metric, { good, counted }]) => [metric, Math.round((good / counted) * 100)]));
   });
   return out;
 }

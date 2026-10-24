@@ -9,11 +9,11 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'file-uploads', 'profile'],
-  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'performance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'file-uploads', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
   'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
@@ -203,6 +203,7 @@ function loadPage(page) {
     'hr-records': lazyPage('renderHrRecordsPage'),
     'hr-calendar': lazyPage('renderHrCalendarPage'),
     'kpi-allowance': lazyPage('renderKpiAllowancePage'),
+    performance: lazyPage('renderPerformancePage'),
     'hr-reports': lazyPage('renderHrReportsPage'),
     learning: lazyPage('renderTrainingPage'),
     'learning-leaderboard': lazyPage('renderTrainingLeaderboardPage'),
@@ -259,6 +260,7 @@ const pageNames = {
   'hr-records': '201 Files',
   'hr-calendar': 'HR Calendar',
   'kpi-allowance': 'KPI Allowance',
+  performance: 'Performance',
   'hr-reports': 'HR Reports',
   learning: 'My Training',
   'learning-leaderboard': 'Training Leaderboard',
@@ -4648,10 +4650,13 @@ async function loadStockDashboardStats() {
 }
 
 // ─── EMPLOYEE TRACKER ──────────────────────────────────────
-// Standup / EOD / self-care compliance as one week-at-a-time grid. Nothing
-// backs these three yet, so the marks live in localStorage on the device that
-// encoded them — the footer note says so plainly.
+// Standup / EOD / self-care compliance as one week-at-a-time grid. Marks are
+// saved on the server (/api/performance/tracker) so every HR device sees the
+// same grid and Performance → Compliance can score them. They used to live in
+// localStorage under EMPLOYEE_TRACKER_KEY; a browser that still holds some
+// sends them up once (the server only fills days it has nothing for).
 const EMPLOYEE_TRACKER_KEY = 'ynt_employee_tracker';
+const EMPLOYEE_TRACKER_IMPORTED_KEY = 'ynt_employee_tracker_imported';
 const EMPLOYEE_TRACKER_METRICS = [
   {
     id: 'standup',
@@ -4746,7 +4751,7 @@ function employeeTrackerGroups() {
   return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
-let employeeTrackerState = { metric: 'standup', weekStart: '', month: '', employees: [], marks: {}, collapsed: {} };
+let employeeTrackerState = { metric: 'standup', weekStart: '', month: '', employees: [], marks: {}, collapsed: {}, loaded: {}, loading: '' };
 
 // Every date in a month that falls on one of the given weekdays (0 = Sunday).
 function etDaysInMonthOn(ym, weekdays) {
@@ -4804,12 +4809,55 @@ function etRangeLabel(weekStart) {
   return `${fmt(weekStart)} – ${fmt(etAddDays(weekStart, 6))}`;
 }
 
-function loadEmployeeTrackerMarks() {
+// Marks for a span of days, merged into the same nested shape the grid reads:
+// marks[metric][userId][date] = state, _notes[metric][userId][date], _links[userId][date].
+async function loadEmployeeTrackerRange(from, to) {
+  const key = `${from}|${to}`;
+  if (employeeTrackerState.loaded[key] || employeeTrackerState.loading === key) return;
+  employeeTrackerState.loading = key;
   try {
-    const saved = JSON.parse(localStorage.getItem(EMPLOYEE_TRACKER_KEY) || '{}');
-    return saved && typeof saved === 'object' ? saved : {};
+    const data = await authorizedJsonRequest(`/performance/tracker?from=${from}&to=${to}`);
+    const marks = employeeTrackerState.marks;
+    const notes = marks._notes || (marks._notes = {});
+    const links = marks._links || (marks._links = {});
+    // Clear the span first so a mark removed on another device goes here too.
+    Object.entries(marks).forEach(([metric, byUser]) => {
+      if (metric.startsWith('_')) return;
+      Object.values(byUser).forEach((days) => Object.keys(days).forEach((d) => { if (d >= from && d <= to) delete days[d]; }));
+    });
+    [...Object.values(notes), links].forEach((byUser) => Object.values(byUser).forEach((days) =>
+      Object.keys(days).forEach((d) => { if (d >= from && d <= to) delete days[d]; })));
+    (data?.marks || []).forEach((m) => {
+      const put = (bucket, value) => { if (value) (bucket[m.user_id] || (bucket[m.user_id] = {}))[m.work_date] = value; };
+      put(marks[m.metric] || (marks[m.metric] = {}), m.state);
+      put(notes[m.metric] || (notes[m.metric] = {}), m.note);
+      if (m.metric === 'eod') put(links, m.link);
+    });
+    employeeTrackerState.loaded[key] = true;
+  } catch (error) {
+    showToast('error', 'Could not load tracker marks', error.message);
+  } finally {
+    if (employeeTrackerState.loading === key) employeeTrackerState.loading = '';
+  }
+  if (App.currentPage === 'employee-tracker') renderEmployeeTrackerCard();
+}
+
+// One-time upload of the marks this browser kept before they moved to the server.
+async function importLocalEmployeeTrackerMarks() {
+  let saved = null;
+  try {
+    if (localStorage.getItem(EMPLOYEE_TRACKER_IMPORTED_KEY)) return;
+    saved = JSON.parse(localStorage.getItem(EMPLOYEE_TRACKER_KEY) || 'null');
   } catch {
-    return {};
+    return;
+  }
+  if (!saved || typeof saved !== 'object' || !Object.keys(saved).length) return;
+  try {
+    const result = await authorizedJsonRequest('/performance/tracker/import', { method: 'POST', body: JSON.stringify({ marks: saved }) });
+    try { localStorage.setItem(EMPLOYEE_TRACKER_IMPORTED_KEY, new Date().toISOString()); } catch {}
+    if (result?.added) showToast('success', 'Tracker marks moved to the server', `${result.added} saved marks from this browser are now shared.`);
+  } catch {
+    // Left for the next visit; nothing is lost while the local copy stays.
   }
 }
 
@@ -4837,10 +4885,14 @@ function toggleAllEmployeeTrackerDepartments() {
   renderEmployeeTrackerCard();
 }
 
-function saveEmployeeTrackerMarks() {
+async function saveEmployeeTrackerEntry(body) {
   try {
-    localStorage.setItem(EMPLOYEE_TRACKER_KEY, JSON.stringify(employeeTrackerState.marks));
-  } catch {}
+    await authorizedJsonRequest('/performance/tracker', { method: 'PUT', body: JSON.stringify(body) });
+    return true;
+  } catch (error) {
+    showToast('error', 'Not saved', error.message || 'Could not save the mark.');
+    return false;
+  }
 }
 
 // Entry point for the HR Dashboard tiles: pick the metric first, then navigate,
@@ -4889,7 +4941,9 @@ function renderEmployeeTracker() {
 }
 
 async function initEmployeeTracker() {
-  employeeTrackerState.marks = loadEmployeeTrackerMarks();
+  employeeTrackerState.marks = {};
+  employeeTrackerState.loaded = {};
+  await importLocalEmployeeTrackerMarks();
   if (!employeeTrackerState.weekStart) employeeTrackerState.weekStart = etWeekStart(manilaToday());
   renderEmployeeTrackerCard();
   try {
@@ -4924,6 +4978,7 @@ function renderEmployeeTrackerCard() {
   // weekStart is a Sunday inside `ym`, and etWeeksInMonth walks Sundays from the
   // one on/before the 1st, so the current week is always one of these options.
   const weeks = etWeeksInMonth(ym);
+  loadEmployeeTrackerRange(days[0], days[days.length - 1]);
 
   const monthOptions = [];
   const now = etParseDate(manilaToday());
@@ -5068,19 +5123,26 @@ function renderEmployeeTrackerFootnote() {
   const departments = employeeTrackerGroups().length;
   return `${count} active account${count === 1 ? '' : 's'} from ${source}, grouped into `
     + `${departments} department${departments === 1 ? '' : 's'} by role. `
-    + 'Add or deactivate an account there and this list follows. Marks are saved on this device only.';
+    + 'Add or deactivate an account there and this list follows. Marks are saved for everyone and feed Performance → Compliance.';
 }
 
 // One click per employee per day; clicking the state that is already set clears
 // it, so a mis-tap is undone the same way it was made.
-function setEmployeeMark(userId, date, state) {
+async function setEmployeeMark(userId, date, state) {
   const metric = employeeTrackerState.metric;
   const byMetric = employeeTrackerState.marks[metric] || (employeeTrackerState.marks[metric] = {});
   const row = byMetric[userId] || (byMetric[userId] = {});
-  if (row[date] === state) delete row[date];
-  else row[date] = state;
-  saveEmployeeTrackerMarks();
+  const previous = row[date];
+  const next = previous === state ? null : state;
+  if (next) row[date] = next;
+  else delete row[date];
   renderEmployeeTrackerCard();
+  // Shown straight away; put back if the server refuses it.
+  if (!(await saveEmployeeTrackerEntry({ metric, user_id: userId, date, state: next }))) {
+    if (previous) row[date] = previous;
+    else delete row[date];
+    renderEmployeeTrackerCard();
+  }
 }
 
 // Notes ride along with the marks: one per employee per day, per tab, kept
@@ -5115,23 +5177,25 @@ function openEmployeeTrackerNote(userId, date) {
   setTimeout(() => text?.focus(), 50);
 }
 
-function writeEmployeeTrackerNote(value, { clear = false } = {}) {
+async function writeEmployeeTrackerNote(value, { clear = false } = {}) {
   const target = employeeTrackerNoteTarget;
   if (!target) return;
+  const text = String(value || '').trim();
+  const body = { metric: target.metric, user_id: target.userId, date: target.date, note: text || null };
+  // Delete clears the link with the note — it means the whole entry.
+  const link = target.metric === 'eod' && !clear ? String(document.getElementById('et-note-link')?.value || '').trim() : '';
+  if (target.metric === 'eod') body.link = link || null;
+  if (!(await saveEmployeeTrackerEntry(body))) return;
   const notes = employeeTrackerNotes(target.metric);
   const row = notes[target.userId] || (notes[target.userId] = {});
-  const text = String(value || '').trim();
   if (text) row[target.date] = text;
   else delete row[target.date];
   if (target.metric === 'eod') {
     const links = employeeTrackerLinks();
     const linkRow = links[target.userId] || (links[target.userId] = {});
-    // Delete clears the link with the note — it means the whole entry.
-    const link = clear ? '' : String(document.getElementById('et-note-link')?.value || '').trim();
     if (link) linkRow[target.date] = link;
     else delete linkRow[target.date];
   }
-  saveEmployeeTrackerMarks();
   closeModal('et-note-modal');
   employeeTrackerNoteTarget = null;
   renderEmployeeTrackerCard();
@@ -17782,7 +17846,7 @@ const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // Virtual Office is the exception: every Administrator gets it.
 const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
   'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
-  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'hr-reports',
+  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'performance', 'hr-reports',
   'learning-manage', 'learning-reports'];
 
 function isSuperAdminUser() {
@@ -20153,6 +20217,7 @@ function initPage(page) {
   if (page === 'learning-reports') window.initTrainingReportsPage?.().catch(() => {});
   if (page === 'ops-calendar') window.initOpsCalendarPage?.().catch(() => {});
   if (page === 'file-uploads') window.initFileUploadsPage?.().catch(() => {});
+  if (page === 'performance') window.initPerformancePage?.().catch(() => {});
   if (page === 'virtual-office') window.initVirtualOfficePage?.().catch(() => {});
 
   if (page === 'evaluation-kpi') {
