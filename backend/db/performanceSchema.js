@@ -1,8 +1,10 @@
 // Performance: the two scoring categories that sit beside the peer Evaluation
 // (which they never touch).
 //   employee_tracker_marks — the Employee Tracker's daily marks (Standup, EOD,
-//     Self-Care, WAM, Discord Live) with the day's note and EOD link. These used
-//     to live in one browser's localStorage; Compliance is scored from them.
+//     Self-Care, WAM, Discord Live) with the day's note and EOD link, plus the
+//     Confirmed Orders tab's number per CSR per day (metric 'orders', value).
+//     These used to live in one browser's localStorage; Compliance is scored
+//     from them.
 //   kpi_items — KPI rows: a department's template (department set) or one
 //     person's own extra KPI (user_id set).
 //   kpi_user_overrides — per-person tweak of a department KPI: hide it or give
@@ -79,19 +81,29 @@ function performanceStatements(db) {
   ];
 }
 
+function pgOr(db, pg, sqlite) {
+  return db.type === 'postgres' ? pg : sqlite;
+}
+
 async function ensurePerformanceSchema(db) {
   for (const sql of performanceStatements(db)) {
     await db.exec(sql);
   }
   // entry: 'monthly' (one number a month) or 'daily' (summed from kpi_daily).
   // split: 1 = the target is the whole department's, shared out per person.
-  const added = [['entry', "TEXT NOT NULL DEFAULT 'monthly'"], ['split', 'INTEGER NOT NULL DEFAULT 0']];
-  if (db.type === 'postgres') {
-    for (const [name, definition] of added) await db.exec(`ALTER TABLE kpi_items ADD COLUMN IF NOT EXISTS ${name} ${definition}`);
-  } else {
-    const columns = await db.prepare('PRAGMA table_info(kpi_items)').all();
-    for (const [name, definition] of added) {
-      if (!columns.some((c) => c.name === name)) await db.exec(`ALTER TABLE kpi_items ADD COLUMN ${name} ${definition}`);
+  //   (entry 'orders' is a daily KPI read from the tracker's Confirmed Orders.)
+  // employee_tracker_marks.value: the Confirmed Orders number.
+  const added = [
+    ['kpi_items', 'entry', "TEXT NOT NULL DEFAULT 'monthly'"],
+    ['kpi_items', 'split', 'INTEGER NOT NULL DEFAULT 0'],
+    ['employee_tracker_marks', 'value', pgOr(db, 'DOUBLE PRECISION', 'REAL')],
+  ];
+  for (const [table, name, definition] of added) {
+    if (db.type === 'postgres') {
+      await db.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`);
+    } else {
+      const columns = await db.prepare(`PRAGMA table_info(${table})`).all();
+      if (!columns.some((c) => c.name === name)) await db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
     }
   }
 }

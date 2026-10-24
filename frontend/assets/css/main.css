@@ -8173,3 +8173,8 @@ tfoot td {
 .perf-ov-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 6px; }
 .perf-ov-use { display: flex; align-items: center; gap: 6px; flex: 1 1 200px; min-width: 0; font-size: 13px; }
 .perf-add-personal summary { cursor: pointer; color: var(--accent); font-size: 13px; margin: 6px 0; }
+
+/* Employee Tracker — Confirmed Orders (numbers) */
+.et-number { width: 72px; min-width: 56px; margin: 0 auto; padding: 4px 6px; text-align: center; }
+.et-numbers .et-total { text-align: center; }
+.et-numbers tfoot td { border-top: 2px solid var(--border); background: var(--surface-2); }

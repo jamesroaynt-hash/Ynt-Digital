@@ -4701,6 +4701,16 @@ const EMPLOYEE_TRACKER_METRICS = [
     yes: 'Joined',
     no: 'Not Joined',
   },
+  {
+    // A number, not a mark: each CSR's total confirmed orders for the day. A
+    // Performance KPI set to "From Employee Tracker → Confirmed Orders" reads it.
+    id: 'orders',
+    tab: 'Confirmed Orders',
+    title: 'Daily Confirmed Orders',
+    hint: 'Total confirmed orders per CSR per day. Type the number; it saves when you leave the box.',
+    numeric: true,
+    departments: ['CSR'],
+  },
 ];
 
 // Accounts carry a role but no department column, so the tracker derives the
@@ -4820,18 +4830,23 @@ async function loadEmployeeTrackerRange(from, to) {
     const marks = employeeTrackerState.marks;
     const notes = marks._notes || (marks._notes = {});
     const links = marks._links || (marks._links = {});
+    const values = marks._values || (marks._values = {});
     // Clear the span first so a mark removed on another device goes here too.
     Object.entries(marks).forEach(([metric, byUser]) => {
       if (metric.startsWith('_')) return;
       Object.values(byUser).forEach((days) => Object.keys(days).forEach((d) => { if (d >= from && d <= to) delete days[d]; }));
     });
-    [...Object.values(notes), links].forEach((byUser) => Object.values(byUser).forEach((days) =>
+    [...Object.values(notes), ...Object.values(values), links].forEach((byUser) => Object.values(byUser).forEach((days) =>
       Object.keys(days).forEach((d) => { if (d >= from && d <= to) delete days[d]; })));
     (data?.marks || []).forEach((m) => {
       const put = (bucket, value) => { if (value) (bucket[m.user_id] || (bucket[m.user_id] = {}))[m.work_date] = value; };
       put(marks[m.metric] || (marks[m.metric] = {}), m.state);
       put(notes[m.metric] || (notes[m.metric] = {}), m.note);
       if (m.metric === 'eod') put(links, m.link);
+      if (m.value !== null && m.value !== undefined) {
+        const byUser = values[m.metric] || (values[m.metric] = {});
+        (byUser[m.user_id] || (byUser[m.user_id] = {}))[m.work_date] = m.value;
+      }
     });
     employeeTrackerState.loaded[key] = true;
   } catch (error) {
@@ -4907,7 +4922,7 @@ function renderEmployeeTracker() {
   <div class="page-header">
     <div class="page-title">
       <h1>Employee Tracker</h1>
-      <p>Standup, EOD, self-care and Monday WAM compliance in one grid.</p>
+      <p>Standup, EOD, self-care and Monday WAM compliance in one grid, plus each CSR's daily confirmed orders.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="toggleAllEmployeeTrackerDepartments()">Collapse / Expand All</button>
@@ -5010,14 +5025,14 @@ function renderEmployeeTrackerCard() {
       <div class="et-tabs">
         ${EMPLOYEE_TRACKER_METRICS.map((m) => `<button class="filter-pill ${m.id === metric.id ? 'active' : ''}" onclick="setEmployeeTrackerMetric('${m.id}')">${escapeHtml(m.tab)}</button>`).join('')}
       </div>
-      <div class="et-legend">
+      ${metric.numeric ? '' : `<div class="et-legend">
         <span><i class="et-chip yes">✓</i>${escapeHtml(metric.yes)}</span>
         <span><i class="et-chip late">L</i>Late</span>
         <span><i class="et-chip rest">R</i>Rest Day</span>
         <span><i class="et-chip no">×</i>${escapeHtml(metric.no)}</span>
         <span><i class="et-chip note">📝</i>Note for the day</span>
-      </div>
-      ${renderEmployeeTrackerGrid(metric, days)}
+      </div>`}
+      ${metric.numeric ? renderEmployeeTrackerNumberGrid(metric, days) : renderEmployeeTrackerGrid(metric, days)}
       ${metric.id === 'eod' ? renderEmployeeTrackerEodLinks(days) : ''}
       <div class="et-foot">${renderEmployeeTrackerFootnote()}</div>
     </div>`;
@@ -5088,6 +5103,98 @@ function renderEmployeeTrackerGrid(metric, days) {
       }).join('')}
     </table>
   </div>`;
+}
+
+// A number per person per day (Confirmed Orders), only for the departments the
+// tab is for, with the week's total at the end.
+function renderEmployeeTrackerNumberGrid(metric, days) {
+  const groups = employeeTrackerGroups().filter(([department]) => !metric.departments || metric.departments.includes(department));
+  if (!groups.length) {
+    return `<div class="empty-state"><h3>Nobody in ${escapeHtml((metric.departments || []).join(', ') || 'this list')}</h3><p>Accounts with a CSR role appear here.</p></div>`;
+  }
+  const today = manilaToday();
+  const values = employeeTrackerState.marks._values?.[metric.id] || {};
+  const dayTotals = days.map((day) => groups.reduce((sum, [, members]) =>
+    sum + members.reduce((s, e) => s + (Number(values[e.id]?.[day]) || 0), 0), 0));
+  const employeeRow = (employee) => {
+    const row = values[employee.id] || {};
+    const total = days.reduce((sum, day) => sum + (Number(row[day]) || 0), 0);
+    return `<tr>
+      <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
+      ${days.map((day) => `<td class="${day === today ? 'et-today' : ''}">
+        <input class="form-control et-number" type="number" min="0" step="1" inputmode="numeric" value="${row[day] ?? ''}"
+          aria-label="${escapeHtml(`${employee.name || 'User'} — ${day}`)}"
+          onchange="setEmployeeTrackerValue(${Number(employee.id)}, '${day}', this.value)">
+      </td>`).join('')}
+      <td class="et-total"><strong id="et-rowtot-${Number(employee.id)}">${total}</strong></td>
+    </tr>`;
+  };
+  return `
+  <div class="et-scroll">
+    <table class="et-table et-numbers">
+      <thead>
+        <tr>
+          <th class="et-name-col">Employee</th>
+          ${days.map((day) => {
+            const date = etParseDate(day);
+            return `<th class="${day === today ? 'et-today' : ''}">
+              <span class="et-dow">${date.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+              <span class="et-date">${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+            </th>`;
+          }).join('')}
+          <th>Week</th>
+        </tr>
+      </thead>
+      ${groups.map(([department, members]) => `<tbody>
+        <tr class="et-group"><td colspan="${days.length + 2}"><span class="et-group-name" style="padding:6px 4px;display:inline-block;">${escapeHtml(department)}</span></td></tr>
+        ${members.map(employeeRow).join('')}
+      </tbody>`).join('')}
+      <tfoot><tr>
+        <td class="et-name-col"><strong>Total</strong></td>
+        ${dayTotals.map((total, i) => `<td class="et-total"><strong id="et-daytot-${days[i]}">${total}</strong></td>`).join('')}
+        <td class="et-total"><strong id="et-grandtot">${dayTotals.reduce((a, b) => a + b, 0)}</strong></td>
+      </tr></tfoot>
+    </table>
+  </div>`;
+}
+
+async function setEmployeeTrackerValue(userId, date, raw) {
+  const metric = employeeTrackerState.metric;
+  const values = employeeTrackerState.marks._values || (employeeTrackerState.marks._values = {});
+  const byUser = values[metric] || (values[metric] = {});
+  const row = byUser[userId] || (byUser[userId] = {});
+  const previous = row[date];
+  const value = String(raw ?? '').trim() === '' ? null : Number(raw);
+  if (value !== null && !Number.isFinite(value)) return;
+  if (value === null) delete row[date];
+  else row[date] = value;
+  // Only the totals change on screen: redrawing the grid would wipe a number
+  // already being typed into the next box.
+  refreshEmployeeTrackerTotals();
+  if (!(await saveEmployeeTrackerEntry({ metric, user_id: userId, date, value }))) {
+    if (previous === undefined) delete row[date];
+    else row[date] = previous;
+    renderEmployeeTrackerCard();
+  }
+}
+
+function refreshEmployeeTrackerTotals() {
+  const values = employeeTrackerState.marks._values?.[employeeTrackerState.metric] || {};
+  const dayCells = [...document.querySelectorAll('[id^="et-daytot-"]')];
+  const days = dayCells.map((cell) => cell.id.slice('et-daytot-'.length));
+  let grand = 0;
+  document.querySelectorAll('[id^="et-rowtot-"]').forEach((cell) => {
+    const row = values[cell.id.slice('et-rowtot-'.length)] || {};
+    cell.textContent = days.reduce((sum, day) => sum + (Number(row[day]) || 0), 0);
+  });
+  const shown = [...document.querySelectorAll('[id^="et-rowtot-"]')].map((cell) => cell.id.slice('et-rowtot-'.length));
+  dayCells.forEach((cell, i) => {
+    const total = shown.reduce((sum, id) => sum + (Number(values[id]?.[days[i]]) || 0), 0);
+    cell.textContent = total;
+    grand += total;
+  });
+  const grandCell = document.getElementById('et-grandtot');
+  if (grandCell) grandCell.textContent = grand;
 }
 
 // Every EOD link pasted for the days on screen. Added from a day's 📝 note.

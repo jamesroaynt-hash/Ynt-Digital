@@ -9,7 +9,9 @@ const express = require('express');
 //     monthly). A ratio such as ROAS is just a KPI with its target, e.g. 3.
 //     A department KPI can be the whole team's target (split): e.g. CSR's
 //     monthly orders target is shared out over the CSRs. A "daily" KPI (CSR
-//     total orders) is typed in by HR every day; its month actual is the sum,
+//     total orders) is typed in by HR every day — on Daily Entry, or for an
+//     "orders" KPI on the Employee Tracker's Confirmed Orders tab (both screens
+//     edit the same number); its month actual is the sum,
 //     and the person's monthly share ÷ their scheduled days is their daily
 //     target.
 // HR's, Operation's and the super admin's alone — the same gate as the rest of
@@ -21,7 +23,7 @@ function isHrManager(user) {
   return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
-const TRACKER_METRICS = new Set(['standup', 'eod', 'selfcare', 'wam', 'discordlive']);
+const TRACKER_METRICS = new Set(['standup', 'eod', 'selfcare', 'wam', 'discordlive', 'orders']);
 const TRACKER_STATES = new Set(['yes', 'late', 'rest', 'no']);
 // What Compliance scores; Discord Live is tracked but not part of the score.
 const COMPLIANCE_METRICS = ['attendance', 'standup', 'eod', 'selfcare', 'wam'];
@@ -164,19 +166,44 @@ module.exports = function performanceRoutes(db) {
   }
 
   // ─── Tracker marks ─────────────────────────────────────────
+  async function writeTrackerEntry(metric, userId, date, body, by) {
+    const existing = await db.prepare('SELECT state, note, link, value FROM employee_tracker_marks WHERE metric = ? AND user_id = ? AND work_date = ?')
+      .get(metric, userId, date);
+    const next = {
+      state: 'state' in body ? (body.state || null) : (existing?.state || null),
+      note: 'note' in body ? text(body.note, 4000) : (existing?.note || null),
+      link: 'link' in body ? text(body.link, 2000) : (existing?.link || null),
+      value: 'value' in body ? num(body.value) : (existing?.value == null ? null : Number(existing.value)),
+    };
+    if (!next.state && !next.note && !next.link && next.value === null) {
+      await db.prepare('DELETE FROM employee_tracker_marks WHERE metric = ? AND user_id = ? AND work_date = ?').run(metric, userId, date);
+    } else if (existing) {
+      await db.prepare(`
+        UPDATE employee_tracker_marks SET state = ?, note = ?, link = ?, value = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE metric = ? AND user_id = ? AND work_date = ?
+      `).run(next.state, next.note, next.link, next.value, by, metric, userId, date);
+    } else {
+      await db.prepare(`
+        INSERT INTO employee_tracker_marks (metric, user_id, work_date, state, note, link, value, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(metric, userId, date, next.state, next.note, next.link, next.value, by);
+    }
+    return next;
+  }
+
   router.get('/tracker', wrap(async (req, res) => {
     const from = ymd(req.query.from);
     const to = ymd(req.query.to);
     if (!from || !to) return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD)' });
     const rows = await db.prepare(`
-      SELECT metric, user_id, work_date, state, note, link
+      SELECT metric, user_id, work_date, state, note, link, value
       FROM employee_tracker_marks WHERE work_date BETWEEN ? AND ?
     `).all(from, to);
-    res.json({ marks: rows.map((r) => ({ ...r, user_id: Number(r.user_id) })) });
+    res.json({ marks: rows.map((r) => ({ ...r, user_id: Number(r.user_id), value: r.value == null ? null : Number(r.value) })) });
   }));
 
-  // Sets whichever of state / note / link the body carries; a row left with
-  // none of the three is removed.
+  // Sets whichever of state / note / link / value the body carries; a row left
+  // with none of them is removed.
   router.put('/tracker', wrap(async (req, res) => {
     const body = req.body || {};
     const metric = String(body.metric || '');
@@ -185,27 +212,8 @@ module.exports = function performanceRoutes(db) {
     if (!TRACKER_METRICS.has(metric) || !userId || !date) return res.status(400).json({ error: 'metric, user_id and date are required' });
     if ('state' in body && body.state !== null && !TRACKER_STATES.has(body.state)) return res.status(400).json({ error: 'Unknown state' });
 
-    const existing = await db.prepare('SELECT state, note, link FROM employee_tracker_marks WHERE metric = ? AND user_id = ? AND work_date = ?')
-      .get(metric, userId, date);
-    const next = {
-      state: 'state' in body ? (body.state || null) : (existing?.state || null),
-      note: 'note' in body ? text(body.note, 4000) : (existing?.note || null),
-      link: 'link' in body ? text(body.link, 2000) : (existing?.link || null),
-    };
-    if (!next.state && !next.note && !next.link) {
-      await db.prepare('DELETE FROM employee_tracker_marks WHERE metric = ? AND user_id = ? AND work_date = ?').run(metric, userId, date);
-    } else if (existing) {
-      await db.prepare(`
-        UPDATE employee_tracker_marks SET state = ?, note = ?, link = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE metric = ? AND user_id = ? AND work_date = ?
-      `).run(next.state, next.note, next.link, req.currentUser.id, metric, userId, date);
-    } else {
-      await db.prepare(`
-        INSERT INTO employee_tracker_marks (metric, user_id, work_date, state, note, link, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(metric, userId, date, next.state, next.note, next.link, req.currentUser.id);
-    }
-    res.json({ ok: true, ...next });
+    if ('value' in body && body.value !== null && num(body.value) === null) return res.status(400).json({ error: 'Value must be a number' });
+    res.json({ ok: true, ...(await writeTrackerEntry(metric, userId, date, body, req.currentUser.id)) });
   }));
 
   // One-time move of a browser's old localStorage marks. Only fills days the
@@ -329,7 +337,10 @@ module.exports = function performanceRoutes(db) {
       direction: r.direction === 'lower' ? 'lower' : 'higher',
       weight: Number(r.weight) || 0,
       position: Number(r.position) || 0,
-      entry: r.entry === 'daily' ? 'daily' : 'monthly',
+      // 'orders' is a daily KPI whose numbers come from the tracker's
+      // Confirmed Orders tab; everything else reads it as daily.
+      entry: r.entry === 'daily' || r.entry === 'orders' ? 'daily' : 'monthly',
+      source: r.entry === 'orders' ? 'orders' : 'manual',
       split: Number(r.split) === 1 && !r.user_id,
     }));
   }
@@ -413,14 +424,33 @@ module.exports = function performanceRoutes(db) {
     };
   }
 
-  // Month totals of daily KPIs: user|item → sum and days entered.
-  async function dailySums(month) {
+  // Month totals of daily KPIs: user|item → sum and days entered. KPIs fed by
+  // the tracker's Confirmed Orders all read the same per-person numbers.
+  async function dailySums(month, items) {
     const { from, to } = periodRange(month);
     const rows = await db.prepare(`
       SELECT user_id, item_id, SUM(value) AS total, COUNT(value) AS days FROM kpi_daily
       WHERE work_date BETWEEN ? AND ? AND value IS NOT NULL GROUP BY user_id, item_id
     `).all(from, to);
-    return new Map(rows.map((r) => [`${r.user_id}|${r.item_id}`, { total: Number(r.total), days: Number(r.days) }]));
+    const sums = new Map(rows.map((r) => [`${r.user_id}|${r.item_id}`, { total: Number(r.total), days: Number(r.days) }]));
+    const ordersItems = items.filter((item) => item.source === 'orders');
+    if (ordersItems.length) {
+      const orders = await db.prepare(`
+        SELECT user_id, SUM(value) AS total, COUNT(value) AS days FROM employee_tracker_marks
+        WHERE metric = 'orders' AND work_date BETWEEN ? AND ? AND value IS NOT NULL GROUP BY user_id
+      `).all(from, to);
+      for (const r of orders) {
+        for (const item of ordersItems) sums.set(`${r.user_id}|${item.id}`, { total: Number(r.total), days: Number(r.days) });
+      }
+    }
+    return sums;
+  }
+
+  async function ordersOn(date) {
+    const rows = await db.prepare(`
+      SELECT user_id, value FROM employee_tracker_marks WHERE metric = 'orders' AND work_date = ? AND value IS NOT NULL
+    `).all(date);
+    return new Map(rows.map((r) => [Number(r.user_id), Number(r.value)]));
   }
 
   router.get('/kpi/setup', wrap(async (req, res) => {
@@ -442,7 +472,7 @@ module.exports = function performanceRoutes(db) {
       target: num(body.target) ?? 0,
       direction: body.direction === 'lower' ? 'lower' : 'higher',
       weight: Math.max(0, num(body.weight) ?? 1),
-      entry: body.entry === 'daily' ? 'daily' : 'monthly',
+      entry: ['daily', 'orders'].includes(body.entry) ? body.entry : 'monthly',
       split: body.split === true || body.split === 1 || body.split === '1' || body.split === 'team' ? 1 : 0,
     };
   }
@@ -504,14 +534,14 @@ module.exports = function performanceRoutes(db) {
   // the KPIs that have a number.
   router.get('/kpi/scores', wrap(async (req, res) => {
     const period = MONTH_PATTERN.test(String(req.query.period || '')) ? req.query.period : manilaToday().slice(0, 7);
-    const [people, items, overrideBy, results, sums, daysFor] = await Promise.all([
+    const [people, items, overrideBy, results, daysFor] = await Promise.all([
       roster(),
       activeItems(),
       overrideMap(),
       db.prepare('SELECT user_id, item_id, actual, note FROM kpi_results WHERE period = ?').all(period),
-      dailySums(period),
       workDays(period),
     ]);
+    const sums = await dailySums(period, items);
     const resultBy = new Map(results.map((r) => [`${r.user_id}|${r.item_id}`, r]));
     const byPerson = resolveKpis(people, items, overrideBy);
     const actualOf = (personId, item) => (item.entry === 'daily'
@@ -557,23 +587,27 @@ module.exports = function performanceRoutes(db) {
   router.get('/kpi/daily', wrap(async (req, res) => {
     const date = ymd(req.query.date) || manilaToday();
     const month = date.slice(0, 7);
-    const [people, items, overrideBy, sums, daysFor, entries] = await Promise.all([
+    const [people, items, overrideBy, daysFor, entries, orders] = await Promise.all([
       roster(),
       activeItems(),
       overrideMap(),
-      dailySums(month),
       workDays(month),
       db.prepare('SELECT user_id, item_id, value FROM kpi_daily WHERE work_date = ?').all(date),
+      ordersOn(date),
     ]);
+    const sums = await dailySums(month, items);
     const valueBy = new Map(entries.map((e) => [`${e.user_id}|${e.item_id}`, e.value == null ? null : Number(e.value)]));
     const dailyItems = items.filter((item) => item.entry === 'daily');
+    for (const item of dailyItems.filter((i) => i.source === 'orders')) {
+      for (const [userId, value] of orders) valueBy.set(`${userId}|${item.id}`, value);
+    }
     const byPerson = resolveKpis(people, dailyItems, overrideBy);
     const rows = people.map((person) => {
       const work = daysFor(person.id);
       const kpis = byPerson.get(person.id).map((item) => {
         const sum = sums.get(`${person.id}|${item.id}`);
         return {
-          item_id: item.id, label: item.label, unit: item.unit, direction: item.direction,
+          item_id: item.id, label: item.label, unit: item.unit, direction: item.direction, source: item.source,
           target: item.target,
           team_target: item.team_target,
           daily_target: Math.round((item.target / work.days) * 100) / 100,
@@ -602,7 +636,11 @@ module.exports = function performanceRoutes(db) {
     const itemId = Number(req.body?.item_id);
     if (!date || !userId || !itemId) return res.status(400).json({ error: 'date, user_id and item_id are required' });
     const value = num(req.body?.value);
-    if (value === null) {
+    // An "orders" KPI's number is the tracker's Confirmed Orders entry.
+    const item = await db.prepare('SELECT entry FROM kpi_items WHERE id = ?').get(itemId);
+    if (item?.entry === 'orders') {
+      await writeTrackerEntry('orders', userId, date, { value }, req.currentUser.id);
+    } else if (value === null) {
       await db.prepare('DELETE FROM kpi_daily WHERE work_date = ? AND user_id = ? AND item_id = ?').run(date, userId, itemId);
     } else {
       await db.prepare(`

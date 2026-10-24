@@ -254,12 +254,13 @@ async function perfLoadDaily() {
             const hit = k.value === null ? '' : (k.direction === 'lower' ? k.value <= k.daily_target : k.value >= k.daily_target) ? 'perf-hit' : 'perf-miss';
             return `<tr${index === 0 ? ' class="perf-person-start"' : ''}>
             ${index === 0 ? `<td rowspan="${p.kpis.length}"><strong>${escapeHtml(p.name)}</strong></td>` : ''}
-            <td>${escapeHtml(k.label)}</td>
+            <td>${escapeHtml(k.label)}${k.source === 'orders' ? ' <span class="text-xs text-muted" title="Same number as Employee Tracker → Confirmed Orders">· tracker</span>' : ''}</td>
             <td>${k.daily_target}${k.unit ? ` ${escapeHtml(k.unit)}` : ''}</td>
             <td><input class="form-control perf-actual ${hit}" type="number" step="any" inputmode="decimal" value="${k.value ?? ''}"
               aria-label="${escapeHtml(`${p.name} — ${k.label} on ${data.date}`)}"
-              onchange="perfSaveDaily(${Number(p.id)}, ${Number(k.item_id)}, this.value)"></td>
-            <td>${k.month_total} / ${k.target}${k.unit ? ` ${escapeHtml(k.unit)}` : ''} <span class="text-xs text-muted">· ${k.days_entered} of ${k.work_days} days</span></td>
+              data-prev="${k.value ?? ''}" data-daily-target="${k.daily_target}" data-direction="${k.direction}"
+              onchange="perfSaveDaily(${Number(p.id)}, ${Number(k.item_id)}, this.value, this)"></td>
+            <td><span id="perf-mt-${Number(p.id)}-${Number(k.item_id)}">${k.month_total}</span> / ${k.target}${k.unit ? ` ${escapeHtml(k.unit)}` : ''} <span class="text-xs text-muted">· ${k.days_entered} of ${k.work_days} days</span></td>
           </tr>`;
           }).join('')).join('')}
         </tbody>`).join('')}
@@ -275,16 +276,27 @@ function perfShiftDaily(direction) {
   perfLoadDaily();
 }
 
-async function perfSaveDaily(userId, itemId, value) {
+// Saves one box and nudges that row's month total and colour in place; the
+// table isn't redrawn, so a number being typed in the next box is kept.
+async function perfSaveDaily(userId, itemId, value, input) {
+  const next = value === '' ? null : Number(value);
   try {
     await authorizedJsonRequest('/performance/kpi/daily', {
       method: 'PUT',
-      body: JSON.stringify({ date: perfState.dailyDate, user_id: userId, item_id: itemId, value: value === '' ? null : Number(value) }),
+      body: JSON.stringify({ date: perfState.dailyDate, user_id: userId, item_id: itemId, value: next }),
     });
-    perfLoadDaily();
   } catch (error) {
     showToast('error', 'Not saved', error.message);
+    if (input) input.value = input.dataset.prev || '';
+    return;
   }
+  if (!input) return;
+  const total = document.getElementById(`perf-mt-${userId}-${itemId}`);
+  if (total) total.textContent = Math.round(((Number(total.textContent) || 0) - (Number(input.dataset.prev) || 0) + (next || 0)) * 100) / 100;
+  input.dataset.prev = next ?? '';
+  const target = Number(input.dataset.dailyTarget);
+  input.classList.remove('perf-hit', 'perf-miss');
+  if (next !== null) input.classList.add((input.dataset.direction === 'lower' ? next <= target : next >= target) ? 'perf-hit' : 'perf-miss');
 }
 
 // ─── KPI Setup ──────────────────────────────────────────────
@@ -317,7 +329,8 @@ function perfItemFields(prefix, item = {}) {
     </select>`}
     <select class="form-control perf-f-dir" id="${prefix}-entry" title="Monthly target; daily entry splits it per day">
       <option value="monthly" ${item.entry !== 'daily' ? 'selected' : ''}>Monthly number</option>
-      <option value="daily" ${item.entry === 'daily' ? 'selected' : ''}>Daily entry</option>
+      <option value="daily" ${item.entry === 'daily' && item.source !== 'orders' ? 'selected' : ''}>Daily entry</option>
+      <option value="orders" ${item.source === 'orders' ? 'selected' : ''}>Daily — from Employee Tracker → Confirmed Orders</option>
     </select>`;
 }
 
