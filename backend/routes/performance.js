@@ -105,6 +105,15 @@ function pct(credit, counted) {
   return counted ? Math.round((credit / counted) * 1000) / 10 : null;
 }
 
+// Pace for a daily KPI: the month so far against what the daily target says
+// should be done by now. Not capped, so ahead of pace reads above 100.
+function paceScore(actual, expected, direction) {
+  if (!(expected > 0)) return null;
+  const a = Number(actual) || 0;
+  if (direction === 'lower') return a > 0 ? Math.round((expected / a) * 1000) / 10 : 100;
+  return Math.round((a / expected) * 1000) / 10;
+}
+
 // One KPI's score out of 100: reaching the target is 100, more is capped
 // there. "lower" KPIs (e.g. RTS rate) score 100 at or under target.
 function kpiScore(actual, target, direction) {
@@ -352,18 +361,24 @@ module.exports = function performanceRoutes(db) {
   }
 
   // Team lines for split KPIs: the department's target against everyone's sum.
-  function teamTotals(items, byPerson, actualOf) {
+  // expectedOf (optional) gives a member's expected-so-far for a daily KPI,
+  // so the team gets a pace too.
+  function teamTotals(items, byPerson, actualOf, expectedOf) {
     return items.filter((item) => item.split).map((item) => {
       let total = 0;
+      let expected = 0;
       let members = 0;
       for (const [personId, kpis] of byPerson) {
-        if (!kpis.some((k) => k.id === item.id)) continue;
+        const mine = kpis.find((k) => k.id === item.id);
+        if (!mine) continue;
         members += 1;
         total += Number(actualOf(personId, item) || 0);
+        if (expectedOf) expected += Number(expectedOf(personId, mine) || 0);
       }
       return {
         department: item.department, item_id: item.id, label: item.label, unit: item.unit, direction: item.direction,
         target: item.target, total: Math.round(total * 100) / 100, members, score: kpiScore(total, item.target, item.direction),
+        pace: item.entry === 'daily' && expectedOf ? paceScore(total, expected, item.direction) : null,
       };
     }).filter((team) => team.members);
   }
@@ -374,17 +389,28 @@ module.exports = function performanceRoutes(db) {
   }
 
   // Working days per person in a month = days on their Schedule; with no
-  // schedule yet, every day of the month.
+  // schedule yet, every day of the month. `elapsed` is how many of those fall
+  // on or before today (all of them for a past month) — what pace counts.
   async function workDays(month) {
     const { from, to } = periodRange(month);
+    const today = manilaToday();
+    const upTo = today < to ? today : to;
     const rows = await db.prepare(`
-      SELECT user_id, COUNT(DISTINCT schedule_date) AS n FROM user_schedules
+      SELECT user_id, COUNT(DISTINCT schedule_date) AS n,
+        COUNT(DISTINCT CASE WHEN schedule_date <= ? THEN schedule_date END) AS done
+      FROM user_schedules
       WHERE schedule_date BETWEEN ? AND ? AND shift_start IS NOT NULL AND shift_start != ''
       GROUP BY user_id
-    `).all(from, to);
-    const byUser = new Map(rows.map((r) => [Number(r.user_id), Number(r.n)]));
+    `).all(upTo, from, to);
+    const byUser = new Map(rows.map((r) => [Number(r.user_id), { days: Number(r.n), elapsed: Number(r.done) }]));
     const calendarDays = Number(to.slice(8, 10));
-    return (userId) => ({ days: byUser.get(userId) || calendarDays, fromSchedule: byUser.has(userId) });
+    const calendarElapsed = upTo < from ? 0 : Number(upTo.slice(8, 10));
+    return (userId) => {
+      const scheduled = byUser.get(userId);
+      return scheduled && scheduled.days
+        ? { ...scheduled, fromSchedule: true }
+        : { days: calendarDays, elapsed: calendarElapsed, fromSchedule: false };
+    };
   }
 
   // Month totals of daily KPIs: user|item → sum and days entered.
@@ -504,16 +530,26 @@ module.exports = function performanceRoutes(db) {
           ...(item.entry === 'daily' ? {
             daily_target: Math.round((item.target / work.days) * 100) / 100,
             work_days: work.days,
+            days_elapsed: work.elapsed,
             days_entered: daily?.days || 0,
+            expected: Math.round(((item.target / work.days) * work.elapsed) * 100) / 100,
+            pace: paceScore(actual, (item.target / work.days) * work.elapsed, item.direction),
           } : {}),
         };
       });
-      const scored = kpis.filter((k) => k.score !== null && k.weight > 0);
-      const weightSum = scored.reduce((sum, k) => sum + k.weight, 0);
-      const total = weightSum ? Math.round((scored.reduce((sum, k) => sum + k.score * k.weight, 0) / weightSum) * 10) / 10 : null;
-      return { ...person, kpis, total };
+      const weighted = (valueOf) => {
+        const scored = kpis.map((k) => [k, valueOf(k)]).filter(([k, v]) => v !== null && v !== undefined && k.weight > 0);
+        const weightSum = scored.reduce((sum, [k]) => sum + k.weight, 0);
+        return weightSum ? Math.round((scored.reduce((sum, [k, v]) => sum + v * k.weight, 0) / weightSum) * 10) / 10 : null;
+      };
+      // Pace total: daily KPIs by their pace, the rest by their score.
+      return { ...person, kpis, total: weighted((k) => k.score), pace: weighted((k) => (k.entry === 'daily' ? k.pace : k.score)) };
     });
-    res.json({ period, ...periodRange(period), rows, teams: teamTotals(items, byPerson, actualOf) });
+    const expectedOf = (personId, item) => {
+      const work = daysFor(personId);
+      return (item.target / work.days) * work.elapsed;
+    };
+    res.json({ period, ...periodRange(period), rows, teams: teamTotals(items, byPerson, actualOf, expectedOf) });
   }));
 
   // HR's daily screen: everyone with a daily KPI, that day's number, their

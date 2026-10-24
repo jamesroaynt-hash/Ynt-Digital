@@ -119,7 +119,7 @@ function perfTeamLine(teams, department, { day = false } = {}) {
   const mine = (teams || []).filter((t) => t.department === department);
   if (!mine.length) return '';
   return mine.map((t) => `<span class="perf-team">${escapeHtml(t.label)}: <strong>${t.total}</strong> / ${t.target}${t.unit ? ` ${escapeHtml(t.unit)}` : ''}
-    ${day ? ` · today ${t.day}` : ''} ${perfScoreBadge(t.score)}</span>`).join('');
+    ${day ? ` · today ${t.day}` : ''} ${perfScoreBadge(t.score)}${t.pace != null ? ` <span class="text-xs">pace</span> ${perfScoreBadge(t.pace)}` : ''}</span>`).join('');
 }
 
 // ─── Compliance (Category 2) ────────────────────────────────
@@ -182,14 +182,14 @@ async function perfLoadKpi() {
       <div class="card-header">
         <div>
           <div class="card-title">KPI · Category 3</div>
-          <div class="card-subtitle">Type each person's actual number for the month; it saves when you leave the box. Daily KPIs add up from Daily Entry. Reaching the target = 100% (capped). "Lower is better" KPIs score 100% at or under target. The total is weighted by each KPI's weight.</div>
+          <div class="card-subtitle">Type each person's actual number for the month; it saves when you leave the box. Daily KPIs add up from Daily Entry. Score = against the full monthly target (100% when reached, capped). Pace = month so far against daily target × scheduled days up to today, so it reads fairly mid-month (over 100% = ahead). Totals are weighted by each KPI's weight; Pace total uses pace for daily KPIs and the score for the rest.</div>
         </div>
         <select class="form-control perf-select" onchange="perfState.kpiMonth = this.value; perfLoadKpi();">${options}</select>
       </div>
       ${groups.length ? `<div class="table-container"><table class="perf-kpi-table">
-        <thead><tr><th>Employee</th><th>KPI</th><th>Target</th><th>Actual</th><th>Score</th><th>Total</th></tr></thead>
+        <thead><tr><th>Employee</th><th>KPI</th><th>Target</th><th>Actual</th><th>Score</th><th title="Month so far vs. daily target × scheduled days up to today">Pace</th><th>Total</th><th>Pace total</th></tr></thead>
         ${groups.map(([department, people]) => `<tbody>
-          <tr class="perf-group"><td colspan="6">${escapeHtml(department)} ${perfTeamLine(data.teams, department)}</td></tr>
+          <tr class="perf-group"><td colspan="8">${escapeHtml(department)} ${perfTeamLine(data.teams, department)}</td></tr>
           ${people.map((p) => p.kpis.map((k, index) => `<tr${index === 0 ? ' class="perf-person-start"' : ''}>
             ${index === 0 ? `<td rowspan="${p.kpis.length}"><strong>${escapeHtml(p.name)}</strong></td>` : ''}
             <td>${escapeHtml(k.label)}${k.personal ? ' <span class="badge badge-gray">personal</span>' : ''}${k.direction === 'lower' ? ' <span class="text-xs text-muted">(lower is better)</span>' : ''}</td>
@@ -200,7 +200,8 @@ async function perfLoadKpi() {
               aria-label="${escapeHtml(`${p.name} — ${k.label} actual`)}"
               onchange="perfSaveActual(${Number(p.id)}, ${Number(k.item_id)}, this.value)">`}</td>
             <td>${perfScoreBadge(k.score)}</td>
-            ${index === 0 ? `<td rowspan="${p.kpis.length}">${perfScoreBadge(p.total)}</td>` : ''}
+            <td${k.entry === 'daily' ? ` title="${escapeHtml(`${k.actual ?? 0} done vs ${k.expected} expected by ${k.days_elapsed} of ${k.work_days} scheduled days`)}"` : ''}>${k.entry === 'daily' ? perfScoreBadge(k.pace) : '<span class="text-muted">—</span>'}</td>
+            ${index === 0 ? `<td rowspan="${p.kpis.length}">${perfScoreBadge(p.total)}</td><td rowspan="${p.kpis.length}">${perfScoreBadge(p.pace)}</td>` : ''}
           </tr>`).join('')).join('')}
         </tbody>`).join('')}
       </table></div>` : `<div class="empty-state"><h3>No KPIs yet</h3><p>Add each department's KPIs on the KPI Setup tab.</p>
