@@ -6178,6 +6178,18 @@ function renderEvaluationQueue() {
   // peer the column is not rendered at all rather than repeating "HR only"
   // down the table, and a row is not clickable — there is nothing to open.
   const showScores = !!evaluationState.canSeeScores;
+  // S/N: how many of their own sheets each person has Submitted / Not
+  // submitted this period (from the Submission Progress tally, HR only).
+  const progressById = new Map((showScores ? (evaluationState.progress || []) : []).map((p) => [Number(p.id), p]));
+  const showSn = progressById.size > 0;
+  const snCell = (row) => {
+    const p = progressById.get(Number(row.id));
+    if (!p) return '<span class="ev-muted">—</span>';
+    const state = p.required === 0 ? '<span class="badge badge-gray">Nobody to rate</span>'
+      : p.not_submitted === 0 ? '<span class="badge badge-success">Done</span>'
+        : `<span class="badge badge-warning">${p.not_submitted} left</span>`;
+    return `<strong>${p.submitted} / ${p.required}</strong> ${state}`;
+  };
 
   wrap.innerHTML = `
   ${viewOnly ? `<div class="alert alert-info" style="margin-bottom:12px;"><div><strong>${escapeHtml(period)} — view only.</strong>
@@ -6192,6 +6204,7 @@ function renderEvaluationQueue() {
           ${showScores ? '<th>Over All Percentage</th>' : ''}
           <th>Status</th>
           <th>Action</th>
+          ${showSn ? '<th title="Their own sheets this period: Submitted / Not submitted">S/N</th>' : ''}
         </tr>
       </thead>
       <tbody>
@@ -6211,6 +6224,7 @@ function renderEvaluationQueue() {
               ${row.submitted ? 'Edit' : 'Evaluate'}</button>
               ${evaluationState.canExclude ? `<button class="btn btn-secondary btn-sm" type="button"
                 onclick="setEvaluationExcluded(${Number(row.id)}, true)" title="Take off the list — nobody rates them">Exclude</button>` : ''}</td>
+            ${showSn ? `<td style="white-space:nowrap;">${snCell(row)}</td>` : ''}
           </tr>`).join('')}
       </tbody>
     </table>
@@ -6282,7 +6296,7 @@ function renderEvaluationProgress() {
     ${rows.length ? `
     <div class="ev-scroll">
       <table class="ev-table">
-        <thead><tr><th>Name</th><th>Position</th><th>Submitted</th><th>Not submitted</th><th>Status</th></tr></thead>
+        <thead><tr><th>Name</th><th>Position</th><th>Status</th></tr></thead>
         <tbody>
           ${rows.map((row) => {
             const status = row.required === 0 ? '<span class="badge badge-gray">Nobody to rate</span>'
@@ -6292,8 +6306,6 @@ function renderEvaluationProgress() {
             return `<tr>
               <td><strong>${escapeHtml(row.name || 'User')}</strong></td>
               <td>${escapeHtml(row.role || 'Not set')}</td>
-              <td>${row.submitted} / ${row.required}</td>
-              <td>${row.not_submitted}</td>
               <td>${status}</td>
             </tr>`;
           }).join('')}
