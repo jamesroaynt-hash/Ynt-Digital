@@ -8115,6 +8115,9 @@ tfoot td {
 .fu-drop strong { color: var(--text-primary); font-size: 15px; }
 .fu-drop span { font-size: 13px; }
 .fu-drop:hover, .fu-drop:focus-visible, .fu-drop.is-over { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+.fu-link-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.fu-link-url { flex: 2 1 260px; min-width: 0; }
+.fu-link-name { flex: 1 1 160px; min-width: 0; }
 .fu-queue-head { display: flex; justify-content: space-between; align-items: center; margin: 18px 0 8px; font-weight: 600; color: var(--text-primary); }
 .fu-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .fu-item-main { flex: 1; min-width: 0; }

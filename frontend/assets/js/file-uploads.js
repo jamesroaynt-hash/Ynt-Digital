@@ -2,7 +2,7 @@
    FILE UPLOADS — drag files in, they're stored in Supabase Storage
    Folders are made by users (Page Details and Customer Feedbacks to start)
    and picked from one dropdown; inside each, a file is filed under
-   Product Info or Product Feedback.
+   Product Info or Product Feedback. A link can be saved there too.
    Backed by /api/uploads. Every signed-in user uploads and views; the
    uploader or an Administrator deletes. Anyone creates a folder; its
    creator or an Administrator renames it or deletes it once empty.
@@ -179,6 +179,11 @@ function renderFuBody() {
         <span id="fu-drop-hint">${fuDropHint()}</span>
         <input type="file" id="fu-file" multiple hidden onchange="fuAddFiles(this.files); this.value='';">
       </div>
+      <form class="fu-link-row" onsubmit="event.preventDefault(); fuAddLink();">
+        <input class="form-control fu-link-url" id="fu-link-url" type="url" placeholder="Or paste a link — https://…" autocomplete="off">
+        <input class="form-control fu-link-name" id="fu-link-name" maxlength="250" placeholder="Name (optional)" autocomplete="off">
+        <button class="btn btn-secondary btn-sm" type="submit">Add link</button>
+      </form>
       <div id="fu-queue"></div>
     </div></div>
     <div class="card" style="margin-top:20px;">
@@ -227,6 +232,29 @@ function fuSetFolder(id) {
   renderFuFolders();
   fuRefreshHint();
   fuLoadFiles();
+}
+
+async function fuAddLink() {
+  const urlInput = document.getElementById('fu-link-url');
+  const nameInput = document.getElementById('fu-link-name');
+  const url = String(urlInput?.value || '').trim();
+  if (!fuState.category) {
+    showToast('warning', 'Create a folder first', 'Use + New folder to make one.');
+    return;
+  }
+  if (!url) { urlInput?.focus(); return; }
+  try {
+    await authorizedJsonRequest('/uploads/links', {
+      method: 'POST',
+      body: JSON.stringify({ category: fuState.category, section: fuState.section, url, name: String(nameInput?.value || '').trim() }),
+    });
+    if (urlInput) urlInput.value = '';
+    if (nameInput) nameInput.value = '';
+    showToast('success', 'Link saved', `${fuState.category} / ${fuState.section}`);
+    fuReloadFolders().catch(() => fuLoadFiles());
+  } catch (error) {
+    showToast('error', 'Could not save link', error.message);
+  }
 }
 
 function fuDragOver(event) {
@@ -391,13 +419,15 @@ async function fuLoadFiles() {
       <thead><tr><th>File</th><th>Category</th><th>Size</th><th>Uploaded by</th><th>When</th><th></th></tr></thead>
       <tbody>${fuState.files.map((r) => `
         <tr>
-          <td><a href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})">${escapeHtml(r.file_name)}</a></td>
+          <td>${r.link_url
+            ? `<a href="${escapeHtml(r.link_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.file_name)}</a>`
+            : `<a href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})">${escapeHtml(r.file_name)}</a>`}</td>
           <td>${escapeHtml(r.page_name !== r.category ? r.page_name : '—')}</td>
-          <td>${fuFormatSize(r.size_bytes)}</td>
+          <td>${r.link_url ? 'Link' : fuFormatSize(r.size_bytes)}</td>
           <td>${escapeHtml(r.uploaded_by_name || '—')}</td>
           <td>${escapeHtml(fuFormatWhen(r.created_at))}</td>
           <td class="fu-row-actions">
-            <button class="btn btn-secondary btn-sm" onclick="fuOpen(${Number(r.id)}, true)">Download</button>
+            ${r.link_url ? '' : `<button class="btn btn-secondary btn-sm" onclick="fuOpen(${Number(r.id)}, true)">Download</button>`}
             ${r.can_delete ? `<button class="btn btn-secondary btn-sm" onclick="fuDelete(${Number(r.id)})">Delete</button>` : ''}
           </td>
         </tr>`).join('')}</tbody>
@@ -431,7 +461,7 @@ async function fuDelete(id) {
   if (!confirm(`Delete ${row?.file_name || 'this file'}? This cannot be undone.`)) return;
   try {
     await authorizedJsonRequest(`/uploads/${id}`, { method: 'DELETE' });
-    showToast('success', 'File deleted', '');
+    showToast('success', 'Deleted', '');
     fuReloadFolders().catch(() => fuLoadFiles());
   } catch (error) {
     showToast('error', 'Could not delete', error.message);

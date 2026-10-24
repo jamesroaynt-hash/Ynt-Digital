@@ -36,6 +36,13 @@ async function ensureFileUploadsSchema(db) {
   for (const sql of fileUploadsStatements(db)) {
     await db.exec(sql);
   }
+  // A row with link_url is a saved link, not a file: object_path stays ''.
+  if (db.type === 'postgres') {
+    await db.exec('ALTER TABLE file_uploads ADD COLUMN IF NOT EXISTS link_url TEXT');
+  } else {
+    const columns = await db.prepare('PRAGMA table_info(file_uploads)').all();
+    if (!columns.some((c) => c.name === 'link_url')) await db.exec('ALTER TABLE file_uploads ADD COLUMN link_url TEXT');
+  }
   // First run: start with the two original folders plus any folder an
   // earlier upload already used. Only when empty, so a deleted folder stays gone.
   const count = await db.prepare('SELECT COUNT(*) AS n FROM file_upload_folders').get();

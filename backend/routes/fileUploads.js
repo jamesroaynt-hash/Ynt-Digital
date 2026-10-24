@@ -7,6 +7,8 @@ const storage = require('../services/supabaseStorage');
 // in page_name:
 //   <folder>/Product Info/…   <folder>/Product Feedback/…
 // (files from before sections sit under an older page name or the folder top.)
+// A link (any http/https URL) can be saved in the same place; it's a row with
+// link_url set and nothing in the bucket.
 // Every signed-in user may upload, view and create a folder; a file is deleted
 // by whoever uploaded it, an Administrator or the super admin, and a folder is
 // renamed or deleted (only while empty) by its creator or those same managers.
@@ -151,13 +153,40 @@ function fileUploadsRoutes(db) {
       if (page) { where.push('page_name = ?'); params.push(page); }
       const user = await currentUser(req);
       const rows = await db.prepare(`
-        SELECT id, category, page_name, file_name, mime_type, size_bytes, uploaded_by, uploaded_by_name, created_at
+        SELECT id, category, page_name, file_name, mime_type, size_bytes, link_url, uploaded_by, uploaded_by_name, created_at
         FROM file_uploads ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY id DESC LIMIT 200
       `).all(...params);
       res.json({
         rows: rows.map((r) => ({ ...r, can_delete: isManager(user) || Number(r.uploaded_by) === Number(user?.id) })),
       });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/links', async (req, res) => {
+    try {
+      const category = text(req.body?.category);
+      const section = text(req.body?.section);
+      const folder = category ? await db.prepare('SELECT name FROM file_upload_folders WHERE name = ?').get(category) : null;
+      if (!folder) return res.status(400).json({ error: 'Pick a folder' });
+      if (!SECTIONS.includes(section)) return res.status(400).json({ error: 'Pick Product Info or Product Feedback' });
+      let url;
+      try {
+        url = new URL(String(req.body?.url || '').trim());
+      } catch {
+        url = null;
+      }
+      if (!url || !['http:', 'https:'].includes(url.protocol)) return res.status(400).json({ error: 'Enter a full link starting with http:// or https://' });
+      const href = url.toString().slice(0, 2000);
+      const name = cleanName(req.body?.name, 250) || `${url.hostname}${url.pathname === '/' ? '' : url.pathname}`.slice(0, 250);
+      const user = await currentUser(req);
+      const result = await db.prepare(`
+        INSERT INTO file_uploads (category, page_name, file_name, object_path, mime_type, link_url, uploaded_by, uploaded_by_name)
+        VALUES (?, ?, ?, '', 'link', ?, ?, ?)
+      `).run(category, section, name, href, user?.id || null, user?.full_name || user?.username || null);
+      res.status(201).json({ id: Number(result.lastInsertRowid) || null });
     } catch (error) {
       sendError(res, error);
     }
@@ -196,8 +225,9 @@ function fileUploadsRoutes(db) {
   // A 10-minute link to view (or ?download=1 to save) one file.
   router.get('/:id/url', async (req, res) => {
     try {
-      const row = await db.prepare('SELECT object_path FROM file_uploads WHERE id = ?').get(Number(req.params.id));
+      const row = await db.prepare('SELECT object_path, link_url FROM file_uploads WHERE id = ?').get(Number(req.params.id));
       if (!row) return res.status(404).json({ error: 'File not found' });
+      if (row.link_url) return res.json({ url: row.link_url });
       res.json({ url: await storage.signedUrl(row.object_path, { download: req.query.download === '1' }) });
     } catch (error) {
       sendError(res, error);
@@ -206,13 +236,13 @@ function fileUploadsRoutes(db) {
 
   router.delete('/:id', async (req, res) => {
     try {
-      const row = await db.prepare('SELECT id, object_path, uploaded_by FROM file_uploads WHERE id = ?').get(Number(req.params.id));
+      const row = await db.prepare('SELECT id, object_path, link_url, uploaded_by FROM file_uploads WHERE id = ?').get(Number(req.params.id));
       if (!row) return res.status(404).json({ error: 'File not found' });
       const user = await currentUser(req);
       if (!isManager(user) && Number(row.uploaded_by) !== Number(user?.id)) {
         return res.status(403).json({ error: 'Only the uploader or an Administrator can delete this file' });
       }
-      await storage.removeObject(row.object_path);
+      if (!row.link_url) await storage.removeObject(row.object_path);
       await db.prepare('DELETE FROM file_uploads WHERE id = ?').run(row.id);
       res.json({ deleted: true, id: row.id });
     } catch (error) {
