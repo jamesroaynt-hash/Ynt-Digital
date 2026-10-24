@@ -5573,9 +5573,6 @@ function renderEvaluationKpi() {
         <div class="card-title">Submission Progress</div>
         <div class="card-subtitle" id="evaluation-progress-sub">Who has submitted their evaluations this period.</div>
       </div>
-      <label class="ev-muted" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-        <input type="checkbox" id="evaluation-progress-pending" onchange="renderEvaluationProgress()"> Not finished only
-      </label>
     </div>
     <div class="card-body" id="evaluation-progress-wrap"></div>
   </div>
@@ -6265,7 +6262,8 @@ async function setEvaluationExcluded(userId, excluded) {
 }
 
 // HR's tally of who has filed their sheets: everybody rates everyone on the
-// list but themselves, so each person owes that many for the period.
+// list but themselves, so each person owes that many for the period. Only the
+// totals show here; each person's count is the evaluation list's S/N column.
 function renderEvaluationProgress() {
   const card = document.getElementById('evaluation-progress-card');
   const wrap = document.getElementById('evaluation-progress-wrap');
@@ -6281,37 +6279,14 @@ function renderEvaluationProgress() {
   const inProgress = progress.filter((row) => row.submitted > 0 && row.not_submitted > 0).length;
   const submitted = progress.reduce((sum, row) => sum + row.submitted, 0);
   const required = progress.reduce((sum, row) => sum + row.required, 0);
-  const pendingOnly = !!document.getElementById('evaluation-progress-pending')?.checked;
-  const rows = progress
-    .filter((row) => !pendingOnly || row.not_submitted > 0)
-    .sort((a, b) => b.not_submitted - a.not_submitted || String(a.name).localeCompare(String(b.name)));
 
   wrap.innerHTML = `
-    <div class="stats-grid" style="margin-bottom:16px;">
+    <div class="stats-grid" style="margin-bottom:0;">
       <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Finished</div><div class="stat-value">${done}</div><div class="stat-meta">of ${progress.length} people</div></div>
       <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">In progress</div><div class="stat-value">${inProgress}</div><div class="stat-meta">some sheets left</div></div>
       <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Not started</div><div class="stat-value">${notStarted}</div><div class="stat-meta">no sheet submitted</div></div>
       <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Sheets submitted</div><div class="stat-value">${submitted} / ${required}</div><div class="stat-meta">${required ? Math.round((submitted / required) * 100) : 0}% done · ${required - submitted} not submitted</div></div>
-    </div>
-    ${rows.length ? `
-    <div class="ev-scroll">
-      <table class="ev-table">
-        <thead><tr><th>Name</th><th>Position</th><th>Status</th></tr></thead>
-        <tbody>
-          ${rows.map((row) => {
-            const status = row.required === 0 ? '<span class="badge badge-gray">Nobody to rate</span>'
-              : row.not_submitted === 0 ? '<span class="badge badge-success">Done</span>'
-                : row.submitted === 0 ? '<span class="badge badge-danger">Not started</span>'
-                  : `<span class="badge badge-warning">${row.not_submitted} left</span>`;
-            return `<tr>
-              <td><strong>${escapeHtml(row.name || 'User')}</strong></td>
-              <td>${escapeHtml(row.role || 'Not set')}</td>
-              <td>${status}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>` : '<div class="empty-state"><p>Everybody has submitted all their sheets.</p></div>'}`;
+    </div>`;
 }
 
 // Only ever called for HR/Administrator — the column is dropped for everyone
