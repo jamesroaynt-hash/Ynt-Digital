@@ -157,10 +157,10 @@ function fileUploadsRoutes(db) {
         FROM file_uploads ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY id DESC LIMIT 200
       `).all(...params);
-      // Images are shown as pictures, so they get a signed thumbnail URL; if
-      // signing fails the list still loads with names.
+      // Images and videos are shown as pictures, so they get a signed preview
+      // URL; if signing fails the list still loads with names.
       const thumbPaths = rows
-        .filter((r) => !r.link_url && String(r.mime_type || '').startsWith('image/'))
+        .filter((r) => !r.link_url && /^(image|video)\//.test(String(r.mime_type || '')))
         .map((r) => r.object_path);
       let thumbs = new Map();
       if (thumbPaths.length && storage.configured()) {

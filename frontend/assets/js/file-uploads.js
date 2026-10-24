@@ -415,25 +415,42 @@ async function fuLoadFiles() {
     return;
   }
   wrap.innerHTML = `
-    <div class="fu-table-scroll"><table class="fu-table">
-      <thead><tr><th>File</th><th>Category</th><th>Size</th><th>Uploaded by</th><th>When</th><th></th></tr></thead>
-      <tbody>${fuState.files.map((r) => `
-        <tr>
-          <td>${r.link_url
-            ? `<a href="${escapeHtml(r.link_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.file_name)}</a>`
-            : r.thumb_url
-              ? `<a href="#" class="fu-thumb-link" title="${escapeHtml(r.file_name)}" onclick="event.preventDefault(); fuOpen(${Number(r.id)})"><img class="fu-thumb" src="${escapeHtml(r.thumb_url)}" alt="${escapeHtml(r.file_name)}" loading="lazy"></a>`
-              : `<a href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})">${escapeHtml(r.file_name)}</a>`}</td>
-          <td>${escapeHtml(r.page_name !== r.category ? r.page_name : '—')}</td>
-          <td>${r.link_url ? 'Link' : fuFormatSize(r.size_bytes)}</td>
-          <td>${escapeHtml(r.uploaded_by_name || '—')}</td>
-          <td>${escapeHtml(fuFormatWhen(r.created_at))}</td>
-          <td class="fu-row-actions">
-            ${r.link_url ? '' : `<button class="btn btn-secondary btn-sm" onclick="fuOpen(${Number(r.id)}, true)">Download</button>`}
-            ${r.can_delete ? `<button class="btn btn-secondary btn-sm" onclick="fuDelete(${Number(r.id)})">Delete</button>` : ''}
-          </td>
-        </tr>`).join('')}</tbody>
-    </table></div>`;
+    <div class="fu-grid">${fuState.files.map((r) => {
+      // Laid out like a file explorer's large icons: picture, name under it.
+      // Details show on hover; Download/Delete appear on hover or focus.
+      const details = [r.file_name, r.page_name !== r.category ? r.page_name : '', r.link_url ? 'Link' : fuFormatSize(r.size_bytes),
+        r.uploaded_by_name, fuFormatWhen(r.created_at)].filter(Boolean).join(' · ');
+      const isVideo = String(r.mime_type || '').startsWith('video/');
+      const open = r.link_url
+        ? `href="${escapeHtml(r.link_url)}" target="_blank" rel="noopener noreferrer"`
+        : `href="#" onclick="event.preventDefault(); fuOpen(${Number(r.id)})"`;
+      const preview = r.thumb_url && isVideo
+        ? `<video src="${escapeHtml(r.thumb_url)}#t=0.5" preload="metadata" muted playsinline></video><span class="fu-play" aria-hidden="true">▶</span>`
+        : r.thumb_url
+          ? `<img src="${escapeHtml(r.thumb_url)}" alt="" loading="lazy">`
+          : `<span class="fu-icon" aria-hidden="true">${fuFileIcon(r)}</span>`;
+      return `
+      <div class="fu-tile" title="${escapeHtml(details)}">
+        <a class="fu-tile-open" ${open}>
+          <span class="fu-tile-preview">${preview}</span>
+          <span class="fu-tile-name">${escapeHtml(r.file_name)}</span>
+        </a>
+        <div class="fu-tile-actions">
+          ${r.link_url ? '' : `<button class="btn btn-secondary btn-sm" onclick="fuOpen(${Number(r.id)}, true)">Download</button>`}
+          ${r.can_delete ? `<button class="btn btn-secondary btn-sm" onclick="fuDelete(${Number(r.id)})">Delete</button>` : ''}
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+}
+
+// Big outline icon for anything without a picture: a link or a document
+// labelled with its extension.
+function fuFileIcon(r) {
+  if (r.link_url) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10 14a4 4 0 005.66 0l3-3a4 4 0 00-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 00-5.66 0l-3 3a4 4 0 005.66 5.66l1-1"/></svg>';
+  }
+  const ext = (String(r.file_name || '').match(/\.([a-z0-9]{1,5})$/i)?.[1] || 'file').toUpperCase();
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg><b>${escapeHtml(ext)}</b>`;
 }
 
 function fuFormatWhen(value) {
