@@ -165,10 +165,6 @@ function renderFuBody() {
           <label class="form-label" for="fu-folder">Folder</label>
           <div id="fu-folders"></div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Category</label>
-          <div class="fu-pills" id="fu-sections"></div>
-        </div>
       </div>
       <div class="fu-drop" id="fu-drop" tabindex="0" role="button" aria-label="Drop files or click to choose"
         onclick="document.getElementById('fu-file').click()"
@@ -187,7 +183,12 @@ function renderFuBody() {
       <div id="fu-queue"></div>
     </div></div>
     <div class="card" style="margin-top:20px;">
-      <div class="card-header"><div class="card-title" id="fu-files-title">Files</div></div>
+      <div class="card-header">
+        <div class="fu-files-head">
+          <div class="card-title" id="fu-files-title">Files</div>
+          <div class="fu-pills" id="fu-sections" role="group" aria-label="Category"></div>
+        </div>
+      </div>
       <div id="fu-files"><div class="empty-state"><p>Loading</p></div></div>
     </div>`;
   renderFuFolders();
@@ -212,6 +213,7 @@ function fuSetSection(index) {
   fuState.section = name;
   renderFuSections();
   fuRefreshHint();
+  fuLoadFiles();
 }
 
 function fuDropHint() {
@@ -400,7 +402,9 @@ async function fuLoadFiles() {
     wrap.innerHTML = '<div class="empty-state"><p>No folders yet. Use + New folder to make one.</p></div>';
     return;
   }
-  const params = new URLSearchParams({ category: fuState.category });
+  // The Category buttons beside the title pick both where uploads go and
+  // which files are listed.
+  const params = new URLSearchParams({ category: fuState.category, page: fuState.section });
   const title = document.getElementById('fu-files-title');
   if (title) title.textContent = `Files · ${fuState.category}`;
   try {
