@@ -157,10 +157,10 @@ function fileUploadsRoutes(db) {
         FROM file_uploads ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY id DESC LIMIT 200
       `).all(...params);
-      // Product Feedback images are shown as pictures, so they get a signed
-      // thumbnail URL; if signing fails the list still loads with names.
+      // Images are shown as pictures, so they get a signed thumbnail URL; if
+      // signing fails the list still loads with names.
       const thumbPaths = rows
-        .filter((r) => !r.link_url && r.page_name === 'Product Feedback' && String(r.mime_type || '').startsWith('image/'))
+        .filter((r) => !r.link_url && String(r.mime_type || '').startsWith('image/'))
         .map((r) => r.object_path);
       let thumbs = new Map();
       if (thumbPaths.length && storage.configured()) {
