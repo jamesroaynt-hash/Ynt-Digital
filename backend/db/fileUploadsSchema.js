@@ -1,6 +1,6 @@
 // File Uploads: files dropped on the dashboard are stored in a Supabase Storage
-// bucket; this table is the list of them (who, which page, where in the
-// bucket). Kept in its own file like the other module schemas; idempotent on
+// bucket; file_uploads is the list of them (who, which page, where in the
+// bucket) and file_upload_folders the folders users create to sort them into. Kept in its own file like the other module schemas; idempotent on
 // SQLite and Postgres. The file bytes never touch the database.
 
 function fileUploadsStatements(db) {
@@ -22,12 +22,28 @@ function fileUploadsStatements(db) {
       created_at ${ts}
     )`,
     'CREATE INDEX IF NOT EXISTS idx_file_uploads_category_page ON file_uploads(category, page_name)',
+    `CREATE TABLE IF NOT EXISTS file_upload_folders (
+      id ${id},
+      name TEXT NOT NULL UNIQUE,
+      created_by INTEGER,
+      created_by_name TEXT,
+      created_at ${ts}
+    )`,
   ];
 }
 
 async function ensureFileUploadsSchema(db) {
   for (const sql of fileUploadsStatements(db)) {
     await db.exec(sql);
+  }
+  // First run: start with the two original folders plus any folder an
+  // earlier upload already used. Only when empty, so a deleted folder stays gone.
+  const count = await db.prepare('SELECT COUNT(*) AS n FROM file_upload_folders').get();
+  if (Number(count?.n) > 0) return;
+  const used = await db.prepare('SELECT DISTINCT category FROM file_uploads').all();
+  const names = new Set(['Page Details', 'Customer Feedbacks', ...used.map((r) => String(r.category || '').trim()).filter(Boolean)]);
+  for (const name of names) {
+    await db.prepare('INSERT INTO file_upload_folders (name) VALUES (?) ON CONFLICT (name) DO NOTHING').run(name);
   }
 }
 

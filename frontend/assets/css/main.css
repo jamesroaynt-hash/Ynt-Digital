@@ -8098,6 +8098,11 @@ tfoot td {
 .fu-controls { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end; margin-bottom: 16px; }
 .fu-controls .form-group { margin-bottom: 0; }
 .fu-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.fu-new-pill { border-style: dashed; }
+.fu-new-folder { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.fu-new-folder[hidden] { display: none; }
+.fu-new-folder .form-control { flex: 1 1 220px; min-width: 0; max-width: 320px; }
+.fu-folder-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .fu-page-field { flex: 1 1 260px; min-width: 0; }
 .fu-drop {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;

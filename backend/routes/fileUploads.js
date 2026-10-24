@@ -3,12 +3,11 @@ const crypto = require('crypto');
 const storage = require('../services/supabaseStorage');
 
 // File Uploads: drag files onto the dashboard and they're stored in Supabase
-// Storage, one folder per page under each category:
-//   Page Details/<page>/…   Customer Feedbacks/<page>/…
-// Every signed-in user may upload and view; a file is deleted by whoever
-// uploaded it, an Administrator or the super admin.
-
-const CATEGORIES = ['Page Details', 'Customer Feedbacks'];
+// Storage, one folder per page under each user-made folder (category):
+//   Page Details/<page>/…   Customer Feedbacks/<page>/…   <any new folder>/<page>/…
+// Every signed-in user may upload, view and create a folder; a file is deleted
+// by whoever uploaded it, an Administrator or the super admin, and a folder is
+// renamed or deleted (only while empty) by its creator or those same managers.
 
 function text(value, max = 200) {
   const raw = String(value ?? '').trim();
@@ -41,12 +40,100 @@ function fileUploadsRoutes(db) {
     return res.status(error?.statusCode && error.statusCode < 600 ? error.statusCode : 500).json({ error: error?.message || 'Upload request failed' });
   }
 
-  router.get('/status', (req, res) => {
-    res.json({
-      configured: storage.configured(),
-      categories: CATEGORIES,
-      max_file_mb: storage.MAX_FILE_BYTES / 1024 / 1024,
-    });
+  async function listFolders(user) {
+    const rows = await db.prepare(`
+      SELECT f.id, f.name, f.created_by, f.created_by_name,
+        (SELECT COUNT(*) FROM file_uploads u WHERE u.category = f.name) AS file_count
+      FROM file_upload_folders f ORDER BY f.id
+    `).all();
+    return rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      file_count: Number(r.file_count) || 0,
+      created_by_name: r.created_by_name || null,
+      can_manage: isManager(user) || (r.created_by != null && Number(r.created_by) === Number(user?.id)),
+    }));
+  }
+
+  async function findFolderByName(name, exceptId = 0) {
+    return db.prepare('SELECT id FROM file_upload_folders WHERE LOWER(name) = LOWER(?) AND id != ?').get(name, exceptId);
+  }
+
+  router.get('/status', async (req, res) => {
+    try {
+      const folders = await listFolders(await currentUser(req));
+      res.json({
+        configured: storage.configured(),
+        categories: folders.map((f) => f.name),
+        folders,
+        max_file_mb: storage.MAX_FILE_BYTES / 1024 / 1024,
+      });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.get('/folders', async (req, res) => {
+    try {
+      res.json({ folders: await listFolders(await currentUser(req)) });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/folders', async (req, res) => {
+    try {
+      const name = cleanName(req.body?.name, 80);
+      if (!name) return res.status(400).json({ error: 'Type a folder name' });
+      if (await findFolderByName(name)) return res.status(409).json({ error: `A folder named "${name}" already exists` });
+      const user = await currentUser(req);
+      const result = await db.prepare('INSERT INTO file_upload_folders (name, created_by, created_by_name) VALUES (?, ?, ?)')
+        .run(name, user?.id || null, user?.full_name || user?.username || null);
+      res.status(201).json({ id: Number(result.lastInsertRowid) || null, name });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  async function manageableFolder(req, res) {
+    const folder = await db.prepare('SELECT id, name, created_by FROM file_upload_folders WHERE id = ?').get(Number(req.params.id));
+    if (!folder) { res.status(404).json({ error: 'Folder not found' }); return null; }
+    const user = await currentUser(req);
+    if (!isManager(user) && Number(folder.created_by) !== Number(user?.id)) {
+      res.status(403).json({ error: 'Only the folder creator or an Administrator can change this folder' });
+      return null;
+    }
+    return folder;
+  }
+
+  // Renaming relabels the files' folder; their storage paths keep the old
+  // name, which is fine since files are always opened by their saved path.
+  router.patch('/folders/:id', async (req, res) => {
+    try {
+      const folder = await manageableFolder(req, res);
+      if (!folder) return;
+      const name = cleanName(req.body?.name, 80);
+      if (!name) return res.status(400).json({ error: 'Type a folder name' });
+      if (await findFolderByName(name, folder.id)) return res.status(409).json({ error: `A folder named "${name}" already exists` });
+      await db.prepare('UPDATE file_upload_folders SET name = ? WHERE id = ?').run(name, folder.id);
+      await db.prepare('UPDATE file_uploads SET category = ? WHERE category = ?').run(name, folder.name);
+      res.json({ id: folder.id, name });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.delete('/folders/:id', async (req, res) => {
+    try {
+      const folder = await manageableFolder(req, res);
+      if (!folder) return;
+      const used = await db.prepare('SELECT COUNT(*) AS n FROM file_uploads WHERE category = ?').get(folder.name);
+      if (Number(used?.n) > 0) return res.status(409).json({ error: 'Delete the files in this folder first' });
+      await db.prepare('DELETE FROM file_upload_folders WHERE id = ?').run(folder.id);
+      res.json({ deleted: true, id: folder.id });
+    } catch (error) {
+      sendError(res, error);
+    }
   });
 
   // Page names the dropdown offers: every page POS has orders for, plus any
@@ -95,13 +182,14 @@ function fileUploadsRoutes(db) {
       const pageName = cleanName(req.query.page, 120);
       const fileName = cleanName(decodeURIComponent(String(req.headers['x-file-name'] || '')), 250);
       const mimeType = text(req.headers['x-file-type'], 120) || 'application/octet-stream';
-      if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Pick Page Details or Customer Feedbacks' });
+      const folder = category ? await db.prepare('SELECT name FROM file_upload_folders WHERE name = ?').get(category) : null;
+      if (!folder) return res.status(400).json({ error: 'Pick a folder' });
       if (!pageName) return res.status(400).json({ error: 'Pick a page' });
       if (!fileName) return res.status(400).json({ error: 'File name is missing' });
       if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'File is empty' });
 
       // A short random prefix keeps two uploads of "photo.jpg" from colliding.
-      const objectPath = `${category}/${keySegment(pageName)}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}-${keySegment(fileName)}`;
+      const objectPath = `${keySegment(category)}/${keySegment(pageName)}/${Date.now()}-${crypto.randomBytes(3).toString('hex')}-${keySegment(fileName)}`;
       await storage.uploadObject(objectPath, req.body, mimeType);
 
       const user = await currentUser(req);

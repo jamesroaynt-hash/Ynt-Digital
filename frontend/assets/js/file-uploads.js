@@ -1,9 +1,11 @@
 /* ═══════════════════════════════════════════════════════════
    FILE UPLOADS — drag files in, they're stored in Supabase Storage
-   Two categories, one folder per page under each:
-     Page Details / <page>     Customer Feedbacks / <page>
+   Folders are made by users (Page Details and Customer Feedbacks to start),
+   one sub-folder per page under each:
+     <folder> / <page>
    Backed by /api/uploads. Every signed-in user uploads and views; the
-   uploader or an Administrator deletes.
+   uploader or an Administrator deletes. Anyone creates a folder; its
+   creator or an Administrator renames it or deletes it once empty.
    Loaded before app.js; it leans on app.js globals (App, escapeHtml,
    authorizedJsonRequest, getApiBase, getAuthToken, showToast) read at
    call time.
@@ -11,6 +13,7 @@
 
 const fuState = {
   status: null,
+  folders: [],
   pages: [],
   category: 'Page Details',
   page: '',
@@ -37,6 +40,7 @@ async function initFileUploadsPage() {
       authorizedJsonRequest('/uploads/pages').catch(() => ({ pages: [] })),
     ]);
     fuState.status = status;
+    fuApplyFolders(status.folders);
     fuState.pages = Array.isArray(pages?.pages) ? pages.pages : [];
   } catch (error) {
     const body = document.getElementById('fu-body');
@@ -45,6 +49,103 @@ async function initFileUploadsPage() {
   }
   renderFuBody();
   if (fuState.status.configured) fuLoadFiles();
+}
+
+function fuApplyFolders(folders) {
+  fuState.folders = Array.isArray(folders) ? folders : [];
+  if (!fuState.folders.some((f) => f.name === fuState.category)) {
+    fuState.category = fuState.folders[0]?.name || '';
+  }
+}
+
+function fuCurrentFolder() {
+  return fuState.folders.find((f) => f.name === fuState.category) || null;
+}
+
+function renderFuFolders() {
+  const wrap = document.getElementById('fu-folders');
+  if (!wrap) return;
+  const pills = fuState.folders.map((f) =>
+    `<button class="filter-pill ${fuState.category === f.name ? 'active' : ''}" type="button" onclick="fuSetFolder(${Number(f.id)})">${escapeHtml(f.name)}</button>`).join('');
+  const current = fuCurrentFolder();
+  const manage = current?.can_manage ? `
+    <span class="fu-folder-actions">
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fuRenameFolder(${Number(current.id)})">Rename</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fuDeleteFolder(${Number(current.id)})">Delete folder</button>
+    </span>` : '';
+  wrap.innerHTML = `
+    <div class="fu-pills">
+      ${pills}
+      <button class="filter-pill fu-new-pill" type="button" onclick="fuToggleNewFolder(true)">+ New folder</button>
+    </div>
+    <form class="fu-new-folder" id="fu-new-folder" hidden onsubmit="event.preventDefault(); fuCreateFolder();">
+      <input class="form-control" id="fu-new-folder-name" maxlength="80" placeholder="Folder name, e.g. Product Photos" autocomplete="off">
+      <button class="btn btn-primary btn-sm" type="submit">Create</button>
+      <button class="btn btn-secondary btn-sm" type="button" onclick="fuToggleNewFolder(false)">Cancel</button>
+    </form>
+    ${manage}`;
+}
+
+function fuToggleNewFolder(open) {
+  const form = document.getElementById('fu-new-folder');
+  if (!form) return;
+  form.hidden = !open;
+  const input = document.getElementById('fu-new-folder-name');
+  if (open) input?.focus();
+  else if (input) input.value = '';
+}
+
+async function fuReloadFolders() {
+  const data = await authorizedJsonRequest('/uploads/folders');
+  fuApplyFolders(data?.folders);
+  renderFuFolders();
+  fuRefreshHint();
+  fuLoadFiles();
+}
+
+async function fuCreateFolder() {
+  const name = String(document.getElementById('fu-new-folder-name')?.value || '').trim();
+  if (!name) { document.getElementById('fu-new-folder-name')?.focus(); return; }
+  try {
+    await authorizedJsonRequest('/uploads/folders', { method: 'POST', body: JSON.stringify({ name }) });
+    fuState.category = name;
+    showToast('success', 'Folder created', name);
+    await fuReloadFolders();
+  } catch (error) {
+    showToast('error', 'Could not create folder', error.message);
+  }
+}
+
+async function fuRenameFolder(id) {
+  const folder = fuState.folders.find((f) => Number(f.id) === Number(id));
+  if (!folder) return;
+  const name = String(prompt('Rename folder', folder.name) || '').trim();
+  if (!name || name === folder.name) return;
+  try {
+    await authorizedJsonRequest(`/uploads/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+    fuState.category = name;
+    showToast('success', 'Folder renamed', name);
+    await fuReloadFolders();
+  } catch (error) {
+    showToast('error', 'Could not rename folder', error.message);
+  }
+}
+
+async function fuDeleteFolder(id) {
+  const folder = fuState.folders.find((f) => Number(f.id) === Number(id));
+  if (!folder) return;
+  if (folder.file_count > 0) {
+    showToast('warning', 'Folder is not empty', `Delete its ${folder.file_count} file${folder.file_count === 1 ? '' : 's'} first.`);
+    return;
+  }
+  if (!confirm(`Delete the folder "${folder.name}"?`)) return;
+  try {
+    await authorizedJsonRequest(`/uploads/folders/${id}`, { method: 'DELETE' });
+    showToast('success', 'Folder deleted', folder.name);
+    await fuReloadFolders();
+  } catch (error) {
+    showToast('error', 'Could not delete folder', error.message);
+  }
 }
 
 function renderFuBody() {
@@ -61,8 +162,6 @@ function renderFuBody() {
     return;
   }
 
-  const categories = (s.categories || ['Page Details', 'Customer Feedbacks']).map((c) =>
-    `<button class="filter-pill ${fuState.category === c ? 'active' : ''}" type="button" onclick="fuSetCategory('${escapeHtml(c)}')">${escapeHtml(c)}</button>`).join('');
   const options = fuState.pages.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('');
 
   body.innerHTML = `
@@ -70,7 +169,7 @@ function renderFuBody() {
       <div class="fu-controls">
         <div class="form-group">
           <label class="form-label">Folder</label>
-          <div class="fu-pills">${categories}</div>
+          <div id="fu-folders"></div>
         </div>
         <div class="form-group fu-page-field">
           <label class="form-label" for="fu-page">Page</label>
@@ -94,11 +193,13 @@ function renderFuBody() {
       <div class="card-header"><div class="card-title" id="fu-files-title">Files</div></div>
       <div id="fu-files"><div class="empty-state"><p>Loading</p></div></div>
     </div>`;
+  renderFuFolders();
   renderFuQueue();
 }
 
 function fuDropHint() {
   const max = fuState.status?.max_file_mb || 50;
+  if (!fuState.category) return 'Create a folder first.';
   return fuState.page
     ? `Goes to ${escapeHtml(fuState.category)} / ${escapeHtml(fuState.page)} — or click to choose. Up to ${max} MB each.`
     : `Pick a page first — or click to choose. Up to ${max} MB each.`;
@@ -109,9 +210,11 @@ function fuRefreshHint() {
   if (hint) hint.innerHTML = fuDropHint();
 }
 
-function fuSetCategory(category) {
-  fuState.category = category;
-  document.querySelectorAll('.fu-pills .filter-pill').forEach((btn) => btn.classList.toggle('active', btn.textContent === category));
+function fuSetFolder(id) {
+  const folder = fuState.folders.find((f) => Number(f.id) === Number(id));
+  if (!folder) return;
+  fuState.category = folder.name;
+  renderFuFolders();
   fuRefreshHint();
   fuLoadFiles();
 }
@@ -145,6 +248,10 @@ function fuDrop(event) {
 function fuAddFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
+  if (!fuState.category) {
+    showToast('warning', 'Create a folder first', 'Use + New folder to make one.');
+    return;
+  }
   if (!fuState.page) {
     showToast('warning', 'Pick a page first', 'Choose which page these files belong to.');
     document.getElementById('fu-page')?.focus();
@@ -191,7 +298,7 @@ async function fuRunQueue() {
   }
   if (uploaded) {
     showToast('success', 'Uploaded', `${uploaded} file${uploaded === 1 ? '' : 's'} saved.`);
-    fuLoadFiles();
+    fuReloadFolders().catch(() => fuLoadFiles());
   }
 }
 
@@ -265,6 +372,10 @@ function fuClearQueue() {
 async function fuLoadFiles() {
   const wrap = document.getElementById('fu-files');
   if (!wrap) return;
+  if (!fuState.category) {
+    wrap.innerHTML = '<div class="empty-state"><p>No folders yet. Use + New folder to make one.</p></div>';
+    return;
+  }
   const params = new URLSearchParams({ category: fuState.category });
   if (fuState.page) params.set('page', fuState.page);
   const title = document.getElementById('fu-files-title');
@@ -326,7 +437,7 @@ async function fuDelete(id) {
   try {
     await authorizedJsonRequest(`/uploads/${id}`, { method: 'DELETE' });
     showToast('success', 'File deleted', '');
-    fuLoadFiles();
+    fuReloadFolders().catch(() => fuLoadFiles());
   } catch (error) {
     showToast('error', 'Could not delete', error.message);
   }
