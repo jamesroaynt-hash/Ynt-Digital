@@ -2423,6 +2423,45 @@ tfoot td {
   padding: 0 18px;
 }
 
+/* Camera + Scan share the right end of the input. */
+.scan-input-wrapper:has(.scan-input-actions) .scan-input { padding-right: 186px; }
+.scan-input-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  gap: 6px;
+}
+.scan-input-actions .btn { position: static; padding: 0 18px; }
+.scan-input-actions .scan-cam-btn { padding: 0 12px; }
+.scan-cam-btn svg { width: 20px; height: 20px; }
+
+/* Camera scanner window */
+.cam-scan-modal { max-width: 520px; }
+.cam-scan-reader {
+  width: 100%;
+  min-height: 240px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+.cam-scan-reader video { width: 100% !important; display: block; }
+.cam-scan-status {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-height: 40px;
+}
+.cam-scan-status.ok { color: var(--success); }
+.cam-scan-status.warn { color: var(--warning); }
+.cam-scan-status.err { color: var(--danger); }
+.cam-scan-controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.cam-scan-controls select { flex: 1 1 180px; min-width: 0; }
+
 .scan-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(59,130,246,0.1);

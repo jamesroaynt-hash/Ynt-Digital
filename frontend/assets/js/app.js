@@ -16673,10 +16673,15 @@ function renderScannerCard(pageId, scanType) {
       <div class="card-body">
         <div class="scan-input-wrapper">
           <input type="text" class="scan-input" id="scan-input-${pageId}" placeholder="Scan or type tracking number..." autocomplete="off">
-          <button class="btn btn-primary" onclick="performScan('${pageId}','${scanType}')">
+          <div class="scan-input-actions">
+            <button type="button" class="btn btn-secondary scan-cam-btn" onclick="openCameraScanner('${pageId}','${scanType}')" title="Scan with camera" aria-label="Scan with camera">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>
+            </button>
+            <button class="btn btn-primary" onclick="performScan('${pageId}','${scanType}')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM11 10h2v4h-2z"/></svg>
             Scan
           </button>
+          </div>
         </div>
         <p class="form-hint">Press Enter or click Scan to look up tracking details</p>
         <div id="scan-result-${pageId}"></div>
@@ -16702,10 +16707,15 @@ function renderScanComboCard(pageId, scanType) {
           <div style="flex:1;min-width:280px;">
             <div class="scan-input-wrapper">
               <input type="text" class="scan-input" id="scan-input-${pageId}" placeholder="Scan or type tracking number..." autocomplete="off">
-              <button class="btn btn-primary" onclick="performScan('${pageId}','${scanType}')">
+              <div class="scan-input-actions">
+            <button type="button" class="btn btn-secondary scan-cam-btn" onclick="openCameraScanner('${pageId}','${scanType}')" title="Scan with camera" aria-label="Scan with camera">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>
+            </button>
+            <button class="btn btn-primary" onclick="performScan('${pageId}','${scanType}')">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h2v4H3zM7 2h2v4H7zM11 2h2v4h-2zM3 10h2v4H3zM11 10h2v4h-2z"/></svg>
                 Scan
               </button>
+          </div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
               <label for="scan-date-${pageId}" style="font-size:12px;font-weight:600;color:var(--text-muted);white-space:nowrap;">Scan date</label>
@@ -25350,6 +25360,186 @@ async function performScan(pageId, scanType) {
   loadScanPreviewForPage(pageId, scanType).catch(() => {});
   loadScanToday(pageId, scanType).catch(() => {});
   loadScanPageSummary(pageId, scanType).catch(() => {});
+}
+
+// ─── CAMERA SCAN ───────────────────────────────────────────
+// Phone or webcam as the barcode reader. Each code read goes through
+// performScan exactly like a typed/gun scan, so duplicate and unknown-parcel
+// rules stay in one place. The camera stays open for the next parcel.
+const CAMERA_SCAN_LIB = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+let cameraScanLibPromise = null;
+let cameraScan = null; // { scanner, pageId, scanType, last, lastAt, busy }
+
+function loadCameraScanLib() {
+  if (window.Html5Qrcode) return Promise.resolve();
+  if (!cameraScanLibPromise) {
+    cameraScanLibPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = CAMERA_SCAN_LIB;
+      s.onload = () => resolve();
+      s.onerror = () => { cameraScanLibPromise = null; reject(new Error('Could not load the scanner. Check the internet connection.')); };
+      document.head.appendChild(s);
+    });
+  }
+  return cameraScanLibPromise;
+}
+
+function ensureCameraScanModal() {
+  let modal = document.getElementById('cam-scan-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'cam-scan-modal';
+  modal.innerHTML = `
+    <div class="modal cam-scan-modal">
+      <div class="modal-header">
+        <div class="modal-title">Scan with camera</div>
+        <button class="modal-close" onclick="closeCameraScanner()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="cam-scan-reader" class="cam-scan-reader"></div>
+        <div id="cam-scan-status" class="cam-scan-status">Starting camera…</div>
+        <div class="cam-scan-controls">
+          <select id="cam-scan-camera" class="form-control" style="display:none;" onchange="switchCameraScanner(this.value)"></select>
+          <button class="btn btn-secondary" onclick="closeCameraScanner()">Done</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  // Esc and the overlay close it by dropping .open — stop the camera then too.
+  new MutationObserver(() => {
+    if (!modal.classList.contains('open') && cameraScan) stopCameraScanner();
+  }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+  return modal;
+}
+
+function setCameraScanStatus(text, tone) {
+  const el = document.getElementById('cam-scan-status');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `cam-scan-status${tone ? ` ${tone}` : ''}`;
+}
+
+async function openCameraScanner(pageId, scanType) {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    showToast('error', 'Camera not available', 'This browser cannot open the camera here (it needs HTTPS).');
+    return;
+  }
+  ensureCameraScanModal();
+  openModal('cam-scan-modal');
+  setCameraScanStatus('Starting camera…');
+  // Read-only while the camera runs, so performScan's focus() doesn't pop the
+  // phone keyboard up behind the camera window.
+  const input = document.getElementById(`scan-input-${pageId}`);
+  if (input) input.readOnly = true;
+  cameraScan = { scanner: null, pageId, scanType, last: '', lastAt: 0, busy: false };
+  try {
+    await loadCameraScanLib();
+    await startCameraScanner({ facingMode: 'environment' });
+    const cams = await Html5Qrcode.getCameras().catch(() => []);
+    const sel = document.getElementById('cam-scan-camera');
+    if (sel && cams.length > 1) {
+      sel.innerHTML = cams.map((c, i) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label || `Camera ${i + 1}`)}</option>`).join('');
+      sel.style.display = '';
+      const active = cameraScan?.scanner?.getRunningTrackSettings?.()?.deviceId;
+      if (active) sel.value = active;
+    }
+  } catch (error) {
+    const name = error?.name || '';
+    const msg = /NotAllowed|Permission/i.test(name + String(error))
+      ? 'Camera permission was blocked. Allow the camera for this site in the browser settings, then try again.'
+      : /NotFound|Overconstrained/i.test(name + String(error))
+        ? 'No camera found on this device.'
+        : (error?.message || String(error));
+    setCameraScanStatus(msg, 'err');
+  }
+}
+
+async function startCameraScanner(camera) {
+  if (!cameraScan) return;
+  const F = Html5QrcodeSupportedFormats;
+  const scanner = new Html5Qrcode('cam-scan-reader', {
+    verbose: false,
+    useBarCodeDetectorIfSupported: true,
+    formatsToSupport: [F.CODE_128, F.CODE_39, F.CODE_93, F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.ITF, F.CODABAR, F.DATA_MATRIX],
+  });
+  cameraScan.scanner = scanner;
+  await scanner.start(
+    camera,
+    {
+      fps: 10,
+      // Wide, short box: waybill barcodes are long 1-D codes.
+      qrbox: (w, h) => ({ width: Math.floor(Math.min(w * 0.9, 420)), height: Math.floor(Math.min(h * 0.45, 200)) }),
+    },
+    onCameraScanDecoded,
+    () => {},
+  );
+  // Closed while the camera was still starting: shut it straight back off.
+  if (cameraScan?.scanner !== scanner) {
+    try { await scanner.stop(); scanner.clear(); } catch {}
+    return;
+  }
+  setCameraScanStatus('Point the camera at the barcode on the waybill.');
+}
+
+async function onCameraScanDecoded(text) {
+  const cs = cameraScan;
+  if (!cs || cs.busy) return;
+  const code = String(text || '').trim();
+  if (!code) return;
+  // The same label stays in frame for a few frames — read it once.
+  if (code === cs.last && Date.now() - cs.lastAt < 3000) return;
+  cs.busy = true;
+  cs.last = code;
+  cs.lastAt = Date.now();
+  try { navigator.vibrate?.(80); } catch {}
+  setCameraScanStatus(`Checking ${code}…`);
+  const input = document.getElementById(`scan-input-${cs.pageId}`);
+  const resultEl = document.getElementById(`scan-result-${cs.pageId}`);
+  if (!input || !resultEl) { cs.busy = false; return; }
+  input.value = code;
+  resultEl.innerHTML = '';
+  try {
+    await performScan(cs.pageId, cs.scanType);
+  } finally {
+    const card = resultEl.querySelector('.scan-result-card');
+    if (!card) setCameraScanStatus(`${code} — not saved. See the message on screen.`, 'err');
+    else if (card.style.borderColor) setCameraScanStatus(`${code} — ${card.querySelector('.scan-result-header')?.textContent.trim() || 'not counted'}`, 'warn');
+    else setCameraScanStatus(`✓ ${code} recorded. Ready for the next parcel.`, 'ok');
+    if (cameraScan === cs) {
+      cs.lastAt = Date.now();
+      cs.busy = false;
+    }
+  }
+}
+
+async function switchCameraScanner(deviceId) {
+  if (!cameraScan || !deviceId) return;
+  const old = cameraScan.scanner;
+  try { await old?.stop(); old?.clear(); } catch {}
+  try {
+    await startCameraScanner(deviceId);
+  } catch (error) {
+    setCameraScanStatus(error?.message || String(error), 'err');
+  }
+}
+
+async function stopCameraScanner() {
+  const cs = cameraScan;
+  cameraScan = null;
+  const input = cs && document.getElementById(`scan-input-${cs.pageId}`);
+  if (input) input.readOnly = false;
+  const sel = document.getElementById('cam-scan-camera');
+  if (sel) { sel.style.display = 'none'; sel.innerHTML = ''; }
+  try {
+    if (cs?.scanner?.isScanning) await cs.scanner.stop();
+    cs?.scanner?.clear();
+  } catch {}
+}
+
+function closeCameraScanner() {
+  closeModal('cam-scan-modal');
+  stopCameraScanner();
 }
 
 // ─── EXPENSE HELPERS ───────────────────────────────────────
