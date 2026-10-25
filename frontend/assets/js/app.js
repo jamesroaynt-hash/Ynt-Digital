@@ -7454,7 +7454,7 @@ function renderAttendance() {
   </div>
 
   <div id="attendance-tab-cash" class="tab-content">
-    <div style="display:grid; grid-template-columns:minmax(320px, .75fr) minmax(0, 1.25fr); gap:16px;">
+    <div class="att-split">
       <div class="card">
         <div class="card-header"><div><div class="card-title">Cash Advance Request</div><div class="card-subtitle">Requests are saved under your account for HR review.</div></div></div>
         <div class="card-body">
@@ -7479,7 +7479,7 @@ function renderAttendance() {
   </div>
 
   <div id="attendance-tab-leave" class="tab-content">
-    <div style="display:grid; grid-template-columns:minmax(320px, .75fr) minmax(0, 1.25fr); gap:16px;">
+    <div class="att-split">
       <div class="card">
         <div class="card-header"><div><div class="card-title">Leave Request</div><div class="card-subtitle">Submit the dates and reason for HR approval.</div></div></div>
         <div class="card-body">
@@ -7520,7 +7520,7 @@ function renderAttendance() {
   </div>
 
   <div id="attendance-tab-ot" class="tab-content">
-    <div style="display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1.2fr); gap:16px;">
+    <div class="att-split att-split-ot">
       <div class="card">
         <div class="card-header"><div><div class="card-title">Request Overtime</div><div class="card-subtitle">OT hours are paid only if HR approves.</div></div></div>
         <div class="card-body">
@@ -10370,7 +10370,7 @@ function renderAdspendRoas() {
       <button class="apg-nav" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''} title="Drop a card here to move it to the next screen"
         ondragover="if (!this.disabled) adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, 'next')">Next<span aria-hidden="true">›</span></button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;padding:20px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;padding:20px;">
       ${gridWindow.map((pageData, col) => gridCardHtml(pageData, col)).join('')}
     </div>
     <div style="padding:0 20px 18px;font-size:12px;color:var(--text-muted);">Drag a card by its header to rearrange the pages (drop on Prev / Next to move it to another screen). Type an amount in Ad Spent to record that day's spend for that page — it saves when you leave the box, and Enter jumps to the next day. The figure feeds ROAS Summary and Marketing too.</div>`}
@@ -27737,7 +27737,7 @@ function showRenameSourceModal(presetName, onDone) {
   modal.id = 'ynt-rename-source-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = `
-    <div style="background:var(--bg-card);border-radius:12px;padding:28px 32px;min-width:360px;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+    <div style="background:var(--bg-card);border-radius:12px;padding:28px 32px;width:min(480px, calc(100vw - 24px));box-shadow:0 8px 32px rgba(0,0,0,0.4);">
       <div style="font-size:16px;font-weight:600;margin-bottom:18px;">Rename Page</div>
       <div class="form-group" style="margin-bottom:14px;">
         <label class="form-label">Current name</label>

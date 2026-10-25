@@ -931,6 +931,9 @@ body::before {
 .main-content {
   margin-left: var(--sidebar-w);
   flex: 1;
+  /* a flex item defaults to min-width:auto, so one wide child would stretch
+     the whole page past a phone screen */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -4871,8 +4874,19 @@ tfoot td {
 
 .att-now .break-countdown { margin-top: 18px; }
 
+/* Cash Advance / Leave / Overtime: form beside its records. */
+.att-split {
+  display: grid;
+  grid-template-columns: minmax(320px, .75fr) minmax(0, 1.25fr);
+  gap: 16px;
+  align-items: start;
+}
+.att-split-ot { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+.att-split > .card { min-width: 0; }
+
 @media (max-width: 980px) {
-  .att-clock-grid { grid-template-columns: 1fr; }
+  .att-clock-grid,
+  .att-split { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 720px) {
@@ -4880,6 +4894,19 @@ tfoot td {
   .att-timeline::before { display: none; }
   .att-now-state { font-size: 18px; }
   .att-hours-value { font-size: 28px; }
+  .att-now { padding: 16px; }
+  .att-hours, .att-quick { padding: 16px; }
+  .att-now-head { flex-wrap: wrap; gap: 10px; }
+  .att-now-head .philippine-clock { font-size: 14px; padding: 5px 10px; }
+  .att-actions .btn,
+  .att-actions .att-primary { flex: 1 1 100%; }
+  .att-back { flex-wrap: wrap; }
+  /* Work Hours filters: let the date inputs share the row instead of
+     pushing the card past the screen. */
+  #attendance-tab-hours .card-header > div:last-child { width: 100%; }
+  #attendance-tab-hours .card-header input[type="date"] { flex: 1 1 130px; min-width: 0; }
+  #attendance-tab-hours .card-header select { flex: 1 1 100%; }
+  #attendance-hours-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
 /* ─── INTEGRATIONS DATA FLOW ──────────────────────────────────
@@ -8181,3 +8208,33 @@ tfoot td {
 .et-number { width: 72px; min-width: 56px; margin: 0 auto; padding: 4px 6px; text-align: center; }
 .et-numbers .et-total { text-align: center; }
 .et-numbers tfoot td { border-top: 2px solid var(--border); background: var(--surface-2); }
+
+/* ─── PHONE FIT ───────────────────────────────────────────────
+   Kept at the end of the file so no page rule declared later can win
+   back the desktop layout (that is what happened to the RMO rules in
+   the 768px block near the top: the RMO section sits below it). */
+@media (max-width: 768px) {
+  .rmo-management-page { margin: -16px; padding: 16px; }
+  .rmo-header { flex-direction: column; }
+  .rmo-actions { width: 100%; justify-content: flex-start; }
+  .rmo-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rmo-select { flex: 1 1 100%; width: 100%; min-width: 0; }
+  .rmo-tabs { flex-wrap: wrap; }
+  .rmo-tabs .rmo-search { flex: 1 1 100%; margin-left: 0; }
+
+  /* Side-by-side layouts written as inline styles stack. Auto-fit grids
+     already reflow, and "1fr auto" rows are label/value pairs. */
+  .page-content [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]):not([style*="1fr auto"]):not(.stats-grid) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* A table whose parent does not scroll would push the page sideways. */
+  .page-content :not(.table-container):not(.table-wrapper):not(.table-scroll):has(> table) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .rmo-metrics { grid-template-columns: 1fr; }
+}
