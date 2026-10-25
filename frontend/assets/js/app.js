@@ -6039,6 +6039,12 @@ function renderEvaluationMine() {
     return;
   }
   if (pageSub) pageSub.textContent = 'Evaluation Matrix — General Evaluation, filled every fifteen days.';
+  // The super admin is never rated, so there is no record of their own to show.
+  if (isSuperAdminUser()) {
+    card.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
   card.style.display = '';
 
   const periodLabel = evaluationPeriodLabel(evaluationState.mine?.period || evaluationState.period);
