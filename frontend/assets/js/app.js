@@ -25209,6 +25209,44 @@ function applyRecordsCustomDateRange() {
 }
 
 // ─── SCAN ──────────────────────────────────────────────────
+// Scan feedback tones, made with Web Audio so there is no file to load:
+// one bright beep when a scan is recorded, a low double buzz when it is not.
+let scanAudioCtx = null;
+function scanAudio() {
+  try {
+    if (!scanAudioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      scanAudioCtx = new Ctx();
+    }
+    // Phones start the context suspended until a tap; resume on every use.
+    if (scanAudioCtx.state === 'suspended') scanAudioCtx.resume().catch(() => {});
+    return scanAudioCtx;
+  } catch { return null; }
+}
+
+function playScanSound(kind) {
+  const ctx = scanAudio();
+  if (!ctx) return;
+  const tones = kind === 'ok'
+    ? [{ f: 1320, at: 0, len: 0.12, type: 'sine' }]
+    : [{ f: 220, at: 0, len: 0.16, type: 'square' }, { f: 180, at: 0.2, len: 0.22, type: 'square' }];
+  const t0 = ctx.currentTime + 0.01;
+  tones.forEach(({ f, at, len, type }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = f;
+    gain.gain.setValueAtTime(0.0001, t0 + at);
+    gain.gain.exponentialRampToValueAtTime(type === 'square' ? 0.12 : 0.3, t0 + at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + len);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0 + at);
+    osc.stop(t0 + at + len + 0.02);
+  });
+  try { navigator.vibrate?.(kind === 'ok' ? 80 : [120, 80, 120]); } catch {}
+}
+
 async function performScan(pageId, scanType) {
   const input = document.getElementById(`scan-input-${pageId}`);
   const tracking = input?.value?.trim();
@@ -25254,6 +25292,7 @@ async function performScan(pageId, scanType) {
 
   // Shared "not counted" result card for duplicate / unknown scans.
   const rejectScan = (title, toastMsg, note) => {
+    playScanSound('error');
     showToast('warning', title, toastMsg);
     resultEl.innerHTML = `<div class="scan-result-card" style="border-color:var(--warning);"><div class="scan-result-header" style="color:var(--warning);">${escapeHtml(title)}</div><div class="scan-result-body"><div class="scan-field"><div class="scan-field-label">Tracking No.</div><div class="scan-field-value font-mono">${escapeHtml(tracking)}</div></div><div class="scan-field"><div class="scan-field-label">Note</div><div class="scan-field-value">${escapeHtml(note)}</div></div></div></div>`;
     input.value = '';
@@ -25324,6 +25363,7 @@ async function performScan(pageId, scanType) {
       if (msg.includes('unknown tracking')) { rejectUnknown(); return; }
       if (scanType === 'RTS') {
         // Can't confirm it's new or known without the server, so don't keep it.
+        playScanSound('error');
         showToast('error', 'Scan not saved', error.message || 'The scan could not be saved to the server.');
         input.focus();
         return;
@@ -25354,6 +25394,7 @@ async function performScan(pageId, scanType) {
       </div>
     </div>`;
 
+  playScanSound('ok');
   showToast('success', 'Scan recorded', `${tracking} — ${found.customer}`);
   input.value = '';
   input.focus();
@@ -25425,6 +25466,7 @@ async function openCameraScanner(pageId, scanType) {
     showToast('error', 'Camera not available', 'This browser cannot open the camera here (it needs HTTPS).');
     return;
   }
+  scanAudio(); // unlock sound on this tap so later beeps can play
   ensureCameraScanModal();
   openModal('cam-scan-modal');
   setCameraScanStatus('Starting camera…');
@@ -25492,7 +25534,6 @@ async function onCameraScanDecoded(text) {
   cs.busy = true;
   cs.last = code;
   cs.lastAt = Date.now();
-  try { navigator.vibrate?.(80); } catch {}
   setCameraScanStatus(`Checking ${code}…`);
   const input = document.getElementById(`scan-input-${cs.pageId}`);
   const resultEl = document.getElementById(`scan-result-${cs.pageId}`);
