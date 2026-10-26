@@ -165,6 +165,66 @@ module.exports = function performanceRoutes(db) {
     }));
   }
 
+  // Each person's day from Schedule + Time & Attendance: on time (yes), late,
+  // no time-in (no), approved leave, or today's shift not timed in yet
+  // (pending). A punch on a day with no shift comes back as rest. Compliance
+  // scores these and the Employee Tracker's Attendance tab shows them, so the
+  // two always agree.
+  async function attendanceDays(from, to) {
+    const today = manilaToday();
+    const [schedules, attendance, leaves] = await Promise.all([
+      db.prepare(`
+        SELECT user_id, schedule_date, shift_start FROM user_schedules
+        WHERE schedule_date BETWEEN ? AND ? AND shift_start IS NOT NULL AND shift_start != ''
+      `).all(from, to),
+      db.prepare(`
+        SELECT user_id, work_date, time_in, time_out FROM attendance_records WHERE work_date BETWEEN ? AND ?
+      `).all(from, to),
+      db.prepare(`
+        SELECT user_id, leave_date_from, leave_date_to FROM leave_requests
+        WHERE status = 'approved' AND leave_date_to >= ? AND leave_date_from <= ?
+      `).all(from, to),
+    ]);
+    const punches = new Map(attendance.filter((a) => a.time_in).map((a) => [`${a.user_id}|${a.work_date}`, a]));
+    const onLeave = (userId, date) => leaves.some((l) => Number(l.user_id) === Number(userId) && l.leave_date_from <= date && l.leave_date_to >= date);
+    const days = [];
+    const scheduled = new Set();
+    for (const shift of schedules) {
+      const key = `${shift.user_id}|${shift.schedule_date}`;
+      if (scheduled.has(key)) continue;
+      scheduled.add(key);
+      const punch = punches.get(key);
+      let status;
+      if (onLeave(shift.user_id, shift.schedule_date)) status = 'leave';
+      else if (!punch) status = shift.schedule_date === today ? 'pending' : (shift.schedule_date > today ? 'upcoming' : 'no');
+      else {
+        const start = toMinutes(shift.shift_start);
+        const at = toMinutes(punch.time_in);
+        status = start !== null && at !== null && at > start ? 'late' : 'yes';
+      }
+      days.push({
+        user_id: Number(shift.user_id),
+        work_date: shift.schedule_date,
+        status,
+        shift_start: shift.shift_start,
+        time_in: punch?.time_in || null,
+        time_out: punch?.time_out || null,
+      });
+    }
+    for (const [key, punch] of punches) {
+      if (scheduled.has(key)) continue;
+      days.push({ user_id: Number(punch.user_id), work_date: punch.work_date, status: 'rest', shift_start: null, time_in: punch.time_in, time_out: punch.time_out || null });
+    }
+    return days;
+  }
+
+  router.get('/tracker/attendance', wrap(async (req, res) => {
+    const from = ymd(req.query.from);
+    const to = ymd(req.query.to);
+    if (!from || !to) return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD)' });
+    res.json({ days: await attendanceDays(from, to) });
+  }));
+
   // ─── Tracker marks ─────────────────────────────────────────
   async function writeTrackerEntry(metric, userId, date, body, by) {
     const existing = await db.prepare('SELECT state, note, link, value FROM employee_tracker_marks WHERE metric = ? AND user_id = ? AND work_date = ?')
@@ -283,30 +343,12 @@ module.exports = function performanceRoutes(db) {
         bucket.credit += STATE_CREDIT[mark.state];
       }
 
-      const schedules = await db.prepare(`
-        SELECT user_id, schedule_date, shift_start FROM user_schedules
-        WHERE schedule_date BETWEEN ? AND ? AND shift_start IS NOT NULL AND shift_start != ''
-      `).all(from, to);
-      const attendance = await db.prepare(`
-        SELECT user_id, work_date, time_in FROM attendance_records WHERE work_date BETWEEN ? AND ?
-      `).all(from, to);
-      const leaves = await db.prepare(`
-        SELECT user_id, leave_date_from, leave_date_to FROM leave_requests
-        WHERE status = 'approved' AND leave_date_to >= ? AND leave_date_from <= ?
-      `).all(from, to);
-      const timeIn = new Map(attendance.filter((a) => a.time_in).map((a) => [`${a.user_id}|${a.work_date}`, a.time_in]));
-      const onLeave = (userId, date) => leaves.some((l) => Number(l.user_id) === Number(userId) && l.leave_date_from <= date && l.leave_date_to >= date);
-      for (const shift of schedules) {
-        const bucket = scores.get(Number(shift.user_id))?.attendance;
-        if (!bucket || onLeave(shift.user_id, shift.schedule_date)) continue;
-        const inAt = timeIn.get(`${shift.user_id}|${shift.schedule_date}`);
-        // Today only counts once they've timed in — the shift may not have started.
-        if (!inAt && shift.schedule_date === today) continue;
+      // Leave, rest-day punches and today's not-yet-timed-in shift don't count.
+      for (const day of await attendanceDays(from, to)) {
+        const bucket = scores.get(day.user_id)?.attendance;
+        if (!bucket || !(day.status in STATE_CREDIT)) continue;
         bucket.counted += 1;
-        if (!inAt) continue;
-        const start = toMinutes(shift.shift_start);
-        const at = toMinutes(inAt);
-        bucket.credit += start !== null && at !== null && at > start ? 0.5 : 1;
+        bucket.credit += STATE_CREDIT[day.status];
       }
     }
 

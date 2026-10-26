@@ -4702,6 +4702,15 @@ const EMPLOYEE_TRACKER_METRICS = [
     no: 'Not Joined',
   },
   {
+    // Read straight from Schedule + Time & Attendance (the time clock), not
+    // clicked in — the same days Performance → Compliance scores.
+    id: 'attendance',
+    tab: 'Attendance',
+    title: 'Time & Attendance',
+    hint: 'From the time clock and Schedule, so nothing to click here. Late = timed in after the shift start. Fix a wrong punch on Timekeeping and it shows here.',
+    readonly: true,
+  },
+  {
     // A number, not a mark: each CSR's total confirmed orders for the day. A
     // Performance KPI set to "From Employee Tracker → Confirmed Orders" reads it.
     id: 'orders',
@@ -4761,7 +4770,7 @@ function employeeTrackerGroups() {
   return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
-let employeeTrackerState = { metric: 'standup', weekStart: '', month: '', employees: [], marks: {}, collapsed: {}, loaded: {}, loading: '' };
+let employeeTrackerState = { metric: 'standup', weekStart: '', month: '', employees: [], marks: {}, collapsed: {}, loaded: {}, loading: '', attendance: {}, attendanceLoading: '' };
 
 // Every date in a month that falls on one of the given weekdays (0 = Sunday).
 function etDaysInMonthOn(ym, weekdays) {
@@ -4857,6 +4866,32 @@ async function loadEmployeeTrackerRange(from, to) {
   if (App.currentPage === 'employee-tracker') renderEmployeeTrackerCard();
 }
 
+// The Attendance tab's days: attendance[userId][date] = { status, shift_start,
+// time_in, time_out }. Fetched once per span per visit (opening the page again
+// picks up new punches), with its own in-flight flag so it never blocks the
+// marks' fetch.
+async function loadEmployeeTrackerAttendance(from, to) {
+  const key = `attendance|${from}|${to}`;
+  if (employeeTrackerState.loaded[key] || employeeTrackerState.attendanceLoading === key) return;
+  employeeTrackerState.attendanceLoading = key;
+  try {
+    const data = await authorizedJsonRequest(`/performance/tracker/attendance?from=${from}&to=${to}`);
+    const attendance = employeeTrackerState.attendance;
+    Object.values(attendance).forEach((days) => Object.keys(days).forEach((d) => { if (d >= from && d <= to) delete days[d]; }));
+    (data?.days || []).forEach((day) => {
+      (attendance[day.user_id] || (attendance[day.user_id] = {}))[day.work_date] = day;
+    });
+    employeeTrackerState.loaded[key] = true;
+  } catch (error) {
+    showToast('error', 'Could not load attendance', error.message);
+    // Marked done anyway so the redraw below doesn't refetch in a loop.
+    employeeTrackerState.loaded[key] = true;
+  } finally {
+    if (employeeTrackerState.attendanceLoading === key) employeeTrackerState.attendanceLoading = '';
+  }
+  if (App.currentPage === 'employee-tracker' && employeeTrackerState.metric === 'attendance') renderEmployeeTrackerCard();
+}
+
 // One-time upload of the marks this browser kept before they moved to the server.
 async function importLocalEmployeeTrackerMarks() {
   let saved = null;
@@ -4922,7 +4957,7 @@ function renderEmployeeTracker() {
   <div class="page-header">
     <div class="page-title">
       <h1>Employee Tracker</h1>
-      <p>Standup, EOD, self-care and Monday WAM compliance in one grid, plus each CSR's daily confirmed orders.</p>
+      <p>Standup, EOD, self-care and Monday WAM compliance in one grid, time-clock attendance, plus each CSR's daily confirmed orders.</p>
     </div>
     <div class="page-actions">
       <button class="btn btn-secondary btn-sm" onclick="toggleAllEmployeeTrackerDepartments()">Collapse / Expand All</button>
@@ -4957,6 +4992,7 @@ function renderEmployeeTracker() {
 
 async function initEmployeeTracker() {
   employeeTrackerState.marks = {};
+  employeeTrackerState.attendance = {};
   employeeTrackerState.loaded = {};
   await importLocalEmployeeTrackerMarks();
   if (!employeeTrackerState.weekStart) employeeTrackerState.weekStart = etWeekStart(manilaToday());
@@ -4993,7 +5029,8 @@ function renderEmployeeTrackerCard() {
   // weekStart is a Sunday inside `ym`, and etWeeksInMonth walks Sundays from the
   // one on/before the 1st, so the current week is always one of these options.
   const weeks = etWeeksInMonth(ym);
-  loadEmployeeTrackerRange(days[0], days[days.length - 1]);
+  if (metric.readonly) loadEmployeeTrackerAttendance(days[0], days[days.length - 1]);
+  else loadEmployeeTrackerRange(days[0], days[days.length - 1]);
 
   const monthOptions = [];
   const now = etParseDate(manilaToday());
@@ -5025,7 +5062,15 @@ function renderEmployeeTrackerCard() {
       <div class="et-tabs">
         ${EMPLOYEE_TRACKER_METRICS.map((m) => `<button class="filter-pill ${m.id === metric.id ? 'active' : ''}" onclick="setEmployeeTrackerMetric('${m.id}')">${escapeHtml(m.tab)}</button>`).join('')}
       </div>
-      ${metric.numeric ? '' : `<div class="et-legend">
+      ${metric.readonly ? `<div class="et-legend">
+        <span><i class="et-chip yes">✓</i>On Time</span>
+        <span><i class="et-chip late">L</i>Late</span>
+        <span><i class="et-chip no">×</i>No Time-In</span>
+        <span><i class="et-chip leave">LV</i>On Leave</span>
+        <span><i class="et-chip rest">R</i>Worked a Rest Day</span>
+        <span><i class="et-chip">–</i>No Shift</span>
+      </div>` : ''}
+      ${metric.numeric || metric.readonly ? '' : `<div class="et-legend">
         <span><i class="et-chip yes">✓</i>${escapeHtml(metric.yes)}</span>
         <span><i class="et-chip late">L</i>Late</span>
         <span><i class="et-chip rest">R</i>Rest Day</span>
@@ -5051,6 +5096,12 @@ function renderEmployeeTrackerGrid(metric, days) {
   const employeeRow = (employee) => {
     const row = marks[employee.id] || {};
     const noteRow = notes[employee.id] || {};
+    if (metric.readonly) {
+      return `<tr>
+      <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
+      ${days.map((day) => `<td class="${day === today ? 'et-today' : ''}">${employeeTrackerAttendanceCell(employee.id, day)}</td>`).join('')}
+    </tr>`;
+    }
     return `<tr>
       <td class="et-name-col"><strong>${escapeHtml(employee.name || 'User')}</strong></td>
       ${days.map((day) => {
@@ -5102,6 +5153,31 @@ function renderEmployeeTrackerGrid(metric, days) {
         </tbody>`;
       }).join('')}
     </table>
+  </div>`;
+}
+
+// One Attendance cell: the day's status chip with the time-in under it. A day
+// with no shift and no punch, or a shift still ahead, is a plain dash.
+function employeeTrackerAttendanceCell(userId, day) {
+  const entry = employeeTrackerState.attendance[userId]?.[day];
+  const chips = {
+    yes: ['yes', '✓', 'On time'],
+    late: ['late', 'L', 'Late'],
+    no: ['no', '×', 'No time-in'],
+    leave: ['leave', 'LV', 'On approved leave'],
+    rest: ['rest', 'R', 'Timed in on a day with no shift'],
+    pending: ['', '…', 'Shift today, not timed in yet'],
+  };
+  const chip = entry && chips[entry.status];
+  if (!chip) return `<div class="et-cell"><span class="et-chip et-static" title="${entry ? 'Shift not started yet' : 'No shift'}">–</span></div>`;
+  const [cls, glyph, label] = chip;
+  const times = entry.time_in
+    ? `${formatClock12(entry.time_in)}${entry.time_out ? ` – ${formatClock12(entry.time_out)}` : ''}`
+    : '';
+  const title = [label, entry.shift_start ? `Shift ${formatClock12(entry.shift_start)}` : '', times].filter(Boolean).join(' · ');
+  return `<div class="et-att">
+    <span class="et-chip et-static ${cls}${cls ? ' active' : ''}" title="${escapeHtml(title)}">${glyph}</span>
+    ${entry.time_in ? `<span class="et-att-time">${escapeHtml(formatClock12(entry.time_in))}</span>` : ''}
   </div>`;
 }
 
