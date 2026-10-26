@@ -1386,25 +1386,144 @@ async function deleteHrrPlaybook() {
 const HRR_DEFAULT_TIERS = [{ min: 90, amount: 1000 }, { min: 80, amount: 500 }];
 const hrrKpiState = { rows: [], tiers: HRR_DEFAULT_TIERS };
 
+// The page is Evaluation Result: each person's peer Evaluation, Compliance and
+// KPI side by side with a final result. The allowance records it used to be
+// sit on their own tab. Page id stays 'kpi-allowance' so role access is kept.
+const hrrEvalState = { tab: 'results', period: '' };
+
 function renderKpiAllowancePage() {
+  const results = hrrEvalState.tab === 'results';
   return `
   <div class="page-header">
     <div class="page-title">
-      <h1>Employee KPI Allowance</h1>
-      <p>Allowance eligibility from KPI / evaluation results. The score can be pulled straight from the Evaluation Matrix.</p>
+      <h1>Evaluation Result</h1>
+      <p>Each employee's peer Evaluation, Compliance and KPI, and the final result.</p>
     </div>
-    <div class="page-actions">
+    <div class="page-actions" id="hrr-kpi-actions" style="${results ? 'display:none;' : ''}">
       <button class="btn btn-secondary btn-sm" onclick="openModal('hrr-tier-modal')">Allowance Rules</button>
       <button class="btn btn-primary btn-sm" onclick="openHrrKpiModal({})">+ Add Allowance</button>
     </div>
   </div>
-  <div class="stats-grid" id="hrr-kpi-stats"></div>
-  <div class="card"><div class="card-body" id="hrr-kpi-root"><div class="empty-state"><h3>Loading</h3></div></div></div>
+  <div class="et-tabs" id="hrr-eval-tabs">${renderHrrEvalTabs()}</div>
+  <div id="hrr-eval-results" style="${results ? '' : 'display:none;'}">
+    <div class="card"><div class="card-body"><div class="empty-state"><h3>Loading</h3></div></div></div>
+  </div>
+  <div id="hrr-kpi-section" style="${results ? 'display:none;' : ''}">
+    <div class="stats-grid" id="hrr-kpi-stats"></div>
+    <div class="card"><div class="card-body" id="hrr-kpi-root"><div class="empty-state"><h3>Loading</h3></div></div></div>
+  </div>
   ${renderHrrKpiModal()}
   ${renderHrrTierModal()}`;
 }
 
+function renderHrrEvalTabs() {
+  return [['results', 'Results'], ['allowance', 'Allowance']].map(([id, label]) =>
+    `<button type="button" class="filter-pill ${hrrEvalState.tab === id ? 'active' : ''}" onclick="setHrrEvalTab('${id}')">${label}</button>`).join('');
+}
+
+function setHrrEvalTab(tab) {
+  hrrEvalState.tab = tab;
+  const results = tab === 'results';
+  const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  show('hrr-eval-results', results);
+  show('hrr-kpi-section', !results);
+  show('hrr-kpi-actions', !results);
+  const tabs = document.getElementById('hrr-eval-tabs');
+  if (tabs) tabs.innerHTML = renderHrrEvalTabs();
+}
+
+function hrrCurrentHalf() {
+  const today = manilaToday();
+  return `${today.slice(0, 7)}-H${Number(today.slice(8, 10)) <= 15 ? 1 : 2}`;
+}
+
+function hrrEvalBadge(score) {
+  if (score === null || score === undefined || !Number.isFinite(Number(score))) return '<span class="text-muted">—</span>';
+  const value = Number(score);
+  const tone = value >= 90 ? 'success' : value >= 75 ? 'info' : value >= 60 ? 'warning' : 'danger';
+  return `<span class="badge badge-${tone}">${value.toFixed(value % 1 ? 1 : 0)}%</span>`;
+}
+
+// Peer (Evaluation Matrix score for the half), Compliance (same half) and KPI
+// (the half's month — KPI runs monthly). Final = average of the ones that have
+// a score, so a missing part never drags the result down to zero. Each source
+// is fetched on its own so one failing only blanks its column.
+async function loadHrrEvalResults() {
+  const wrap = document.getElementById('hrr-eval-results');
+  if (!wrap) return;
+  if (!hrrEvalState.period) hrrEvalState.period = hrrCurrentHalf();
+  const period = hrrEvalState.period;
+  const month = period.slice(0, 7);
+  const me = Number(App.user?.id);
+  const get = (path) => authorizedJsonRequest(path).catch(() => null);
+  const [compliance, kpi, queue, mine] = await Promise.all([
+    get(`/performance/compliance?period=${encodeURIComponent(period)}`),
+    get(`/performance/kpi/scores?period=${encodeURIComponent(month)}`),
+    get(`/evaluations/queue?period=${encodeURIComponent(period)}`),
+    // The queue leaves out the person reading it, so their own score comes separately.
+    me ? get(`/evaluations/summary/${me}?period=${encodeURIComponent(period)}`) : null,
+  ]);
+  if (hrrEvalState.period !== period || !document.getElementById('hrr-eval-results')) return;
+
+  const peerOf = (result) => (result && Number(result.responses) > 0 ? Number(result.score) : null);
+  const peer = new Map((queue?.data || []).map((row) => [Number(row.id), peerOf(row.result)]));
+  if (me && mine?.result) peer.set(me, peerOf(mine.result));
+  const kpiBy = new Map((kpi?.rows || []).map((row) => [Number(row.id), row.total ?? null]));
+  const complianceBy = new Map((compliance?.rows || []).map((row) => [Number(row.id), row.overall ?? null]));
+  const roster = compliance?.rows || kpi?.rows || [];
+  const rows = roster.map((person) => {
+    const id = Number(person.id);
+    const scores = { peer: peer.get(id) ?? null, compliance: complianceBy.get(id) ?? null, kpi: kpiBy.get(id) ?? null };
+    const present = Object.values(scores).filter((v) => v !== null && Number.isFinite(Number(v))).map(Number);
+    const final = present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
+    return { id, name: person.name, department: person.department || 'Unassigned', ...scores, final };
+  });
+
+  const order = typeof DEPARTMENT_ORDER !== 'undefined' ? DEPARTMENT_ORDER : [];
+  const rank = (name) => (order.indexOf(name) === -1 ? order.length : order.indexOf(name));
+  const groups = new Map();
+  rows.forEach((row) => { if (!groups.has(row.department)) groups.set(row.department, []); groups.get(row.department).push(row); });
+  const grouped = [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+
+  const now = new Date(`${manilaToday()}T00:00:00`);
+  const options = [];
+  for (let i = 0; i < 12; i += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    options.push(`${ym}-H2`, `${ym}-H1`);
+  }
+  const missing = [!queue && 'Peer', !compliance && 'Compliance', !kpi && 'KPI'].filter(Boolean);
+
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Evaluation Result · ${escapeHtml(hrrPeriodLabel(period))}</div>
+          <div class="card-subtitle">Final Result = average of Peer, Compliance and KPI (only the parts that have a score). KPI is the whole month's.</div>
+        </div>
+        <select class="form-control perf-select" onchange="hrrEvalState.period = this.value; loadHrrEvalResults();">
+          ${options.map((value) => `<option value="${value}"${value === period ? ' selected' : ''}>${escapeHtml(hrrPeriodLabel(value))}</option>`).join('')}
+        </select>
+      </div>
+      ${rows.length ? `<div class="table-container"><table>
+        <thead><tr><th>Employee</th><th>Final Result</th><th>Peer</th><th>Compliance</th><th>KPI</th></tr></thead>
+        ${grouped.map(([department, people]) => `<tbody>
+          <tr class="perf-group"><td colspan="5">${escapeHtml(department)}</td></tr>
+          ${people.map((p) => `<tr>
+            <td><strong>${escapeHtml(p.name)}</strong></td>
+            <td>${hrrEvalBadge(p.final)}</td>
+            <td>${hrrEvalBadge(p.peer)}</td>
+            <td>${hrrEvalBadge(p.compliance)}</td>
+            <td>${hrrEvalBadge(p.kpi)}</td>
+          </tr>`).join('')}
+        </tbody>`).join('')}
+      </table></div>` : '<div class="card-body"><div class="empty-state"><h3>No results</h3><p>Nobody to show for this period.</p></div></div>'}
+      <div class="card-body"><p class="text-xs text-muted">Peer is the Evaluation Matrix score; Compliance and KPI come from Performance. — means no score yet.${missing.length ? ` Could not load: ${escapeHtml(missing.join(', '))}.` : ''}</p></div>
+    </div>`;
+}
+
 async function initKpiAllowancePage() {
+  loadHrrEvalResults().catch(() => {});
   try {
     const [, rows, tiers] = await Promise.all([
       hrrLoadPeople(),

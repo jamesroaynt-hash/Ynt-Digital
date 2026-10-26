@@ -259,7 +259,7 @@ const pageNames = {
   training: 'Onboarding & Playbooks',
   'hr-records': '201 Files',
   'hr-calendar': 'HR Calendar',
-  'kpi-allowance': 'KPI Allowance',
+  'kpi-allowance': 'Evaluation Result',
   performance: 'Performance',
   'hr-reports': 'HR Reports',
   learning: 'My Training',
@@ -4423,7 +4423,7 @@ const HR_QUICK_LINKS = [
   { page: 'hr-records', title: 'Employee Record', desc: '201 file: contract, NDA, documents, memos and payroll in one profile.' },
   { page: 'training', title: 'New Trainee', desc: 'Add a trainee and track onboarding + daily department targets.' },
   { page: 'hr-calendar', title: 'HR Calendar', desc: 'Payroll, bills, deadlines, birthdays and HR tasks.' },
-  { page: 'kpi-allowance', title: 'KPI Allowance', desc: 'Allowance eligibility from KPI / evaluation scores.' },
+  { page: 'kpi-allowance', title: 'Evaluation Result', desc: 'Final result per employee from Peer, Compliance and KPI.' },
   { page: 'hr-reports', title: 'HR Reports', desc: 'Lates, leave, payroll, 201 completeness and tracker compliance.' },
 ];
 
