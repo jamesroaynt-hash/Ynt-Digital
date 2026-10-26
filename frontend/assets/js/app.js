@@ -5621,6 +5621,8 @@ function renderEvaluationKpi() {
     <div class="page-actions">
       <select class="form-control" id="evaluation-period-select" style="display:none;width:auto;"
         onchange="changeEvaluationPeriod(this.value)" title="Evaluation period"></select>
+      <button class="btn btn-secondary btn-sm" id="evaluation-setup-btn" style="display:none;"
+        onclick="openEvaluationSetup()" title="Criteria weights, passing score and items">Matrix Setup</button>
       <button class="btn btn-danger btn-sm" id="evaluation-reset-btn" style="display:none;"
         onclick="resetEvaluationPeriod()" title="Delete every sheet filed under this period">Reset period</button>
       <button class="btn btn-secondary btn-sm" onclick="initEvaluationKpi()">Refresh</button>
@@ -5628,7 +5630,24 @@ function renderEvaluationKpi() {
   </div>
 
   <div id="evaluation-window-wrap"></div>
-  <div id="evaluation-weights-wrap"></div>
+
+  <!-- Matrix Setup pop-up. The shell is static so adding or moving an item
+       (which redraws the inside) never closes it. -->
+  <div class="modal-overlay" id="evaluation-setup-modal">
+    <div class="modal eval-setup-modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Evaluation Matrix Setup</div>
+          <div class="card-subtitle">What each criteria is worth, the score that passes, and the items rated under each.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="eval-weight-total" id="evaluation-weight-total"></div>
+          <button class="modal-close" onclick="closeModal('evaluation-setup-modal')">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body" id="evaluation-weights-wrap"></div>
+    </div>
+  </div>
 
   <!-- Everyone who is not an evaluator sees only this: the evaluation HR
        wrote about them. Hidden until the server says which of the two this
@@ -5876,44 +5895,24 @@ async function saveEvaluationExtension(remove = false) {
 // passes, and the item rows everyone is rated on. The totals have to reach 100
 // or every score would silently be capped below them, so the server rejects
 // anything else.
-// The setup card is only touched now and then, so it starts folded and each
-// browser remembers whether HR left it open. Folding only hides the body — an
-// edit in progress is still there when it is opened again.
-const EVAL_SETUP_COLLAPSED_KEY = 'ynt.evaluationSetupCollapsed';
-
-function evaluationSetupCollapsed() {
-  try { return localStorage.getItem(EVAL_SETUP_COLLAPSED_KEY) !== '0'; } catch { return true; }
-}
-
-function toggleEvaluationSetup() {
-  const body = document.getElementById('evaluation-setup-body');
-  const button = document.getElementById('evaluation-setup-toggle');
-  if (!body) return;
-  const collapse = body.style.display !== 'none';
-  body.style.display = collapse ? 'none' : '';
-  if (button) button.textContent = collapse ? 'Show' : 'Hide';
-  try { localStorage.setItem(EVAL_SETUP_COLLAPSED_KEY, collapse ? '1' : '0'); } catch { /* not remembered */ }
+// Only touched now and then, so it lives in a pop-up opened from the Matrix
+// Setup button beside the period picker. Closing it keeps an edit in
+// progress; Undo changes throws it away.
+function openEvaluationSetup() {
+  renderEvaluationSetup();
+  openModal('evaluation-setup-modal');
 }
 
 function renderEvaluationSetup() {
   const wrap = document.getElementById('evaluation-weights-wrap');
+  const button = document.getElementById('evaluation-setup-btn');
+  const allowed = evaluationState.canSeeScores && evaluationState.weights;
+  if (button) button.style.display = allowed ? '' : 'none';
   if (!wrap) return;
-  if (!evaluationState.canSeeScores || !evaluationState.weights) { wrap.innerHTML = ''; return; }
+  if (!allowed) { wrap.innerHTML = ''; closeModal('evaluation-setup-modal'); return; }
   const items = evaluationSetupItems();
   wrap.innerHTML = `
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header" style="cursor:pointer;" onclick="toggleEvaluationSetup()">
-        <div>
-          <div class="card-title">Evaluation Matrix Setup</div>
-          <div class="card-subtitle">What each criteria is worth, the score that passes, and the items rated under each.</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div class="eval-weight-total" id="evaluation-weight-total"></div>
-          <button type="button" class="btn btn-secondary btn-sm" id="evaluation-setup-toggle"
-            onclick="event.stopPropagation();toggleEvaluationSetup()">${evaluationSetupCollapsed() ? 'Show' : 'Hide'}</button>
-        </div>
-      </div>
-      <div class="card-body" id="evaluation-setup-body"${evaluationSetupCollapsed() ? ' style="display:none;"' : ''}>
+      <div>
         <div class="eval-weight-grid">
           ${evaluationCriteria().map((criterion) => `
             <div class="eval-weight-field">
@@ -5947,8 +5946,7 @@ function renderEvaluationSetup() {
           Renaming an item keeps the ratings already filed under it. Removing one takes it off the
           sheet and out of every score, including the periods already filled in.
         </div>
-      </div>
-    </div>`;
+      </div>`;
   refreshEvaluationWeightTotal();
 }
 
@@ -6072,6 +6070,7 @@ async function saveEvaluationSetup() {
     });
     evaluationState.setupItems = null;
     showToast('success', 'Saved', 'The matrix applies to every score from here.');
+    closeModal('evaluation-setup-modal');
     await initEvaluationKpi();
   } catch (error) {
     showToast('error', 'Could not save', error.message || 'Check that the criteria total 100%.');
