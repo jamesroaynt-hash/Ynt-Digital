@@ -1389,24 +1389,32 @@ const hrrKpiState = { rows: [], tiers: HRR_DEFAULT_TIERS };
 // The page is Evaluation Result: each person's peer Evaluation, Compliance and
 // KPI side by side with a final result. The allowance records it used to be
 // sit on their own tab. Page id stays 'kpi-allowance' so role access is kept.
-const hrrEvalState = { tab: 'results', period: '' };
+const hrrEvalState = { tab: 'results', period: '', rows: [], missing: [], department: 'all', below: false, search: '' };
 
 function renderKpiAllowancePage() {
   const results = hrrEvalState.tab === 'results';
+  if (!hrrEvalState.period) hrrEvalState.period = hrrCurrentHalf();
   return `
-  <div class="page-header">
-    <div class="page-title">
-      <h1>Evaluation Result</h1>
-      <p>Each employee's peer Evaluation, Compliance and KPI, and the final result.</p>
+  <div class="er-hero">
+    <div class="er-hero-text">
+      <div class="er-eyebrow">Performance · Evaluation</div>
+      <h1 class="er-title">Evaluation Results</h1>
+      <p class="er-lede">Final result is the average of Peer, Compliance and KPI — only the parts that have a score. KPI covers the whole month.</p>
     </div>
-    <div class="page-actions" id="hrr-kpi-actions" style="${results ? 'display:none;' : ''}">
-      <button class="btn btn-secondary btn-sm" onclick="openModal('hrr-tier-modal')">Allowance Rules</button>
-      <button class="btn btn-primary btn-sm" onclick="openHrrKpiModal({})">+ Add Allowance</button>
+    <div class="er-hero-side">
+      <label class="er-period" id="hrr-eval-period" style="${results ? '' : 'display:none;'}">
+        <span>Period</span>
+        <select class="form-control" onchange="hrrEvalState.period = this.value; loadHrrEvalResults();">${hrrEvalPeriodOptions()}</select>
+      </label>
+      <div class="page-actions" id="hrr-kpi-actions" style="${results ? 'display:none;' : ''}">
+        <button class="btn btn-secondary btn-sm" onclick="openModal('hrr-tier-modal')">Allowance Rules</button>
+        <button class="btn btn-primary btn-sm" onclick="openHrrKpiModal({})">+ Add Allowance</button>
+      </div>
     </div>
   </div>
   <div class="et-tabs" id="hrr-eval-tabs">${renderHrrEvalTabs()}</div>
   <div id="hrr-eval-results" style="${results ? '' : 'display:none;'}">
-    <div class="card"><div class="card-body"><div class="empty-state"><h3>Loading</h3></div></div></div>
+    <div class="er-panel"><div class="empty-state"><h3>Loading</h3></div></div>
   </div>
   <div id="hrr-kpi-section" style="${results ? 'display:none;' : ''}">
     <div class="stats-grid" id="hrr-kpi-stats"></div>
@@ -1426,6 +1434,7 @@ function setHrrEvalTab(tab) {
   const results = tab === 'results';
   const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
   show('hrr-eval-results', results);
+  show('hrr-eval-period', results);
   show('hrr-kpi-section', !results);
   show('hrr-kpi-actions', !results);
   const tabs = document.getElementById('hrr-eval-tabs');
@@ -1437,11 +1446,43 @@ function hrrCurrentHalf() {
   return `${today.slice(0, 7)}-H${Number(today.slice(8, 10)) <= 15 ? 1 : 2}`;
 }
 
-function hrrEvalBadge(score) {
-  if (score === null || score === undefined || !Number.isFinite(Number(score))) return '<span class="text-muted">—</span>';
-  const value = Number(score);
-  const tone = value >= 90 ? 'success' : value >= 75 ? 'info' : value >= 60 ? 'warning' : 'danger';
-  return `<span class="badge badge-${tone}">${value.toFixed(value % 1 ? 1 : 0)}%</span>`;
+function hrrEvalPeriodOptions() {
+  const now = new Date(`${manilaToday()}T00:00:00`);
+  const options = [];
+  for (let i = 0; i < 12; i += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    options.push(`${ym}-H2`, `${ym}-H1`);
+  }
+  return options.map((value) => `<option value="${value}"${value === hrrEvalState.period ? ' selected' : ''}>${escapeHtml(hrrPeriodLabel(value))}</option>`).join('');
+}
+
+function hrrEvalHas(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function hrrEvalPct(value) {
+  if (!hrrEvalHas(value)) return '—';
+  const n = Number(value);
+  return `${n.toFixed(n % 1 ? 1 : 0)}%`;
+}
+
+// 100 = teal, 80+ = blue, 60+ = amber, below = red.
+function hrrEvalTone(value) {
+  if (!hrrEvalHas(value)) return 'none';
+  const n = Number(value);
+  return n >= 100 ? 'top' : n >= 80 ? 'good' : n >= 60 ? 'warn' : 'bad';
+}
+
+function hrrEvalInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function hrrEvalAverage(values) {
+  const present = values.filter(hrrEvalHas).map(Number);
+  return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
 }
 
 // Peer (Evaluation Matrix score for the half), Compliance (same half) and KPI
@@ -1471,55 +1512,144 @@ async function loadHrrEvalResults() {
   const kpiBy = new Map((kpi?.rows || []).map((row) => [Number(row.id), row.total ?? null]));
   const complianceBy = new Map((compliance?.rows || []).map((row) => [Number(row.id), row.overall ?? null]));
   const roster = compliance?.rows || kpi?.rows || [];
-  const rows = roster.map((person) => {
+  hrrEvalState.rows = roster.map((person) => {
     const id = Number(person.id);
     const scores = { peer: peer.get(id) ?? null, compliance: complianceBy.get(id) ?? null, kpi: kpiBy.get(id) ?? null };
-    const present = Object.values(scores).filter((v) => v !== null && Number.isFinite(Number(v))).map(Number);
-    const final = present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
-    return { id, name: person.name, department: person.department || 'Unassigned', ...scores, final };
+    return { id, name: person.name, department: person.department || 'Unassigned', ...scores, final: hrrEvalAverage(Object.values(scores)) };
   });
+  hrrEvalState.missing = [!queue && 'Peer', !compliance && 'Compliance', !kpi && 'KPI'].filter(Boolean);
+  renderHrrEvalResults();
+}
 
+function hrrEvalGroups(rows) {
   const order = typeof DEPARTMENT_ORDER !== 'undefined' ? DEPARTMENT_ORDER : [];
   const rank = (name) => (order.indexOf(name) === -1 ? order.length : order.indexOf(name));
   const groups = new Map();
   rows.forEach((row) => { if (!groups.has(row.department)) groups.set(row.department, []); groups.get(row.department).push(row); });
-  const grouped = [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+  return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
+}
 
-  const now = new Date(`${manilaToday()}T00:00:00`);
-  const options = [];
-  for (let i = 0; i < 12; i += 1) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const ym = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    options.push(`${ym}-H2`, `${ym}-H1`);
-  }
-  const missing = [!queue && 'Peer', !compliance && 'Compliance', !kpi && 'KPI'].filter(Boolean);
-
+function renderHrrEvalResults() {
+  const wrap = document.getElementById('hrr-eval-results');
+  if (!wrap) return;
+  const rows = hrrEvalState.rows || [];
+  const groups = hrrEvalGroups(rows);
+  if (hrrEvalState.department !== 'all' && !groups.some(([d]) => d === hrrEvalState.department)) hrrEvalState.department = 'all';
+  const pills = [['all', 'All'], ...groups.map(([d]) => [d, d])];
   wrap.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Evaluation Result · ${escapeHtml(hrrPeriodLabel(period))}</div>
-          <div class="card-subtitle">Final Result = average of Peer, Compliance and KPI (only the parts that have a score). KPI is the whole month's.</div>
+    <div class="er-cards">${renderHrrEvalCards(rows, groups.length)}</div>
+    <div class="er-panel">
+      <div class="er-toolbar">
+        <div class="er-pills">
+          ${pills.map(([value, label], i) =>
+            `<button type="button" class="er-pill${hrrEvalState.department === value ? ' active' : ''}" onclick="setHrrEvalDepartment(${i})">${escapeHtml(label)}</button>`).join('')}
         </div>
-        <select class="form-control perf-select" onchange="hrrEvalState.period = this.value; loadHrrEvalResults();">
-          ${options.map((value) => `<option value="${value}"${value === period ? ' selected' : ''}>${escapeHtml(hrrPeriodLabel(value))}</option>`).join('')}
-        </select>
+        <div class="er-tools">
+          <button type="button" class="er-pill er-toggle${hrrEvalState.below ? ' active' : ''}" aria-pressed="${hrrEvalState.below}" onclick="setHrrEvalFilter('below', ${!hrrEvalState.below})">Below 100% only</button>
+          <label class="er-search">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <input type="search" placeholder="Search employees" value="${escapeHtml(hrrEvalState.search)}" oninput="setHrrEvalFilter('search', this.value)">
+          </label>
+        </div>
       </div>
-      ${rows.length ? `<div class="table-container"><table>
-        <thead><tr><th>Employee</th><th>Final Result</th><th>Peer</th><th>Compliance</th><th>KPI</th></tr></thead>
-        ${grouped.map(([department, people]) => `<tbody>
-          <tr class="perf-group"><td colspan="5">${escapeHtml(department)}</td></tr>
-          ${people.map((p) => `<tr>
-            <td><strong>${escapeHtml(p.name)}</strong></td>
-            <td>${hrrEvalBadge(p.final)}</td>
-            <td>${hrrEvalBadge(p.peer)}</td>
-            <td>${hrrEvalBadge(p.compliance)}</td>
-            <td>${hrrEvalBadge(p.kpi)}</td>
-          </tr>`).join('')}
-        </tbody>`).join('')}
-      </table></div>` : '<div class="card-body"><div class="empty-state"><h3>No results</h3><p>Nobody to show for this period.</p></div></div>'}
-      <div class="card-body"><p class="text-xs text-muted">Peer is the Evaluation Matrix score; Compliance and KPI come from Performance. — means no score yet.${missing.length ? ` Could not load: ${escapeHtml(missing.join(', '))}.` : ''}</p></div>
+      <div id="hrr-eval-table">${renderHrrEvalTable(groups)}</div>
+      ${hrrEvalState.missing?.length ? `<p class="er-foot">Could not load: ${escapeHtml(hrrEvalState.missing.join(', '))}.</p>` : ''}
     </div>`;
+}
+
+function renderHrrEvalCards(rows, departments) {
+  const total = rows.length;
+  const scored = rows.filter((r) => hrrEvalHas(r.final));
+  const average = hrrEvalAverage(scored.map((r) => r.final));
+  const perfect = scored.filter((r) => Number(r.final) >= 100).length;
+  const below = scored.filter((r) => Number(r.final) < 100).sort((a, b) => a.final - b.final);
+  const coverage = [['Compliance', 'compliance'], ['Peer', 'peer'], ['KPI', 'kpi']].map(([label, key]) => [label, rows.filter((r) => hrrEvalHas(r[key])).length]);
+  const unscored = coverage.filter(([, n]) => !n).map(([label]) => label);
+  const scoredParts = coverage.filter(([, n]) => n).map(([label]) => label);
+  const pct = (n) => (total ? Math.round((n / total) * 100) : 0);
+  const segments = Math.min(total, 30);
+  const filled = total ? Math.round((perfect / total) * segments) : 0;
+  return `
+    <div class="er-card">
+      <div class="er-card-label">Team average</div>
+      <div class="er-big">${hrrEvalPct(average)}</div>
+      <div class="er-bar"><i class="tone-top" style="width:${hrrEvalHas(average) ? Math.min(100, average) : 0}%"></i></div>
+      <div class="er-card-meta">Across ${total} employee${total === 1 ? '' : 's'} in ${departments} department${departments === 1 ? '' : 's'}</div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">Perfect scores</div>
+      <div class="er-big">${perfect}<small>/${total}</small></div>
+      <div class="er-segments">${Array.from({ length: segments }, (_, i) => `<i class="${i < filled ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="er-card-meta">${pct(perfect)}% of the team at 100%</div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">Below 100%</div>
+      <div class="er-big"><span class="tone-text-warn">${below.length}</span><small class="er-big-word">employee${below.length === 1 ? '' : 's'}</small></div>
+      <div class="er-below">
+        ${below.length ? below.slice(0, 3).map((r) => `<div><span>${escapeHtml(r.name)}</span><b class="tone-text-${hrrEvalTone(r.final)}">${hrrEvalPct(r.final)}</b></div>`).join('')
+          + (below.length > 3 ? `<div class="er-card-meta">+${below.length - 3} more</div>` : '')
+          : '<div class="er-card-meta">Everyone scored is at 100%.</div>'}
+      </div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">Score coverage</div>
+      <div class="er-coverage">
+        ${coverage.map(([label, n]) => `<div><span>${label}</span><div class="er-bar"><i class="tone-top" style="width:${pct(n)}%"></i></div><b>${n}/${total}</b></div>`).join('')}
+      </div>
+      ${unscored.length && scoredParts.length ? `<div class="er-note">Final results are ${escapeHtml(scoredParts.join(' + '))}-only until ${escapeHtml(unscored.join(' and '))} ${unscored.length === 1 ? 'is' : 'are'} scored.</div>` : ''}
+    </div>`;
+}
+
+function renderHrrEvalTable(groups) {
+  const search = hrrEvalState.search.trim().toLowerCase();
+  const visible = groups
+    .filter(([department]) => hrrEvalState.department === 'all' || department === hrrEvalState.department)
+    .map(([department, people]) => [department, people, people.filter((p) =>
+      (!hrrEvalState.below || (hrrEvalHas(p.final) && Number(p.final) < 100))
+      && (!search || String(p.name || '').toLowerCase().includes(search)))])
+    .filter(([, , shown]) => shown.length);
+  if (!visible.length) return '<div class="empty-state"><h3>No employees match</h3><p>Try another department or clear the search.</p></div>';
+  const cell = (value) => `<td class="er-num">${hrrEvalHas(value) ? hrrEvalPct(value) : '<span class="er-dash">—</span>'}</td>`;
+  return `
+    <div class="table-container er-table-wrap"><table class="er-table">
+      <colgroup><col style="width:22%"><col style="width:22%"><col style="width:110px"><col style="width:140px"><col></colgroup>
+      <thead><tr><th>Employee</th><th>Final Result</th><th>Peer</th><th>Compliance</th><th>KPI</th></tr></thead>
+      ${visible.map(([department, people, shown]) => {
+        const average = hrrEvalAverage(people.map((p) => p.final));
+        return `<tbody>
+        <tr class="er-group"><td colspan="5">
+          <div class="er-group-row">
+            <span class="er-group-name">${escapeHtml(department)}</span><span class="er-count">${people.length}</span>
+            <span class="er-group-avg">Dept. average <b class="tone-text-${hrrEvalTone(average)}">${hrrEvalPct(average)}</b></span>
+          </div>
+        </td></tr>
+        ${shown.map((p) => `<tr>
+          <td><div class="er-person"><span class="er-avatar">${escapeHtml(hrrEvalInitials(p.name))}</span><strong>${escapeHtml(p.name)}</strong></div></td>
+          <td><div class="er-final"><b class="tone-text-${hrrEvalTone(p.final)}">${hrrEvalPct(p.final)}</b>${hrrEvalHas(p.final) ? `<span class="er-bar er-bar-sm"><i class="tone-${hrrEvalTone(p.final)}" style="width:${Math.min(100, p.final)}%"></i></span>` : ''}</div></td>
+          ${cell(p.peer)}${cell(p.compliance)}${cell(p.kpi)}
+        </tr>`).join('')}
+      </tbody>`;
+      }).join('')}
+    </table></div>`;
+}
+
+// Pills pass their index, so a department name never has to survive an
+// inline onclick attribute.
+function setHrrEvalDepartment(index) {
+  const pills = ['all', ...hrrEvalGroups(hrrEvalState.rows || []).map(([d]) => d)];
+  setHrrEvalFilter('department', pills[index] || 'all');
+}
+
+// Search only redraws the table, so the box keeps its focus; the rest redraw
+// the panel.
+function setHrrEvalFilter(key, value) {
+  hrrEvalState[key] = value;
+  if (key === 'search') {
+    const table = document.getElementById('hrr-eval-table');
+    if (table) table.innerHTML = renderHrrEvalTable(hrrEvalGroups(hrrEvalState.rows || []));
+    return;
+  }
+  renderHrrEvalResults();
 }
 
 async function initKpiAllowancePage() {

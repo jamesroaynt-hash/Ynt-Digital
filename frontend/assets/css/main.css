@@ -8256,6 +8256,117 @@ tfoot td {
 .et-numbers .et-total { text-align: center; }
 .et-numbers tfoot td { border-top: 2px solid var(--border); background: var(--surface-2); }
 
+/* ─── Evaluation Results (Results tab of the former KPI Allowance page) ───
+   Score tones: top = 100%, good = 80+, warn = 60+, bad = below. */
+:root {
+  --er-top: #0d9488;
+  --er-good: #2563eb;
+  --er-warn: #d97706;
+  --er-bad: #dc2626;
+  --er-track: var(--surface-3);
+}
+[data-theme="dark"] {
+  --er-top: #2dd4bf;
+  --er-good: #60a5fa;
+  --er-warn: #fbbf24;
+  --er-bad: #f87171;
+  --er-track: #1e293b;
+}
+.tone-top { background: var(--er-top); }
+.tone-good { background: var(--er-good); }
+.tone-warn { background: var(--er-warn); }
+.tone-bad { background: var(--er-bad); }
+.tone-none { background: transparent; }
+.tone-text-top { color: var(--er-top); }
+.tone-text-good { color: var(--er-good); }
+.tone-text-warn { color: var(--er-warn); }
+.tone-text-bad { color: var(--er-bad); }
+.tone-text-none { color: var(--text-muted); }
+
+.er-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 18px; flex-wrap: wrap; }
+.er-hero-text { max-width: 620px; }
+.er-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--er-top); margin-bottom: 6px; }
+.er-title { font-size: 30px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; margin: 0 0 8px; color: var(--text-primary); }
+.er-lede { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-secondary); }
+.er-hero-side { display: flex; align-items: flex-end; }
+.er-period { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.er-period select { min-width: 220px; height: 44px; font-weight: 600; border-radius: var(--radius-lg); }
+
+.er-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 14px 0 20px; min-width: 0; }
+#hrr-eval-results { min-width: 0; max-width: 100%; }
+.er-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 20px; box-shadow: var(--shadow-sm); min-width: 0; }
+.er-card-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 10px; }
+.er-big { font-size: 36px; font-weight: 800; letter-spacing: -.02em; line-height: 1; color: var(--text-primary); margin-bottom: 14px; display: flex; align-items: baseline; gap: 6px; }
+.er-big small { font-size: 14px; font-weight: 600; color: var(--text-muted); }
+.er-big small.er-big-word { font-size: 16px; color: var(--text-secondary); }
+.er-card-meta { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+.er-bar { display: block; height: 6px; border-radius: 999px; background: var(--er-track); overflow: hidden; }
+.er-bar > i { display: block; height: 100%; border-radius: inherit; }
+.er-bar-sm { width: 72px; height: 5px; }
+.er-segments { display: flex; gap: 4px; }
+.er-segments i { flex: 1; height: 6px; border-radius: 999px; background: var(--er-track); }
+.er-segments i.on { background: var(--er-top); }
+.er-below { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-primary); }
+.er-below > div { display: flex; justify-content: space-between; gap: 10px; }
+.er-below > div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.er-below b { font-weight: 700; }
+.er-coverage { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-primary); }
+.er-coverage > div { display: grid; grid-template-columns: 88px 1fr 40px; align-items: center; gap: 10px; }
+.er-coverage b { font-weight: 500; color: var(--text-secondary); text-align: right; }
+.er-note { margin-top: 10px; font-size: 12px; line-height: 1.4; color: var(--er-warn); }
+
+.er-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); overflow: hidden; }
+.er-panel > .empty-state { padding: 48px 20px; }
+.er-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.er-pills, .er-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.er-pill { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border-strong); background: transparent; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--transition), color var(--transition), border-color var(--transition); }
+.er-pill:hover { background: var(--surface-3); }
+.er-pill.active { background: var(--text-primary); border-color: var(--text-primary); color: var(--surface); }
+.er-toggle { border-radius: var(--radius-lg); height: 42px; }
+.er-search { display: flex; align-items: center; gap: 8px; height: 42px; min-width: 240px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); color: var(--text-muted); }
+.er-search svg { width: 15px; height: 15px; flex-shrink: 0; }
+.er-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; }
+.er-search:focus-within { border-color: var(--accent); }
+
+.er-table-wrap { border: 0; border-radius: 0; margin: 0; overflow-x: auto; max-width: 100%; }
+.er-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.er-table th, .er-table td { text-align: left; }
+.er-table thead th { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); text-align: left; padding: 12px 20px; border-bottom: 1px solid var(--border); background: transparent; }
+.er-table td { padding: 10px 20px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--text-primary); vertical-align: middle; }
+.er-table tbody tr:not(.er-group):hover td { background: var(--surface-2); }
+.er-group td { padding: 12px 20px; background: var(--surface-2); }
+.er-group-row { display: flex; align-items: center; gap: 10px; }
+.er-group-name { font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); }
+.er-count { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 999px; background: var(--surface-3); color: var(--text-secondary); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.er-group-avg { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+.er-group-avg b { font-weight: 700; }
+.er-person { display: flex; align-items: center; gap: 10px; }
+.er-person strong { font-weight: 600; }
+.er-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--surface-3); color: var(--text-secondary); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.er-final { display: flex; align-items: center; gap: 14px; }
+.er-final b { min-width: 46px; font-weight: 700; }
+.er-num { color: var(--text-primary); }
+.er-dash { color: var(--text-muted); }
+.er-foot { margin: 0; padding: 12px 20px; font-size: 12px; color: var(--er-warn); }
+
+@media (max-width: 1100px) {
+  .er-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .er-title { font-size: 24px; }
+  .er-hero-side, .er-period, .er-period select { width: 100%; }
+  .er-cards { grid-template-columns: 1fr; gap: 12px; }
+  .er-toolbar { padding: 12px; }
+  .er-tools, .er-search { width: 100%; min-width: 0; }
+  .er-table thead th, .er-table td, .er-group td { padding-left: 12px; padding-right: 12px; }
+  .er-bar-sm { display: none; }
+  .er-table { min-width: 560px; }
+  .er-table colgroup col:nth-child(1) { width: 170px; }
+  .er-table colgroup col:nth-child(2) { width: 100px; }
+  .er-table colgroup col:nth-child(3), .er-table colgroup col:nth-child(4) { width: 100px; }
+  .er-pill { height: 32px; padding: 0 12px; }
+}
+
 /* ─── PHONE FIT ───────────────────────────────────────────────
    Kept at the end of the file so no page rule declared later can win
    back the desktop layout (that is what happened to the RMO rules in
