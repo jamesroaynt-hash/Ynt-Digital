@@ -7124,6 +7124,9 @@ tfoot td {
 .et-chip.leave { font-size: 9px; }
 .et-chip.leave.active { background: #6366f1; border-color: #6366f1; color: #fff; }
 .et-legend .et-chip.leave { color: #6366f1; border-color: #6366f1; }
+.et-chip.dayoff { font-size: 8px; letter-spacing: -.02em; }
+.et-chip.dayoff.active { background: var(--text-muted); border-color: var(--text-muted); color: #fff; }
+.et-legend .et-chip.dayoff { color: var(--text-secondary); border-color: var(--text-muted); }
 .et-chip.et-static { cursor: default; }
 .et-chip.et-static:not(.active):hover { background: var(--surface-2); color: var(--text-muted); }
 .et-att { display: flex; flex-direction: column; align-items: center; gap: 3px; }

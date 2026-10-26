@@ -4659,6 +4659,15 @@ const EMPLOYEE_TRACKER_KEY = 'ynt_employee_tracker';
 const EMPLOYEE_TRACKER_IMPORTED_KEY = 'ynt_employee_tracker_imported';
 const EMPLOYEE_TRACKER_METRICS = [
   {
+    // Read straight from Schedule + Time & Attendance (the time clock), not
+    // clicked in — the same days Performance → Compliance scores.
+    id: 'attendance',
+    tab: 'Attendance',
+    title: 'Time & Attendance',
+    hint: 'From the time clock, Schedule and each person’s day off, so nothing to click here. Late = timed in after the shift start (no Schedule row = 8:00 AM–5:00 PM, so 8:01 is late). Fix a wrong punch on Timekeeping and it shows here.',
+    readonly: true,
+  },
+  {
     id: 'standup',
     tab: 'Standup',
     title: 'Standup Meeting Attendance',
@@ -4700,15 +4709,6 @@ const EMPLOYEE_TRACKER_METRICS = [
     hint: 'Did the employee join the Discord live? One click per employee per day — click an active state again to clear it. 📝 adds a note for that day.',
     yes: 'Joined',
     no: 'Not Joined',
-  },
-  {
-    // Read straight from Schedule + Time & Attendance (the time clock), not
-    // clicked in — the same days Performance → Compliance scores.
-    id: 'attendance',
-    tab: 'Attendance',
-    title: 'Time & Attendance',
-    hint: 'From the time clock and Schedule, so nothing to click here. Late = timed in after the shift start. Fix a wrong punch on Timekeeping and it shows here.',
-    readonly: true,
   },
   {
     // A number, not a mark: each CSR's total confirmed orders for the day. A
@@ -4770,7 +4770,7 @@ function employeeTrackerGroups() {
   return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
-let employeeTrackerState = { metric: 'standup', weekStart: '', month: '', employees: [], marks: {}, collapsed: {}, loaded: {}, loading: '', attendance: {}, attendanceLoading: '' };
+let employeeTrackerState = { metric: 'attendance', weekStart: '', month: '', employees: [], marks: {}, collapsed: {}, loaded: {}, loading: '', attendance: {}, attendanceLoading: '' };
 
 // Every date in a month that falls on one of the given weekdays (0 = Sunday).
 function etDaysInMonthOn(ym, weekdays) {
@@ -5067,7 +5067,8 @@ function renderEmployeeTrackerCard() {
         <span><i class="et-chip late">L</i>Late</span>
         <span><i class="et-chip no">×</i>No Time-In</span>
         <span><i class="et-chip leave">LV</i>On Leave</span>
-        <span><i class="et-chip rest">R</i>Worked a Rest Day</span>
+        <span><i class="et-chip dayoff">OFF</i>Day Off</span>
+        <span><i class="et-chip rest">R</i>Worked on Day Off</span>
         <span><i class="et-chip">–</i>No Shift</span>
       </div>` : ''}
       ${metric.numeric || metric.readonly ? '' : `<div class="et-legend">
@@ -5165,7 +5166,8 @@ function employeeTrackerAttendanceCell(userId, day) {
     late: ['late', 'L', 'Late'],
     no: ['no', '×', 'No time-in'],
     leave: ['leave', 'LV', 'On approved leave'],
-    rest: ['rest', 'R', 'Timed in on a day with no shift'],
+    dayoff: ['dayoff', 'OFF', 'Day off'],
+    rest: ['rest', 'R', 'Worked on their day off'],
     pending: ['', '…', 'Shift today, not timed in yet'],
   };
   const chip = entry && chips[entry.status];

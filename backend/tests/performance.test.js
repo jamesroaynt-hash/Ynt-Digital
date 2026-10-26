@@ -48,9 +48,14 @@ test('attendance days: on time, late, no time-in, leave and a rest-day punch', a
     shift.run(ids.csr, '2026-01-08', '08:00');
     db.prepare("INSERT INTO leave_requests (user_id, leave_date_from, leave_date_to, status) VALUES (?, ?, ?, 'approved')")
       .run(ids.csr, '2026-01-08', '2026-01-08');
-    punch.run(ids.csr, '2026-01-10', '09:00', '15:00');
+    // Jan 9/10 have no Schedule row: judged against the standard 8:00 start.
+    punch.run(ids.csr, '2026-01-09', '07:59', '17:00');
+    punch.run(ids.csr, '2026-01-10', '08:01', '17:00');
+    // Day off = Sunday. Jan 4 has nothing; Jan 11 has a shift row but no punch.
+    db.prepare('UPDATE users SET day_off = 0 WHERE id = ?').run(ids.csr);
+    shift.run(ids.csr, '2026-01-11', '08:00');
 
-    const { status, data } = await get('/tracker/attendance?from=2026-01-04&to=2026-01-10');
+    const { status, data } = await get('/tracker/attendance?from=2026-01-04&to=2026-01-11');
     assert.equal(status, 200);
     const byDate = Object.fromEntries(data.days.filter((d) => d.user_id === ids.csr).map((d) => [d.work_date, d]));
     assert.equal(byDate['2026-01-05'].status, 'yes');
@@ -58,13 +63,18 @@ test('attendance days: on time, late, no time-in, leave and a rest-day punch', a
     assert.equal(byDate['2026-01-06'].status, 'late');
     assert.equal(byDate['2026-01-07'].status, 'no');
     assert.equal(byDate['2026-01-08'].status, 'leave');
-    assert.equal(byDate['2026-01-10'].status, 'rest');
+    assert.equal(byDate['2026-01-09'].status, 'yes');
+    assert.equal(byDate['2026-01-10'].status, 'late');
+    assert.equal(byDate['2026-01-10'].shift_start, '08:00');
+    assert.equal(byDate['2026-01-04'].status, 'dayoff');
+    assert.equal(byDate['2026-01-11'].status, 'dayoff');
+    assert.equal((await get('/tracker/attendance?from=2026-01-01&to=2026-12-31')).status, 400);
 
-    // Compliance scores the same days: (1 + ½ + 0) / 3; leave and rest left out.
+    // Compliance scores the same days: (1 + ½ + 0 + 1 + ½) / 5; leave and day off left out.
     const compliance = await get('/compliance?period=2026-01-H1');
     const row = compliance.data.rows.find((r) => r.id === ids.csr);
-    assert.equal(row.metrics.attendance.counted, 3);
-    assert.equal(row.metrics.attendance.score, 50);
+    assert.equal(row.metrics.attendance.counted, 5);
+    assert.equal(row.metrics.attendance.score, 60);
 
     assert.equal((await get('/tracker/attendance?from=2026-01-04&to=2026-01-10', 'csr')).status, 403);
     assert.equal((await get('/tracker/attendance?from=bad&to=2026-01-10')).status, 400);

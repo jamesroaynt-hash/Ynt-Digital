@@ -98,6 +98,16 @@ function periodRange(period) {
   return half === '1' ? { from: `${year}-${month}-01`, to: `${year}-${month}-15` } : { from: `${year}-${month}-16`, to: end };
 }
 
+// No Schedule row that day = the standard 8:00 AM – 5:00 PM shift (8 hours
+// plus the 1-hour lunch): timing in at 8:01 or later is late.
+const DEFAULT_SHIFT_START = '08:00';
+
+function nextDay(date) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function toMinutes(value) {
   const match = String(value || '').match(/^(\d{1,2}):(\d{2})/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
@@ -167,12 +177,15 @@ module.exports = function performanceRoutes(db) {
 
   // Each person's day from Schedule + Time & Attendance: on time (yes), late,
   // no time-in (no), approved leave, or today's shift not timed in yet
-  // (pending). A punch on a day with no shift comes back as rest. Compliance
+  // (pending). The person's weekly day off (users.day_off, as in payroll) is
+  // dayoff — even if a shift row lands on it — and a punch on it comes back as
+  // rest (worked a rest day). A punch on a day with no Schedule row is judged
+  // against the standard 8:00 AM start (DEFAULT_SHIFT_START). Compliance
   // scores these and the Employee Tracker's Attendance tab shows them, so the
-  // two always agree.
+  // two always agree; dayoff and rest are never scored.
   async function attendanceDays(from, to) {
     const today = manilaToday();
-    const [schedules, attendance, leaves] = await Promise.all([
+    const [schedules, attendance, leaves, dayOffs] = await Promise.all([
       db.prepare(`
         SELECT user_id, schedule_date, shift_start FROM user_schedules
         WHERE schedule_date BETWEEN ? AND ? AND shift_start IS NOT NULL AND shift_start != ''
@@ -184,7 +197,11 @@ module.exports = function performanceRoutes(db) {
         SELECT user_id, leave_date_from, leave_date_to FROM leave_requests
         WHERE status = 'approved' AND leave_date_to >= ? AND leave_date_from <= ?
       `).all(from, to),
+      db.prepare('SELECT id, day_off FROM users WHERE is_active = 1 AND day_off BETWEEN 0 AND 6').all(),
     ]);
+    const dayOffOf = new Map(dayOffs.map((u) => [Number(u.id), Number(u.day_off)]));
+    const weekday = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
+    const isDayOff = (userId, date) => dayOffOf.get(Number(userId)) === weekday(date);
     const punches = new Map(attendance.filter((a) => a.time_in).map((a) => [`${a.user_id}|${a.work_date}`, a]));
     const onLeave = (userId, date) => leaves.some((l) => Number(l.user_id) === Number(userId) && l.leave_date_from <= date && l.leave_date_to >= date);
     const days = [];
@@ -195,7 +212,8 @@ module.exports = function performanceRoutes(db) {
       scheduled.add(key);
       const punch = punches.get(key);
       let status;
-      if (onLeave(shift.user_id, shift.schedule_date)) status = 'leave';
+      if (isDayOff(shift.user_id, shift.schedule_date)) status = punch ? 'rest' : 'dayoff';
+      else if (onLeave(shift.user_id, shift.schedule_date)) status = 'leave';
       else if (!punch) status = shift.schedule_date === today ? 'pending' : (shift.schedule_date > today ? 'upcoming' : 'no');
       else {
         const start = toMinutes(shift.shift_start);
@@ -213,7 +231,26 @@ module.exports = function performanceRoutes(db) {
     }
     for (const [key, punch] of punches) {
       if (scheduled.has(key)) continue;
-      days.push({ user_id: Number(punch.user_id), work_date: punch.work_date, status: 'rest', shift_start: null, time_in: punch.time_in, time_out: punch.time_out || null });
+      const restDay = isDayOff(punch.user_id, punch.work_date);
+      const at = toMinutes(punch.time_in);
+      const status = restDay ? 'rest' : (at !== null && at > toMinutes(DEFAULT_SHIFT_START) ? 'late' : 'yes');
+      days.push({
+        user_id: Number(punch.user_id),
+        work_date: punch.work_date,
+        status,
+        shift_start: restDay ? null : DEFAULT_SHIFT_START,
+        time_in: punch.time_in,
+        time_out: punch.time_out || null,
+      });
+      scheduled.add(key);
+    }
+    // Day off with no shift row and no punch: still worth showing.
+    for (const [userId] of dayOffOf) {
+      for (let date = from; date <= to; date = nextDay(date)) {
+        const key = `${userId}|${date}`;
+        if (scheduled.has(key) || !isDayOff(userId, date)) continue;
+        days.push({ user_id: userId, work_date: date, status: 'dayoff', shift_start: null, time_in: null, time_out: null });
+      }
     }
     return days;
   }
@@ -222,6 +259,7 @@ module.exports = function performanceRoutes(db) {
     const from = ymd(req.query.from);
     const to = ymd(req.query.to);
     if (!from || !to) return res.status(400).json({ error: 'from and to are required (YYYY-MM-DD)' });
+    if (from > to || (Date.parse(to) - Date.parse(from)) / 86400000 > 92) return res.status(400).json({ error: 'Pick a range of up to 92 days' });
     res.json({ days: await attendanceDays(from, to) });
   }));
 
