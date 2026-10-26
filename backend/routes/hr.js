@@ -1,5 +1,6 @@
 const express = require('express');
 const superAdmin = require('../services/superAdmin');
+const { validDayOff, dayOffOnDate, loadDayOffHistoryMap } = require('../services/dayOffHistory');
 
 // HR access is HR's, Operation's (it was granted HR's access, so it clears
 // every gate HR clears) and the super admin's — the other Administrators do
@@ -187,7 +188,7 @@ function weekdayForDate(value) {
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
 }
 
-function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistory) {
+function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistory, dayOffHistory) {
   const byUser = new Map();
   users.forEach((user) => {
     byUser.set(Number(user.id), {
@@ -226,7 +227,8 @@ function calculatePayroll(users, attendance, advances, approvedOtMap, rateHistor
     const overridden = hasRateOverride(record);
     const dayBase = overridden ? dailyRate : cappedWorkedMinutes * perMinuteRate;
 
-    const recordDayOff = Number(summary.user.day_off);
+    // The day off they had on that date, not today's (services/dayOffHistory.js).
+    const recordDayOff = dayOffOnDate(dayOffHistory && dayOffHistory.get(userId), record.work_date, summary.user.day_off);
     // HR can switch a single worked rest day to a regular day
     // (attendance_records.rest_day_regular): no 30% premium, counted in days
     // worked and base pay like any other day.
@@ -513,6 +515,7 @@ module.exports = function hrRoutes(db) {
     // first, then the effective-dated history, then the user's current rate.
     // (u.daily_rate from the join is only the current-rate fallback.)
     const rateHistory = await loadRateHistoryMap(db, ids);
+    const dayOffHistory = await loadDayOffHistoryMap(db, ids);
 
     // Approved OT for these users/dates so the table can show the OT that will
     // actually be PAID — the approved request — and not raw hours clocked past 8h.
@@ -528,6 +531,7 @@ module.exports = function hrRoutes(db) {
         ...record,
         rate_override: record.rate_override == null ? null : Number(record.rate_override),
         daily_rate: rateForRecord(record, rateHistory.get(Number(record.user_id)), record.daily_rate),
+        day_off: dayOffOnDate(dayOffHistory.get(Number(record.user_id)), record.work_date, record.day_off),
         worked_minutes: calculateWorkedMinutes(record),
         calculated_ot_minutes: calculateOtMinutes(record),
         payable_ot_minutes: payableOtMinutes(record, approvedOtMap),
@@ -807,7 +811,8 @@ module.exports = function hrRoutes(db) {
     `).all(...ids, from, to);
 
     const rateHistory = await loadRateHistoryMap(db, ids);
-    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), rateHistory) });
+    const dayOffHistory = await loadDayOffHistoryMap(db, ids);
+    res.json({ summary: calculatePayroll(users, attendance, advances, buildApprovedOtMap(approvedOt), rateHistory, dayOffHistory) });
   });
 
   router.get('/cash-advances', async (req, res) => {
@@ -956,8 +961,7 @@ module.exports = function hrRoutes(db) {
     const userId = Number(req.params.id);
     const dailyRate = normalizeMoney(req.body?.daily_rate);
     // day_off: 0=Sunday..6=Saturday, or -1 for none. Anything out of range = none.
-    const rawDayOff = Number(req.body?.day_off);
-    const dayOff = Number.isInteger(rawDayOff) && rawDayOff >= 0 && rawDayOff <= 6 ? rawDayOff : -1;
+    const dayOff = validDayOff(req.body?.day_off);
     if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user id' });
     if (!(await superAdmin.guardSuperAdminTarget(db, req, res, userId))) return;
 
@@ -994,13 +998,30 @@ module.exports = function hrRoutes(db) {
     `).all(userId);
     const currentRate = rateOnDate(historyRows, today, dailyRate);
 
+    // A changed day off is dated from the same day as the rate, so dates before
+    // it keep the day off they had. "Changed" means from today's: recording an
+    // old rate at a past date with the day off left alone adds no row (it would
+    // otherwise stamp today's day off over that stretch of history).
+    const dayOffRowsBefore = (await loadDayOffHistoryMap(db, [userId])).get(userId) || [];
+    if (dayOffOnDate(dayOffRowsBefore, today, user.day_off) !== dayOff) {
+      await db.prepare(`
+        INSERT INTO user_day_off_history (user_id, day_off, effective_from, created_by)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, effective_from) DO UPDATE SET
+          day_off = excluded.day_off,
+          created_by = excluded.created_by
+      `).run(userId, dayOff, effectiveFrom, req.currentUser.id);
+    }
+    const dayOffRows = (await loadDayOffHistoryMap(db, [userId])).get(userId) || [];
+    const currentDayOff = dayOffOnDate(dayOffRows, today, dayOff);
+
     await db.prepare(`
       UPDATE users
       SET daily_rate = ?,
           day_off = ?,
           updated_at = datetime('now')
       WHERE id = ?
-    `).run(currentRate, dayOff, userId);
+    `).run(currentRate, currentDayOff, userId);
 
     const updated = await getActiveUser(db, userId);
     res.json({ user: updated });
@@ -1017,7 +1038,8 @@ module.exports = function hrRoutes(db) {
       WHERE user_id = ?
       ORDER BY effective_from ASC
     `).all(userId);
-    res.json({ history });
+    const dayOffHistory = (await loadDayOffHistoryMap(db, [userId])).get(userId) || [];
+    res.json({ history, day_off_history: dayOffHistory.map((row) => ({ day_off: Number(row.day_off), effective_from: row.effective_from })) });
   });
 
   router.get('/payslip', async (req, res) => {
@@ -1048,7 +1070,8 @@ module.exports = function hrRoutes(db) {
     `).all(userId, from, to);
     const approvedOtMap = buildApprovedOtMap(approvedOt);
     const rateHistory = await loadRateHistoryMap(db, [userId]);
-    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, rateHistory);
+    const dayOffHistory = await loadDayOffHistoryMap(db, [userId]);
+    const [payroll] = calculatePayroll([user], attendance, advances, approvedOtMap, rateHistory, dayOffHistory);
 
     // The rate that applied over this period, not whatever users.daily_rate
     // holds today — those differ for any past period after a raise. If the rate
@@ -1070,6 +1093,7 @@ module.exports = function hrRoutes(db) {
           calculated_ot_minutes: calculateOtMinutes(record),
           payable_ot_minutes: payableOtMinutes(record, approvedOtMap),
           ot_approved: approvedOtMap.has(approvedOtKey(Number(record.user_id), String(record.work_date))),
+          day_off: dayOffOnDate(dayOffHistory.get(userId), record.work_date, user.day_off),
         })),
         cash_advances: advances,
         totals: payroll,

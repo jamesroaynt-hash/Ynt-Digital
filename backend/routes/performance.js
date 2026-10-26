@@ -1,4 +1,5 @@
 const express = require('express');
+const { dayOffOnDate, loadDayOffHistoryMap } = require('../services/dayOffHistory');
 
 // Performance: Employee Tracker marks, and the two scoring categories that sit
 // beside the peer Evaluation without touching it —
@@ -207,15 +208,22 @@ module.exports = function performanceRoutes(db) {
         SELECT user_id, leave_date_from, leave_date_to FROM leave_requests
         WHERE status = 'approved' AND leave_date_to >= ? AND leave_date_from <= ?
       `).all(from, to),
-      db.prepare('SELECT id, day_off FROM users WHERE is_active = 1 AND day_off BETWEEN 0 AND 6').all(),
+      db.prepare('SELECT id, day_off FROM users WHERE is_active = 1').all(),
       db.prepare(`
         SELECT user_id, work_date, state, note FROM employee_tracker_marks
         WHERE metric = 'attendance' AND work_date BETWEEN ? AND ?
       `).all(from, to),
     ]);
-    const dayOffOf = new Map(dayOffs.map((u) => [Number(u.id), Number(u.day_off)]));
+    // The day off in force on each date (dated history, like the daily rate).
+    const dayOffHistory = await loadDayOffHistoryMap(db);
+    const currentDayOff = new Map(dayOffs.map((u) => [Number(u.id), u.day_off]));
     const weekday = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
-    const isDayOff = (userId, date) => dayOffOf.get(Number(userId)) === weekday(date);
+    const isDayOff = (userId, date) => {
+      const id = Number(userId);
+      if (!currentDayOff.has(id)) return false;
+      const dayOff = dayOffOnDate(dayOffHistory.get(id), date, currentDayOff.get(id));
+      return dayOff >= 0 && dayOff === weekday(date);
+    };
     const punches = new Map(attendance.filter((a) => a.time_in).map((a) => [`${a.user_id}|${a.work_date}`, a]));
     const onLeave = (userId, date) => leaves.some((l) => Number(l.user_id) === Number(userId) && l.leave_date_from <= date && l.leave_date_to >= date);
     const days = [];
@@ -261,7 +269,7 @@ module.exports = function performanceRoutes(db) {
       scheduled.add(key);
     }
     // Day off with no shift row and no punch: still worth showing.
-    for (const [userId] of dayOffOf) {
+    for (const [userId] of currentDayOff) {
       for (let date = from; date <= to; date = nextDay(date)) {
         const key = `${userId}|${date}`;
         if (scheduled.has(key) || !isDayOff(userId, date)) continue;

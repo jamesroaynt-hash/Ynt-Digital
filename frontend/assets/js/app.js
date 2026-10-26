@@ -7322,6 +7322,7 @@ function renderHR() {
             <option value="5">Friday</option>
             <option value="6">Saturday</option>
           </select>
+          <div class="field-help">A new day off applies from the Effective From date, like the rate. Dates before it keep the day off they had.</div>
         </div>
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button class="btn btn-primary" style="flex:1;" onclick="savePayrollRate()">Save Rate</button>
@@ -19523,15 +19524,16 @@ function renderMyWorkHours(payslip) {
   if (!wrap) return;
   const records = Array.isArray(payslip?.attendance) ? payslip.attendance : [];
   const totals = payslip?.totals || {};
-  // The rest-day marker needs the permanent day off, which rides along on the
-  // payslip's user (0=Sunday..6=Saturday, or -1 when they have none).
+  // The rest-day marker needs the day off in force on each date: every record
+  // carries its own (day off is dated like the rate); the payslip's user holds
+  // today's as a fallback (0=Sunday..6=Saturday, or -1 when they have none).
   const dayOff = payslip?.user?.day_off;
   const totalWorked = records.reduce((sum, r) => sum + Number(r.worked_minutes || 0), 0);
   // Only approved OT counts: hours clocked past the standard day without an
   // approved request are not paid, so showing them here would overstate. A
   // worked rest day or holiday is all OT, so those shifts land here too.
   const totalOt = records.reduce((sum, r) => sum
-    + nonRegularDayOtMinutes(r.work_date, recordRestDayOff(r, dayOff), r.worked_minutes, r.holiday_type)
+    + nonRegularDayOtMinutes(r.work_date, recordRestDayOff(r, r.day_off ?? dayOff), r.worked_minutes, r.holiday_type)
     + Number(r.payable_ot_minutes || 0), 0);
 
   // The cards render for any range, including a custom one with no punches in
@@ -19580,13 +19582,13 @@ function renderMyWorkHours(payslip) {
         <tbody>
           ${records.map((r) => {
             const worked = Number(r.worked_minutes || 0);
-            const ot = nonRegularDayOtMinutes(r.work_date, recordRestDayOff(r, dayOff), worked, r.holiday_type) + Number(r.payable_ot_minutes || 0);
+            const ot = nonRegularDayOtMinutes(r.work_date, recordRestDayOff(r, r.day_off ?? dayOff), worked, r.holiday_type) + Number(r.payable_ot_minutes || 0);
             const complete = r.time_in && r.time_out;
             const otApproved = Boolean(r.ot_approved);
             const otApprovedIcon = otApproved
               ? ' <span title="Overtime approved for this date" style="color:var(--success,#16a34a);font-weight:700;">✓</span>'
               : '';
-            const dateBadges = attendanceDateBadges(r.work_date, dayOff, worked > 0, !!Number(r.rest_day_regular));
+            const dateBadges = attendanceDateBadges(r.work_date, r.day_off ?? dayOff, worked > 0, !!Number(r.rest_day_regular));
             return `<tr>
               <td><strong>${escapeHtml(r.work_date || '')}</strong>${otApprovedIcon}${dateBadges ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">${dateBadges}</div>` : ''}</td>
               <td class="font-mono text-xs">${r.time_in ? escapeHtml(formatClock12(r.time_in)) : '—'}</td>
@@ -21697,11 +21699,19 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
 
 // Render a user's recorded rate history (oldest first) into the payroll modal,
 // marking the entry currently in force so a wrong/backfilled row is obvious.
-function renderRateHistoryList(rows) {
+function renderRateHistoryList(rows, dayOffRows = []) {
   const el = document.getElementById('payroll-modal-rate-history');
   if (!el) return;
   const list = Array.isArray(rows) ? rows.slice() : [];
   if (!list.length) { el.textContent = 'No recorded changes yet.'; return; }
+  // Day off changes are dated the same way; listed under the rates once
+  // someone's day off has actually changed.
+  const dayOffs = Array.isArray(dayOffRows) ? dayOffRows : [];
+  const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayOffList = dayOffs.length > 1 ? `<div style="margin-top:8px;font-weight:600;">Day off</div>${dayOffs.map((row) => {
+    const label = String(row.effective_from) === '1970-01-01' ? 'From start' : escapeHtml(String(row.effective_from));
+    return `<div style="display:flex;justify-content:space-between;"><span>${label}</span><span>${escapeHtml(weekdays[row.day_off] || 'None')}</span></div>`;
+  }).join('')}` : '';
   const today = normalizeDateString(new Date());
   let currentIdx = -1;
   list.forEach((row, i) => { if (String(row.effective_from) <= today) currentIdx = i; });
@@ -21711,7 +21721,7 @@ function renderRateHistoryList(rows) {
     return `<div style="display:flex;justify-content:space-between;${isCurrent ? 'color:var(--text);font-weight:600;' : ''}">
       <span>${label}</span><span>${formatPHP(Number(row.daily_rate || 0))}${isCurrent ? ' · current' : ''}</span>
     </div>`;
-  }).join('');
+  }).join('') + dayOffList;
 }
 
 async function openPayrollEditModal(userId) {
@@ -21731,7 +21741,7 @@ async function openPayrollEditModal(userId) {
   openModal('payroll-edit-modal');
   try {
     const data = await authorizedJsonRequest(`/hr/users/${userId}/rate-history`);
-    renderRateHistoryList(data.history || []);
+    renderRateHistoryList(data.history || [], data.day_off_history || []);
   } catch (error) {
     if (histEl) histEl.textContent = 'Could not load history.';
   }
@@ -21749,7 +21759,7 @@ async function savePayrollRate() {
       body: JSON.stringify({ daily_rate: dailyRate, day_off: dayOff, effective_from: effectiveFrom }),
     });
     closeModal('payroll-edit-modal');
-    showToast('success', 'Rate saved', 'Daily rate was updated.');
+    showToast('success', 'Saved', 'Daily rate and day off apply from the effective date; earlier dates keep what they had.');
     await loadHRDashboard();
   } catch (error) {
     showToast('error', 'Rate failed', error.message || 'Could not update rate.');
@@ -22447,7 +22457,7 @@ function buildPayslipDocument(slip) {
     // A worked rest day or holiday has its shift paid as OT, so it shows in
     // the OT column here the same way payroll counts it. Only the holiday
     // premium is paid outside OT, on its own Holiday Pay line above.
-    const otMinutes = nonRegularDayOtMinutes(record.work_date, recordRestDayOff(record, user.day_off), record.worked_minutes, record.holiday_type)
+    const otMinutes = nonRegularDayOtMinutes(record.work_date, recordRestDayOff(record, record.day_off ?? user.day_off), record.worked_minutes, record.holiday_type)
       + Number(record.payable_ot_minutes || 0);
     return `
       <tr style="border-bottom:1px solid #eaedf1;">

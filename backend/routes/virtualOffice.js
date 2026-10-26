@@ -1,5 +1,6 @@
 const express = require('express');
 const pancakePosSync = require('../services/pancakePosSync');
+const { dayOffOnDate, loadDayOffHistoryMap } = require('../services/dayOffHistory');
 
 // The Virtual Office: a 3D floor where each active account is a character that
 // sits at its department's desks once timed in, walks to the break room while
@@ -179,6 +180,7 @@ module.exports = function virtualOfficeRoutes(db) {
       `).all(`${now.date.slice(0, 7)}-01`, now.date);
       const latesOf = new Map(monthLates.map((r) => [Number(r.user_id), Number(r.n || 0)]));
       const output = await dailyOutput(now.date);
+      const dayOffHistory = await loadDayOffHistoryMap(db, people.map((row) => Number(row.id)));
       const kpis = await floorKpis(now.date).catch(() => null);
 
       res.json({
@@ -187,7 +189,7 @@ module.exports = function virtualOfficeRoutes(db) {
         kpis,
         people: people.map((row) => {
           const id = Number(row.id);
-          const restDay = Number(row.day_off) === now.weekday;
+          const restDay = dayOffOnDate(dayOffHistory.get(id), now.date, row.day_off) === now.weekday;
           return {
             id,
             name: row.full_name || row.username,
