@@ -1406,7 +1406,7 @@ function renderKpiAllowancePage() {
         <span>Period</span>
         <select class="form-control" onchange="hrrEvalState.period = this.value; loadHrrEvalResults();">${hrrEvalPeriodOptions()}</select>
       </label>
-      <div class="page-actions" id="hrr-kpi-actions" style="${results ? 'display:none;' : ''}">
+      <div class="page-actions" id="hrr-kpi-actions" style="${hrrEvalState.tab === 'allowance' ? '' : 'display:none;'}">
         <button class="btn btn-secondary btn-sm" onclick="openModal('hrr-tier-modal')">Allowance Rules</button>
         <button class="btn btn-primary btn-sm" onclick="openHrrKpiModal({})">+ Add Allowance</button>
       </div>
@@ -1416,7 +1416,10 @@ function renderKpiAllowancePage() {
   <div id="hrr-eval-results" style="${results ? '' : 'display:none;'}">
     <div class="er-panel"><div class="empty-state"><h3>Loading</h3></div></div>
   </div>
-  <div id="hrr-kpi-section" style="${results ? 'display:none;' : ''}">
+  <div id="hrr-perf-section" class="er-perf" style="${HRR_PERF_TABS.includes(hrrEvalState.tab) ? '' : 'display:none;'}">
+    <div id="perf-body"><div class="er-panel"><div class="empty-state"><h3>Loading</h3></div></div></div>
+  </div>
+  <div id="hrr-kpi-section" style="${hrrEvalState.tab === 'allowance' ? '' : 'display:none;'}">
     <div class="stats-grid" id="hrr-kpi-stats"></div>
     <div class="card"><div class="card-body" id="hrr-kpi-root"><div class="empty-state"><h3>Loading</h3></div></div></div>
   </div>
@@ -1424,8 +1427,12 @@ function renderKpiAllowancePage() {
   ${renderHrrTierModal()}`;
 }
 
+// Compliance, KPI and KPI Setup moved here from the Performance page; they
+// still render through performance.js into #perf-body.
+const HRR_PERF_TABS = ['compliance', 'kpi', 'setup'];
+
 function renderHrrEvalTabs() {
-  return [['results', 'Results'], ['allowance', 'Allowance']].map(([id, label]) =>
+  return [['results', 'Results'], ['allowance', 'Allowance'], ['compliance', 'Compliance'], ['kpi', 'KPI'], ['setup', 'KPI Setup']].map(([id, label]) =>
     `<button type="button" class="filter-pill ${hrrEvalState.tab === id ? 'active' : ''}" onclick="setHrrEvalTab('${id}')">${label}</button>`).join('');
 }
 
@@ -1433,12 +1440,21 @@ function setHrrEvalTab(tab) {
   hrrEvalState.tab = tab;
   const results = tab === 'results';
   const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  const perf = HRR_PERF_TABS.includes(tab);
   show('hrr-eval-results', results);
   show('hrr-eval-period', results);
-  show('hrr-kpi-section', !results);
-  show('hrr-kpi-actions', !results);
+  show('hrr-perf-section', perf);
+  show('hrr-kpi-section', tab === 'allowance');
+  show('hrr-kpi-actions', tab === 'allowance');
   const tabs = document.getElementById('hrr-eval-tabs');
   if (tabs) tabs.innerHTML = renderHrrEvalTabs();
+  if (perf) hrrOpenPerfTab(tab);
+}
+
+function hrrOpenPerfTab(tab) {
+  if (typeof perfState === 'undefined' || typeof initPerformancePage !== 'function') return;
+  perfState.tab = tab;
+  initPerformancePage().catch(() => {});
 }
 
 function hrrCurrentHalf() {
@@ -1654,6 +1670,7 @@ function setHrrEvalFilter(key, value) {
 
 async function initKpiAllowancePage() {
   loadHrrEvalResults().catch(() => {});
+  if (HRR_PERF_TABS.includes(hrrEvalState.tab)) hrrOpenPerfTab(hrrEvalState.tab);
   try {
     const [, rows, tiers] = await Promise.all([
       hrrLoadPeople(),

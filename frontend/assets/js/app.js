@@ -5306,7 +5306,7 @@ function renderEmployeeTrackerFootnote() {
   const departments = employeeTrackerGroups().length;
   return `${count} active account${count === 1 ? '' : 's'} from ${source}, grouped into `
     + `${departments} department${departments === 1 ? '' : 's'} by role. `
-    + 'Add or deactivate an account there and this list follows. Marks are saved for everyone and feed Performance → Compliance.';
+    + 'Add or deactivate an account there and this list follows. Marks are saved for everyone and feed Evaluation Result → Compliance.';
 }
 
 // One click per employee per day; clicking the state that is already set clears

@@ -8352,6 +8352,28 @@ tfoot td {
 .er-dash { color: var(--text-muted); }
 .er-foot { margin: 0; padding: 12px 20px; font-size: 12px; color: var(--er-warn); }
 
+/* Compliance / KPI / KPI Setup tabs on the Evaluation Results page. */
+.er-perf { margin-top: 14px; }
+.er-panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.er-panel-head > div:first-child { flex: 1 1 360px; min-width: 0; }
+.er-panel-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.er-panel-sub { font-size: 13px; line-height: 1.5; color: var(--text-secondary); max-width: 860px; }
+.er-panel-head .perf-select { height: 42px; border-radius: var(--radius-lg); font-weight: 600; }
+.er-panel-body { padding: 4px 20px 20px; }
+.er-panel-body > .er-pills { padding-top: 16px; }
+.er-panel-foot { margin: 0; padding: 12px 20px; font-size: 12px; color: var(--text-muted); }
+.er-score { font-weight: 700; }
+.er-perf .perf-h { margin: 22px 0 10px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); }
+.er-perf .er-panel-body .er-table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 14px; }
+.er-perf .er-table tfoot td { padding: 10px 20px; border-top: 2px solid var(--border); background: var(--surface-2); font-size: 14px; }
+.er-perf .er-table .form-control { height: 34px; }
+.er-perf .perf-kpi-table tr.perf-person-start td { border-top: 1px solid var(--border-strong); }
+.er-perf .perf-target-row { padding: 6px 0 12px; }
+.er-perf .perf-date-nav .form-control { height: 42px; border-radius: var(--radius-lg); }
+.er-perf .perf-person { padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.er-perf .perf-person-name { display: flex; align-items: center; gap: 10px; }
+.er-perf .er-table { table-layout: auto; }
+
 @media (max-width: 1100px) {
   .er-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

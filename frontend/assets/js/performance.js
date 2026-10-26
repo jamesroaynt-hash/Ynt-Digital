@@ -62,6 +62,9 @@ function renderPerfTabs() {
 }
 
 function perfSetTab(tab) {
+  // These tabs live on the Evaluation Result page now; let it switch so its
+  // own tab row follows.
+  if (document.getElementById('hrr-eval-tabs') && typeof setHrrEvalTab === 'function') return setHrrEvalTab(tab);
   perfState.tab = tab;
   renderPerfTabs();
   return perfLoadTab();
@@ -79,7 +82,7 @@ function perfBody(html) {
 }
 
 function perfError(error) {
-  perfBody(`<div class="card"><div class="empty-state"><h3>Could not load</h3><p>${escapeHtml(error.message || 'error')}</p></div></div>`);
+  perfBody(`<div class="er-panel"><div class="empty-state"><h3>Could not load</h3><p>${escapeHtml(error.message || 'error')}</p></div></div>`);
 }
 
 // ─── shared bits ────────────────────────────────────────────
@@ -96,10 +99,36 @@ function perfRecentMonths(count = 12) {
   });
 }
 
+// Same reading as Evaluation Results: 100%+ teal, 80+ blue, 60+ amber, below red.
 function perfScoreBadge(score) {
-  if (score === null || score === undefined) return '<span class="text-muted">—</span>';
-  const tone = score >= 90 ? 'success' : score >= 75 ? 'info' : score >= 60 ? 'warning' : 'danger';
-  return `<span class="badge badge-${tone}">${Number(score).toFixed(score % 1 ? 1 : 0)}%</span>`;
+  if (score === null || score === undefined || !Number.isFinite(Number(score))) return '<span class="er-dash">—</span>';
+  const n = Number(score);
+  const tone = n >= 100 ? 'top' : n >= 80 ? 'good' : n >= 60 ? 'warn' : 'bad';
+  return `<b class="er-score tone-text-${tone}">${n.toFixed(n % 1 ? 1 : 0)}%</b>`;
+}
+
+function perfInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function perfPerson(name) {
+  return `<div class="er-person"><span class="er-avatar">${escapeHtml(perfInitials(name))}</span><strong>${escapeHtml(name)}</strong></div>`;
+}
+
+function perfAverage(values) {
+  const present = values.filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number);
+  return present.length ? Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10 : null;
+}
+
+// Department band in the Evaluation Results style: name, head count and,
+// when given, the department's average.
+function perfGroupRow(department, count, colspan, average) {
+  return `<tr class="er-group"><td colspan="${colspan}"><div class="er-group-row">
+    <span class="er-group-name">${escapeHtml(department)}</span><span class="er-count">${count}</span>
+    ${average === undefined ? '' : `<span class="er-group-avg">Dept. average ${perfScoreBadge(average)}</span>`}
+  </div></td></tr>`;
 }
 
 // People split into departments in the tracker's order.
@@ -133,26 +162,26 @@ async function perfLoadCompliance() {
   const cell = (m) => `<td title="${m.counted} day${m.counted === 1 ? '' : 's'} counted">${perfScoreBadge(m.score)}</td>`;
   const groups = perfGroupByDepartment(data.rows || []);
   perfBody(`
-    <div class="card">
-      <div class="card-header">
+    <div class="er-panel">
+      <div class="er-panel-head">
         <div>
-          <div class="card-title">Compliance · Category 2</div>
-          <div class="card-subtitle">On time / attended = 100%, late = 50%, absent / not done = 0%. Rest days, approved leave and unmarked days don't count. Overall is the average of the items that have days.</div>
+          <div class="er-panel-title">Compliance · Category 2</div>
+          <div class="er-panel-sub">On time / attended = 100%, late = 50%, absent / not done = 0%. Rest days, approved leave and unmarked days don't count. Overall is the average of the items that have days.</div>
         </div>
         <select class="form-control perf-select" onchange="perfState.compliancePeriod = this.value; perfLoadCompliance();">${options}</select>
       </div>
-      <div class="table-container"><table>
-        <thead><tr><th>Employee</th>${metrics.map((m) => `<th>${escapeHtml(PERF_METRIC_LABELS[m] || m)}</th>`).join('')}<th>Overall</th></tr></thead>
+      <div class="table-container er-table-wrap"><table class="er-table">
+        <thead><tr><th>Employee</th><th>Overall</th>${metrics.map((m) => `<th>${escapeHtml(PERF_METRIC_LABELS[m] || m)}</th>`).join('')}</tr></thead>
         ${groups.map(([department, people]) => `<tbody>
-          <tr class="perf-group"><td colspan="${metrics.length + 2}">${escapeHtml(department)}</td></tr>
+          ${perfGroupRow(department, people.length, metrics.length + 2, perfAverage(people.map((p) => p.overall)))}
           ${people.map((p) => `<tr>
-            <td><strong>${escapeHtml(p.name)}</strong></td>
-            ${metrics.map((m) => cell(p.metrics[m] || { score: null, counted: 0 })).join('')}
+            <td>${perfPerson(p.name)}</td>
             <td>${perfScoreBadge(p.overall)}</td>
+            ${metrics.map((m) => cell(p.metrics[m] || { score: null, counted: 0 })).join('')}
           </tr>`).join('')}
         </tbody>`).join('')}
       </table></div>
-      <div class="card-body"><p class="text-xs text-muted">Attendance compares Time &amp; Attendance with the Schedule (no schedule that day = not counted). Standup, EOD, Meditation and WAM come from the Employee Tracker marks.</p></div>
+      <p class="er-panel-foot">Attendance compares Time &amp; Attendance with the Schedule (no schedule that day = not counted). Standup, EOD, Meditation and WAM come from the Employee Tracker marks.</p>
     </div>`);
 }
 
@@ -193,7 +222,7 @@ async function perfLoadKpi() {
           ? `÷ ${t.members} ${t.members === 1 ? 'person' : 'people'} = <strong>${t.members ? n(t.target / t.members) : 0}</strong>${unit} each`
           : 'per person'}</span>
       </div>
-      ${members.length ? `<div class="table-container"><table class="perf-kpi-table">
+      ${members.length ? `<div class="table-container er-table-wrap"><table class="er-table perf-kpi-table">
         <thead><tr>
           <th>Employee</th><th>Monthly target</th><th>Daily target</th>
           <th>${escapeHtml(dayName)}</th><th>Daily %</th>
@@ -203,7 +232,7 @@ async function perfLoadKpi() {
           ${members.map((p) => {
             const k = p.kpis.find((x) => x.item_id === t.item_id);
             return `<tr>
-              <td><strong>${escapeHtml(p.name)}</strong></td>
+              <td>${perfPerson(p.name)}</td>
               <td>${n(k.target)}${unit}</td>
               <td>${n(k.daily_target)}${unit}</td>
               <td>${k.value === null ? '<span class="text-muted">—</span>' : `${n(k.value)}${unit}`}</td>
@@ -232,11 +261,11 @@ async function perfLoadKpi() {
   const monthlyGroups = perfGroupByDepartment(monthlyRows);
 
   perfBody(`
-    <div class="card">
-      <div class="card-header">
+    <div class="er-panel">
+      <div class="er-panel-head">
         <div>
-          <div class="card-title">KPI · Category 3</div>
-          <div class="card-subtitle">Set the month's target; it is shared out over the people in the department. Daily target = each person's share ÷ their scheduled days. The numbers come from Employee Tracker → Confirmed Orders. Over 100% = above target.</div>
+          <div class="er-panel-title">KPI · Category 3</div>
+          <div class="er-panel-sub">Set the month's target; it is shared out over the people in the department. Daily target = each person's share ÷ their scheduled days. The numbers come from Employee Tracker → Confirmed Orders. Over 100% = above target.</div>
         </div>
         <div class="perf-date-nav">
           <button class="et-nav" type="button" onclick="perfShiftKpiDate(-1)" aria-label="Previous day">←</button>
@@ -244,7 +273,7 @@ async function perfLoadKpi() {
           <button class="et-nav" type="button" onclick="perfShiftKpiDate(1)" aria-label="Next day">→</button>
         </div>
       </div>
-      <div class="card-body">
+      <div class="er-panel-body">
         ${departments.length ? departments.map(([department, targets]) => `
           <h4 class="perf-h">${escapeHtml(department)}</h4>
           ${targets.map(teamTable).join('')}`).join('') : `<div class="empty-state"><h3>No KPI yet</h3>
@@ -252,17 +281,17 @@ async function perfLoadKpi() {
             <button class="btn btn-primary btn-sm" onclick="perfSetTab('setup')">Open KPI Setup</button></div>`}
       </div>
     </div>
-    ${monthlyGroups.length ? `<div class="card" style="margin-top:20px;">
-      <div class="card-header"><div>
-        <div class="card-title">Monthly-number KPIs · ${escapeHtml(monthName)}</div>
-        <div class="card-subtitle">One number per person for the month (e.g. ROAS); it saves when you leave the box.</div>
+    ${monthlyGroups.length ? `<div class="er-panel" style="margin-top:20px;">
+      <div class="er-panel-head"><div>
+        <div class="er-panel-title">Monthly-number KPIs · ${escapeHtml(monthName)}</div>
+        <div class="er-panel-sub">One number per person for the month (e.g. ROAS); it saves when you leave the box.</div>
       </div></div>
-      <div class="table-container"><table class="perf-kpi-table">
+      <div class="table-container er-table-wrap"><table class="er-table perf-kpi-table">
         <thead><tr><th>Employee</th><th>KPI</th><th>Target</th><th>Actual</th><th>Score</th></tr></thead>
         ${monthlyGroups.map(([department, people]) => `<tbody>
-          <tr class="perf-group"><td colspan="5">${escapeHtml(department)}</td></tr>
+          ${perfGroupRow(department, people.length, 5, perfAverage(people.map((p) => p.total)))}
           ${people.map((p) => p.kpis.map((k, index) => `<tr${index === 0 ? ' class="perf-person-start"' : ''}>
-            ${index === 0 ? `<td rowspan="${p.kpis.length}"><strong>${escapeHtml(p.name)}</strong></td>` : ''}
+            ${index === 0 ? `<td rowspan="${p.kpis.length}">${perfPerson(p.name)}</td>` : ''}
             <td>${escapeHtml(k.label)}${k.direction === 'lower' ? ' <span class="text-xs text-muted">(lower is better)</span>' : ''}</td>
             <td>${n(k.target)}${k.unit ? ` ${escapeHtml(k.unit)}` : ''}</td>
             <td><input class="form-control perf-actual" type="number" step="any" inputmode="decimal" value="${k.actual ?? ''}"
@@ -353,16 +382,16 @@ function renderPerfSetup() {
   const people = setup.people.filter((p) => p.department === department);
   const override = (userId, itemId) => setup.overrides.find((o) => o.user_id === userId && o.item_id === itemId);
   const pills = setup.departments.map((d) =>
-    `<button class="filter-pill ${d === department ? 'active' : ''}" type="button" onclick="perfState.setupDepartment = this.dataset.d; renderPerfSetup();" data-d="${escapeHtml(d)}">${escapeHtml(d)}</button>`).join('');
+    `<button class="er-pill ${d === department ? 'active' : ''}" type="button" onclick="perfState.setupDepartment = this.dataset.d; renderPerfSetup();" data-d="${escapeHtml(d)}">${escapeHtml(d)}</button>`).join('');
 
   perfBody(`
-    <div class="card">
-      <div class="card-header"><div>
-        <div class="card-title">KPI Setup</div>
-        <div class="card-subtitle">Each department's KPIs apply to everyone in it. The target here is the default; the KPI tab sets each month's own target. "Whole-department target" shares it out over the people in the department (e.g. CSR's monthly orders ÷ the CSRs). "From Employee Tracker → Confirmed Orders" reads the numbers HR types there every day. Below, adjust one person: switch a KPI off for them, give them their own target, or add a personal KPI.</div>
+    <div class="er-panel">
+      <div class="er-panel-head"><div>
+        <div class="er-panel-title">KPI Setup</div>
+        <div class="er-panel-sub">Each department's KPIs apply to everyone in it. The target here is the default; the KPI tab sets each month's own target. "Whole-department target" shares it out over the people in the department (e.g. CSR's monthly orders ÷ the CSRs). "From Employee Tracker → Confirmed Orders" reads the numbers HR types there every day. Below, adjust one person: switch a KPI off for them, give them their own target, or add a personal KPI.</div>
       </div></div>
-      <div class="card-body">
-        <div class="et-tabs">${pills}</div>
+      <div class="er-panel-body">
+        <div class="er-pills">${pills}</div>
         <h4 class="perf-h">${escapeHtml(department)} KPIs</h4>
         ${deptItems.length ? deptItems.map((item) => `
           <form class="perf-item-row" onsubmit="event.preventDefault(); perfUpdateItem(${item.id});">
@@ -380,7 +409,7 @@ function renderPerfSetup() {
           const personal = setup.items.filter((i) => i.user_id === p.id);
           return `
           <div class="perf-person">
-            <div class="perf-person-name">${escapeHtml(p.name)} <span class="text-xs text-muted">${escapeHtml(p.role)}</span></div>
+            <div class="perf-person-name">${perfPerson(p.name)} <span class="text-xs text-muted">${escapeHtml(p.role)}</span></div>
             ${deptItems.map((item) => {
               const o = override(p.id, item.id);
               return `<div class="perf-ov-row">
