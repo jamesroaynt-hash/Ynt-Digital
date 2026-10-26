@@ -4661,6 +4661,12 @@ tfoot td {
   overflow-wrap: anywhere;
 }
 
+.data-report-table th.dr-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.data-report-table th.dr-sortable:hover { color: var(--text-primary); }
+.data-report-table th.dr-sortable.active { color: var(--accent, #6366f1); }
+.dr-sort-arrow { font-size: 10px; opacity: .55; margin-left: 2px; }
+.data-report-table th.dr-sortable.active .dr-sort-arrow { opacity: 1; }
+
 .data-report-rate {
   display: inline-flex;
   min-width: 68px;

@@ -8398,18 +8398,56 @@ function thinSampleNote(rows) {
     </div>`;
 }
 
+// Click a header to sort that table: numbers go highest → lowest first, names
+// A → Z; a second click flips it. Kept per table (keyed by its first column)
+// and applied before the top-12 cut, so the cut follows the chosen order.
+const dataReportTableSort = {};
+const DATA_REPORT_SORT_VALUE = {
+  label: (row) => String(row.label || '').toLowerCase(),
+  total: (row) => Number(row.total || 0),
+  delivered: (row) => Number(row.delivered || 0),
+  returned: (row) => Number(row.returned || 0) + Number(row.returning || 0),
+  rts: (row) => (settledCount(row) ? Number(row.rtsRate || 0) : -1),
+  cod: (row) => Number(row.cod || 0),
+  avg: (row) => (row.total ? Number(row.cod || 0) / row.total : 0),
+};
+
+function setDataReportTableSort(table, key) {
+  const current = dataReportTableSort[table];
+  const firstDir = key === 'label' ? 'asc' : 'desc';
+  dataReportTableSort[table] = current && current.key === key
+    ? { key, dir: current.dir === 'desc' ? 'asc' : 'desc' }
+    : { key, dir: firstDir };
+  renderDataReportDashboard();
+}
+
 function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false } = {}) {
   if (!rows.length) {
     return `<div class="empty-state data-report-empty"><h3>${emptyText}</h3><p>Sync Google Sheets to populate this report.</p></div>`;
   }
 
+  const sort = dataReportTableSort[firstColumn];
+  const sorted = sort && DATA_REPORT_SORT_VALUE[sort.key]
+    ? rows.slice().sort((a, b) => {
+      const va = DATA_REPORT_SORT_VALUE[sort.key](a);
+      const vb = DATA_REPORT_SORT_VALUE[sort.key](b);
+      const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
+      return sort.dir === 'asc' ? cmp : -cmp;
+    })
+    : rows;
+  const th = (key, label) => {
+    const on = sort && sort.key === key;
+    const arrow = on ? (sort.dir === 'desc' ? '▼' : '▲') : '⇅';
+    return `<th class="dr-sortable${on ? ' active' : ''}" onclick="setDataReportTableSort('${escapeHtml(firstColumn)}','${key}')" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)} <span class="dr-sort-arrow">${arrow}</span></th>`;
+  };
+
   return `
     <table class="data-report-table">
       <thead><tr>
-        <th>${firstColumn}</th><th>Total Orders</th><th>Delivered</th><th>Returned</th><th>RTS Rate</th>${showCod ? '<th>Sales Total (COD)</th><th>Avg COD/Order</th>' : ''}
+        ${th('label', firstColumn)}${th('total', 'Total Orders')}${th('delivered', 'Delivered')}${th('returned', 'Returned')}${th('rts', 'RTS Rate')}${showCod ? th('cod', 'Sales Total (COD)') + th('avg', 'Avg COD/Order') : ''}
       </tr></thead>
       <tbody>
-        ${rows.slice(0, 12).map((row) => {
+        ${sorted.slice(0, 12).map((row) => {
           const codTotal = Number(row.cod || 0);
           const avgCod = row.total ? Math.round(codTotal / row.total) : 0;
           return `<tr>
@@ -8423,7 +8461,7 @@ function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false }
         }).join('')}
       </tbody>
     </table>
-    ${thinSampleNote(rows.slice(0, 12))}`;
+    ${thinSampleNote(sorted.slice(0, 12))}`;
 }
 
 function renderDataReport() {
