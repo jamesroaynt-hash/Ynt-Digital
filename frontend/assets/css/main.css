@@ -7131,6 +7131,17 @@ tfoot td {
 .et-chip.et-static:not(.active):hover { background: var(--surface-2); color: var(--text-muted); }
 .et-att { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .et-att-time { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.et-att-btn { position: relative; margin: 0 auto; padding: 4px 6px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.et-att-btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.et-att-btn .et-chip { cursor: pointer; }
+.et-att-manual::after { content: ''; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.et-att-note { font-size: 9px; line-height: 1; }
+.et-att-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.et-att-choice { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.et-att-choice:hover { background: var(--surface-3); }
+.et-att-choice.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.et-att-choice .et-chip { cursor: pointer; }
+#et-att-auto.active { opacity: .6; }
 
 .et-scroll {
   overflow-x: auto;

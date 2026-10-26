@@ -23,7 +23,8 @@ function isHrManager(user) {
   return HR_MANAGER_ROLES.has(String(user?.role || '').trim().toLowerCase());
 }
 
-const TRACKER_METRICS = new Set(['standup', 'eod', 'selfcare', 'wam', 'discordlive', 'orders']);
+// 'attendance' marks are HR's manual overrides of the time-clock day (see attendanceDays).
+const TRACKER_METRICS = new Set(['attendance', 'standup', 'eod', 'selfcare', 'wam', 'discordlive', 'orders']);
 const TRACKER_STATES = new Set(['yes', 'late', 'rest', 'no']);
 // What Compliance scores; Discord Live is tracked but not part of the score.
 const COMPLIANCE_METRICS = ['attendance', 'standup', 'eod', 'selfcare', 'wam'];
@@ -189,10 +190,12 @@ module.exports = function performanceRoutes(db) {
   // rest (worked a rest day). A punch on a day with no Schedule row is judged
   // against the full hour nearest it (inferShiftStart). Compliance
   // scores these and the Employee Tracker's Attendance tab shows them, so the
-  // two always agree; dayoff and rest are never scored.
+  // two always agree; dayoff and rest are never scored. HR can override any
+  // day by hand (an 'attendance' tracker mark): yes / late / no, or rest for a
+  // day off. The override wins and the worked-out status rides along as auto.
   async function attendanceDays(from, to) {
     const today = manilaToday();
-    const [schedules, attendance, leaves, dayOffs] = await Promise.all([
+    const [schedules, attendance, leaves, dayOffs, overrides] = await Promise.all([
       db.prepare(`
         SELECT user_id, schedule_date, shift_start FROM user_schedules
         WHERE schedule_date BETWEEN ? AND ? AND shift_start IS NOT NULL AND shift_start != ''
@@ -205,6 +208,10 @@ module.exports = function performanceRoutes(db) {
         WHERE status = 'approved' AND leave_date_to >= ? AND leave_date_from <= ?
       `).all(from, to),
       db.prepare('SELECT id, day_off FROM users WHERE is_active = 1 AND day_off BETWEEN 0 AND 6').all(),
+      db.prepare(`
+        SELECT user_id, work_date, state, note FROM employee_tracker_marks
+        WHERE metric = 'attendance' AND work_date BETWEEN ? AND ?
+      `).all(from, to),
     ]);
     const dayOffOf = new Map(dayOffs.map((u) => [Number(u.id), Number(u.day_off)]));
     const weekday = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
@@ -259,6 +266,24 @@ module.exports = function performanceRoutes(db) {
         const key = `${userId}|${date}`;
         if (scheduled.has(key) || !isDayOff(userId, date)) continue;
         days.push({ user_id: userId, work_date: date, status: 'dayoff', shift_start: null, time_in: null, time_out: null });
+        scheduled.add(key);
+      }
+    }
+    const byKey = new Map(days.map((d) => [`${d.user_id}|${d.work_date}`, d]));
+    const MANUAL_STATUS = { yes: 'yes', late: 'late', no: 'no', rest: 'dayoff' };
+    for (const mark of overrides) {
+      const key = `${Number(mark.user_id)}|${mark.work_date}`;
+      let day = byKey.get(key);
+      if (!day) {
+        day = { user_id: Number(mark.user_id), work_date: mark.work_date, status: 'none', shift_start: null, time_in: null, time_out: null };
+        byKey.set(key, day);
+        days.push(day);
+      }
+      if (mark.note) day.note = mark.note;
+      if (MANUAL_STATUS[mark.state]) {
+        day.auto_status = day.status;
+        day.status = MANUAL_STATUS[mark.state];
+        day.manual = true;
       }
     }
     return days;
@@ -379,9 +404,10 @@ module.exports = function performanceRoutes(db) {
     const scores = new Map(people.map((p) => [p.id, Object.fromEntries(COMPLIANCE_METRICS.map((m) => [m, { credit: 0, counted: 0 }]))]));
 
     if (from <= to) {
+      // Attendance marks are overrides, scored through attendanceDays below.
       const marks = await db.prepare(`
         SELECT metric, user_id, state FROM employee_tracker_marks
-        WHERE work_date BETWEEN ? AND ? AND state IS NOT NULL
+        WHERE work_date BETWEEN ? AND ? AND state IS NOT NULL AND metric != 'attendance'
       `).all(from, to);
       for (const mark of marks) {
         const bucket = scores.get(Number(mark.user_id))?.[mark.metric];

@@ -4659,13 +4659,13 @@ const EMPLOYEE_TRACKER_KEY = 'ynt_employee_tracker';
 const EMPLOYEE_TRACKER_IMPORTED_KEY = 'ynt_employee_tracker_imported';
 const EMPLOYEE_TRACKER_METRICS = [
   {
-    // Read straight from Schedule + Time & Attendance (the time clock), not
-    // clicked in — the same days Performance → Compliance scores.
+    // Read from Schedule + Time & Attendance (the time clock); HR can override
+    // a day by hand. The same days Compliance scores.
     id: 'attendance',
     tab: 'Attendance',
     title: 'Time & Attendance',
-    hint: 'From the time clock, Schedule and each person’s day off, so nothing to click here. Late = timed in after the shift start. With no Schedule row the shift is the full hour nearest the time-in (1:47 PM → 2 PM shift, on time; 8:01 → 8 AM shift, late). Fix a wrong punch on Timekeeping and it shows here.',
-    readonly: true,
+    hint: 'Filled in from the time clock, Schedule and each person’s day off. Click a day to set it by hand (a dot marks it); Use time clock undoes that. Late = timed in after the shift start. With no Schedule row the shift is the full hour nearest the time-in (1:47 PM → 2 PM shift, on time; 8:01 → 8 AM shift, late). Fix a wrong punch on Timekeeping and it shows here.',
+    readonly: true, // not clicked like the others: the grid is worked out, then overridden
   },
   {
     id: 'standup',
@@ -4969,6 +4969,30 @@ function renderEmployeeTracker() {
     <div class="empty-state"><h3>Loading tracker</h3><p>Pulling the active account list.</p></div>
   </div>
 
+  <div class="modal-overlay" id="et-att-modal">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-header">
+        <div class="modal-title" id="et-att-title">Attendance</div>
+        <button class="modal-close" onclick="closeModal('et-att-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-xs text-muted" id="et-att-info" style="margin-top:0;"></p>
+        <div class="et-att-choices">
+          <button type="button" class="et-att-choice" data-att-state="yes" onclick="saveEmployeeTrackerAttendance('yes')"><i class="et-chip yes active">✓</i>On Time</button>
+          <button type="button" class="et-att-choice" data-att-state="late" onclick="saveEmployeeTrackerAttendance('late')"><i class="et-chip late active">L</i>Late</button>
+          <button type="button" class="et-att-choice" data-att-state="no" onclick="saveEmployeeTrackerAttendance('no')"><i class="et-chip no active">×</i>Absent</button>
+          <button type="button" class="et-att-choice" data-att-state="rest" onclick="saveEmployeeTrackerAttendance('rest')"><i class="et-chip dayoff active">OFF</i>Day Off</button>
+        </div>
+        <label class="form-label" style="margin-top:12px;">Note</label>
+        <textarea class="form-control" id="et-att-note" rows="3" placeholder="Why it was changed — e.g. forgot to time in, approved late"></textarea>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button type="button" class="btn btn-primary" style="flex:1;" onclick="saveEmployeeTrackerAttendance()">Save note</button>
+          <button type="button" class="btn btn-secondary" id="et-att-auto" onclick="saveEmployeeTrackerAttendance(null)" title="Remove the override">Use time clock</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="et-note-modal">
     <div class="modal" style="max-width:480px;">
       <div class="modal-header">
@@ -5157,30 +5181,82 @@ function renderEmployeeTrackerGrid(metric, days) {
   </div>`;
 }
 
-// One Attendance cell: the day's status chip with the time-in under it. A day
-// with no shift and no punch, or a shift still ahead, is a plain dash.
+const ET_ATTENDANCE_CHIPS = {
+  yes: ['yes', '✓', 'On time'],
+  late: ['late', 'L', 'Late'],
+  no: ['no', '×', 'Absent / no time-in'],
+  leave: ['leave', 'LV', 'On approved leave'],
+  dayoff: ['dayoff', 'OFF', 'Day off'],
+  rest: ['rest', 'R', 'Worked on their day off'],
+  pending: ['', '…', 'Shift today, not timed in yet'],
+};
+
+// One Attendance cell: the day's status chip with the time-in under it. The
+// whole cell is a button — HR can override what the time clock says. A day
+// with no shift and no punch, or a shift still ahead, is a plain dash. A
+// hand-set day carries a small dot.
 function employeeTrackerAttendanceCell(userId, day) {
   const entry = employeeTrackerState.attendance[userId]?.[day];
-  const chips = {
-    yes: ['yes', '✓', 'On time'],
-    late: ['late', 'L', 'Late'],
-    no: ['no', '×', 'No time-in'],
-    leave: ['leave', 'LV', 'On approved leave'],
-    dayoff: ['dayoff', 'OFF', 'Day off'],
-    rest: ['rest', 'R', 'Worked on their day off'],
-    pending: ['', '…', 'Shift today, not timed in yet'],
-  };
-  const chip = entry && chips[entry.status];
-  if (!chip) return `<div class="et-cell"><span class="et-chip et-static" title="${entry ? 'Shift not started yet' : 'No shift'}">–</span></div>`;
+  const chip = entry && ET_ATTENDANCE_CHIPS[entry.status];
+  const open = `onclick="openEmployeeTrackerAttendance(${Number(userId)}, '${day}')"`;
+  if (!chip) {
+    return `<button type="button" class="et-att et-att-btn" ${open} title="${entry ? 'Shift not started yet' : 'No shift'} — click to set by hand"><span class="et-chip et-static">–</span>${entry?.note ? '<span class="et-att-note">📝</span>' : ''}</button>`;
+  }
   const [cls, glyph, label] = chip;
   const times = entry.time_in
     ? `${formatClock12(entry.time_in)}${entry.time_out ? ` – ${formatClock12(entry.time_out)}` : ''}`
     : '';
-  const title = [label, entry.shift_start ? `Shift ${formatClock12(entry.shift_start)}` : '', times].filter(Boolean).join(' · ');
-  return `<div class="et-att">
-    <span class="et-chip et-static ${cls}${cls ? ' active' : ''}" title="${escapeHtml(title)}">${glyph}</span>
+  const title = [entry.manual ? `${label} (set by hand)` : label, entry.shift_start ? `Shift ${formatClock12(entry.shift_start)}` : '', times, entry.note || '', 'Click to change']
+    .filter(Boolean).join(' · ');
+  return `<button type="button" class="et-att et-att-btn${entry.manual ? ' et-att-manual' : ''}" ${open} title="${escapeHtml(title)}">
+    <span class="et-chip et-static ${cls}${cls ? ' active' : ''}">${glyph}</span>
     ${entry.time_in ? `<span class="et-att-time">${escapeHtml(formatClock12(entry.time_in))}</span>` : ''}
-  </div>`;
+    ${entry.note ? '<span class="et-att-note">📝</span>' : ''}
+  </button>`;
+}
+
+let employeeTrackerAttendanceTarget = null;
+
+function openEmployeeTrackerAttendance(userId, date) {
+  const employee = employeeTrackerState.employees.find((e) => Number(e.id) === Number(userId));
+  const entry = employeeTrackerState.attendance[userId]?.[date] || null;
+  employeeTrackerAttendanceTarget = { userId: Number(userId), date };
+  const label = etParseDate(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const auto = entry ? (entry.manual ? entry.auto_status : entry.status) : 'none';
+  const autoLabel = ET_ATTENDANCE_CHIPS[auto]?.[2] || 'No shift';
+  const punch = entry?.time_in
+    ? `Timed in ${formatClock12(entry.time_in)}${entry.time_out ? `, out ${formatClock12(entry.time_out)}` : ''}`
+    : 'No time-in';
+  const shift = entry?.shift_start ? ` · shift ${formatClock12(entry.shift_start)}` : '';
+  const current = entry?.manual ? { yes: 'yes', late: 'late', no: 'no', dayoff: 'rest' }[entry.status] : '';
+  const title = document.getElementById('et-att-title');
+  if (title) title.textContent = `${employee?.name || 'Employee'} · ${label}`;
+  const info = document.getElementById('et-att-info');
+  if (info) info.textContent = `${punch}${shift}. Time clock says: ${autoLabel}.`;
+  document.querySelectorAll('#et-att-modal [data-att-state]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.attState === current);
+  });
+  const autoButton = document.getElementById('et-att-auto');
+  if (autoButton) autoButton.classList.toggle('active', !current);
+  const note = document.getElementById('et-att-note');
+  if (note) note.value = entry?.note || '';
+  openModal('et-att-modal');
+}
+
+// state: yes / late / no / rest (day off), null to go back to the time clock,
+// or left out to save only the note.
+async function saveEmployeeTrackerAttendance(state) {
+  const target = employeeTrackerAttendanceTarget;
+  if (!target) return;
+  const note = String(document.getElementById('et-att-note')?.value || '').trim();
+  const body = { metric: 'attendance', user_id: target.userId, date: target.date, note: note || null };
+  if (state !== undefined) body.state = state;
+  if (!(await saveEmployeeTrackerEntry(body))) return;
+  closeModal('et-att-modal');
+  showToast('success', 'Attendance saved', state === null ? 'Back to what the time clock says.' : 'Saved for everyone.');
+  // Refetch the span on screen so the cell and its auto status are the server's.
+  Object.keys(employeeTrackerState.loaded).forEach((key) => { if (key.startsWith('attendance|')) delete employeeTrackerState.loaded[key]; });
+  renderEmployeeTrackerCard();
 }
 
 // A number per person per day (Confirmed Orders), only for the departments the

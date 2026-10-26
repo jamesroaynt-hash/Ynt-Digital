@@ -94,3 +94,39 @@ test('no Schedule row: the shift is the full hour nearest the time-in', () => {
   assert.equal(inferShiftStart('23:45'), '00:00');
   assert.equal(inferShiftStart(''), null);
 });
+
+test('HR can override an attendance day by hand, and Compliance follows', async () => {
+  const { db, ids, server } = await startApp();
+  try {
+    const base = `http://127.0.0.1:${server.address().port}/api/performance`;
+    const put = (body) => fetch(`${base}/tracker`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const days = async () => (await (await fetch(`${base}/tracker/attendance?from=2026-02-02&to=2026-02-04`)).json()).days
+      .filter((d) => d.user_id === ids.csr);
+    db.prepare('INSERT INTO user_schedules (user_id, schedule_date, shift_start) VALUES (?, ?, ?)').run(ids.csr, '2026-02-02', '08:00');
+    db.prepare('INSERT INTO attendance_records (user_id, work_date, time_in) VALUES (?, ?, ?)').run(ids.csr, '2026-02-03', '08:20');
+
+    // No time-in on a scheduled day = absent; HR marks it on time. A late punch is excused as day off.
+    assert.equal((await put({ metric: 'attendance', user_id: ids.csr, date: '2026-02-02', state: 'yes', note: 'forgot to time in' })).status, 200);
+    assert.equal((await put({ metric: 'attendance', user_id: ids.csr, date: '2026-02-03', state: 'rest' })).status, 200);
+    // A day with nothing at all can still be set.
+    assert.equal((await put({ metric: 'attendance', user_id: ids.csr, date: '2026-02-04', state: 'no' })).status, 200);
+    const byDate = Object.fromEntries((await days()).map((d) => [d.work_date, d]));
+    assert.deepEqual([byDate['2026-02-02'].status, byDate['2026-02-02'].auto_status, byDate['2026-02-02'].manual, byDate['2026-02-02'].note], ['yes', 'no', true, 'forgot to time in']);
+    assert.deepEqual([byDate['2026-02-03'].status, byDate['2026-02-03'].auto_status], ['dayoff', 'late']);
+    assert.equal(byDate['2026-02-04'].status, 'no');
+
+    // Compliance: yes (1) + no (0) over 2 counted; the day off is left out. Counted once, not twice.
+    const compliance = await (await fetch(`${base}/compliance?period=2026-02-H1`)).json();
+    const row = compliance.rows.find((r) => r.id === ids.csr);
+    assert.equal(row.metrics.attendance.counted, 2);
+    assert.equal(row.metrics.attendance.score, 50);
+
+    // Back to the time clock.
+    await put({ metric: 'attendance', user_id: ids.csr, date: '2026-02-02', state: null, note: null });
+    const after = Object.fromEntries((await days()).map((d) => [d.work_date, d]));
+    assert.equal(after['2026-02-02'].status, 'no');
+    assert.equal(after['2026-02-02'].manual, undefined);
+  } finally {
+    server.close();
+  }
+});
