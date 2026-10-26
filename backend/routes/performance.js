@@ -98,9 +98,16 @@ function periodRange(period) {
   return half === '1' ? { from: `${year}-${month}-01`, to: `${year}-${month}-15` } : { from: `${year}-${month}-16`, to: end };
 }
 
-// No Schedule row that day = the standard 8:00 AM – 5:00 PM shift (8 hours
-// plus the 1-hour lunch): timing in at 8:01 or later is late.
-const DEFAULT_SHIFT_START = '08:00';
+// No Schedule row that day: shifts run on the hour (6 AM, 8, 11, 2 PM… each
+// 8 hours plus the 1-hour lunch), so the shift is the full hour nearest the
+// time-in. 7:59 and 1:47 PM are early for 8:00 / 2:00 PM; 8:01 and 6:07 are
+// late for 8:00 / 6:00. Half an hour or more late reads as the next shift.
+function inferShiftStart(timeIn) {
+  const at = toMinutes(timeIn);
+  if (at === null) return null;
+  const hour = (Math.floor(at / 60) + (at % 60 >= 30 ? 1 : 0)) % 24;
+  return `${String(hour).padStart(2, '0')}:00`;
+}
 
 function nextDay(date) {
   const d = new Date(`${date}T00:00:00Z`);
@@ -180,7 +187,7 @@ module.exports = function performanceRoutes(db) {
   // (pending). The person's weekly day off (users.day_off, as in payroll) is
   // dayoff — even if a shift row lands on it — and a punch on it comes back as
   // rest (worked a rest day). A punch on a day with no Schedule row is judged
-  // against the standard 8:00 AM start (DEFAULT_SHIFT_START). Compliance
+  // against the full hour nearest it (inferShiftStart). Compliance
   // scores these and the Employee Tracker's Attendance tab shows them, so the
   // two always agree; dayoff and rest are never scored.
   async function attendanceDays(from, to) {
@@ -232,13 +239,15 @@ module.exports = function performanceRoutes(db) {
     for (const [key, punch] of punches) {
       if (scheduled.has(key)) continue;
       const restDay = isDayOff(punch.user_id, punch.work_date);
+      const shiftStart = restDay ? null : inferShiftStart(punch.time_in);
       const at = toMinutes(punch.time_in);
-      const status = restDay ? 'rest' : (at !== null && at > toMinutes(DEFAULT_SHIFT_START) ? 'late' : 'yes');
+      const start = toMinutes(shiftStart);
+      const status = restDay ? 'rest' : (at !== null && start !== null && at > start ? 'late' : 'yes');
       days.push({
         user_id: Number(punch.user_id),
         work_date: punch.work_date,
         status,
-        shift_start: restDay ? null : DEFAULT_SHIFT_START,
+        shift_start: shiftStart,
         time_in: punch.time_in,
         time_out: punch.time_out || null,
       });
@@ -813,3 +822,4 @@ module.exports = function performanceRoutes(db) {
 
 module.exports.kpiScore = kpiScore;
 module.exports.periodRange = periodRange;
+module.exports.inferShiftStart = inferShiftStart;

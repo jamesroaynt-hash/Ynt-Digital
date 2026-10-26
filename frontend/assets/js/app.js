@@ -4664,7 +4664,7 @@ const EMPLOYEE_TRACKER_METRICS = [
     id: 'attendance',
     tab: 'Attendance',
     title: 'Time & Attendance',
-    hint: 'From the time clock, Schedule and each person’s day off, so nothing to click here. Late = timed in after the shift start (no Schedule row = 8:00 AM–5:00 PM, so 8:01 is late). Fix a wrong punch on Timekeeping and it shows here.',
+    hint: 'From the time clock, Schedule and each person’s day off, so nothing to click here. Late = timed in after the shift start. With no Schedule row the shift is the full hour nearest the time-in (1:47 PM → 2 PM shift, on time; 8:01 → 8 AM shift, late). Fix a wrong punch on Timekeeping and it shows here.',
     readonly: true,
   },
   {

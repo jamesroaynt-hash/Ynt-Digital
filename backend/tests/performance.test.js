@@ -48,8 +48,8 @@ test('attendance days: on time, late, no time-in, leave and a rest-day punch', a
     shift.run(ids.csr, '2026-01-08', '08:00');
     db.prepare("INSERT INTO leave_requests (user_id, leave_date_from, leave_date_to, status) VALUES (?, ?, ?, 'approved')")
       .run(ids.csr, '2026-01-08', '2026-01-08');
-    // Jan 9/10 have no Schedule row: judged against the standard 8:00 start.
-    punch.run(ids.csr, '2026-01-09', '07:59', '17:00');
+    // Jan 9/10 have no Schedule row: the shift is the full hour nearest the time-in.
+    punch.run(ids.csr, '2026-01-09', '13:47', '23:00');
     punch.run(ids.csr, '2026-01-10', '08:01', '17:00');
     // Day off = Sunday. Jan 4 has nothing; Jan 11 has a shift row but no punch.
     db.prepare('UPDATE users SET day_off = 0 WHERE id = ?').run(ids.csr);
@@ -64,6 +64,7 @@ test('attendance days: on time, late, no time-in, leave and a rest-day punch', a
     assert.equal(byDate['2026-01-07'].status, 'no');
     assert.equal(byDate['2026-01-08'].status, 'leave');
     assert.equal(byDate['2026-01-09'].status, 'yes');
+    assert.equal(byDate['2026-01-09'].shift_start, '14:00');
     assert.equal(byDate['2026-01-10'].status, 'late');
     assert.equal(byDate['2026-01-10'].shift_start, '08:00');
     assert.equal(byDate['2026-01-04'].status, 'dayoff');
@@ -81,4 +82,15 @@ test('attendance days: on time, late, no time-in, leave and a rest-day punch', a
   } finally {
     server.close();
   }
+});
+
+test('no Schedule row: the shift is the full hour nearest the time-in', () => {
+  const { inferShiftStart } = performanceRoutes;
+  assert.equal(inferShiftStart('07:59'), '08:00');
+  assert.equal(inferShiftStart('08:01'), '08:00');
+  assert.equal(inferShiftStart('13:47'), '14:00');
+  assert.equal(inferShiftStart('10:56'), '11:00');
+  assert.equal(inferShiftStart('06:07'), '06:00');
+  assert.equal(inferShiftStart('23:45'), '00:00');
+  assert.equal(inferShiftStart(''), null);
 });
