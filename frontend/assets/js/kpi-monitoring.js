@@ -4,7 +4,9 @@
        (meeting target when actual ≥ target).
      RMO: RTS rate (meeting target when actual ≤ target; default 12%).
    Daily and monthly records are separate. HR types every target and actual;
-   nothing is fetched from Pancake, Meta or the courier. Achievement and
+   nothing is fetched from Pancake, Meta or the courier. A CSR's orders actual
+   can be pre-filled from Employee Tracker → Confirmed Orders (that day, or
+   the month's sum); HR still saves it. Achievement and
    status come back from /api/kpi-monitoring, worked out from the numbers.
    The monthly records are the evaluation's KPI part (Evaluation Result).
    HR, Operation and the super admin only. Loaded before app.js; it leans on
@@ -78,6 +80,15 @@ function kpimWhen(value) {
   const raw = String(value).includes('T') ? String(value) : `${String(value).replace(' ', 'T')}Z`;
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+// The Employee Tracker's confirmed orders for the period, shown under the
+// saved actual so HR can see when the two differ.
+function kpimTrackerNote(person, record) {
+  const t = person.tracker_orders;
+  if (!t) return '';
+  const differs = record && record.actual !== null && Number(record.actual) !== t.total;
+  return `<div class="kpim-tracker${differs ? ' differs' : ''}" title="Employee Tracker → Confirmed Orders">Tracker: ${Math.round(t.total).toLocaleString()}${kpimState.periodType === 'monthly' ? ` · ${t.days} day${t.days === 1 ? '' : 's'}` : ''}</div>`;
 }
 
 function kpimUpdated(records) {
@@ -258,7 +269,7 @@ function kpimRenderTables() {
         return `<tr>
           <td>${person(p)}</td>
           <td>${kpimValue('orders', o?.target)}</td>
-          <td>${kpimValue('orders', o?.actual)}</td>
+          <td>${kpimValue('orders', o?.actual)}${kpimTrackerNote(p, o)}</td>
           <td>${kpimAchievement(o)}</td>
           <td>${kpimValue('roas', r?.target)}</td>
           <td>${kpimValue('roas', r?.actual)}</td>
@@ -316,6 +327,7 @@ function renderKpimEntryModal() {
             <input class="form-control" id="kpim-f-target" type="number" min="0" step="any" inputmode="decimal"></div>
           <div class="form-group"><label class="form-label" for="kpim-f-actual" id="kpim-f-actual-label">Actual</label>
             <input class="form-control" id="kpim-f-actual" type="number" min="0" step="any" inputmode="decimal"></div>
+          <div id="kpim-f-tracker" style="grid-column:1 / -1;"></div>
           <div class="form-group" style="grid-column:1 / -1;"><label class="form-label" for="kpim-f-remarks">Remarks</label>
             <textarea class="form-control" id="kpim-f-remarks" rows="2" maxlength="1000"></textarea></div>
         </div>
@@ -404,7 +416,12 @@ async function kpimEntryFill() {
     return;
   }
   if (Number(document.getElementById('kpim-f-user').value) !== userId || document.getElementById('kpim-f-period').value !== key) return;
-  const record = data.people?.find((p) => p.id === userId)?.kpis?.[kpi] || null;
+  const person = data.people?.find((p) => p.id === userId);
+  const record = person?.kpis?.[kpi] || null;
+  const tracker = kpi === 'orders' ? person?.tracker_orders : null;
+  document.getElementById('kpim-f-tracker').innerHTML = tracker
+    ? `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('kpim-f-actual').value = ${Math.round(tracker.total)}">Use Employee Tracker: ${Math.round(tracker.total).toLocaleString()} confirmed orders${type === 'monthly' ? ` (${tracker.days} day${tracker.days === 1 ? '' : 's'} entered)` : ''}</button>`
+    : (kpi === 'orders' ? '<span class="text-xs text-muted">Nothing on Employee Tracker → Confirmed Orders for this period.</span>' : '');
   const fallback = data.defaults?.[`${kpi}|${type}`];
   document.getElementById('kpim-f-target').value = record?.target ?? fallback ?? '';
   document.getElementById('kpim-f-actual').value = record?.actual ?? '';

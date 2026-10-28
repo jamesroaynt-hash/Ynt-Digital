@@ -8675,3 +8675,5 @@ table:not(.er-table) tfoot td {
   .kpim-control { flex: 1 1 120px; }
   .kpim-actions { justify-content: flex-start; flex-wrap: wrap; }
 }
+.kpim-tracker { font-size: var(--fs-caption); color: var(--text-muted); margin-top: 2px; }
+.kpim-tracker.differs { color: var(--warning-text); }

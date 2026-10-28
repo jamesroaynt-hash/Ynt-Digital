@@ -7,7 +7,8 @@ const { departmentOf, isHrManager } = require('./performance');
 //   CSR — orders (number of orders) and roas; higher is better.
 //   RMO — rts (RTS rate, %); lower is better.
 // HR enters every target and actual by hand, daily and monthly separately;
-// nothing is read from Pancake, Meta or the courier. HR's, Operation's and the
+// nothing is read from Pancake, Meta or the courier. A CSR's orders actual can
+// be pre-filled from HR's own Employee Tracker → Confirmed Orders numbers. HR's, Operation's and the
 // super admin's alone, the same gate as Performance.
 
 const KPI_DEPARTMENT = { orders: 'CSR', roas: 'CSR', rts: 'RMO' };
@@ -145,11 +146,21 @@ module.exports = function kpiMonitoringRoutes(db) {
     const periodType = PERIOD_TYPES.includes(req.query.period_type) ? req.query.period_type : 'monthly';
     const periodKey = String(req.query.period_key || '');
     if (!validPeriodKey(periodType, periodKey)) return res.status(400).json({ error: 'Pick a valid day or month' });
-    const [people, records, defs] = await Promise.all([
+    // What HR typed on Employee Tracker → Confirmed Orders for the same day
+    // (or the month's sum), offered as the CSR's orders actual. It only
+    // pre-fills the form; HR still saves the record.
+    const trackerWhere = periodType === 'daily' ? 'work_date = ?' : 'work_date >= ? AND work_date <= ?';
+    const trackerArgs = periodType === 'daily' ? [periodKey] : [`${periodKey}-01`, `${periodKey}-31`];
+    const [people, records, defs, tracker] = await Promise.all([
       roster(),
       db.prepare(`${RECORD_SELECT} WHERE r.period_type = ? AND r.period_key = ?`).all(periodType, periodKey),
       defaults(),
+      db.prepare(`
+        SELECT user_id, SUM(value) AS total, COUNT(*) AS days FROM employee_tracker_marks
+        WHERE metric = 'orders' AND value IS NOT NULL AND ${trackerWhere} GROUP BY user_id
+      `).all(...trackerArgs),
     ]);
+    const trackerBy = new Map(tracker.map((t) => [Number(t.user_id), { total: Number(t.total), days: Number(t.days) }]));
     const byKey = new Map(records.map((r) => [`${r.user_id}|${r.kpi_type}`, shape(r)]));
     res.json({
       period_type: periodType,
@@ -159,6 +170,7 @@ module.exports = function kpiMonitoringRoutes(db) {
         ...p,
         kpis: Object.fromEntries(KPI_TYPES.filter((k) => KPI_DEPARTMENT[k] === p.department)
           .map((k) => [k, byKey.get(`${p.id}|${k}`) || null])),
+        ...(p.department === 'CSR' ? { tracker_orders: trackerBy.get(p.id) || null } : {}),
       })),
     });
   }));

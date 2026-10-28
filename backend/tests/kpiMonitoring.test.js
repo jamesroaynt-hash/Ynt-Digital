@@ -110,3 +110,20 @@ test('monthly scores feed the evaluation: target met = 100, averaged per person'
     assert.equal(records.data.people.length, 2); // HR is not CSR/RMO
   } finally { server.close(); }
 });
+
+test('CSR orders offer the Employee Tracker confirmed orders: the day, or the month summed', async () => {
+  const { db, ids, server, call } = await startApp();
+  try {
+    const mark = db.prepare("INSERT INTO employee_tracker_marks (metric, user_id, work_date, value) VALUES ('orders', ?, ?, ?)");
+    mark.run(ids.csr, '2026-10-27', 41);
+    mark.run(ids.csr, '2026-10-28', 37);
+    mark.run(ids.csr, '2026-11-01', 50);
+    const day = await call('GET', '/records?period_type=daily&period_key=2026-10-28');
+    const csrDay = day.data.people.find((p) => p.id === ids.csr);
+    assert.deepEqual(csrDay.tracker_orders, { total: 37, days: 1 });
+    assert.equal(csrDay.kpis.orders, null); // only offered, not saved
+    const month = await call('GET', '/records?period_type=monthly&period_key=2026-10');
+    assert.deepEqual(month.data.people.find((p) => p.id === ids.csr).tracker_orders, { total: 78, days: 2 });
+    assert.equal(month.data.people.find((p) => p.id === ids.rmo).tracker_orders, undefined);
+  } finally { server.close(); }
+});
