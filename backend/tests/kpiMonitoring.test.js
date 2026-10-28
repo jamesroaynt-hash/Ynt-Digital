@@ -111,19 +111,49 @@ test('monthly scores feed the evaluation: target met = 100, averaged per person'
   } finally { server.close(); }
 });
 
-test('CSR orders offer the Employee Tracker confirmed orders: the day, or the month summed', async () => {
+test('CSR orders offer their Pancake confirmed orders, counted as CSR Records counts them', async () => {
   const { db, ids, server, call } = await startApp();
   try {
-    const mark = db.prepare("INSERT INTO employee_tracker_marks (metric, user_id, work_date, value) VALUES ('orders', ?, ?, ?)");
-    mark.run(ids.csr, '2026-10-27', 41);
-    mark.run(ids.csr, '2026-10-28', 37);
-    mark.run(ids.csr, '2026-11-01', 50);
+    db.prepare("INSERT INTO user_pos_links (pos_name, user_id) VALUES ('Csr Pancake', ?)").run(ids.csr);
+    db.prepare("INSERT INTO staff_merge_map (alias, canonical) VALUES ('csr pancake2', 'Csr Pancake')").run();
+    const order = db.prepare("INSERT INTO pos_orders (external_id, shop_id, inserted_at_remote, status_name, confirmed_by_name, raw_payload) VALUES (?, 's1', ?, ?, ?, '{}')");
+    // inserted_at_remote is UTC; the Manila day is +8h.
+    order.run('a', '2026-10-28T01:00:00', 'submitted', 'Csr Pancake');
+    order.run('b', '2026-10-27T20:00:00', 'delivered', 'csr pancake2'); // 04:00 Manila on the 28th, alias spelling
+    order.run('c', '2026-10-28T02:00:00', 'wait_print', 'Csr Pancake'); // awaiting print: not counted
+    order.run('d', '2026-10-26T03:00:00', 'shipped', 'Csr Pancake'); // another day
+    order.run('e', '2026-10-28T03:00:00', 'submitted', 'Someone Else');
     const day = await call('GET', '/records?period_type=daily&period_key=2026-10-28');
     const csrDay = day.data.people.find((p) => p.id === ids.csr);
-    assert.deepEqual(csrDay.tracker_orders, { total: 37, days: 1 });
+    assert.deepEqual(csrDay.confirmed_orders, { total: 2, linked: true });
     assert.equal(csrDay.kpis.orders, null); // only offered, not saved
     const month = await call('GET', '/records?period_type=monthly&period_key=2026-10');
-    assert.deepEqual(month.data.people.find((p) => p.id === ids.csr).tracker_orders, { total: 78, days: 2 });
-    assert.equal(month.data.people.find((p) => p.id === ids.rmo).tracker_orders, undefined);
+    assert.equal(month.data.people.find((p) => p.id === ids.csr).confirmed_orders.total, 3);
+    assert.equal(month.data.people.find((p) => p.id === ids.rmo).confirmed_orders, undefined);
+  } finally { server.close(); }
+});
+
+test('a CSR with no linked Pancake name is flagged, not shown as zero orders', async () => {
+  const { ids, server, call } = await startApp();
+  try {
+    const day = await call('GET', '/records?period_type=daily&period_key=2026-10-28');
+    assert.deepEqual(day.data.people.find((p) => p.id === ids.csr).confirmed_orders, { total: 0, linked: false });
+  } finally { server.close(); }
+});
+
+test('ROAS is gross sales divided by ad spend; no spend means no ROAS', async () => {
+  const { ids, server, call } = await startApp();
+  try {
+    const key = { user_id: ids.csr, kpi_type: 'roas', period_type: 'daily', period_key: '2026-10-28', target: 3 };
+    const saved = await call('PUT', '/records', { ...key, ad_spend: 4000, gross_sales: 14200 });
+    assert.equal(saved.data.record.actual, 3.55);
+    assert.equal(saved.data.record.ad_spend, 4000);
+    assert.equal(saved.data.record.gross_sales, 14200);
+    assert.equal(saved.data.record.status, 'meeting');
+    const noSpend = await call('PUT', '/records', { ...key, ad_spend: 0, gross_sales: 14200 });
+    assert.equal(noSpend.data.record.actual, null);
+    const audit = await call('GET', `/records/${saved.data.record.id}/audit`);
+    assert.equal(audit.data.audit[1].old_ad_spend, 4000);
+    assert.equal(audit.data.audit[1].new_ad_spend, 0);
   } finally { server.close(); }
 });

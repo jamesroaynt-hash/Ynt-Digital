@@ -1,12 +1,13 @@
 /* ═══════════════════════════════════════════════════════════
    KPI MONITORING — HR's manual KPI records for CSR and RMO.
      CSR: Number of Orders (achievement % = actual ÷ target) and ROAS
-       (meeting target when actual ≥ target).
+       (gross sales ÷ ad spend, both typed by HR right in the table;
+       meeting target when actual ≥ target).
      RMO: RTS rate (meeting target when actual ≤ target; default 12%).
    Daily and monthly records are separate. HR types every target and actual;
-   nothing is fetched from Pancake, Meta or the courier. A CSR's orders actual
-   can be pre-filled from Employee Tracker → Confirmed Orders (that day, or
-   the month's sum); HR still saves it. Achievement and
+   only a CSR's Pancake confirmed orders (counted as CSR Records counts them)
+   are offered as the orders actual, which HR accepts by saving. ROAS and RTS
+   are never fetched. Achievement and
    status come back from /api/kpi-monitoring, worked out from the numbers.
    The monthly records are the evaluation's KPI part (Evaluation Result).
    HR, Operation and the super admin only. Loaded before app.js; it leans on
@@ -82,13 +83,14 @@ function kpimWhen(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-// The Employee Tracker's confirmed orders for the period, shown under the
-// saved actual so HR can see when the two differ.
-function kpimTrackerNote(person, record) {
-  const t = person.tracker_orders;
-  if (!t) return '';
-  const differs = record && record.actual !== null && Number(record.actual) !== t.total;
-  return `<div class="kpim-tracker${differs ? ' differs' : ''}" title="Employee Tracker → Confirmed Orders">Tracker: ${Math.round(t.total).toLocaleString()}${kpimState.periodType === 'monthly' ? ` · ${t.days} day${t.days === 1 ? '' : 's'}` : ''}</div>`;
+// The CSR's Pancake confirmed orders for the period, shown under the saved
+// actual so HR can see when the two differ.
+function kpimConfirmedNote(person, record) {
+  const c = person.confirmed_orders;
+  if (!c) return '';
+  if (!c.linked) return '<div class="kpim-tracker" title="Link the Pancake name on Integrations → POS Users">No Pancake name linked</div>';
+  const differs = record && record.actual !== null && Number(record.actual) !== c.total;
+  return `<div class="kpim-tracker${differs ? ' differs' : ''}" title="Pancake confirmed orders, as in CSR Records → My Confirmed Orders">Confirmed: ${c.total.toLocaleString()}</div>`;
 }
 
 function kpimUpdated(records) {
@@ -235,6 +237,44 @@ function kpimRenderCards() {
   ].join('');
 }
 
+// Ad spend / gross sales typed straight into the CSR table. Leaving the box
+// saves the ROAS record for this period (ROAS = gross sales ÷ ad spend,
+// worked out by the server); every change lands in History.
+function kpimMoneyInput(userId, field, value, label) {
+  return `<input class="form-control kpim-money" type="number" min="0" step="any" inputmode="decimal"
+    id="kpim-${field === 'ad_spend' ? 'as' : 'gs'}-${userId}" value="${value ?? ''}" placeholder="₱"
+    aria-label="${escapeHtml(label)}" onchange="kpimSaveRoasInline(${Number(userId)})">`;
+}
+
+async function kpimSaveRoasInline(userId) {
+  const person = (kpimState.data?.people || []).find((p) => p.id === userId);
+  if (!person) return;
+  const record = person.kpis?.roas || null;
+  const type = kpimState.periodType;
+  const fallback = kpimState.data?.defaults?.[`roas|${type}`];
+  const body = {
+    department: 'CSR',
+    user_id: userId,
+    kpi_type: 'roas',
+    period_type: type,
+    period_key: kpimPeriodKey(),
+    target: record?.target ?? fallback ?? '',
+    ad_spend: document.getElementById(`kpim-as-${userId}`)?.value ?? '',
+    gross_sales: document.getElementById(`kpim-gs-${userId}`)?.value ?? '',
+    remarks: record?.remarks || '',
+  };
+  try {
+    const { record: saved } = await kpimApi('/records', { method: 'PUT', body });
+    person.kpis.roas = saved;
+    kpimEntryCache.clear();
+    const cell = document.getElementById(`kpim-roas-${userId}`);
+    if (cell) cell.innerHTML = kpimValue('roas', saved.actual);
+    kpimRenderCards();
+  } catch (error) {
+    showToast('error', 'Not saved', error.message);
+  }
+}
+
 // ─── Tables ─────────────────────────────────────────────────
 function kpimRenderTables() {
   const wrap = document.getElementById('kpim-tables');
@@ -254,14 +294,14 @@ function kpimRenderTables() {
       ${types.map((t) => `<button type="button" class="btn btn-secondary btn-sm" onclick="kpimOpenEntry(${p.id}, '${t}')">${types.length > 1 ? escapeHtml(t === 'orders' ? 'Orders' : 'ROAS') : 'Edit'}</button>`).join('')}
       <button type="button" class="btn btn-ghost btn-sm" onclick="kpimOpenHistory(${p.id})">History</button>
     </div>`;
-  const empty = (dept) => `<tr><td colspan="${dept === 'CSR' ? 10 : 7}" class="text-muted">${q ? 'No one matches the search.' : `No active ${dept} employees.`}</td></tr>`;
+  const empty = (dept) => `<tr><td colspan="${dept === 'CSR' ? 9 : 7}" class="text-muted">${q ? 'No one matches the search.' : `No active ${dept} employees.`}</td></tr>`;
 
   const csrTable = `
     <div class="er-group-row kpim-section"><span class="er-group-name">CSR · Number of Orders and ROAS</span><span class="er-count">${csr.length}</span><span class="er-group-avg">${period}</span></div>
     <div class="table-container er-table-wrap"><table class="er-table kpim-table">
       <thead><tr>
-        <th>Employee</th><th>Orders target</th><th>Orders actual</th><th>Achievement</th>
-        <th>ROAS target</th><th>ROAS actual</th><th>ROAS status</th><th>Remarks</th><th>Last update</th><th></th>
+        <th>Employee</th><th>Orders target</th><th>Orders actual</th>
+        <th>ROAS target</th><th>Ad spend</th><th>Gross sales</th><th>ROAS actual</th><th>Last update</th><th></th>
       </tr></thead>
       <tbody>${csr.length ? csr.map((p) => {
         const o = p.kpis.orders;
@@ -269,12 +309,11 @@ function kpimRenderTables() {
         return `<tr>
           <td>${person(p)}</td>
           <td>${kpimValue('orders', o?.target)}</td>
-          <td>${kpimValue('orders', o?.actual)}${kpimTrackerNote(p, o)}</td>
-          <td>${kpimAchievement(o)}</td>
+          <td>${kpimValue('orders', o?.actual)}${kpimConfirmedNote(p, o)}</td>
           <td>${kpimValue('roas', r?.target)}</td>
-          <td>${kpimValue('roas', r?.actual)}</td>
-          <td>${kpimStatus(r)}</td>
-          <td>${remarks([o, r])}</td>
+          <td>${kpimMoneyInput(p.id, 'ad_spend', r?.ad_spend, 'Ad spend')}</td>
+          <td>${kpimMoneyInput(p.id, 'gross_sales', r?.gross_sales, 'Gross sales')}</td>
+          <td><b class="er-num" id="kpim-roas-${p.id}">${kpimValue('roas', r?.actual)}</b></td>
           <td>${kpimUpdated([o, r])}</td>
           <td>${actions(p, ['orders', 'roas'])}</td>
         </tr>`;
@@ -327,7 +366,11 @@ function renderKpimEntryModal() {
             <input class="form-control" id="kpim-f-target" type="number" min="0" step="any" inputmode="decimal"></div>
           <div class="form-group"><label class="form-label" for="kpim-f-actual" id="kpim-f-actual-label">Actual</label>
             <input class="form-control" id="kpim-f-actual" type="number" min="0" step="any" inputmode="decimal"></div>
-          <div id="kpim-f-tracker" style="grid-column:1 / -1;"></div>
+          <div class="form-group kpim-f-roas"><label class="form-label" for="kpim-f-spend">Ad spend (₱)</label>
+            <input class="form-control" id="kpim-f-spend" type="number" min="0" step="any" inputmode="decimal" oninput="kpimEntryRoasPreview()"></div>
+          <div class="form-group kpim-f-roas"><label class="form-label" for="kpim-f-sales">Gross sales (₱)</label>
+            <input class="form-control" id="kpim-f-sales" type="number" min="0" step="any" inputmode="decimal" oninput="kpimEntryRoasPreview()"></div>
+          <div id="kpim-f-confirmed" style="grid-column:1 / -1;"></div>
           <div class="form-group" style="grid-column:1 / -1;"><label class="form-label" for="kpim-f-remarks">Remarks</label>
             <textarea class="form-control" id="kpim-f-remarks" rows="2" maxlength="1000"></textarea></div>
         </div>
@@ -396,7 +439,19 @@ function kpimEntryKpiChanged() {
   actual.inputMode = kpi === 'orders' ? 'numeric' : 'decimal';
   document.getElementById('kpim-f-target').max = kpi === 'rts' ? '100' : '';
   actual.max = kpi === 'rts' ? '100' : '';
+  // ROAS is gross sales ÷ ad spend: the actual box shows the result only.
+  const roas = kpi === 'roas';
+  document.querySelectorAll('.kpim-f-roas').forEach((el) => { el.style.display = roas ? '' : 'none'; });
+  actual.readOnly = roas;
+  if (roas) document.getElementById('kpim-f-actual-label').textContent = 'ROAS actual (gross sales ÷ ad spend)';
   kpimEntryFill();
+}
+
+function kpimEntryRoasPreview() {
+  if (document.getElementById('kpim-f-kpi').value !== 'roas') return;
+  const spend = Number(document.getElementById('kpim-f-spend').value);
+  const salesRaw = document.getElementById('kpim-f-sales').value;
+  document.getElementById('kpim-f-actual').value = spend > 0 && salesRaw !== '' ? Math.round((Number(salesRaw) / spend) * 100) / 100 : '';
 }
 
 // Fill target, actual and remarks from what is already saved for this
@@ -418,13 +473,16 @@ async function kpimEntryFill() {
   if (Number(document.getElementById('kpim-f-user').value) !== userId || document.getElementById('kpim-f-period').value !== key) return;
   const person = data.people?.find((p) => p.id === userId);
   const record = person?.kpis?.[kpi] || null;
-  const tracker = kpi === 'orders' ? person?.tracker_orders : null;
-  document.getElementById('kpim-f-tracker').innerHTML = tracker
-    ? `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('kpim-f-actual').value = ${Math.round(tracker.total)}">Use Employee Tracker: ${Math.round(tracker.total).toLocaleString()} confirmed orders${type === 'monthly' ? ` (${tracker.days} day${tracker.days === 1 ? '' : 's'} entered)` : ''}</button>`
-    : (kpi === 'orders' ? '<span class="text-xs text-muted">Nothing on Employee Tracker → Confirmed Orders for this period.</span>' : '');
+  const confirmed = kpi === 'orders' ? person?.confirmed_orders : null;
+  const slot = document.getElementById('kpim-f-confirmed');
+  if (!confirmed) slot.innerHTML = '';
+  else if (!confirmed.linked) slot.innerHTML = '<span class="text-xs text-muted">No Pancake name is linked to this account — link it on Integrations → POS Users to count their confirmed orders.</span>';
+  else slot.innerHTML = `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('kpim-f-actual').value = ${confirmed.total}">Use Pancake confirmed orders: ${confirmed.total.toLocaleString()}</button>`;
   const fallback = data.defaults?.[`${kpi}|${type}`];
   document.getElementById('kpim-f-target').value = record?.target ?? fallback ?? '';
   document.getElementById('kpim-f-actual').value = record?.actual ?? '';
+  document.getElementById('kpim-f-spend').value = record?.ad_spend ?? '';
+  document.getElementById('kpim-f-sales').value = record?.gross_sales ?? '';
   document.getElementById('kpim-f-remarks').value = record?.remarks || '';
   hint.textContent = record
     ? `Editing the saved record — last changed by ${record.updated_by || '—'} ${kpimWhen(record.updated_at)}. The previous numbers stay in History.`
@@ -442,6 +500,10 @@ async function kpimSaveEntry() {
     actual: document.getElementById('kpim-f-actual').value,
     remarks: document.getElementById('kpim-f-remarks').value,
   };
+  if (body.kpi_type === 'roas') {
+    body.ad_spend = document.getElementById('kpim-f-spend').value;
+    body.gross_sales = document.getElementById('kpim-f-sales').value;
+  }
   if (!body.user_id) { showToast('warning', 'Pick an employee', ''); return; }
   const button = document.getElementById('kpim-f-save');
   button.disabled = true;
@@ -593,8 +655,8 @@ async function kpimToggleAudit(recordId, button) {
     cell.innerHTML = `<ol class="kpim-audit">${audit.map((a) => {
       const num = (v) => (v === null || v === undefined ? '—' : v);
       const change = a.action === 'create'
-        ? `Created: target ${num(a.new_target)}, actual ${num(a.new_actual)}${a.new_remarks ? ` · “${escapeHtml(a.new_remarks)}”` : ''}`
-        : `Changed: target ${num(a.old_target)} → ${num(a.new_target)}, actual ${num(a.old_actual)} → ${num(a.new_actual)}${a.old_remarks !== a.new_remarks ? ` · remarks “${escapeHtml(a.old_remarks || '—')}” → “${escapeHtml(a.new_remarks || '—')}”` : ''}`;
+        ? `Created: target ${num(a.new_target)}, actual ${num(a.new_actual)}${a.new_ad_spend !== null && a.new_ad_spend !== undefined ? `, ad spend ${num(a.new_ad_spend)}, gross sales ${num(a.new_gross_sales)}` : ''}${a.new_remarks ? ` · “${escapeHtml(a.new_remarks)}”` : ''}`
+        : `Changed: target ${num(a.old_target)} → ${num(a.new_target)}, actual ${num(a.old_actual)} → ${num(a.new_actual)}${(a.old_ad_spend ?? a.new_ad_spend ?? a.old_gross_sales ?? a.new_gross_sales) !== null && (a.old_ad_spend ?? a.new_ad_spend ?? a.old_gross_sales ?? a.new_gross_sales) !== undefined ? `, ad spend ${num(a.old_ad_spend)} → ${num(a.new_ad_spend)}, gross sales ${num(a.old_gross_sales)} → ${num(a.new_gross_sales)}` : ''}${a.old_remarks !== a.new_remarks ? ` · remarks “${escapeHtml(a.old_remarks || '—')}” → “${escapeHtml(a.new_remarks || '—')}”` : ''}`;
       return `<li>${change} <span class="text-muted">— ${escapeHtml(a.changed_by || '—')}, ${escapeHtml(kpimWhen(a.changed_at))}</span></li>`;
     }).join('')}</ol>`;
   } catch (error) {

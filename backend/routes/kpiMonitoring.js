@@ -1,15 +1,17 @@
 const express = require('express');
 const { departmentOf, isHrManager } = require('./performance');
+const { posManilaDaySql } = require('../services/pancakePosSync');
 
 // KPI Monitoring: HR's manual KPI records for CSR and RMO (schema in
 // db/kpiMonitoringSchema.js). It replaces the old department KPI as the
 // evaluation's KPI part (GET /scores).
-//   CSR — orders (number of orders) and roas; higher is better.
+//   CSR — orders (number of orders) and roas; higher is better. ROAS is
+//     worked out from the two numbers HR types: gross sales ÷ ad spend.
 //   RMO — rts (RTS rate, %); lower is better.
-// HR enters every target and actual by hand, daily and monthly separately;
-// nothing is read from Pancake, Meta or the courier. A CSR's orders actual can
-// be pre-filled from HR's own Employee Tracker → Confirmed Orders numbers. HR's, Operation's and the
-// super admin's alone, the same gate as Performance.
+// HR enters every target and actual, daily and monthly separately. A CSR's
+// Pancake confirmed orders (as CSR Records counts them) are offered as the
+// orders actual for HR to accept; ROAS and RTS are never fetched. HR's,
+// Operation's and the super admin's alone, the same gate as Performance.
 
 const KPI_DEPARTMENT = { orders: 'CSR', roas: 'CSR', rts: 'RMO' };
 const KPI_TYPES = Object.keys(KPI_DEPARTMENT);
@@ -114,6 +116,8 @@ module.exports = function kpiMonitoringRoutes(db) {
       period_key: row.period_key,
       target,
       actual,
+      ad_spend: row.ad_spend === null || row.ad_spend === undefined ? null : Number(row.ad_spend),
+      gross_sales: row.gross_sales === null || row.gross_sales === undefined ? null : Number(row.gross_sales),
       remarks: row.remarks || '',
       created_by: row.created_by_name || null,
       created_at: row.created_at,
@@ -141,26 +145,72 @@ module.exports = function kpiMonitoringRoutes(db) {
     res.json({ defaults: await defaults() });
   }));
 
+  // Each CSR's Pancake confirmed orders for the day or month, counted exactly
+  // as CSR Records → My Confirmed Orders counts them: orders whose confirmer
+  // (pos_orders.confirmed_by_name) is one of the names linked to the account
+  // in user_pos_links, widened by the staff_merge_map spellings of those
+  // names; Awaiting print (wait_print) left out; filed under the order's
+  // Manila day (posManilaDaySql). Only offered to HR as the orders actual.
+  async function confirmedOrders(userIds, periodType, periodKey) {
+    const out = new Map();
+    if (!userIds.length) return out;
+    const placeholders = userIds.map(() => '?').join(', ');
+    const links = await db.prepare(`SELECT user_id, pos_name FROM user_pos_links WHERE user_id IN (${placeholders})`).all(...userIds);
+    if (!links.length) return out;
+    let merges = [];
+    try { merges = await db.prepare('SELECT alias, canonical FROM staff_merge_map').all(); } catch { merges = []; }
+    const byAlias = new Map(merges.map((m) => [String(m.alias || '').trim().toLowerCase(), String(m.canonical || '').trim()]));
+    const fold = (name) => {
+      let cur = String(name || '').trim();
+      const seen = new Set();
+      while (byAlias.get(cur.toLowerCase()) && !seen.has(cur.toLowerCase())) {
+        seen.add(cur.toLowerCase());
+        cur = byAlias.get(cur.toLowerCase());
+      }
+      return cur.toLowerCase();
+    };
+    // Every spelling that folds to a linked name belongs to that user.
+    const ownerOf = new Map(); // spelling → user id
+    for (const link of links) {
+      const name = String(link.pos_name || '').trim();
+      if (name) ownerOf.set(name, Number(link.user_id));
+      out.set(Number(link.user_id), { total: 0, linked: true });
+    }
+    const userByFold = new Map([...ownerOf].map(([name, id]) => [fold(name), id]));
+    for (const merge of merges) {
+      for (const spelling of [merge.alias, merge.canonical]) {
+        const value = String(spelling || '').trim();
+        if (value && !ownerOf.has(value) && userByFold.has(fold(value))) ownerOf.set(value, userByFold.get(fold(value)));
+      }
+    }
+    const names = [...ownerOf.keys()];
+    const manilaDay = posManilaDaySql(db.type);
+    const dayFilter = periodType === 'daily' ? `${manilaDay} = ?` : `${manilaDay} >= ? AND ${manilaDay} <= ?`;
+    const dayArgs = periodType === 'daily' ? [periodKey] : [`${periodKey}-01`, `${periodKey}-31`];
+    const rows = await db.prepare(`
+      SELECT confirmed_by_name AS name, COUNT(*) AS n FROM pos_orders
+      WHERE confirmed_by_name IN (${names.map(() => '?').join(', ')})
+        AND COALESCE(status_name, '') <> 'wait_print' AND ${dayFilter}
+      GROUP BY confirmed_by_name
+    `).all(...names, ...dayArgs);
+    for (const row of rows) {
+      const id = ownerOf.get(String(row.name || '').trim());
+      if (id && out.has(id)) out.get(id).total += Number(row.n || 0);
+    }
+    return out;
+  }
+
   // Everyone in CSR and RMO for one period, with whatever HR has entered.
   router.get('/records', wrap(async (req, res) => {
     const periodType = PERIOD_TYPES.includes(req.query.period_type) ? req.query.period_type : 'monthly';
     const periodKey = String(req.query.period_key || '');
     if (!validPeriodKey(periodType, periodKey)) return res.status(400).json({ error: 'Pick a valid day or month' });
-    // What HR typed on Employee Tracker → Confirmed Orders for the same day
-    // (or the month's sum), offered as the CSR's orders actual. It only
-    // pre-fills the form; HR still saves the record.
-    const trackerWhere = periodType === 'daily' ? 'work_date = ?' : 'work_date >= ? AND work_date <= ?';
-    const trackerArgs = periodType === 'daily' ? [periodKey] : [`${periodKey}-01`, `${periodKey}-31`];
-    const [people, records, defs, tracker] = await Promise.all([
+    const [people, records, defs] = await Promise.all([
       roster(),
       db.prepare(`${RECORD_SELECT} WHERE r.period_type = ? AND r.period_key = ?`).all(periodType, periodKey),
       defaults(),
-      db.prepare(`
-        SELECT user_id, SUM(value) AS total, COUNT(*) AS days FROM employee_tracker_marks
-        WHERE metric = 'orders' AND value IS NOT NULL AND ${trackerWhere} GROUP BY user_id
-      `).all(...trackerArgs),
     ]);
-    const trackerBy = new Map(tracker.map((t) => [Number(t.user_id), { total: Number(t.total), days: Number(t.days) }]));
+    const confirmedBy = await confirmedOrders(people.filter((p) => p.department === 'CSR').map((p) => p.id), periodType, periodKey);
     const byKey = new Map(records.map((r) => [`${r.user_id}|${r.kpi_type}`, shape(r)]));
     res.json({
       period_type: periodType,
@@ -170,7 +220,9 @@ module.exports = function kpiMonitoringRoutes(db) {
         ...p,
         kpis: Object.fromEntries(KPI_TYPES.filter((k) => KPI_DEPARTMENT[k] === p.department)
           .map((k) => [k, byKey.get(`${p.id}|${k}`) || null])),
-        ...(p.department === 'CSR' ? { tracker_orders: trackerBy.get(p.id) || null } : {}),
+        // linked: false = no Pancake confirmer name is linked to this account
+        // (Integrations → POS Users), so there is nothing to count.
+        ...(p.department === 'CSR' ? { confirmed_orders: confirmedBy.get(p.id) || { total: 0, linked: false } } : {}),
       })),
     });
   }));
@@ -197,6 +249,8 @@ module.exports = function kpiMonitoringRoutes(db) {
         action: h.action,
         old_target: h.old_target, old_actual: h.old_actual, old_remarks: h.old_remarks || '',
         new_target: h.new_target, new_actual: h.new_actual, new_remarks: h.new_remarks || '',
+        old_ad_spend: h.old_ad_spend ?? null, old_gross_sales: h.old_gross_sales ?? null,
+        new_ad_spend: h.new_ad_spend ?? null, new_gross_sales: h.new_gross_sales ?? null,
         changed_by: h.changed_by_name || null,
         changed_at: h.changed_at,
       })),
@@ -218,7 +272,17 @@ module.exports = function kpiMonitoringRoutes(db) {
       return res.status(400).json({ error: 'Pick Daily with a day, or Monthly with a month' });
     }
     let target = num(b.target);
-    const actual = num(b.actual);
+    let actual = num(b.actual);
+    // ROAS: HR types ad spend and gross sales; the actual is their ratio
+    // (gross sales ÷ ad spend). No spend means no ROAS rather than a division
+    // by zero.
+    const adSpend = kpiType === 'roas' ? num(b.ad_spend) : null;
+    const grossSales = kpiType === 'roas' ? num(b.gross_sales) : null;
+    if (Number.isNaN(adSpend) || Number.isNaN(grossSales)) return res.status(400).json({ error: 'Ad spend and gross sales must be numbers' });
+    if ((adSpend !== null && adSpend < 0) || (grossSales !== null && grossSales < 0)) return res.status(400).json({ error: 'Numbers cannot be negative' });
+    if (kpiType === 'roas' && (adSpend !== null || grossSales !== null)) {
+      actual = adSpend > 0 && grossSales !== null ? Math.round((grossSales / adSpend) * 100) / 100 : null;
+    }
     if (Number.isNaN(target) || Number.isNaN(actual)) return res.status(400).json({ error: 'Target and actual must be numbers' });
     if ((target !== null && target < 0) || (actual !== null && actual < 0)) return res.status(400).json({ error: 'Numbers cannot be negative' });
     if (kpiType === 'rts' && ((target !== null && target > 100) || (actual !== null && actual > 100))) {
@@ -241,27 +305,30 @@ module.exports = function kpiMonitoringRoutes(db) {
     const actor = req.currentUser.id;
     if (existing) {
       const same = (x, y) => (x === null || x === undefined ? null : Number(x)) === (y === null || y === undefined ? null : Number(y));
-      const changed = !same(existing.target, target) || !same(existing.actual, actual) || (existing.remarks || null) !== remarks;
+      const changed = !same(existing.target, target) || !same(existing.actual, actual) || (existing.remarks || null) !== remarks
+        || !same(existing.ad_spend, adSpend) || !same(existing.gross_sales, grossSales);
       if (changed) {
-        await db.prepare(`UPDATE kpi_records SET target = ?, actual = ?, remarks = ?, department = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-          .run(target, actual, remarks, department, actor, existing.id);
+        await db.prepare(`UPDATE kpi_records SET target = ?, actual = ?, ad_spend = ?, gross_sales = ?, remarks = ?, department = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(target, actual, adSpend, grossSales, remarks, department, actor, existing.id);
         await db.prepare(`
-          INSERT INTO kpi_record_history (record_id, action, old_target, old_actual, old_remarks, new_target, new_actual, new_remarks, changed_by)
-          VALUES (?, 'update', ?, ?, ?, ?, ?, ?, ?)
-        `).run(existing.id, existing.target, existing.actual, existing.remarks, target, actual, remarks, actor);
+          INSERT INTO kpi_record_history (record_id, action, old_target, old_actual, old_remarks, old_ad_spend, old_gross_sales,
+            new_target, new_actual, new_remarks, new_ad_spend, new_gross_sales, changed_by)
+          VALUES (?, 'update', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(existing.id, existing.target, existing.actual, existing.remarks, existing.ad_spend ?? null, existing.gross_sales ?? null,
+          target, actual, remarks, adSpend, grossSales, actor);
       }
     } else {
       await db.prepare(`
-        INSERT INTO kpi_records (user_id, department, kpi_type, period_type, period_key, target, actual, remarks, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO kpi_records (user_id, department, kpi_type, period_type, period_key, target, actual, ad_spend, gross_sales, remarks, created_by, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (user_id, kpi_type, period_type, period_key) DO NOTHING
-      `).run(userId, department, kpiType, periodType, periodKey, target, actual, remarks, actor, actor);
+      `).run(userId, department, kpiType, periodType, periodKey, target, actual, adSpend, grossSales, remarks, actor, actor);
       const created = await db.prepare(`SELECT id FROM kpi_records WHERE user_id = ? AND kpi_type = ? AND period_type = ? AND period_key = ?`)
         .get(userId, kpiType, periodType, periodKey);
       await db.prepare(`
-        INSERT INTO kpi_record_history (record_id, action, new_target, new_actual, new_remarks, changed_by)
-        VALUES (?, 'create', ?, ?, ?, ?)
-      `).run(created.id, target, actual, remarks, actor);
+        INSERT INTO kpi_record_history (record_id, action, new_target, new_actual, new_remarks, new_ad_spend, new_gross_sales, changed_by)
+        VALUES (?, 'create', ?, ?, ?, ?, ?, ?)
+      `).run(created.id, target, actual, remarks, adSpend, grossSales, actor);
     }
     const saved = await db.prepare(`${RECORD_SELECT} WHERE r.user_id = ? AND r.kpi_type = ? AND r.period_type = ? AND r.period_key = ?`)
       .get(userId, kpiType, periodType, periodKey);

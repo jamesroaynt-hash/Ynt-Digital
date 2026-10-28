@@ -64,6 +64,23 @@ async function ensureKpiMonitoringSchema(db) {
   for (const sql of kpiMonitoringStatements(db)) {
     await db.exec(sql);
   }
+  // ROAS is worked out from what HR types: gross sales ÷ ad spend. Both are
+  // kept on the record (and before/after in the history) so the ROAS can be
+  // traced back to its two numbers.
+  const real = db.type === 'postgres' ? 'DOUBLE PRECISION' : 'REAL';
+  const added = [
+    ['kpi_records', 'ad_spend'], ['kpi_records', 'gross_sales'],
+    ['kpi_record_history', 'old_ad_spend'], ['kpi_record_history', 'old_gross_sales'],
+    ['kpi_record_history', 'new_ad_spend'], ['kpi_record_history', 'new_gross_sales'],
+  ];
+  for (const [table, name] of added) {
+    if (db.type === 'postgres') {
+      await db.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${real}`);
+    } else {
+      const columns = await db.prepare(`PRAGMA table_info(${table})`).all();
+      if (!columns.some((c) => c.name === name)) await db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${real}`);
+    }
+  }
 }
 
 module.exports = { ensureKpiMonitoringSchema };

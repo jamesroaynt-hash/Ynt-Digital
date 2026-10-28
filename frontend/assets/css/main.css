@@ -8677,3 +8677,4 @@ table:not(.er-table) tfoot td {
 }
 .kpim-tracker { font-size: var(--fs-caption); color: var(--text-muted); margin-top: 2px; }
 .kpim-tracker.differs { color: var(--warning-text); }
+.kpim-money { width: 120px; height: 36px; font-variant-numeric: tabular-nums; }
