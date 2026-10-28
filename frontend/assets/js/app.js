@@ -4713,16 +4713,9 @@ const EMPLOYEE_TRACKER_METRICS = [
     yes: 'Joined',
     no: 'Not Joined',
   },
-  {
-    // A number, not a mark: each CSR's total confirmed orders for the day. A
-    // Performance KPI set to "From Employee Tracker → Confirmed Orders" reads it.
-    id: 'orders',
-    tab: 'Confirmed Orders',
-    title: 'Daily Confirmed Orders',
-    hint: 'Total confirmed orders per CSR per day. Type the number; it saves when you leave the box.',
-    numeric: true,
-    departments: ['CSR'],
-  },
+  // The Confirmed Orders tab (a typed number per CSR per day) was removed:
+  // KPI Monitoring counts each CSR's Pancake confirmed orders by itself. The
+  // numbers already typed stay in employee_tracker_marks (metric 'orders').
 ];
 
 // Accounts carry a role but no department column, so the tracker derives the
