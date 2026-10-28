@@ -8656,3 +8656,22 @@ table:not(.er-table) tfoot td {
 .stat-value, .rts-metric-value, .rts-cod-value, .erp-kpi-value, .kpi-value,
 .exp-tile-value, .am-kpis .am-kpi-value, .adspend-ads-metric strong,
 .hsc-value, .hst-value, .mkt-tile-value, .er-big { letter-spacing: normal; }
+
+/* ─── KPI MONITORING (kpi-monitoring.js) ───────────────────────
+   Evaluation Result's panel, pills and table; only the bits it lacks. */
+.kpim-control { height: 42px; border-radius: var(--radius-lg); font-weight: 600; width: auto; min-width: 130px; }
+.kpim-section { padding: 18px 20px 10px; }
+.kpim-section + .er-table-wrap { margin: 0; }
+.kpim-table { table-layout: auto; }
+.kpim-table th, .kpim-table td { padding-left: 14px; padding-right: 14px; }
+.kpim-table td { white-space: nowrap; }
+.kpim-table td:nth-last-child(3) { white-space: normal; min-width: 140px; }
+.kpim-table td:last-child { min-width: 170px; }
+.kpim-remark { font-size: var(--fs-small); color: var(--text-secondary); line-height: 1.4; }
+.kpim-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 150px; margin-left: auto; }
+.kpim-audit { margin: 4px 0; padding-left: 18px; font-size: var(--fs-small); line-height: 1.6; color: var(--text-primary); }
+.kpim-audit-row td { background: var(--surface-2); white-space: normal; }
+@media (max-width: 640px) {
+  .kpim-control { flex: 1 1 120px; }
+  .kpim-actions { justify-content: flex-start; flex-wrap: wrap; }
+}

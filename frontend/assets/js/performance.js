@@ -56,7 +56,8 @@ async function initPerformancePage() {
 function renderPerfTabs() {
   const wrap = document.getElementById('perf-tabs');
   if (!wrap) return;
-  const tabs = [['compliance', 'Compliance'], ['kpi', 'KPI'], ['setup', 'KPI Setup']];
+  // KPI moved to its own page (KPI Monitoring); only Compliance is left here.
+  const tabs = [['compliance', 'Compliance']];
   wrap.innerHTML = tabs.map(([id, label]) =>
     `<button class="filter-pill ${perfState.tab === id ? 'active' : ''}" type="button" onclick="perfSetTab('${id}')">${label}</button>`).join('');
 }

@@ -1737,6 +1737,7 @@ const { ensureOpsCalendarSchema } = require('./opsCalendarSchema');
 const { ensureToolLinksSchema } = require('./toolLinksSchema');
 const { ensureFileUploadsSchema } = require('./fileUploadsSchema');
 const { ensurePerformanceSchema } = require('./performanceSchema');
+const { ensureKpiMonitoringSchema } = require('./kpiMonitoringSchema');
 
 function initializeDatabase(db) {
   runSqlFile(db, 'schema.sql');
@@ -1760,6 +1761,7 @@ async function initializeDatabaseAsync(db) {
   await ensureFileUploadsSchema(db);
   await ensureToolLinksSchema(db);
   await ensurePerformanceSchema(db);
+  await ensureKpiMonitoringSchema(db);
 }
 
 async function runSqlFileAsync(db, filename) {

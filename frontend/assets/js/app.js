@@ -9,11 +9,11 @@ const App = {
 };
 const ROLE_OPTIONS = ['HR', 'Operation', 'Trainee', 'RMO', 'RMO TL', 'CSR', 'CSR TL', 'Logistics', 'Sales and Marketing', 'Sales and Marketing TL'];
 const NAV_ACCESS = {
-  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'performance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'file-uploads', 'profile'],
-  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  Administrator: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'summary', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'attendance', 'attendance-log', 'schedule', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'creatives', 'adspend-roas', 'ads-manager', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'inventory', 'ops-calendar', 'expenses', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports', 'daily-pickup', 'rts-scanning', 'calculators', 'rts-rate', 'scanning', 'data-report', 'view-records', 'manage-users', 'api-connections', 'file-uploads', 'profile'],
+  HR: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'virtual-office', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   // Operation runs on HR's access, page for page, plus CSR Records — every
   // role except HR files its own CSR daily records.
-  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
   'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
@@ -203,6 +203,7 @@ function loadPage(page) {
     'hr-records': lazyPage('renderHrRecordsPage'),
     'hr-calendar': lazyPage('renderHrCalendarPage'),
     'kpi-allowance': lazyPage('renderKpiAllowancePage'),
+    'kpi-monitoring': lazyPage('renderKpiMonitoringPage'),
     performance: lazyPage('renderPerformancePage'),
     'hr-reports': lazyPage('renderHrReportsPage'),
     learning: lazyPage('renderTrainingPage'),
@@ -260,6 +261,7 @@ const pageNames = {
   'hr-records': '201 Files',
   'hr-calendar': 'HR Calendar',
   'kpi-allowance': 'Evaluation Result',
+  'kpi-monitoring': 'KPI Monitoring',
   performance: 'Performance',
   'hr-reports': 'HR Reports',
   learning: 'My Training',
@@ -4424,6 +4426,7 @@ const HR_QUICK_LINKS = [
   { page: 'training', title: 'New Trainee', desc: 'Add a trainee and track onboarding + daily department targets.' },
   { page: 'hr-calendar', title: 'HR Calendar', desc: 'Payroll, bills, deadlines, birthdays and HR tasks.' },
   { page: 'kpi-allowance', title: 'Evaluation Result', desc: 'Final result per employee from Peer, Compliance and KPI.' },
+  { page: 'kpi-monitoring', title: 'KPI Monitoring', desc: 'HR-entered CSR orders and ROAS, and RMO RTS rate, daily and monthly.' },
   { page: 'hr-reports', title: 'HR Reports', desc: 'Lates, leave, payroll, 201 completeness and tracker compliance.' },
 ];
 
@@ -18175,7 +18178,7 @@ const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
 // Virtual Office is the exception: every Administrator gets it.
 const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
   'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
-  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'performance', 'hr-reports',
+  'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports',
   'learning-manage', 'learning-reports'];
 
 function isSuperAdminUser() {
@@ -20539,6 +20542,7 @@ function initPage(page) {
   if (page === 'hr-calendar') window.initHrCalendarPage?.().catch(() => {});
   if (page === 'training') window.initOnboardingPage?.().catch(() => {});
   if (page === 'kpi-allowance') window.initKpiAllowancePage?.().catch(() => {});
+  if (page === 'kpi-monitoring') window.initKpiMonitoringPage?.().catch(() => {});
   if (page === 'hr-reports') window.initHrReportsPage?.().catch(() => {});
   if (page === 'learning') window.initTrainingPage?.().catch(() => {});
   if (page === 'learning-leaderboard') window.initTrainingLeaderboardPage?.().catch(() => {});

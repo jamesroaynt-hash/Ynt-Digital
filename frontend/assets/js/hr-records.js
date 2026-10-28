@@ -1399,7 +1399,7 @@ function renderKpiAllowancePage() {
     <div class="er-hero-text">
       <div class="er-eyebrow">Performance · Evaluation</div>
       <h1 class="er-title">Evaluation Results</h1>
-      <p class="er-lede">Final result is the average of Peer, Compliance and KPI — only the parts that have a score. KPI covers the whole month.</p>
+      <p class="er-lede">Final result is the average of Peer, Compliance and KPI — only the parts that have a score. KPI is the month's CSR / RMO records from KPI Monitoring.</p>
     </div>
     <div class="er-hero-side">
       <label class="er-period" id="hrr-eval-period" style="${results ? '' : 'display:none;'}">
@@ -1427,12 +1427,13 @@ function renderKpiAllowancePage() {
   ${renderHrrTierModal()}`;
 }
 
-// Compliance, KPI and KPI Setup moved here from the Performance page; they
-// still render through performance.js into #perf-body.
-const HRR_PERF_TABS = ['compliance', 'kpi', 'setup'];
+// Compliance moved here from the Performance page; it still renders through
+// performance.js into #perf-body. KPI now lives on its own page (KPI
+// Monitoring), whose monthly records are the KPI part of the result.
+const HRR_PERF_TABS = ['compliance'];
 
 function renderHrrEvalTabs() {
-  return [['results', 'Results'], ['allowance', 'Allowance'], ['compliance', 'Compliance'], ['kpi', 'KPI'], ['setup', 'KPI Setup']].map(([id, label]) =>
+  return [['results', 'Results'], ['allowance', 'Allowance'], ['compliance', 'Compliance']].map(([id, label]) =>
     `<button type="button" class="filter-pill ${hrrEvalState.tab === id ? 'active' : ''}" onclick="setHrrEvalTab('${id}')">${label}</button>`).join('');
 }
 
@@ -1515,7 +1516,7 @@ async function loadHrrEvalResults() {
   const get = (path) => authorizedJsonRequest(path).catch(() => null);
   const [compliance, kpi, queue, mine] = await Promise.all([
     get(`/performance/compliance?period=${encodeURIComponent(period)}`),
-    get(`/performance/kpi/scores?period=${encodeURIComponent(month)}`),
+    get(`/kpi-monitoring/scores?period=${encodeURIComponent(month)}`),
     get(`/evaluations/queue?period=${encodeURIComponent(period)}`),
     // The queue leaves out the person reading it, so their own score comes separately.
     me ? get(`/evaluations/summary/${me}?period=${encodeURIComponent(period)}`) : null,

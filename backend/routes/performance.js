@@ -857,3 +857,5 @@ module.exports = function performanceRoutes(db) {
 module.exports.kpiScore = kpiScore;
 module.exports.periodRange = periodRange;
 module.exports.inferShiftStart = inferShiftStart;
+module.exports.departmentOf = departmentOf;
+module.exports.isHrManager = isHrManager;
