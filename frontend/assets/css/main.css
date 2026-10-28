@@ -8690,3 +8690,6 @@ table:not(.er-table) tfoot td {
 .kpim-plain { font-size: var(--fs-base); color: var(--text-primary); }
 .kpim-src { font-size: var(--fs-caption); color: var(--text-muted); line-height: 1.2; }
 .kpim-src.edited { color: var(--warning-text); }
+.kpim-total td { border-top: 2px solid var(--border-strong); background: var(--surface-2); }
+.kpim-total .kpim-plain { font-weight: 700; }
+.kpim-section-rmo { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }

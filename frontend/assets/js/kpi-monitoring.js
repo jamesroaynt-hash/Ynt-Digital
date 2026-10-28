@@ -344,6 +344,30 @@ async function kpimSaveCell(userId, kpiType, field, value) {
   kpimRenderTables();
 }
 
+// The CSR table's last row: sums for the counts and money, the average ROAS
+// target, and the team's ROAS (all gross sales ÷ the team ad spend). Uses the
+// rows on screen, so a search narrows the totals too.
+function kpimCsrTotals(csr) {
+  const sum = (pick) => {
+    const values = csr.map(pick).filter((v) => typeof v === 'number');
+    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+  };
+  const targets = csr.map((p) => p.kpis.roas.target).filter((v) => typeof v === 'number');
+  const avgTarget = targets.length ? targets.reduce((a, b) => a + b, 0) / targets.length : null;
+  const gross = sum((p) => p.kpis.roas.gross_sales);
+  const spend = kpimState.data?.team_ad_spend?.total ?? null;
+  const teamRoas = gross !== null && spend > 0 ? Math.round((gross / spend) * 100) / 100 : null;
+  return `<tfoot><tr class="kpim-total">
+    <td><b>Total</b><div class="kpim-src">${csr.length} CSR${csr.length === 1 ? '' : 's'}</div></td>
+    <td><span class="kpim-plain">${kpimValue('orders', sum((p) => p.kpis.orders.target))}</span></td>
+    <td><span class="kpim-plain">${kpimValue('orders', sum((p) => p.kpis.orders.actual))}</span></td>
+    <td><span class="kpim-plain">${kpimValue('roas', avgTarget)}</span><div class="kpim-src">average</div></td>
+    <td><span class="kpim-plain">${gross === null ? '<span class="er-dash">—</span>' : kpimPeso(gross)}</span></td>
+    <td><span class="kpim-plain">${kpimValue('roas', teamRoas)}</span><div class="kpim-src">team · gross ÷ ad spend</div></td>
+    <td></td>
+  </tr></tfoot>`;
+}
+
 // ─── Tables ─────────────────────────────────────────────────
 function kpimRenderTables() {
   const wrap = document.getElementById('kpim-tables');
@@ -388,10 +412,11 @@ function kpimRenderTables() {
           <td>${kpimUpdated([o, r])}</td>
         </tr>`;
       }).join('') : empty('CSR')}</tbody>
+      ${csr.length ? kpimCsrTotals(csr) : ''}
     </table></div>`;
 
   const rmoTable = `
-    <div class="er-group-row kpim-section"><span class="er-group-name">RMO · RTS Rate</span><span class="er-count">${rmo.length}</span><span class="er-group-avg">${period} · lower is better</span></div>
+    <div class="er-group-row kpim-section kpim-section-rmo"><span class="er-group-name">RMO · RTS Rate</span><span class="er-count">${rmo.length}</span><span class="er-group-avg">${period} · lower is better</span></div>
     <div class="table-container er-table-wrap"><table class="er-table kpim-table">
       <thead><tr><th>Employee</th><th>RTS target</th><th>RTS actual</th><th>Status</th><th>Remarks</th><th>Last update</th><th></th></tr></thead>
       <tbody>${rmo.length ? rmo.map((p) => {
