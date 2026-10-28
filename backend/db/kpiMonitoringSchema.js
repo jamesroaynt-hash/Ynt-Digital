@@ -65,6 +65,28 @@ function kpiMonitoringStatements(db) {
       changed_by INTEGER,
       changed_at ${ts}
     )`,
+    // The CSR team's orders target for a day or a month; each CSR's own target
+    // is it divided by the active CSRs, unless HR set theirs by hand.
+    `CREATE TABLE IF NOT EXISTS kpi_team_targets (
+      id ${id},
+      kpi_type TEXT NOT NULL,
+      period_type TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      target ${real},
+      updated_by INTEGER,
+      updated_at ${ts},
+      UNIQUE (kpi_type, period_type, period_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS kpi_team_target_history (
+      id ${id},
+      kpi_type TEXT NOT NULL,
+      period_type TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      old_target ${real},
+      new_target ${real},
+      changed_by INTEGER,
+      changed_at ${ts}
+    )`,
     `CREATE TABLE IF NOT EXISTS kpi_defaults (
       id ${id},
       kpi_type TEXT NOT NULL,

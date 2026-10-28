@@ -8682,3 +8682,11 @@ table:not(.er-table) tfoot td {
 .kpim-use { display: block; margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-caption); color: var(--accent); cursor: pointer; white-space: nowrap; }
 .kpim-use:hover { text-decoration: underline; }
 .kpim-f-static { height: 42px; display: flex; align-items: center; padding: 0 13px; border: 1px dashed var(--border-strong); border-radius: var(--radius); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.kpim-bar-item { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.kpim-spend-bar { gap: 12px 28px; }
+.kpim-cell, .kpim-name { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 6px; margin: -4px -6px; border: 1px solid transparent; border-radius: var(--radius); background: none; font: inherit; font-size: var(--fs-base); color: var(--text-primary); text-align: left; cursor: pointer; }
+.kpim-cell:hover, .kpim-cell:focus-visible { border-color: var(--border-strong); background: var(--surface-2); outline: none; }
+.kpim-name:hover strong, .kpim-name:hover { text-decoration: underline; }
+.kpim-plain { font-size: var(--fs-base); color: var(--text-primary); }
+.kpim-src { font-size: var(--fs-caption); color: var(--text-muted); line-height: 1.2; }
+.kpim-src.edited { color: var(--warning-text); }

@@ -132,7 +132,12 @@ test('CSR orders offer their Pancake confirmed orders, counted as CSR Records co
     assert.equal(csrDay.confirmed_orders.total, 2);
     assert.equal(csrDay.confirmed_orders.linked, true);
     assert.equal(csrDay.confirmed_orders.cod, 2000); // the two counted orders' COD
-    assert.equal(csrDay.kpis.orders, null); // only offered, not saved
+    // Automatic until HR overrides it: nothing is saved.
+    assert.equal(csrDay.kpis.orders.actual, 2);
+    assert.equal(csrDay.kpis.orders.actual_source, 'confirmed');
+    assert.equal(csrDay.kpis.orders.id, null);
+    assert.equal(csrDay.kpis.roas.gross_sales, 2000);
+    assert.equal(csrDay.kpis.roas.gross_source, 'confirmed');
     const month = await call('GET', '/records?period_type=monthly&period_key=2026-10');
     assert.equal(month.data.people.find((p) => p.id === ids.csr).confirmed_orders.total, 3);
     assert.equal(month.data.people.find((p) => p.id === ids.rmo).confirmed_orders, undefined);
@@ -173,5 +178,55 @@ test("ROAS divides each CSR's gross sales by the one team ad spend; a month adds
     // No ad spend that day: no ROAS rather than a division by zero.
     const none = await call('PUT', '/records', { ...day, period_key: '2026-10-29', user_id: ids.csr, gross_sales: 5000 });
     assert.equal(none.data.record.actual, null);
+  } finally { server.close(); }
+});
+
+test('orders target = team target ÷ active CSRs; HR overrides win and clearing goes back to automatic', async () => {
+  const { db, ids, server, call } = await startApp();
+  try {
+    db.prepare("INSERT INTO users (username, password, full_name, role) VALUES ('csr2', 'x', 'CSR Two', 'CSR')").run();
+    db.prepare("INSERT INTO user_pos_links (pos_name, user_id) VALUES ('Csr Pancake', ?)").run(ids.csr);
+    const order = db.prepare("INSERT INTO pos_orders (external_id, shop_id, inserted_at_remote, status_name, confirmed_by_name, raw_payload, cod) VALUES (?, 's1', '2026-10-28T01:00:00', 'submitted', 'Csr Pancake', '{}', 1500)");
+    order.run('a'); order.run('b'); order.run('c');
+    await call('PUT', '/team-target', { period_type: 'daily', period_key: '2026-10-28', target: 100 });
+    await call('PUT', '/ad-spend', { date: '2026-10-28', amount: 1500 });
+    const read = async () => (await call('GET', '/records?period_type=daily&period_key=2026-10-28')).data;
+    let data = await read();
+    assert.deepEqual(data.team, { orders_target: 100, csr_count: 2, share: 50 });
+    let me = data.people.find((p) => p.id === ids.csr);
+    assert.equal(me.kpis.orders.target, 50);
+    assert.equal(me.kpis.orders.target_source, 'team');
+    assert.equal(me.kpis.orders.actual, 3);
+    assert.equal(me.kpis.roas.gross_sales, 4500);
+    assert.equal(me.kpis.roas.actual, 3); // 4,500 ÷ 1,500
+    // Override only the actual: the target stays the team share.
+    const key = { user_id: ids.csr, kpi_type: 'orders', period_type: 'daily', period_key: '2026-10-28' };
+    await call('PUT', '/records', { ...key, actual: 7 });
+    me = (await read()).people.find((p) => p.id === ids.csr);
+    assert.equal(me.kpis.orders.actual, 7);
+    assert.equal(me.kpis.orders.actual_source, 'manual');
+    assert.equal(me.kpis.orders.target_source, 'team');
+    // Clearing it brings the confirmed count back.
+    await call('PUT', '/records', { ...key, actual: '' });
+    me = (await read()).people.find((p) => p.id === ids.csr);
+    assert.equal(me.kpis.orders.actual, 3);
+    assert.equal(me.kpis.orders.actual_source, 'confirmed');
+    // Gross sales override moves ROAS.
+    await call('PUT', '/records', { ...key, kpi_type: 'roas', gross_sales: 3000 });
+    me = (await read()).people.find((p) => p.id === ids.csr);
+    assert.equal(me.kpis.roas.actual, 2);
+    assert.equal(me.kpis.roas.gross_source, 'manual');
+  } finally { server.close(); }
+});
+
+test('the evaluation scores automatic KPIs too, without HR saving anything', async () => {
+  const { db, ids, server, call } = await startApp();
+  try {
+    db.prepare("INSERT INTO user_pos_links (pos_name, user_id) VALUES ('Csr Pancake', ?)").run(ids.csr);
+    const order = db.prepare("INSERT INTO pos_orders (external_id, shop_id, inserted_at_remote, status_name, confirmed_by_name, raw_payload, cod) VALUES (?, 's1', '2026-10-10T01:00:00', 'submitted', 'Csr Pancake', '{}', 1000)");
+    for (let i = 0; i < 40; i += 1) order.run(`o${i}`);
+    await call('PUT', '/team-target', { period_type: 'monthly', period_key: '2026-10', target: 50 }); // one CSR: share 50
+    const scores = await call('GET', '/scores?period=2026-10');
+    assert.equal(scores.data.rows.find((r) => r.id === ids.csr).total, 80); // 40 of 50
   } finally { server.close(); }
 });

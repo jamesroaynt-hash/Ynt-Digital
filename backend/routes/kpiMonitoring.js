@@ -5,15 +5,20 @@ const { posManilaDaySql } = require('../services/pancakePosSync');
 // KPI Monitoring: HR's manual KPI records for CSR and RMO (schema in
 // db/kpiMonitoringSchema.js). It replaces the old department KPI as the
 // evaluation's KPI part (GET /scores).
-//   CSR — orders (number of orders) and roas; higher is better. ROAS is a
-//     CSR's gross sales ÷ the CSR team's ad spend: one amount a day for all
-//     CSRs (kpi_ad_spend), a month's being the sum of its days. It is worked
-//     out on read, so correcting a day's ad spend moves every CSR's ROAS.
+//   CSR — orders and roas; higher is better.
 //   RMO — rts (RTS rate, %); lower is better.
-// HR enters every target and actual, daily and monthly separately. A CSR's
-// Pancake confirmed orders (as CSR Records counts them) are offered as the
-// orders actual for HR to accept; ROAS and RTS are never fetched. HR's,
-// Operation's and the super admin's alone, the same gate as Performance.
+// Daily and monthly are separate. For CSR the numbers fill in by themselves
+// and HR overrides any of them by hand (a saved kpi_records value always
+// wins; clearing it goes back to the automatic one):
+//   orders target = the team orders target (kpi_team_targets) ÷ active CSRs
+//   orders actual = their Pancake confirmed orders, as CSR Records counts them
+//   gross sales   = the COD total of those confirmed orders
+//   ROAS          = gross sales ÷ the CSR team's ad spend (kpi_ad_spend, one
+//                   amount a day for all CSRs; a month is the sum of its days)
+// Everything is worked out on read (effective()), so the cards, History and
+// the evaluation's KPI part all follow the latest numbers. RMO RTS and every
+// target fallback (kpi_defaults) are HR's alone. HR's, Operation's and the
+// super admin's only, the same gate as Performance.
 
 const KPI_DEPARTMENT = { orders: 'CSR', roas: 'CSR', rts: 'RMO' };
 const KPI_TYPES = Object.keys(KPI_DEPARTMENT);
@@ -106,33 +111,56 @@ module.exports = function kpiMonitoringRoutes(db) {
     LEFT JOIN users cu ON cu.id = r.created_by
     LEFT JOIN users uu ON uu.id = r.updated_by`;
 
-  // teamSpend: the CSR team's ad spend for the record's period (ROAS only).
-  function shape(row, teamSpend = null) {
-    const target = row.target === null ? null : Number(row.target);
-    let actual = row.actual === null ? null : Number(row.actual);
-    const grossSales = row.gross_sales === null || row.gross_sales === undefined ? null : Number(row.gross_sales);
-    let adSpend = row.ad_spend === null || row.ad_spend === undefined ? null : Number(row.ad_spend);
-    if (row.kpi_type === 'roas') {
-      adSpend = teamSpend;
-      actual = grossSales !== null && teamSpend > 0 ? Math.round((grossSales / teamSpend) * 100) / 100 : null;
+  const val = (v) => (v === null || v === undefined ? null : Number(v));
+  const round2 = (v) => Math.round(v * 100) / 100;
+
+  // One KPI as it stands: HR's saved value where there is one, otherwise the
+  // automatic one; *_source says which ('manual', or where it came from).
+  // row: the kpi_records row (or undefined); ctx: periodContext().
+  function effective(person, kpiType, row, ctx) {
+    const confirmed = ctx.confirmed.get(person.id) || null;
+    const linked = !!confirmed?.linked;
+    const saved = { target: val(row?.target), actual: val(row?.actual), gross_sales: val(row?.gross_sales) };
+    let target = saved.target;
+    let targetSource = target === null ? null : 'manual';
+    if (target === null && kpiType === 'orders' && ctx.teamShare !== null) { target = ctx.teamShare; targetSource = 'team'; }
+    if (target === null && ctx.defaults[`${kpiType}|${ctx.periodType}`] !== null && ctx.defaults[`${kpiType}|${ctx.periodType}`] !== undefined) {
+      target = ctx.defaults[`${kpiType}|${ctx.periodType}`];
+      targetSource = 'default';
+    }
+    let actual = saved.actual;
+    let actualSource = actual === null ? null : 'manual';
+    let grossSales = null;
+    let grossSource = null;
+    let adSpend = null;
+    if (kpiType === 'orders' && actual === null && linked) { actual = confirmed.total; actualSource = 'confirmed'; }
+    if (kpiType === 'roas') {
+      grossSales = saved.gross_sales;
+      grossSource = grossSales === null ? null : 'manual';
+      if (grossSales === null && linked) { grossSales = confirmed.cod; grossSource = 'confirmed'; }
+      adSpend = ctx.spend.total;
+      actual = grossSales !== null && adSpend > 0 ? round2(grossSales / adSpend) : null;
+      actualSource = actual === null ? null : 'calculated';
     }
     return {
-      id: Number(row.id),
-      user_id: Number(row.user_id),
-      department: row.department,
-      kpi_type: row.kpi_type,
-      period_type: row.period_type,
-      period_key: row.period_key,
+      id: row ? Number(row.id) : null,
+      user_id: person.id,
+      department: person.department,
+      kpi_type: kpiType,
+      period_type: ctx.periodType,
+      period_key: ctx.periodKey,
       target,
+      target_source: targetSource,
       actual,
-      ad_spend: adSpend,
-      gross_sales: grossSales,
-      remarks: row.remarks || '',
-      created_by: row.created_by_name || null,
-      created_at: row.created_at,
-      updated_by: row.updated_by_name || null,
-      updated_at: row.updated_at,
-      ...evaluate(row.kpi_type, target, actual),
+      actual_source: actualSource,
+      ...(kpiType === 'roas' ? { gross_sales: grossSales, gross_source: grossSource, ad_spend: adSpend } : {}),
+      saved,
+      remarks: row?.remarks || '',
+      created_by: row?.created_by_name || null,
+      created_at: row?.created_at || null,
+      updated_by: row?.updated_by_name || null,
+      updated_at: row?.updated_at || null,
+      ...evaluate(kpiType, target, actual),
     };
   }
 
@@ -164,17 +192,6 @@ module.exports = function kpiMonitoringRoutes(db) {
     return { total: days ? Number(row.total) : null, days };
   }
 
-  // Team ad spend for every period a list of records covers.
-  async function teamSpendFor(rows) {
-    const keys = [...new Set(rows.filter((r) => r.kpi_type === 'roas').map((r) => `${r.period_type}|${r.period_key}`))];
-    const out = new Map();
-    for (const key of keys) {
-      const [type, period] = key.split('|');
-      out.set(key, (await teamAdSpend(type, period)).total);
-    }
-    return (row) => out.get(`${row.period_type}|${row.period_key}`) ?? null;
-  }
-
   // HR sets the team's ad spend for one day; every change is kept.
   router.put('/ad-spend', wrap(async (req, res) => {
     const date = String(req.body?.date || '');
@@ -203,6 +220,47 @@ module.exports = function kpiMonitoringRoutes(db) {
     `).all(`${month}-01`, `${month}-31`);
     res.json({ history: rows.map((h) => ({ date: h.work_date, old_amount: h.old_amount, new_amount: h.new_amount, changed_by: h.changed_by_name || null, changed_at: h.changed_at })) });
   }));
+
+  async function teamTarget(kpiType, periodType, periodKey) {
+    const row = await db.prepare('SELECT target FROM kpi_team_targets WHERE kpi_type = ? AND period_type = ? AND period_key = ?')
+      .get(kpiType, periodType, periodKey);
+    return val(row?.target);
+  }
+
+  // HR sets the CSR team's orders target for a day or a month.
+  router.put('/team-target', wrap(async (req, res) => {
+    const periodType = String(req.body?.period_type || '');
+    const periodKey = String(req.body?.period_key || '');
+    const target = num(req.body?.target);
+    if (!PERIOD_TYPES.includes(periodType) || !validPeriodKey(periodType, periodKey)) return res.status(400).json({ error: 'Pick a day or a month' });
+    if (Number.isNaN(target) || (target !== null && target < 0)) return res.status(400).json({ error: 'Target must be a number of 0 or more' });
+    const old = await teamTarget('orders', periodType, periodKey);
+    if (old !== target) {
+      await db.prepare(`
+        INSERT INTO kpi_team_targets (kpi_type, period_type, period_key, target, updated_by) VALUES ('orders', ?, ?, ?, ?)
+        ON CONFLICT (kpi_type, period_type, period_key) DO UPDATE SET target = excluded.target, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP
+      `).run(periodType, periodKey, target, req.currentUser.id);
+      await db.prepare(`INSERT INTO kpi_team_target_history (kpi_type, period_type, period_key, old_target, new_target, changed_by)
+        VALUES ('orders', ?, ?, ?, ?, ?)`).run(periodType, periodKey, old, target, req.currentUser.id);
+    }
+    res.json({ period_type: periodType, period_key: periodKey, target });
+  }));
+
+  // Everything effective() needs for one period.
+  async function periodContext(people, periodType, periodKey, csrIds) {
+    const csrCount = people.filter((p) => p.department === 'CSR').length;
+    const [confirmed, spend, team, defs] = await Promise.all([
+      confirmedOrders(csrIds ?? people.filter((p) => p.department === 'CSR').map((p) => p.id), periodType, periodKey),
+      teamAdSpend(periodType, periodKey),
+      teamTarget('orders', periodType, periodKey),
+      defaults(),
+    ]);
+    return {
+      periodType, periodKey, confirmed, spend, defaults: defs,
+      team: { orders_target: team, csr_count: csrCount },
+      teamShare: team !== null && csrCount > 0 ? round2(team / csrCount) : null,
+    };
+  }
 
   // Each CSR's Pancake confirmed orders for the day or month, counted exactly
   // as CSR Records → My Confirmed Orders counts them: orders whose confirmer
@@ -273,18 +331,19 @@ module.exports = function kpiMonitoringRoutes(db) {
       db.prepare(`${RECORD_SELECT} WHERE r.period_type = ? AND r.period_key = ?`).all(periodType, periodKey),
       defaults(),
     ]);
-    const confirmedBy = await confirmedOrders(people.filter((p) => p.department === 'CSR').map((p) => p.id), periodType, periodKey);
-    const spend = await teamAdSpend(periodType, periodKey);
-    const byKey = new Map(records.map((r) => [`${r.user_id}|${r.kpi_type}`, shape(r, spend.total)]));
+    const ctx = await periodContext(people, periodType, periodKey);
+    const rowBy = new Map(records.map((r) => [`${r.user_id}|${r.kpi_type}`, r]));
+    const confirmedBy = ctx.confirmed;
     res.json({
       period_type: periodType,
       period_key: periodKey,
       defaults: defs,
-      team_ad_spend: spend,
+      team_ad_spend: ctx.spend,
+      team: { ...ctx.team, share: ctx.teamShare },
       people: people.map((p) => ({
         ...p,
         kpis: Object.fromEntries(KPI_TYPES.filter((k) => KPI_DEPARTMENT[k] === p.department)
-          .map((k) => [k, byKey.get(`${p.id}|${k}`) || null])),
+          .map((k) => [k, effective(p, k, rowBy.get(`${p.id}|${k}`), ctx)])),
         // linked: false = no Pancake confirmer name is linked to this account
         // (Integrations → POS Users), so there is nothing to count.
         ...(p.department === 'CSR' ? { confirmed_orders: confirmedBy.get(p.id) || { total: 0, cod: 0, linked: false } } : {}),
@@ -299,8 +358,15 @@ module.exports = function kpiMonitoringRoutes(db) {
     if (!userId) return res.status(400).json({ error: 'Pick an employee' });
     const rows = await db.prepare(`${RECORD_SELECT} WHERE r.user_id = ? AND r.period_type = ? ORDER BY r.period_key DESC, r.kpi_type`)
       .all(userId, periodType);
-    const spendOf = await teamSpendFor(rows);
-    res.json({ records: rows.map((r) => shape(r, spendOf(r))) });
+    const people = await roster();
+    const person = people.find((p) => p.id === userId) || { id: userId, department: KPI_DEPARTMENT[rows[0]?.kpi_type] || 'CSR' };
+    const ctxBy = new Map();
+    const out = [];
+    for (const row of rows) {
+      if (!ctxBy.has(row.period_key)) ctxBy.set(row.period_key, await periodContext(people, periodType, row.period_key, [userId]));
+      out.push(effective(person, row.kpi_type, row, ctxBy.get(row.period_key)));
+    }
+    res.json({ records: out });
   }));
 
   // Every change to one record, oldest first.
@@ -337,25 +403,18 @@ module.exports = function kpiMonitoringRoutes(db) {
     if (!PERIOD_TYPES.includes(periodType) || !validPeriodKey(periodType, periodKey)) {
       return res.status(400).json({ error: 'Pick Daily with a day, or Monthly with a month' });
     }
-    let target = num(b.target);
-    let actual = num(b.actual);
-    // ROAS: HR types ad spend and gross sales; the actual is their ratio
-    // (gross sales ÷ ad spend). No spend means no ROAS rather than a division
-    // by zero.
-    // The team's ad spend at the time is kept on the record and in the
-    // history for the trail; the live ROAS always uses the current one.
-    const adSpend = kpiType === 'roas' ? (await teamAdSpend(periodType, periodKey)).total : null;
-    const grossSales = kpiType === 'roas' ? num(b.gross_sales) : null;
-    if (Number.isNaN(grossSales)) return res.status(400).json({ error: 'Gross sales must be a number' });
-    if (grossSales !== null && grossSales < 0) return res.status(400).json({ error: 'Numbers cannot be negative' });
-    if (kpiType === 'roas') actual = grossSales !== null && adSpend > 0 ? Math.round((grossSales / adSpend) * 100) / 100 : null;
-    if (Number.isNaN(target) || Number.isNaN(actual)) return res.status(400).json({ error: 'Target and actual must be numbers' });
-    if ((target !== null && target < 0) || (actual !== null && actual < 0)) return res.status(400).json({ error: 'Numbers cannot be negative' });
-    if (kpiType === 'rts' && ((target !== null && target > 100) || (actual !== null && actual > 100))) {
+    // Only the fields sent change; a field sent empty clears HR's value and
+    // the automatic one shows again. Nothing automatic is stored here.
+    const has = (key) => Object.prototype.hasOwnProperty.call(b, key);
+    const incoming = { target: num(b.target), actual: num(b.actual), gross_sales: num(b.gross_sales) };
+    if (Object.values(incoming).some(Number.isNaN)) return res.status(400).json({ error: 'Numbers only, please' });
+    if (Object.values(incoming).some((v) => v !== null && v < 0)) return res.status(400).json({ error: 'Numbers cannot be negative' });
+    if (kpiType === 'rts' && ((incoming.target ?? 0) > 100 || (incoming.actual ?? 0) > 100)) {
       return res.status(400).json({ error: 'RTS is a percentage (0–100)' });
     }
-    if (kpiType === 'orders' && actual !== null && !Number.isInteger(actual)) return res.status(400).json({ error: 'Orders must be a whole number' });
-    const remarks = String(b.remarks ?? '').trim().slice(0, 1000) || null;
+    if (kpiType === 'orders' && incoming.actual !== null && !Number.isInteger(incoming.actual)) return res.status(400).json({ error: 'Orders must be a whole number' });
+    if (kpiType === 'roas' && has('actual') && incoming.actual !== null) return res.status(400).json({ error: 'ROAS is worked out from gross sales ÷ team ad spend' });
+    const remarksIn = String(b.remarks ?? '').trim().slice(0, 1000) || null;
 
     const person = await db.prepare('SELECT id, role, trainee_department, is_active FROM users WHERE id = ?').get(userId);
     if (!person || Number(person.is_active) !== 1) return res.status(400).json({ error: 'That employee is not active' });
@@ -364,15 +423,21 @@ module.exports = function kpiMonitoringRoutes(db) {
       return res.status(400).json({ error: `${kpiType === 'rts' ? 'RTS Rate is an RMO KPI' : 'Orders and ROAS are CSR KPIs'}; this employee is in ${department}` });
     }
     if (b.department && b.department !== department) return res.status(400).json({ error: `This employee is in ${department}, not ${b.department}` });
-    if (target === null) target = (await defaults())[`${kpiType}|${periodType}`] ?? null;
 
     const existing = await db.prepare(`SELECT * FROM kpi_records WHERE user_id = ? AND kpi_type = ? AND period_type = ? AND period_key = ?`)
       .get(userId, kpiType, periodType, periodKey);
+    const pick = (key) => (has(key) ? incoming[key] : val(existing?.[key]));
+    const target = pick('target');
+    const actual = kpiType === 'roas' ? null : pick('actual');
+    const grossSales = kpiType === 'roas' ? pick('gross_sales') : null;
+    const remarks = has('remarks') ? remarksIn : (existing?.remarks || null);
+    // The team's ad spend at the time is kept with the record for the trail.
+    const adSpend = kpiType === 'roas' ? (await teamAdSpend(periodType, periodKey)).total : null;
     const actor = req.currentUser.id;
     if (existing) {
-      const same = (x, y) => (x === null || x === undefined ? null : Number(x)) === (y === null || y === undefined ? null : Number(y));
+      const same = (x, y) => val(x) === val(y);
       const changed = !same(existing.target, target) || !same(existing.actual, actual) || (existing.remarks || null) !== remarks
-        || !same(existing.ad_spend, adSpend) || !same(existing.gross_sales, grossSales);
+        || !same(existing.gross_sales, grossSales);
       if (changed) {
         await db.prepare(`UPDATE kpi_records SET target = ?, actual = ?, ad_spend = ?, gross_sales = ?, remarks = ?, department = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .run(target, actual, adSpend, grossSales, remarks, department, actor, existing.id);
@@ -398,29 +463,31 @@ module.exports = function kpiMonitoringRoutes(db) {
     }
     const saved = await db.prepare(`${RECORD_SELECT} WHERE r.user_id = ? AND r.kpi_type = ? AND r.period_type = ? AND r.period_key = ?`)
       .get(userId, kpiType, periodType, periodKey);
-    res.json({ record: shape(saved, adSpend) });
+    const people = await roster();
+    const me = people.find((p) => p.id === userId) || { id: userId, department };
+    const ctx = await periodContext(people, periodType, periodKey, [userId]);
+    res.json({ record: effective(me, kpiType, saved, ctx) });
   }));
 
   // The evaluation's KPI part for a month: each CSR/RMO person's monthly
-  // records scored out of 100 (target met = 100) and averaged. Same row shape
+  // KPIs as they stand (HR's values, else the automatic ones) scored out of
+  // 100 (target met = 100) and averaged. Same row shape
   // as the old /performance/kpi/scores (id, name, department, total).
   router.get('/scores', wrap(async (req, res) => {
     const period = MONTH_PATTERN.test(String(req.query.period || '')) ? req.query.period : null;
     if (!period) return res.status(400).json({ error: 'Pick a month (YYYY-MM)' });
-    const [people, records, spend] = await Promise.all([
+    const [people, records] = await Promise.all([
       roster(),
       db.prepare(`${RECORD_SELECT} WHERE r.period_type = 'monthly' AND r.period_key = ?`).all(period),
-      teamAdSpend('monthly', period),
     ]);
-    const byUser = new Map();
-    for (const r of records.map((row) => shape(row, spend.total))) {
-      if (!byUser.has(r.user_id)) byUser.set(r.user_id, []);
-      byUser.get(r.user_id).push(r);
-    }
+    const ctx = await periodContext(people, 'monthly', period);
+    const rowBy = new Map(records.map((r) => [`${r.user_id}|${r.kpi_type}`, r]));
     res.json({
       period,
       rows: people.map((p) => {
-        const kpis = (byUser.get(p.id) || []).filter((k) => k.score !== null);
+        const kpis = KPI_TYPES.filter((k) => KPI_DEPARTMENT[k] === p.department)
+          .map((k) => effective(p, k, rowBy.get(`${p.id}|${k}`), ctx))
+          .filter((k) => k.score !== null);
         const total = kpis.length ? round1(kpis.reduce((sum, k) => sum + k.score, 0) / kpis.length) : null;
         return { ...p, kpis, total };
       }),
