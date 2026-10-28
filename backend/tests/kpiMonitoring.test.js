@@ -230,3 +230,44 @@ test('the evaluation scores automatic KPIs too, without HR saving anything', asy
     assert.equal(scores.data.rows.find((r) => r.id === ids.csr).total, 80); // 40 of 50
   } finally { server.close(); }
 });
+
+test('a half month (1–15 / 16–end) has its own records and counts only its days', async () => {
+  const { db, ids, server, call } = await startApp();
+  try {
+    db.prepare("INSERT INTO user_pos_links (pos_name, user_id) VALUES ('Csr Pancake', ?)").run(ids.csr);
+    const order = db.prepare("INSERT INTO pos_orders (external_id, shop_id, inserted_at_remote, status_name, confirmed_by_name, raw_payload, cod) VALUES (?, 's1', ?, 'submitted', 'Csr Pancake', '{}', 500)");
+    order.run('a', '2026-10-03T01:00:00'); order.run('b', '2026-10-15T01:00:00'); order.run('c', '2026-10-20T01:00:00');
+    await call('PUT', '/ad-spend', { date: '2026-10-10', amount: 250 });
+    await call('PUT', '/ad-spend', { date: '2026-10-25', amount: 999 });
+    await call('PUT', '/team-target', { period_type: 'half', period_key: '2026-10-H1', target: 4 });
+    const h1 = (await call('GET', '/records?period_type=half&period_key=2026-10-H1')).data;
+    const me = h1.people.find((p) => p.id === ids.csr);
+    assert.equal(me.kpis.orders.actual, 2); // the 3rd and the 15th
+    assert.equal(me.kpis.orders.target, 4);
+    assert.equal(me.kpis.roas.gross_sales, 1000);
+    assert.equal(me.kpis.roas.actual, 4); // 1,000 ÷ 250
+    const h2 = (await call('GET', '/records?period_type=half&period_key=2026-10-H2')).data;
+    assert.equal(h2.people.find((p) => p.id === ids.csr).kpis.orders.actual, 1);
+    assert.deepEqual(h2.team_ad_spend, { total: 999, days: 1 });
+    const bad = await call('GET', '/records?period_type=half&period_key=2026-10');
+    assert.equal(bad.status, 400);
+  } finally { server.close(); }
+});
+
+test('orders confirmed by people who are not CSRs come back as "others"', async () => {
+  const { db, ids, server, call } = await startApp();
+  try {
+    db.prepare("INSERT INTO user_pos_links (pos_name, user_id) VALUES ('Csr Pancake', ?)").run(ids.csr);
+    db.prepare("INSERT INTO user_pos_links (pos_name, user_id) VALUES ('hr pancake', ?)").run(ids.hr);
+    const order = db.prepare("INSERT INTO pos_orders (external_id, shop_id, inserted_at_remote, status_name, confirmed_by_name, raw_payload, cod) VALUES (?, 's1', '2026-10-28T01:00:00', ?, ?, '{}', ?)");
+    order.run('a', 'submitted', 'Csr Pancake', 100);
+    order.run('b', 'submitted', 'hr pancake', 200);
+    order.run('c', 'delivered', 'hr pancake', 300);
+    order.run('d', 'submitted', 'Walk In Admin', 50);
+    order.run('e', 'wait_print', 'Walk In Admin', 999); // awaiting print: not counted
+    const data = (await call('GET', '/records?period_type=daily&period_key=2026-10-28')).data;
+    assert.equal(data.others.total, 3);
+    assert.equal(data.others.cod, 550);
+    assert.deepEqual(data.others.people.map((p) => [p.name, p.orders]), [['HR Person', 2], ['Walk In Admin', 1]]);
+  } finally { server.close(); }
+});

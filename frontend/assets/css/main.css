@@ -8692,4 +8692,9 @@ table:not(.er-table) tfoot td {
 .kpim-src.edited { color: var(--warning-text); }
 .kpim-total td { border-top: 2px solid var(--border-strong); background: var(--surface-2); }
 .kpim-total .kpim-plain { font-weight: 700; }
-.kpim-section-rmo { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border); }
+.kpim-rmo-panel { margin-top: 20px; }
+.kpim-rmo-panel[hidden] { display: none; }
+.kpim-f-period-row { display: flex; gap: 8px; }
+.kpim-f-period-row select { max-width: 130px; }
+.kpim-others td { background: var(--surface-2); }
+.kpim-others .kpim-src { max-width: 260px; white-space: normal; }

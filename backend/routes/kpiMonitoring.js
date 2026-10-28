@@ -22,11 +22,14 @@ const { posManilaDaySql } = require('../services/pancakePosSync');
 
 const KPI_DEPARTMENT = { orders: 'CSR', roas: 'CSR', rts: 'RMO' };
 const KPI_TYPES = Object.keys(KPI_DEPARTMENT);
-const PERIOD_TYPES = ['daily', 'monthly'];
+// 'half' is the Evaluation's half month: YYYY-MM-H1 (1st–15th) or -H2
+// (16th to the end); it has its own records like a day or a month does.
+const PERIOD_TYPES = ['daily', 'monthly', 'half'];
 const DAY_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+const HALF_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-H[12]$/;
 // Built-in defaults when HR has not set one: RTS target 12%.
-const BUILT_IN_DEFAULTS = { 'rts|daily': 12, 'rts|monthly': 12 };
+const BUILT_IN_DEFAULTS = { 'rts|daily': 12, 'rts|monthly': 12, 'rts|half': 12 };
 
 function num(value) {
   if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -39,7 +42,20 @@ function round1(value) {
 }
 
 function validPeriodKey(periodType, key) {
-  return periodType === 'daily' ? DAY_PATTERN.test(key) : MONTH_PATTERN.test(key);
+  if (periodType === 'daily') return DAY_PATTERN.test(key);
+  if (periodType === 'half') return HALF_PATTERN.test(key);
+  return MONTH_PATTERN.test(key);
+}
+
+// First and last day (YYYY-MM-DD) a period covers; '-31' is safe as an upper
+// bound for every month because the days are compared as text.
+function periodDays(periodType, key) {
+  if (periodType === 'daily') return [key, key];
+  if (periodType === 'half') {
+    const month = key.slice(0, 7);
+    return key.endsWith('H1') ? [`${month}-01`, `${month}-15`] : [`${month}-16`, `${month}-31`];
+  }
+  return [`${key}-01`, `${key}-31`];
 }
 
 // Achievement and status, worked out on read so they always follow the
@@ -182,12 +198,10 @@ module.exports = function kpiMonitoringRoutes(db) {
     res.json({ defaults: await defaults() });
   }));
 
-  // The CSR team's ad spend for a day, or a month's days added up.
+  // The CSR team's ad spend for a day, or the days of a half or month added up.
   async function teamAdSpend(periodType, periodKey) {
-    const row = periodType === 'daily'
-      ? await db.prepare('SELECT SUM(amount) AS total, COUNT(amount) AS days FROM kpi_ad_spend WHERE work_date = ?').get(periodKey)
-      : await db.prepare('SELECT SUM(amount) AS total, COUNT(amount) AS days FROM kpi_ad_spend WHERE work_date >= ? AND work_date <= ?')
-        .get(`${periodKey}-01`, `${periodKey}-31`);
+    const row = await db.prepare('SELECT SUM(amount) AS total, COUNT(amount) AS days FROM kpi_ad_spend WHERE work_date >= ? AND work_date <= ?')
+      .get(...periodDays(periodType, periodKey));
     const days = Number(row?.days || 0);
     return { total: days ? Number(row.total) : null, days };
   }
@@ -232,7 +246,7 @@ module.exports = function kpiMonitoringRoutes(db) {
     const periodType = String(req.body?.period_type || '');
     const periodKey = String(req.body?.period_key || '');
     const target = num(req.body?.target);
-    if (!PERIOD_TYPES.includes(periodType) || !validPeriodKey(periodType, periodKey)) return res.status(400).json({ error: 'Pick a day or a month' });
+    if (!PERIOD_TYPES.includes(periodType) || !validPeriodKey(periodType, periodKey)) return res.status(400).json({ error: 'Pick a day, a half month or a month' });
     if (Number.isNaN(target) || (target !== null && target < 0)) return res.status(400).json({ error: 'Target must be a number of 0 or more' });
     const old = await teamTarget('orders', periodType, periodKey);
     if (old !== target) {
@@ -271,6 +285,7 @@ module.exports = function kpiMonitoringRoutes(db) {
   // actual, their COD total as the gross sales.
   async function confirmedOrders(userIds, periodType, periodKey) {
     const out = new Map();
+    out.spellings = new Set(); // every confirmer spelling counted for these users
     if (!userIds.length) return out;
     const placeholders = userIds.map(() => '?').join(', ');
     const links = await db.prepare(`SELECT user_id, pos_name FROM user_pos_links WHERE user_id IN (${placeholders})`).all(...userIds);
@@ -302,9 +317,10 @@ module.exports = function kpiMonitoringRoutes(db) {
       }
     }
     const names = [...ownerOf.keys()];
+    names.forEach((name) => out.spellings.add(name));
     const manilaDay = posManilaDaySql(db.type);
     const dayFilter = periodType === 'daily' ? `${manilaDay} = ?` : `${manilaDay} >= ? AND ${manilaDay} <= ?`;
-    const dayArgs = periodType === 'daily' ? [periodKey] : [`${periodKey}-01`, `${periodKey}-31`];
+    const dayArgs = periodType === 'daily' ? [periodKey] : periodDays(periodType, periodKey);
     const rows = await db.prepare(`
       SELECT confirmed_by_name AS name, COUNT(*) AS n, COALESCE(SUM(cod), 0) AS cod FROM pos_orders
       WHERE confirmed_by_name IN (${names.map(() => '?').join(', ')})
@@ -319,6 +335,43 @@ module.exports = function kpiMonitoringRoutes(db) {
       }
     }
     return out;
+  }
+
+  // Orders confirmed in the period by people who are not active CSRs (admins,
+  // TLs, an unlinked Pancake name): one "Others" line under the CSR table, so
+  // the team's totals cover every confirmed sale. Named confirmers only, same
+  // rules as the CSR count; a name linked to a dashboard account shows that
+  // account's name.
+  async function otherConfirmers(periodType, periodKey, csrSpellings) {
+    const manilaDay = posManilaDaySql(db.type);
+    const dayFilter = periodType === 'daily' ? `${manilaDay} = ?` : `${manilaDay} >= ? AND ${manilaDay} <= ?`;
+    const dayArgs = periodType === 'daily' ? [periodKey] : periodDays(periodType, periodKey);
+    const [rows, links] = await Promise.all([
+      db.prepare(`
+        SELECT confirmed_by_name AS name, COUNT(*) AS n, COALESCE(SUM(cod), 0) AS cod FROM pos_orders
+        WHERE confirmed_by_name IS NOT NULL AND TRIM(confirmed_by_name) <> ''
+          AND COALESCE(status_name, '') <> 'wait_print' AND ${dayFilter}
+        GROUP BY confirmed_by_name
+      `).all(...dayArgs),
+      db.prepare('SELECT l.pos_name, u.full_name FROM user_pos_links l JOIN users u ON u.id = l.user_id').all(),
+    ]);
+    const display = new Map(links.map((l) => [String(l.pos_name || '').trim().toLowerCase(), l.full_name]));
+    const byName = new Map();
+    for (const row of rows) {
+      const raw = String(row.name || '').trim();
+      if (!raw || csrSpellings.has(raw)) continue;
+      const name = display.get(raw.toLowerCase()) || raw;
+      const entry = byName.get(name) || { name, orders: 0, cod: 0 };
+      entry.orders += Number(row.n || 0);
+      entry.cod = round2(entry.cod + Number(row.cod || 0));
+      byName.set(name, entry);
+    }
+    const people = [...byName.values()].sort((a, b) => b.orders - a.orders);
+    return {
+      total: people.reduce((sum, p) => sum + p.orders, 0),
+      cod: round2(people.reduce((sum, p) => sum + p.cod, 0)),
+      people,
+    };
   }
 
   // Everyone in CSR and RMO for one period, with whatever HR has entered.
@@ -340,6 +393,7 @@ module.exports = function kpiMonitoringRoutes(db) {
       defaults: defs,
       team_ad_spend: ctx.spend,
       team: { ...ctx.team, share: ctx.teamShare },
+      others: await otherConfirmers(periodType, periodKey, ctx.confirmed.spellings),
       people: people.map((p) => ({
         ...p,
         kpis: Object.fromEntries(KPI_TYPES.filter((k) => KPI_DEPARTMENT[k] === p.department)

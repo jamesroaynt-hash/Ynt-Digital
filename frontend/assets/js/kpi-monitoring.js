@@ -25,6 +25,7 @@ const KPIM_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 
 const kpimState = {
   periodType: 'monthly',
+  half: 'all', // Monthly view: 'all' (whole month), 'H1' (1–15) or 'H2' (16–end)
   day: '',
   month: '',
   department: 'all',
@@ -40,16 +41,33 @@ function kpimApi(path, options = {}) {
   });
 }
 
-function kpimPeriodKey() {
-  return kpimState.periodType === 'daily' ? kpimState.day : kpimState.month;
+// The period the server is asked for: a day, a whole month, or a half month
+// (YYYY-MM-H1 = 1st–15th, -H2 = 16th to the end).
+function kpimApiType() {
+  if (kpimState.periodType === 'daily') return 'daily';
+  return kpimState.half === 'all' ? 'monthly' : 'half';
 }
 
-function kpimPeriodLabel(periodType = kpimState.periodType, key = kpimPeriodKey()) {
+function kpimPeriodKey() {
+  if (kpimState.periodType === 'daily') return kpimState.day;
+  return kpimState.half === 'all' ? kpimState.month : `${kpimState.month}-${kpimState.half}`;
+}
+
+function kpimMonthEnd(month) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+function kpimPeriodLabel(periodType = kpimApiType(), key = kpimPeriodKey()) {
   if (!key) return '';
   if (periodType === 'daily') {
     return new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   }
   const [y, m] = key.split('-').map(Number);
+  if (periodType === 'half') {
+    const range = key.endsWith('H1') ? '1–15' : `16–${kpimMonthEnd(key.slice(0, 7))}`;
+    return `${KPIM_MONTHS[m - 1]} ${range}, ${y}`;
+  }
   return `${KPIM_MONTHS[m - 1]} ${y}`;
 }
 
@@ -127,6 +145,7 @@ function renderKpiMonitoringPage() {
     </div>
     <div id="kpim-tables"><div class="empty-state"><h3>Loading</h3></div></div>
   </div>
+  <div class="er-panel kpim-rmo-panel" id="kpim-rmo"></div>
   ${renderKpimEntryModal()}
   ${renderKpimDefaultsModal()}
   ${renderKpimHistoryModal()}`;
@@ -160,6 +179,10 @@ function kpimRenderPeriodControls() {
     </select>
     <select class="form-control kpim-control" aria-label="Year" onchange="kpimSetMonth(null, this.value)">
       ${years.map((year) => `<option value="${year}" ${year === y ? 'selected' : ''}>${year}</option>`).join('')}
+    </select>
+    <select class="form-control kpim-control" aria-label="Part of the month" onchange="kpimState.half = this.value; kpimLoad();">
+      ${[['all', 'Whole month'], ['H1', '1–15'], ['H2', `16–${kpimMonthEnd(kpimState.month)}`]].map(([v, l]) =>
+        `<option value="${v}" ${kpimState.half === v ? 'selected' : ''}>${l}</option>`).join('')}
     </select>`;
 }
 
@@ -174,6 +197,7 @@ function kpimSetMonth(month, year) {
   const nextMonth = month ? Number(month) : m;
   const nextYear = year ? Number(year) : y;
   kpimState.month = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
+  kpimRenderPeriodControls(); // the 16–end label follows the month's length
   kpimLoad();
 }
 
@@ -186,10 +210,10 @@ function kpimRenderDeptPills() {
 
 async function kpimLoad() {
   const key = kpimPeriodKey();
-  const type = kpimState.periodType;
+  const type = kpimApiType();
   try {
     const data = await kpimApi(`/records?period_type=${type}&period_key=${encodeURIComponent(key)}`);
-    if (kpimState.periodType !== type || kpimPeriodKey() !== key) return;
+    if (kpimApiType() !== type || kpimPeriodKey() !== key) return;
     kpimState.data = data;
   } catch (error) {
     const tables = document.getElementById('kpim-tables');
@@ -267,7 +291,7 @@ function kpimTeamBar() {
 
 async function kpimSaveTeamTarget(value) {
   try {
-    await kpimApi('/team-target', { method: 'PUT', body: { period_type: kpimState.periodType, period_key: kpimPeriodKey(), target: value } });
+    await kpimApi('/team-target', { method: 'PUT', body: { period_type: kpimApiType(), period_key: kpimPeriodKey(), target: value } });
     kpimEntryCache.clear();
     showToast('success', 'Team orders target saved', kpimPeriodLabel());
     await kpimLoad();
@@ -330,7 +354,7 @@ function kpimEditCell(button, userId, kpiType, field) {
 }
 
 async function kpimSaveCell(userId, kpiType, field, value) {
-  const body = { department: 'CSR', user_id: userId, kpi_type: kpiType, period_type: kpimState.periodType, period_key: kpimPeriodKey(), [field]: value };
+  const body = { department: 'CSR', user_id: userId, kpi_type: kpiType, period_type: kpimApiType(), period_key: kpimPeriodKey(), [field]: value };
   try {
     const { record } = await kpimApi('/records', { method: 'PUT', body });
     const person = (kpimState.data?.people || []).find((p) => p.id === userId);
@@ -347,20 +371,39 @@ async function kpimSaveCell(userId, kpiType, field, value) {
 // The CSR table's last row: sums for the counts and money, the average ROAS
 // target, and the team's ROAS (all gross sales ÷ the team ad spend). Uses the
 // rows on screen, so a search narrows the totals too.
-function kpimCsrTotals(csr) {
+// Orders confirmed by people who are not CSRs (admins, TLs, unlinked names).
+// No target: they are counted so the team's totals cover every confirmed sale.
+function kpimOthersRow(others) {
+  const names = others.people.slice(0, 4).map((p) => `${escapeHtml(p.name)} ${p.orders.toLocaleString()}`).join(' · ');
+  const more = others.people.length > 4 ? ` · +${others.people.length - 4} more` : '';
+  return `<tr class="kpim-others">
+    <td><b>Others</b><div class="kpim-src" title="${escapeHtml(others.people.map((p) => `${p.name}: ${p.orders}`).join(', '))}">not CSR · ${names}${more}</div></td>
+    <td><span class="er-dash">—</span></td>
+    <td><span class="kpim-plain">${kpimValue('orders', others.total)}</span><div class="kpim-src">confirmed</div></td>
+    <td><span class="er-dash">—</span></td>
+    <td><span class="kpim-plain">${kpimPeso(others.cod)}</span><div class="kpim-src">confirmed</div></td>
+    <td><span class="er-dash">—</span></td>
+    <td></td>
+  </tr>`;
+}
+
+function kpimCsrTotals(csr, others = null) {
   const sum = (pick) => {
     const values = csr.map(pick).filter((v) => typeof v === 'number');
     return values.length ? values.reduce((a, b) => a + b, 0) : null;
   };
   const targets = csr.map((p) => p.kpis.roas.target).filter((v) => typeof v === 'number');
   const avgTarget = targets.length ? targets.reduce((a, b) => a + b, 0) / targets.length : null;
-  const gross = sum((p) => p.kpis.roas.gross_sales);
+  const csrGross = sum((p) => p.kpis.roas.gross_sales);
+  const gross = others ? (csrGross ?? 0) + others.cod : csrGross;
+  const ordersActual = sum((p) => p.kpis.orders.actual);
+  const actualTotal = others ? (ordersActual ?? 0) + others.total : ordersActual;
   const spend = kpimState.data?.team_ad_spend?.total ?? null;
   const teamRoas = gross !== null && spend > 0 ? Math.round((gross / spend) * 100) / 100 : null;
   return `<tfoot><tr class="kpim-total">
-    <td><b>Total</b><div class="kpim-src">${csr.length} CSR${csr.length === 1 ? '' : 's'}</div></td>
+    <td><b>Total</b><div class="kpim-src">${csr.length} CSR${csr.length === 1 ? '' : 's'}${others ? ' + others' : ''}</div></td>
     <td><span class="kpim-plain">${kpimValue('orders', sum((p) => p.kpis.orders.target))}</span></td>
-    <td><span class="kpim-plain">${kpimValue('orders', sum((p) => p.kpis.orders.actual))}</span></td>
+    <td><span class="kpim-plain">${kpimValue('orders', actualTotal)}</span>${others ? '<div class="kpim-src">incl. others</div>' : ''}</td>
     <td><span class="kpim-plain">${kpimValue('roas', avgTarget)}</span><div class="kpim-src">average</div></td>
     <td><span class="kpim-plain">${gross === null ? '<span class="er-dash">—</span>' : kpimPeso(gross)}</span></td>
     <td><span class="kpim-plain">${kpimValue('roas', teamRoas)}</span><div class="kpim-src">team · gross ÷ ad spend</div></td>
@@ -389,6 +432,8 @@ function kpimRenderTables() {
     </div>`;
   const empty = (dept) => `<tr><td colspan="7" class="text-muted">${q ? 'No one matches the search.' : `No active ${dept} employees.`}</td></tr>`;
 
+  // Orders confirmed by people outside CSR; not a person, so a search hides it.
+  const others = !q && kpimState.data.others?.total > 0 ? kpimState.data.others : null;
   const csrTable = `
     <div class="er-group-row kpim-section"><span class="er-group-name">CSR · Number of Orders and ROAS</span><span class="er-count">${csr.length}</span><span class="er-group-avg">${period} · click a number to edit it</span></div>
     ${kpimTeamBar()}
@@ -411,12 +456,12 @@ function kpimRenderTables() {
           <td><span class="kpim-plain">${kpimValue('roas', r.actual)}</span></td>
           <td>${kpimUpdated([o, r])}</td>
         </tr>`;
-      }).join('') : empty('CSR')}</tbody>
-      ${csr.length ? kpimCsrTotals(csr) : ''}
+      }).join('') : empty('CSR')}${others ? kpimOthersRow(others) : ''}</tbody>
+      ${csr.length ? kpimCsrTotals(csr, others) : ''}
     </table></div>`;
 
   const rmoTable = `
-    <div class="er-group-row kpim-section kpim-section-rmo"><span class="er-group-name">RMO · RTS Rate</span><span class="er-count">${rmo.length}</span><span class="er-group-avg">${period} · lower is better</span></div>
+    <div class="er-group-row kpim-section"><span class="er-group-name">RMO · RTS Rate</span><span class="er-count">${rmo.length}</span><span class="er-group-avg">${period} · lower is better</span></div>
     <div class="table-container er-table-wrap"><table class="er-table kpim-table">
       <thead><tr><th>Employee</th><th>RTS target</th><th>RTS actual</th><th>Status</th><th>Remarks</th><th>Last update</th><th></th></tr></thead>
       <tbody>${rmo.length ? rmo.map((p) => {
@@ -433,7 +478,13 @@ function kpimRenderTables() {
       }).join('') : empty('RMO')}</tbody>
     </table></div>`;
 
-  wrap.innerHTML = `${showCsr ? csrTable : ''}${showRmo ? rmoTable : ''}`;
+  // RMO sits in its own card under the CSR one; the filters above drive both.
+  wrap.innerHTML = showCsr ? csrTable : '<div class="empty-state"><p>CSR is hidden by the department filter.</p></div>';
+  const rmoCard = document.getElementById('kpim-rmo');
+  if (rmoCard) {
+    rmoCard.innerHTML = showRmo ? rmoTable : '';
+    rmoCard.hidden = !showRmo;
+  }
 }
 
 // ─── Enter / edit ───────────────────────────────────────────
@@ -454,9 +505,12 @@ function renderKpimEntryModal() {
           <div class="form-group"><label class="form-label" for="kpim-f-kpi">KPI</label>
             <select class="form-control" id="kpim-f-kpi" onchange="kpimEntryKpiChanged()"></select></div>
           <div class="form-group"><label class="form-label" for="kpim-f-ptype">Reporting period</label>
-            <select class="form-control" id="kpim-f-ptype" onchange="kpimEntryPeriodChanged()"><option value="daily">Daily</option><option value="monthly">Monthly</option></select></div>
+            <select class="form-control" id="kpim-f-ptype" onchange="kpimEntryPeriodChanged()"><option value="daily">Daily</option><option value="monthly">Monthly</option><option value="half">Half month</option></select></div>
           <div class="form-group" style="grid-column:1 / -1;"><label class="form-label" for="kpim-f-period" id="kpim-f-period-label">Day</label>
-            <input class="form-control" id="kpim-f-period" type="date" onchange="kpimEntryFill()"></div>
+            <div class="kpim-f-period-row">
+              <input class="form-control" id="kpim-f-period" type="date" onchange="kpimEntryFill()">
+              <select class="form-control" id="kpim-f-half" onchange="kpimEntryFill()" hidden aria-label="Half"><option value="H1">1–15</option><option value="H2">16–end</option></select>
+            </div></div>
           <div class="form-group"><label class="form-label" for="kpim-f-target" id="kpim-f-target-label">Target</label>
             <input class="form-control" id="kpim-f-target" type="number" min="0" step="any" inputmode="decimal"></div>
           <div class="form-group"><label class="form-label" for="kpim-f-actual" id="kpim-f-actual-label">Actual</label>
@@ -483,7 +537,7 @@ const kpimEntryCache = new Map(); // "type|key" → records response
 
 async function kpimRecordsFor(periodType, key) {
   const cacheKey = `${periodType}|${key}`;
-  if (kpimState.data && kpimState.periodType === periodType && kpimPeriodKey() === key) return kpimState.data;
+  if (kpimState.data && kpimApiType() === periodType && kpimPeriodKey() === key) return kpimState.data;
   if (!kpimEntryCache.has(cacheKey)) kpimEntryCache.set(cacheKey, await kpimApi(`/records?period_type=${periodType}&period_key=${encodeURIComponent(key)}`));
   return kpimEntryCache.get(cacheKey);
 }
@@ -493,7 +547,8 @@ function kpimOpenEntry(userId, kpiType) {
   const person = people.find((p) => p.id === userId);
   const dept = person?.department || (kpimState.department === 'RMO' ? 'RMO' : 'CSR');
   document.getElementById('kpim-f-dept').value = dept;
-  document.getElementById('kpim-f-ptype').value = kpimState.periodType;
+  document.getElementById('kpim-f-ptype').value = kpimApiType();
+  document.getElementById('kpim-f-half').value = kpimState.half === 'H2' ? 'H2' : 'H1';
   kpimEntryDeptChanged({ userId, kpiType, keepPeriod: false });
   openModal('kpim-entry-modal');
 }
@@ -517,11 +572,20 @@ function kpimEntryPeriodChanged(keep = true) {
   const input = document.getElementById('kpim-f-period');
   const current = input.value;
   input.type = type === 'daily' ? 'date' : 'month';
-  document.getElementById('kpim-f-period-label').textContent = type === 'daily' ? 'Day' : 'Month';
+  document.getElementById('kpim-f-period-label').textContent = type === 'daily' ? 'Day' : (type === 'half' ? 'Month and half' : 'Month');
+  document.getElementById('kpim-f-half').hidden = type !== 'half';
   const fallback = type === 'daily' ? kpimState.day : kpimState.month;
   const fits = type === 'daily' ? /^\d{4}-\d{2}-\d{2}$/.test(current) : /^\d{4}-\d{2}$/.test(current);
   input.value = keep && fits ? current : fallback;
   kpimEntryKpiChanged();
+}
+
+// The form's period key: a day, a month, or month + half (YYYY-MM-H1).
+function kpimFormPeriodKey() {
+  const type = document.getElementById('kpim-f-ptype').value;
+  const value = document.getElementById('kpim-f-period').value;
+  if (!value) return '';
+  return type === 'half' ? `${value}-${document.getElementById('kpim-f-half').value}` : value;
 }
 
 function kpimEntryKpiChanged() {
@@ -555,7 +619,7 @@ async function kpimEntryFill() {
   const userId = Number(document.getElementById('kpim-f-user').value);
   const kpi = document.getElementById('kpim-f-kpi').value;
   const type = document.getElementById('kpim-f-ptype').value;
-  const key = document.getElementById('kpim-f-period').value;
+  const key = kpimFormPeriodKey();
   const hint = document.getElementById('kpim-f-hint');
   if (!userId || !key) return;
   let data;
@@ -565,7 +629,7 @@ async function kpimEntryFill() {
     hint.textContent = error.message || 'Could not load the saved numbers.';
     return;
   }
-  if (Number(document.getElementById('kpim-f-user').value) !== userId || document.getElementById('kpim-f-period').value !== key) return;
+  if (Number(document.getElementById('kpim-f-user').value) !== userId || kpimFormPeriodKey() !== key) return;
   const person = data.people?.find((p) => p.id === userId);
   const record = person?.kpis?.[kpi] || null;
   // The boxes hold only what HR set by hand; the automatic value shows as the
@@ -601,7 +665,7 @@ async function kpimSaveEntry() {
     user_id: Number(document.getElementById('kpim-f-user').value),
     kpi_type: document.getElementById('kpim-f-kpi').value,
     period_type: document.getElementById('kpim-f-ptype').value,
-    period_key: document.getElementById('kpim-f-period').value,
+    period_key: kpimFormPeriodKey(),
     target: document.getElementById('kpim-f-target').value,
     actual: document.getElementById('kpim-f-actual').value,
     remarks: document.getElementById('kpim-f-remarks').value,
@@ -696,6 +760,7 @@ function renderKpimHistoryModal() {
       <div class="modal-body">
         <div class="er-pills" style="margin-bottom:12px;">
           <button type="button" class="er-pill kpim-h-ptype" data-ptype="monthly" onclick="kpimHistoryPeriod('monthly')">Monthly</button>
+          <button type="button" class="er-pill kpim-h-ptype" data-ptype="half" onclick="kpimHistoryPeriod('half')">Half month</button>
           <button type="button" class="er-pill kpim-h-ptype" data-ptype="daily" onclick="kpimHistoryPeriod('daily')">Daily</button>
         </div>
         <div id="kpim-h-body"><div class="empty-state"><h3>Loading</h3></div></div>
@@ -706,7 +771,7 @@ function renderKpimHistoryModal() {
 
 function kpimOpenHistory(userId) {
   const person = (kpimState.data?.people || []).find((p) => p.id === userId);
-  kpimState.history = { userId, name: person?.name || '', periodType: kpimState.periodType };
+  kpimState.history = { userId, name: person?.name || '', periodType: kpimApiType() };
   document.getElementById('kpim-h-title').textContent = `KPI history · ${kpimState.history.name}`;
   openModal('kpim-history-modal');
   kpimLoadHistory();
