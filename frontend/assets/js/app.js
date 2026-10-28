@@ -16,12 +16,12 @@ const NAV_ACCESS = {
   Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
-  'CSR TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
+  'CSR TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
   RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
-  'RMO TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  'RMO TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Logistics: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'file-uploads', 'profile'],
-  'Sales and Marketing TL': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  'Sales and Marketing TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'file-uploads', 'profile'],
 };
 
 // Role text is typed by hand on accounts, so "Sales & Marketing" and
@@ -18164,7 +18164,9 @@ function getDefaultPageForCurrentUser() {
 
 // The System section (Users + Integrations) is Administrator-only, whatever
 // NAV_ACCESS says for the role.
-const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections', 'summary'];
+// Summary is not here: the TL roles read it too (NAV_ACCESS), and other
+// Administrators are kept out by SUPER_ADMIN_PAGES.
+const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections'];
 // Of those, the super admin's alone: other Administrators do not get them.
 // HR access is HR's, Operation's and the super admin's, so the HR pages leave
 // the other Administrators' menu too (the server refuses them as well). The
@@ -29102,12 +29104,12 @@ function renderSummaryPage() {
       <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(-1)" title="Previous day">‹</button>
       <input type="date" class="form-control" id="summary-date" style="width:auto;" onchange="loadSummaryDay(this.value)">
       <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(1)" title="Next day">›</button>
-      <button class="btn btn-secondary btn-sm" type="button" id="summary-generate-btn" onclick="generateSummarySnapshot()">Take snapshot now</button>
+      ${isSuperAdminUser() ? '<button class="btn btn-secondary btn-sm" type="button" id="summary-generate-btn" onclick="generateSummarySnapshot()">Take snapshot now</button>' : ''}
     </div>
   </div>
   <div id="summary-status"></div>
   <div id="summary-body"><div class="empty-state"><h3>Loading summary</h3><p>Pulling the day's snapshot.</p></div></div>
-  <div class="card" style="margin-top:20px;">
+  ${isSuperAdminUser() ? `<div class="card" style="margin-top:20px;">
     <div class="card-header">
       <div>
         <div class="card-title">Notes</div>
@@ -29120,7 +29122,7 @@ function renderSummaryPage() {
         placeholder="What happened today, what to follow up tomorrow…"
         oninput="summaryState.notesDirty = true"></textarea>
     </div>
-  </div>`;
+  </div>` : ''}`;
 }
 
 async function initSummaryPage() {
