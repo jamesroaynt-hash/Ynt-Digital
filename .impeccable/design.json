@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-10-28T03:05:53.905397+00:00",
+ "generatedAt": "2026-10-28T03:30:10.201816+00:00",
  "title": "Design System: YNT ERP",
  "extensions": {
   "colorMeta": {
@@ -511,9 +511,9 @@
    "name": "Stat Card",
    "kind": "card",
    "refersTo": "stat-card",
-   "description": "The ledger's headline figure with an accent bar.",
-   "html": "<div class=\"ds-stat\"><span class=\"ds-stat-bar\"></span><div class=\"ds-stat-label\">COD Revenue</div><div class=\"ds-stat-value\">₱894,320</div></div>",
-   "css": ".ds-stat{font-family:'DM Sans',-apple-system,sans-serif;position:relative;overflow:hidden;width:220px;padding:18px 20px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);transition:box-shadow .18s ease}.ds-stat:hover{box-shadow:0 4px 12px rgba(0,0,0,.06),0 2px 6px rgba(0,0,0,.04)}.ds-stat-bar{position:absolute;left:0;top:0;bottom:0;width:3px;background:#3b82f6}.ds-stat-label{font-size:11.5px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px}.ds-stat-value{font-size:26px;font-weight:600;color:#0f172a;letter-spacing:-.8px;line-height:1.15;white-space:nowrap;font-variant-numeric:tabular-nums}"
+   "description": "The ledger's headline figure, after the Evaluation Result cards.",
+   "html": "<div class=\"ds-stat\"><div class=\"ds-stat-label\">COD revenue</div><div class=\"ds-stat-value\">₱894,320</div><div class=\"ds-stat-meta\">vs last month +12%</div></div>",
+   "css": ".ds-stat{font-family:'DM Sans',-apple-system,sans-serif;position:relative;overflow:hidden;width:240px;padding:20px;border-radius:16px;border:1px solid #e2e8f0;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);transition:box-shadow .18s ease}.ds-stat:hover{box-shadow:0 4px 12px rgba(0,0,0,.06),0 2px 6px rgba(0,0,0,.04)}.ds-stat-label{font-size:13px;font-weight:500;color:#475569;margin-bottom:10px}.ds-stat-value{font-size:36px;font-weight:800;color:#0f172a;letter-spacing:-.02em;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}.ds-stat-meta{margin-top:10px;font-size:12px;color:#94a3b8}"
   },
   {
    "name": "Card",
@@ -521,7 +521,7 @@
    "refersTo": "card",
    "description": "White sheet with header rule and a soft lift.",
    "html": "<div class=\"ds-card\"><div class=\"ds-card-h\">Order Status Overview</div><div class=\"ds-card-b\">Delivered 1,082 · Returning 46 · Returned 28</div></div>",
-   "css": ".ds-card{font-family:'DM Sans',-apple-system,sans-serif;width:320px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}.ds-card-h{padding:18px 22px 16px;border-bottom:1px solid #e2e8f0;font-size:14px;font-weight:600;color:#0f172a}.ds-card-b{padding:22px;font-size:13.5px;color:#475569;font-variant-numeric:tabular-nums}"
+   "css": ".ds-card{font-family:'DM Sans',-apple-system,sans-serif;width:320px;border-radius:16px;border:1px solid #e2e8f0;background:#fff;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}.ds-card-h{padding:18px 20px;border-bottom:1px solid #e2e8f0;font-size:16px;font-weight:700;color:#0f172a}.ds-card-b{padding:20px;font-size:14px;color:#475569;font-variant-numeric:tabular-nums}"
   },
   {
    "name": "Sidebar Navigation",
@@ -538,20 +538,25 @@
   "keyCharacteristics": [
    "Navy sidebar frame, white sheets, one blue action colour.",
    "Status colours carry order outcomes (delivered, pending, returned), never decoration.",
-   "Soft-lifted cards with gently curved 12px corners.",
+   "Soft-lifted cards with 16px corners, styled after the Evaluation Result page.",
    "DM Sans throughout; DM Mono only for clocks, codes and scan fields.",
    "Two full themes (light and dark) with a living sky behind each."
   ],
   "rules": [
    {
     "name": "The One Blue Rule",
-    "body": "Action Blue marks what can be clicked or what is active, and nothing else. Headers, chart fills and highlights do not borrow it.",
+    "body": "Action Blue marks what can be clicked or what is active, and nothing else. Headers and highlights do not borrow it; charts use their own chart colours below.",
     "section": "colors"
    },
    {
     "name": "The Outcome Rule",
     "body": "Green, amber and red always mean an outcome (delivered, waiting, returned/failed). Never use them for decoration or category colour.",
     "section": "colors"
+   },
+   {
+    "name": "The Eight Steps Rule",
+    "body": "Every font size is one of the eight steps, written as its token: `--fs-caption` 11px, `--fs-small` 12px, `--fs-body` 13px, `--fs-base` 14px, `--fs-title` 16px, `--fs-heading` 20px, `--fs-page` 22px, `--fs-figure` 26px. Only hero numbers of 32px and up (clocks, scores) and the standalone print documents (payslip, payroll sheet, certificate) sit outside it.",
+    "section": "typography"
    },
    {
     "name": "The Steady Figures Rule",
@@ -567,12 +572,17 @@
     "name": "The Soft Lift Rule",
     "body": "Cards are lifted at rest with the resting shadow plus their 1px rule line; they never use a coloured or glowing shadow. A sheet inside another sheet stays flat, and only stat cards lift further on hover.",
     "section": "elevation"
+   },
+   {
+    "name": "The Evaluation Result Rule",
+    "body": "The Evaluation Result page is the reference for every page: page title 26px weight 800 over a 14px lede; panels with an 18px 20px header, a 16px bold title and a 13px subtitle; table heads 11px bold uppercase with 0.08em tracking over 14px rows padded 10px 20px; filter pills 36px tall that fill with ink when active; toolbar search and selects 42px tall with 12px corners. When a page and Evaluation Result disagree, Evaluation Result wins.",
+    "section": "components"
    }
   ],
   "dos": [
    "**Do** use Action Blue (#3b82f6) only for buttons, links, focus and the active nav item.",
    "**Do** keep every comparable number in tabular figures on one line.",
-   "**Do** give cards the resting shadow plus a 1px #e2e8f0 rule line and 12px corners.",
+   "**Do** give cards the resting shadow plus a 1px #e2e8f0 rule line and 16px corners.",
    "**Do** design both themes for every new surface; use the tokens, never hard-coded light colours.",
    "**Do** make phone layouts real: 16px fields, 44px touch targets, tables as cards under 640px.",
    "**Do** keep the sky (daylight wash, starfield) behind the work only."

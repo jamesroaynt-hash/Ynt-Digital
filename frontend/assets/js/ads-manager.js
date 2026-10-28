@@ -140,7 +140,7 @@ function amFmt(value, kind) {
   switch (kind) {
     case 'money':
     case 'budget':
-      return `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `₱ ${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     case 'int': return Math.round(n).toLocaleString('en-PH');
     case 'pct': return `${n.toFixed(n >= 100 ? 0 : 2)}%`;
     case 'roas': return `${n.toFixed(2)}x`;
@@ -566,7 +566,7 @@ function amDrawTrend(days) {
   if (!canvas || !window.Chart) return;
   if (amState.chart) amState.chart.destroy();
   const colors = amChartColors();
-  const peso = (v) => `₱${Number(v).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+  const peso = (v) => `₱ ${Number(v).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
   amState.chart = new Chart(canvas, {
     type: 'line',
     data: {
@@ -978,7 +978,8 @@ function amMoney(value, currency) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '<span class="am-muted">—</span>';
   const code = String(currency || 'PHP').toUpperCase();
   try {
-    return Number(value).toLocaleString('en-PH', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Same 'sign, space, figure' as every other amount in the app.
+    return Number(value).toLocaleString('en-PH', { style: 'currency', currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/^(-?)₱/, '$1₱ ');
   } catch {
     return `${amEsc(code)} ${Number(value).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }

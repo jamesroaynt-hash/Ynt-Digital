@@ -23,7 +23,7 @@ const piState = {
 
 function piMoney(n) {
   const v = Number(n || 0);
-  return typeof formatPeso === 'function' ? formatPeso(v) : `₱${v.toFixed(2)}`;
+  return typeof formatPeso === 'function' ? formatPeso(v) : `₱ ${v.toFixed(2)}`;
 }
 
 function piProducts() {

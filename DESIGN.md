@@ -36,23 +36,35 @@ typography:
     letterSpacing: "-0.4px"
   stat:
     fontFamily: "DM Sans, -apple-system, sans-serif"
-    fontSize: "26px"
-    fontWeight: 600
-    lineHeight: 1.15
-    letterSpacing: "-0.8px"
+    fontSize: "36px"
+    fontWeight: 800
+    lineHeight: 1
+    letterSpacing: "-0.02em"
     fontFeature: "tnum"
+  heading:
+    fontFamily: "DM Sans, -apple-system, sans-serif"
+    fontSize: "20px"
+    fontWeight: 600
+  section:
+    fontFamily: "DM Sans, -apple-system, sans-serif"
+    fontSize: "16px"
+    fontWeight: 600
   title:
     fontFamily: "DM Sans, -apple-system, sans-serif"
     fontSize: "14px"
     fontWeight: 600
   body:
     fontFamily: "DM Sans, -apple-system, sans-serif"
-    fontSize: "13.5px"
+    fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.6
+  small:
+    fontFamily: "DM Sans, -apple-system, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
   label:
     fontFamily: "DM Sans, -apple-system, sans-serif"
-    fontSize: "11.5px"
+    fontSize: "11px"
     fontWeight: 500
     letterSpacing: "0.7px"
   mono:
@@ -97,11 +109,11 @@ components:
     padding: "9px 13px"
   card:
     backgroundColor: "{colors.sheet-white}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.xl}"
   stat-card:
     backgroundColor: "{colors.sheet-white}"
-    rounded: "{rounded.lg}"
-    padding: "18px 20px"
+    rounded: "{rounded.xl}"
+    padding: "20px"
   badge:
     rounded: "{rounded.pill}"
     padding: "3px 9px"
@@ -130,7 +142,7 @@ Density is high and deliberate. Staff confirm orders, read RTS rates and check p
 **Key Characteristics:**
 - Navy sidebar frame, white sheets, one blue action colour.
 - Status colours carry order outcomes (delivered, pending, returned), never decoration.
-- Soft-lifted cards with gently curved 12px corners.
+- Soft-lifted cards with 16px corners, styled after the Evaluation Result page.
 - DM Sans throughout; DM Mono only for clocks, codes and scan fields.
 - Two full themes (light and dark) with a living sky behind each.
 
@@ -149,6 +161,13 @@ A cool slate-and-navy ledger with a single blue for action and a traffic-light s
 ### Tertiary
 - **Delivered Green** (#10b981), **Pending Amber** (#f59e0b), **Returned Red** (#ef4444): order and task outcomes in badges, alerts and stat accents, each with a soft wash and a dark text partner (e.g. #ecfdf5 / #065f46). For chart series use the validated money pair #059669 / #ef4444, not these tokens.
 
+### Chart Colors
+Every chart takes its colours from one place (`ORDER_STATUS_COLORS`, `orderStatusColor()` and `mktChartColors()` in `app.js`), so a status or a money series looks the same on every tab.
+- **Order status:** New #60a5fa, Confirmed #64748b, Waiting for pickup #f59e0b, Shipped #3b82f6, Delivered #059669, Returning #fbbf24, Returned #ef4444, Canceled #94a3b8. Same families as the status badges. Adjacent statuses pass the palette validator in both themes; every status chart keeps a legend.
+- **Money:** money in (sales, COD, stock in) #059669, money out (ad spend, expenses, stock out) #ef4444.
+- **Two non-money series:** blue #2a78d6 / orange #eb6834 (light), #3987e5 / #d95926 (dark).
+- **Axes:** grid and tick colours come from the theme (`applyChartTheme()`), and a theme toggle repaints charts already on screen.
+
 ### Neutral
 - **Sheet White** (#ffffff): cards, tables, inputs, the topbar.
 - **Paper Mist** (#f8fafc) and **Paper Shade** (#f1f5f9): page background, table headers, hover rows, secondary buttons.
@@ -157,7 +176,7 @@ A cool slate-and-navy ledger with a single blue for action and a traffic-light s
 - **Dark theme** swaps to Dark Sheet (#0f172a), Dark Paper (#0b1220), Dark Shade/Rule (#1e293b) and Dark Text (#f1f5f9); status washes become 14% tints.
 
 ### Named Rules
-**The One Blue Rule.** Action Blue marks what can be clicked or what is active, and nothing else. Headers, chart fills and highlights do not borrow it.
+**The One Blue Rule.** Action Blue marks what can be clicked or what is active, and nothing else. Headers and highlights do not borrow it; charts use their own chart colours below.
 
 **The Outcome Rule.** Green, amber and red always mean an outcome (delivered, waiting, returned/failed). Never use them for decoration or category colour.
 
@@ -171,19 +190,25 @@ A cool slate-and-navy ledger with a single blue for action and a traffic-light s
 
 ### Hierarchy
 - **Headline** (600, 22px, -0.4px tracking): page titles in the page header; 20px on phones.
-- **Stat** (600, 26px, line-height 1.15, tabular figures): KPI and stat values; one line, never wraps, 18–24px on phones.
-- **Title** (600, 14px): card titles and section headings.
-- **Body** (400, 13.5px, line-height 1.6): table cells, form text, paragraphs. Nav items run larger at 15px.
-- **Label** (500, 11.5px, 0.6–0.7px tracking, uppercase): stat labels and table headers, in Text Faint.
+- **Stat** (800, 36px, line-height 1, -0.02em, tabular figures): KPI and stat values; one line, never wraps; 26–36px with the tile width, 24–30px on phones.
+- **Heading** (600, 20px): sub-headings inside a page.
+- **Section** (600, 16px): section and modal titles.
+- **Title** (600, 14px): card titles; inputs and nav items also sit at 14px.
+- **Body** (400, 13px, line-height 1.6): table cells, buttons, form text, paragraphs.
+- **Small** (400, 12px): meta lines, helper text, small buttons.
+- **Label** (700, 11px, 0.08em tracking, uppercase): table headers; badges use the same size at weight 500.
+- **Tile label** (500, 13px, sentence case, Text Slate): the label above every KPI figure.
 
 ### Named Rules
+**The Eight Steps Rule.** Every font size is one of the eight steps, written as its token: `--fs-caption` 11px, `--fs-small` 12px, `--fs-body` 13px, `--fs-base` 14px, `--fs-title` 16px, `--fs-heading` 20px, `--fs-page` 22px, `--fs-figure` 26px. Only hero numbers of 32px and up (clocks, scores) and the standalone print documents (payslip, payroll sheet, certificate) sit outside it.
+
 **The Steady Figures Rule.** Every number that can be compared (money, counts, rates) uses tabular figures and stays on one line.
 
 **The 16px Field Rule.** On phones and touch screens every input, select and textarea is 16px, so iOS never zooms the page.
 
 ## Layout
 
-A fixed 256px sidebar (collapsible to a 68px icon rail) plus a sticky 60px topbar frame a scrolling content column. Content uses cards in auto-fit grids; stat rows sit on top, tables and charts below. Page padding is 28px on desktop, 16px under 768px.
+A fixed 256px sidebar (collapsible to a 68px icon rail) plus a sticky 60px topbar frame a scrolling content column. Content uses cards in auto-fit grids; stat rows sit on top, tables and charts below. Every KPI tile row uses the same rule on desktop: auto-fit columns of at least 220px (`--tile-min`) with a 16px gap (`--tile-gap`), and every tile the same 20px padding (`--tile-pad`), so a figure like ₱1,253,480 always fits on one line. Rows never hard-code a column count. Page padding is 28px on desktop, 16px under 768px.
 
 Breakpoints: 980px (login stacks), 768px (sidebar becomes an off-canvas drawer behind a hamburger, side-by-side grids stack, stats go two-up), 640px (list tables become one card per row with column labels; matrices and calendars keep horizontal scroll), 480px (stats go single-column). Phone overrides belong at the end of the stylesheet so later base rules cannot undo them.
 
@@ -201,7 +226,7 @@ Layered. Sheets lift softly off the sky: cards, stat cards and table containers 
 
 ## Shapes
 
-Gently curved, never sharp, never bubbly. Controls take 8px corners, cards and tables 12px, large panels and modals 16px, and badges, chips and toggles are full pills (999px). Every surface is bounded by a 1px rule line; clipping (`overflow: hidden`) keeps table corners following the card's curve.
+Gently curved, never sharp, never bubbly. Buttons and inputs take 8px corners, toolbar search and select controls 12px, cards, panels, tables and modals 16px, and badges, chips and toggles are full pills (999px). Every surface is bounded by a 1px rule line; clipping (`overflow: hidden`) keeps table corners following the card's curve.
 
 ## Components
 
@@ -218,11 +243,11 @@ Compact and confident: small type, firm colour, no ornaments.
 - **State:** colour always maps to an outcome; neutral badges use Paper Shade with slate text.
 
 ### Cards / Containers
-- **Corner Style:** 12px.
+- **Corner Style:** 16px.
 - **Background:** Sheet White (Dark Sheet in dark mode).
 - **Shadow Strategy:** resting sheet at rest, lifted sheet on hover (see Elevation & Depth).
 - **Border:** 1px Rule Line.
-- **Internal Padding:** header 18px 22px 16px with a rule beneath; body 22px; 16px on phones.
+- **Internal Padding:** header 18px 20px with a rule beneath (16px bold title, 13px subtitle); body 20px; 16px on phones.
 
 ### Inputs / Fields
 - **Style:** Sheet White fill, 1px Rule Line Strong stroke, 8px corners, 9px 13px padding, 14px text (16px on phones and touch).
@@ -234,7 +259,9 @@ Compact and confident: small type, firm colour, no ornaments.
 - **Topbar:** sticky, 60px, Sheet White with a bottom rule; breadcrumb on the left.
 
 ### Stat Card (signature)
-The ledger's headline figure: Sheet White, 12px corners, 18px 20px padding, an uppercase 11.5px label above a 26px tabular value, and an optional thin coloured accent bar (blue, green, amber, red, purple, navy) on the edge to name its category.
+The ledger's headline figure, modelled on the Evaluation Result cards: Sheet White, 16px corners, 20px padding, a 13px sentence-case label in Text Slate, one 36px weight-800 tabular figure in ink, and a muted 12px meta line beneath. No coloured edge: a tile shows meaning through its label, its meta line, a progress bar where one fits, or a status badge. Every KPI tile on every tab (stat cards, RTS metrics, ERP KPIs, expense tiles, Ads Manager KPIs, ad-spend metrics) follows it.
+
+**The Evaluation Result Rule.** The Evaluation Result page is the reference for every page: page title 26px weight 800 over a 14px lede; panels with an 18px 20px header, a 16px bold title and a 13px subtitle; table heads 11px bold uppercase with 0.08em tracking over 14px rows padded 10px 20px; filter pills 36px tall that fill with ink when active; toolbar search and selects 42px tall with 12px corners. When a page and Evaluation Result disagree, Evaluation Result wins.
 
 ### Data Table (signature)
 Uppercase 11.5px headers on Paper Mist, 13.5px cells with 13px 16px padding, row rules, hover rows in Paper Mist. Under 640px each row becomes its own card with the column name beside each value.
@@ -244,7 +271,7 @@ Uppercase 11.5px headers on Paper Mist, 13.5px cells with 13px 16px padding, row
 ### Do:
 - **Do** use Action Blue (#3b82f6) only for buttons, links, focus and the active nav item.
 - **Do** keep every comparable number in tabular figures on one line.
-- **Do** give cards the resting shadow plus a 1px #e2e8f0 rule line and 12px corners.
+- **Do** give cards the resting shadow plus a 1px #e2e8f0 rule line and 16px corners.
 - **Do** design both themes for every new surface; use the tokens, never hard-coded light colours.
 - **Do** make phone layouts real: 16px fields, 44px touch targets, tables as cards under 640px.
 - **Do** keep the sky (daylight wash, starfield) behind the work only.

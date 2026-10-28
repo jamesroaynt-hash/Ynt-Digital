@@ -817,7 +817,7 @@ async function loadRtsReturnRecords() {
     const rowHtml = (r) => {
       const assigned = pageSku[r.page] || '';
       const skuCell = canEdit
-        ? `<input type="text" class="form-control" style="width:110px;margin:0 auto;padding:4px 8px;height:auto;font-size:12px;text-align:center" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
+        ? `<input type="text" class="form-control" style="width:110px;margin:0 auto;padding:4px 8px;height:auto;font-size:var(--fs-small);text-align:center" value="${escapeHtml(assigned)}" placeholder="${escapeHtml(r.derivedSku) || 'Assign SKU'}" list="rts-sku-options" title="Assign this page's RTS pcs to a product SKU" onchange="saveRtsPageSku('${encodeURIComponent(r.page)}', this.value)">`
         : `<span class="font-mono text-xs">${escapeHtml(assigned || r.derivedSku) || dash}</span>`;
       const movedNote = r.moved ? `<div class="text-xs text-muted">${r.moved.toLocaleString()} moved to stock</div>` : '';
       const moveCell = canEdit
@@ -2250,7 +2250,7 @@ function aggregateMarketingByPage(entries) {
 }
 
 function marketingMoney(value) {
-  return `₱${Math.round(Number(value || 0)).toLocaleString()}`;
+  return `₱ ${Math.round(Number(value || 0)).toLocaleString()}`;
 }
 
 function marketingRoas(value) {
@@ -2676,7 +2676,7 @@ async function loadGoogleSheetsTabsStatus() {
       ? '<span class="badge badge-info" style="margin-left:8px;">auto-discover all tabs</span>'
       : `<span class="badge badge-info" style="margin-left:8px;">${data.configured.length} configured</span>`;
     host.innerHTML = `
-      <div style="margin-bottom:10px;font-size:12px;color:var(--text-muted);">
+      <div style="margin-bottom:10px;font-size:var(--fs-small);color:var(--text-muted);">
         Mode: ${data.auto_discover ? 'Auto (every visible tab in the spreadsheet)' : 'Manual list'}
         ${configuredHint}
       </div>
@@ -3338,7 +3338,7 @@ function renderApiConnections() {
         </div>
         </div>
         <div class="modal-footer">
-          <span id="pos-page-step-hint" style="margin-right:auto;font-size:12px;color:var(--text-muted);"></span>
+          <span id="pos-page-step-hint" style="margin-right:auto;font-size:var(--fs-small);color:var(--text-muted);"></span>
           <button class="btn btn-secondary" type="button" onclick="fetchShopsForModal()">Get POS Shops</button>
           <button class="btn btn-primary" id="pos-page-next-btn" type="button" style="display:none;" onclick="switchPosPageTab('tokens')">Next</button>
           <button class="btn btn-primary" id="pos-page-save-btn" type="button" style="display:none;" onclick="savePosPageFromModal()">Save Page</button>
@@ -3578,7 +3578,7 @@ function renderApiConnections() {
             <div class="form-group" style="flex:3">
               <label class="form-label">Scopes (select all that apply)</label>
               <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
-                ${['orders:read','orders:write','inventory:read','inventory:write','expenses:read','expenses:write','hr:read','meta:read','meta:write'].map(s => `<label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="api-key-scope" value="${s}" ${s === 'orders:read' ? 'checked' : ''}/>${s}</label>`).join('')}
+                ${['orders:read','orders:write','inventory:read','inventory:write','expenses:read','expenses:write','hr:read','meta:read','meta:write'].map(s => `<label style="display:flex;align-items:center;gap:4px;font-size:var(--fs-body);"><input type="checkbox" class="api-key-scope" value="${s}" ${s === 'orders:read' ? 'checked' : ''}/>${s}</label>`).join('')}
               </div>
             </div>
           </div>
@@ -3587,9 +3587,9 @@ function renderApiConnections() {
             <button class="btn btn-secondary" onclick="document.getElementById('api-key-form').style.display='none'">Cancel</button>
           </div>
         </div>
-        <div id="api-key-result" style="display:none; margin-bottom:20px; padding:16px; background:#1a3a1a; border:1px solid #2d6a2d; border-radius:8px;">
-          <div style="font-weight:600; color:#4caf50; margin-bottom:8px;">API Key Created — copy it now, it won't be shown again</div>
-          <code id="api-key-result-value" style="word-break:break-all; font-size:13px; color:#e8f5e9;"></code>
+        <div id="api-key-result" style="display:none; margin-bottom:20px; padding:16px; background:var(--success-soft); border:1px solid var(--border); border-radius:8px;">
+          <div style="font-weight:600; color:var(--success-text); margin-bottom:8px;">API Key Created — copy it now, it won't be shown again</div>
+          <code id="api-key-result-value" style="word-break:break-all; font-size:var(--fs-body); color:var(--text-primary);"></code>
           <button class="btn btn-secondary" style="margin-top:10px;" onclick="copyApiKeyResult()">Copy Key</button>
         </div>
         <div id="api-keys-list"><div class="loading-spinner"></div></div>
@@ -3598,7 +3598,7 @@ function renderApiConnections() {
     <section class="card" style="margin-top:16px;">
       <div class="card-header"><div><div class="card-title">Quick Reference</div></div></div>
       <div class="card-body">
-        <div style="font-size:13px; line-height:1.8;">
+        <div style="font-size:var(--fs-body); line-height:1.8;">
           <div><strong>Authenticate with API key:</strong></div>
           <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:6px 0;">curl https://your-domain.com/api/orders -H "Authorization: ApiKey yntk_..."</code>
           <div style="margin-top:10px;"><strong>Or with X-API-Key header:</strong></div>
@@ -3635,7 +3635,7 @@ function renderApiConnections() {
           <div style="margin-top:12px;">
             <label class="form-label">Events (select all that apply)</label>
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
-              ${['order.created','order.updated','order.deleted','inventory.updated','*'].map(e => `<label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" class="webhook-event" value="${e}" ${e === 'order.created' ? 'checked' : ''}/>${e === '*' ? '* (all events)' : e}</label>`).join('')}
+              ${['order.created','order.updated','order.deleted','inventory.updated','*'].map(e => `<label style="display:flex;align-items:center;gap:4px;font-size:var(--fs-body);"><input type="checkbox" class="webhook-event" value="${e}" ${e === 'order.created' ? 'checked' : ''}/>${e === '*' ? '* (all events)' : e}</label>`).join('')}
             </div>
           </div>
           <div style="display:flex; gap:8px; margin-top:12px;">
@@ -3643,10 +3643,10 @@ function renderApiConnections() {
             <button class="btn btn-secondary" onclick="document.getElementById('webhook-form').style.display='none'">Cancel</button>
           </div>
         </div>
-        <div id="webhook-secret-result" style="display:none; margin-bottom:20px; padding:16px; background:#1a2a3a; border:1px solid #2d5a8a; border-radius:8px;">
-          <div style="font-weight:600; color:#64b5f6; margin-bottom:8px;">Webhook Created — save the signing secret now</div>
-          <div style="font-size:13px; color:#bbdefb; margin-bottom:6px;">Use this secret to verify <code>X-YNT-Signature</code> on incoming payloads:</div>
-          <code id="webhook-secret-value" style="word-break:break-all; font-size:13px; color:#e3f2fd;"></code>
+        <div id="webhook-secret-result" style="display:none; margin-bottom:20px; padding:16px; background:var(--info-soft); border:1px solid var(--border); border-radius:8px;">
+          <div style="font-weight:600; color:var(--info-text); margin-bottom:8px;">Webhook Created — save the signing secret now</div>
+          <div style="font-size:var(--fs-body); color:var(--text-secondary); margin-bottom:6px;">Use this secret to verify <code>X-YNT-Signature</code> on incoming payloads:</div>
+          <code id="webhook-secret-value" style="word-break:break-all; font-size:var(--fs-body); color:var(--text-primary);"></code>
           <button class="btn btn-secondary" style="margin-top:10px;" onclick="copyWebhookSecret()">Copy Secret</button>
         </div>
         <div id="webhooks-list"><div class="loading-spinner"></div></div>
@@ -3655,7 +3655,7 @@ function renderApiConnections() {
     <section class="card" style="margin-top:16px;">
       <div class="card-header"><div><div class="card-title">Verifying Signatures</div></div></div>
       <div class="card-body">
-        <div style="font-size:13px; line-height:1.8;">
+        <div style="font-size:var(--fs-body); line-height:1.8;">
           <div>Every request includes an <code>X-YNT-Signature</code> header. Verify it by computing <code>HMAC-SHA256(secret, raw_body)</code> and comparing with <code>sha256=&lt;hex&gt;</code>.</div>
           <code style="display:block; background:var(--bg-secondary); padding:8px 12px; border-radius:6px; margin:10px 0; white-space:pre-wrap;">// Node.js example
 const crypto = require('crypto');
@@ -3829,9 +3829,9 @@ function kpiDelta(values) {
 // Compact peso formatter for the product/inventory cards.
 function formatPesoCompact(value) {
   const n = Number(value) || 0;
-  if (n >= 1000000) return `₱${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `₱${(n / 1000).toFixed(1)}K`;
-  return `₱${n.toLocaleString()}`;
+  if (n >= 1000000) return `₱ ${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `₱ ${(n / 1000).toFixed(1)}K`;
+  return `₱ ${n.toLocaleString()}`;
 }
 
 // Top product lines by inventory value, for the Product & Inventory Overview.
@@ -3932,7 +3932,7 @@ function renderHome() {
   </div>
 
   <div class="home-summary-grid" id="home-summary-tiles">
-    <div class="empty-state" style="grid-column:1/-1;padding:16px;color:var(--text-muted);font-size:13px;">Loading summary…</div>
+    <div class="empty-state" style="grid-column:1/-1;padding:16px;color:var(--text-muted);font-size:var(--fs-body);">Loading summary…</div>
   </div>
 
   <div class="home-status-head">
@@ -3942,7 +3942,7 @@ function renderHome() {
     </div>
   </div>
   <div class="home-status-grid" id="home-status-cards">
-    <div class="empty-state" style="grid-column:1/-1;padding:20px;color:var(--text-muted);font-size:13px;">Loading order statuses…</div>
+    <div class="empty-state" style="grid-column:1/-1;padding:20px;color:var(--text-muted);font-size:var(--fs-body);">Loading order statuses…</div>
   </div>
   `;
 
@@ -3967,7 +3967,7 @@ async function loadHomeAnnouncements() {
     const today = normalizeDateString(new Date());
     const visible = items.filter((a) => !a.expires_at || a.expires_at >= today).slice(0, 5);
     if (!visible.length) {
-      wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;color:var(--text-muted);font-size:13px;">No announcements right now.</div>';
+      wrap.innerHTML = '<div class="empty-state" style="padding:20px 0;color:var(--text-muted);font-size:var(--fs-body);">No announcements right now.</div>';
       return;
     }
     const tones = ['violet', 'blue', 'amber', 'teal', 'rose'];
@@ -3984,7 +3984,7 @@ async function loadHomeAnnouncements() {
       </div>`;
     }).join('');
   } catch (err) {
-    wrap.innerHTML = `<div class="empty-state" style="padding:16px 0;color:var(--text-muted);font-size:12px;">Failed to load: ${escapeHtml(err.message)}</div>`;
+    wrap.innerHTML = `<div class="empty-state" style="padding:16px 0;color:var(--text-muted);font-size:var(--fs-small);">Failed to load: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -3995,7 +3995,7 @@ async function loadHRAnnouncements() {
     const result = await authorizedJsonRequest('/announcements');
     const items = Array.isArray(result?.data) ? result.data : [];
     if (!items.length) {
-      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No announcements posted yet.</div>';
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:var(--fs-body);padding:12px 0;">No announcements posted yet.</div>';
       return;
     }
     wrap.innerHTML = items.map((a) => {
@@ -4003,15 +4003,15 @@ async function loadHRAnnouncements() {
       const exp = a.expires_at ? `· expires ${escapeHtml(a.expires_at)}` : '';
       return `<div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:13px;color:var(--text-primary);">${escapeHtml(a.title)}</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;white-space:pre-wrap;">${escapeHtml(a.body)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${escapeHtml(a.posted_by_name || a.posted_by_username || 'Admin')} · ${escapeHtml(when)} ${exp}</div>
+          <div style="font-weight:600;font-size:var(--fs-body);color:var(--text-primary);">${escapeHtml(a.title)}</div>
+          <div style="font-size:var(--fs-small);color:var(--text-secondary);margin-top:2px;white-space:pre-wrap;">${escapeHtml(a.body)}</div>
+          <div style="font-size:var(--fs-caption);color:var(--text-muted);margin-top:6px;">${escapeHtml(a.posted_by_name || a.posted_by_username || 'Admin')} · ${escapeHtml(when)} ${exp}</div>
         </div>
         <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteHRAnnouncement(${a.id})">Delete</button>
       </div>`;
     }).join('');
   } catch (err) {
-    wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">Failed to load: ${escapeHtml(err.message)}</div>`;
+    wrap.innerHTML = `<div style="color:var(--text-muted);font-size:var(--fs-small);">Failed to load: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -4126,21 +4126,21 @@ function chatMessageHtml(msg) {
     : '';
   const canDelete = mine || canManageHR();
   const delBtn = canDelete
-    ? `<button onclick="deleteChatMessage(${msg.id})" title="Delete" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:12px;padding:0 2px;line-height:1;">✕</button>`
+    ? `<button onclick="deleteChatMessage(${msg.id})" title="Delete" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:var(--fs-small);padding:0 2px;line-height:1;">✕</button>`
     : '';
   const bubbleBg = mine ? 'var(--accent)' : 'var(--surface-2)';
   const bubbleColor = mine ? '#fff' : 'var(--text-primary)';
-  const avatar = `<span style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background:${chatAvatarColor(msg.user_id || author)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;">${escapeHtml(chatInitials(author))}</span>`;
+  const avatar = `<span style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background:${chatAvatarColor(msg.user_id || author)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:var(--fs-small);font-weight:600;">${escapeHtml(chatInitials(author))}</span>`;
   return `
     <div class="chat-row" data-id="${msg.id}" style="display:flex;gap:10px;flex-direction:${mine ? 'row-reverse' : 'row'};align-items:flex-start;">
       ${avatar}
       <div style="max-width:70%;display:flex;flex-direction:column;align-items:${mine ? 'flex-end' : 'flex-start'};gap:2px;">
-        <div style="font-size:11px;color:var(--text-muted);display:flex;gap:6px;align-items:center;">
+        <div style="font-size:var(--fs-caption);color:var(--text-muted);display:flex;gap:6px;align-items:center;">
           <span style="font-weight:600;color:var(--text-secondary);">${mine ? 'You' : escapeHtml(author)}</span>
           <span>${escapeHtml(when)}</span>
           ${delBtn}
         </div>
-        <div style="background:${bubbleBg};color:${bubbleColor};padding:8px 12px;border-radius:12px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-break:break-word;">${escapeHtml(msg.body || '')}</div>
+        <div style="background:${bubbleBg};color:${bubbleColor};padding:8px 12px;border-radius:12px;font-size:var(--fs-base);line-height:1.4;white-space:pre-wrap;word-break:break-word;">${escapeHtml(msg.body || '')}</div>
       </div>
     </div>`;
 }
@@ -4149,7 +4149,7 @@ function renderChatMessages() {
   const wrap = document.getElementById('chat-messages');
   if (!wrap) return;
   if (!chatState.messages.length) {
-    wrap.innerHTML = '<div class="empty-state" style="margin:auto;color:var(--text-muted);font-size:13px;">No messages yet. Say hello 👋</div>';
+    wrap.innerHTML = '<div class="empty-state" style="margin:auto;color:var(--text-muted);font-size:var(--fs-body);">No messages yet. Say hello 👋</div>';
     return;
   }
   const nearBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 80;
@@ -4189,7 +4189,7 @@ async function loadChatMessages() {
     if (wrap) wrap.scrollTop = wrap.scrollHeight;
   } catch (err) {
     const wrap = document.getElementById('chat-messages');
-    if (wrap) wrap.innerHTML = `<div class="empty-state" style="margin:auto;color:var(--text-muted);font-size:13px;">Failed to load: ${escapeHtml(err.message)}</div>`;
+    if (wrap) wrap.innerHTML = `<div class="empty-state" style="margin:auto;color:var(--text-muted);font-size:var(--fs-body);">Failed to load: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -6020,7 +6020,7 @@ function renderEvaluationSetup() {
           <button class="btn btn-primary btn-sm" onclick="saveEvaluationSetup()">Save Matrix</button>
           <button class="btn btn-secondary btn-sm" onclick="resetEvaluationSetup()">Undo changes</button>
         </div>
-        <div class="ev-muted" style="margin-top:10px;font-size:12px;">
+        <div class="ev-muted" style="margin-top:10px;font-size:var(--fs-small);">
           Renaming an item keeps the ratings already filed under it. Removing one takes it off the
           sheet and out of every score, including the periods already filled in.
         </div>
@@ -6229,7 +6229,7 @@ function renderEvaluationMine() {
       </div>
       <div class="stat-card">
         <div class="stat-label">Performance Level</div>
-        <div class="stat-value" style="font-size:20px;">${escapeHtml(level.label)}</div>
+        <div class="stat-value" style="font-size:var(--fs-heading);">${escapeHtml(level.label)}</div>
         <div class="stat-meta">${evaluationPassBadge(result) || escapeHtml(periodLabel)}</div>
       </div>
       <div class="stat-card">
@@ -6643,7 +6643,7 @@ function renderEvaluationGiven(row, periodLabel) {
   const showSheets = !!given.show_sheets;
   const rows = [...list].sort((a, b) => Number(a.submitted) - Number(b.submitted) || String(a.name).localeCompare(String(b.name)));
   return `
-    <div class="ev-muted" style="margin-bottom:12px;font-size:12px;">
+    <div class="ev-muted" style="margin-bottom:12px;font-size:var(--fs-small);">
       ${escapeHtml(name)} submitted <strong>${given.submitted}</strong> of <strong>${given.required}</strong> sheets for ${escapeHtml(periodLabel)}.
       ${showSheets ? '' : 'What they gave each person stays private — HR sees only who has been rated.'}
     </div>
@@ -6679,7 +6679,7 @@ function renderEvaluationResponsesList(responses, row) {
   const average = evaluationState.summary?.result;
   return `
     ${evaluationState.summary?.anonymous
-      ? '<div class="ev-muted" style="margin-bottom:12px;font-size:12px;">Submissions are anonymous — evaluators are not named.</div>'
+      ? '<div class="ev-muted" style="margin-bottom:12px;font-size:var(--fs-small);">Submissions are anonymous — evaluators are not named.</div>'
       : ''}
     <div class="ev-scroll">
       <table class="ev-table">
@@ -6711,7 +6711,7 @@ function renderEvaluationResponsesList(responses, row) {
         </tfoot>
       </table>
     </div>
-    <div class="ev-muted" style="margin-top:12px;font-size:12px;">${escapeHtml(row?.name || 'This employee')} is rated on the average of these sheets — open one to see the ratings behind it.</div>`;
+    <div class="ev-muted" style="margin-top:12px;font-size:var(--fs-small);">${escapeHtml(row?.name || 'This employee')} is rated on the average of these sheets — open one to see the ratings behind it.</div>`;
 }
 
 // The Administrator wipes the period on screen. Typing the word is the guard —
@@ -7211,7 +7211,7 @@ function renderHR() {
     </div>
   </div>
 
-  <div id="hr-summary-wrap" class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:20px;"></div>
+  <div id="hr-summary-wrap" class="stats-grid" style="margin-bottom:20px;"></div>
 
   <div class="card" style="margin-bottom:20px;">
     <div class="card-header hr-payroll-header">
@@ -7291,7 +7291,7 @@ function renderHR() {
       <div class="modal-header">
         <div>
           <div class="modal-title" id="payroll-modal-title">Edit Daily Rate</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="payroll-modal-role"></div>
+          <div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:2px;" id="payroll-modal-role"></div>
         </div>
         <button class="modal-close" onclick="closeModal('payroll-edit-modal')">×</button>
       </div>
@@ -7426,7 +7426,7 @@ function phHolidayBadge(dateStr) {
   const regular = h.type === 'Regular Holiday';
   const color = regular ? '#b45309' : '#7c3aed';
   const bg = regular ? '#fef3c7' : '#ede9fe';
-  return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${escapeHtml(h.type)}">🇵🇭 ${escapeHtml(h.name)}</span>`;
+  return `<span style="font-size:var(--fs-caption);font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${escapeHtml(h.type)}">🇵🇭 ${escapeHtml(h.name)}</span>`;
 }
 
 // 0=Sunday..6=Saturday for a YYYY-MM-DD string, or null when it isn't one.
@@ -7448,7 +7448,7 @@ function isRestDayFor(dateStr, dayOff) {
 // overtime at 130%.
 function restDayBadge(worked, regular = false) {
   if (worked && regular) {
-    return '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:#15803d;background:#dcfce7;" title="Worked rest day switched to a regular day — no 30% premium, counted as a day worked">Rest day — paid as regular</span>';
+    return '<span class="badge badge-success" style="font-size:var(--fs-caption);padding:1px 6px;" title="Worked rest day switched to a regular day — no 30% premium, counted as a day worked">Rest day — paid as regular</span>';
   }
   const color = worked ? '#b45309' : '#0369a1';
   const bg = worked ? '#fef3c7' : '#e0f2fe';
@@ -7456,7 +7456,7 @@ function restDayBadge(worked, regular = false) {
   const title = worked
     ? 'Worked the scheduled rest day — the day plus a 30% premium, all booked as OT'
     : 'Scheduled rest day — unpaid unless worked';
-  return `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${title}">${label}</span>`;
+  return `<span style="font-size:var(--fs-caption);font-weight:600;padding:1px 6px;border-radius:999px;color:${color};background:${bg};" title="${title}">${label}</span>`;
 }
 
 // The day off to apply to one attendance record: a worked rest day that HR
@@ -7718,7 +7718,7 @@ function renderAttendance() {
             <button class="filter-pill wh-cutoff-pill ${whCutoff === 2 ? 'active' : ''}" data-half="2" onclick="setWorkHoursCutoff(2, this)">16–End</button>
           </div>
           <input type="date" id="wh-date-from" class="form-control" style="width:auto;" value="${whRange.from}" onchange="clearWorkHoursCutoff()">
-          <span style="color:var(--text-muted);font-size:13px;">to</span>
+          <span style="color:var(--text-muted);font-size:var(--fs-body);">to</span>
           <input type="date" id="wh-date-to" class="form-control" style="width:auto;" value="${whRange.to}" onchange="clearWorkHoursCutoff()">
           <button class="btn btn-secondary btn-sm" onclick="loadMyWorkHours()">Apply</button>
         </div>
@@ -7902,7 +7902,7 @@ function renderSales() {
     </div>
   </div>
 
-  <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);" id="sales-summary-cards">
+  <div class="stats-grid" id="sales-summary-cards">
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">New</div><div class="stat-value">${newOrders}</div><div class="stat-meta">Newly received</div></div>
     <div class="stat-card gray"><div class="stat-card-accent"></div><div class="stat-label">Confirmed</div><div class="stat-value">${confirmed}</div><div class="stat-meta">Ready to process</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Waiting Pickup</div><div class="stat-value">${waiting}</div><div class="stat-meta">Packaging or pickup</div></div>
@@ -7911,7 +7911,7 @@ function renderSales() {
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Canceled orders</div></div>
-    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">₱${(totalCOD/1000).toFixed(1)}K</div><div class="stat-meta">Total collected</div></div>
+    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:var(--fs-heading);">₱ ${(totalCOD/1000).toFixed(1)}K</div><div class="stat-meta">Total collected</div></div>
   </div>
 
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
@@ -7940,22 +7940,22 @@ function renderSales() {
         <button class="filter-pill ${salesFilter === 'custom' ? 'active' : ''}" onclick="setSalesFilter('custom',this)">Custom</button>
       </div>
       <div id="sales-month-picker" class="${salesFilter === 'monthly' ? '' : 'hidden'}" style="align-items:center;gap:6px;display:flex;">
-        <select class="form-control" id="sales-month-dropdown" onchange="setSalesMonthDropdown()" style="min-width:160px;height:34px;font-size:13px;padding:6px 10px;">
+        <select class="form-control" id="sales-month-dropdown" onchange="setSalesMonthDropdown()" style="min-width:160px;height:34px;font-size:var(--fs-body);padding:6px 10px;">
           ${salesMonths.length
             ? salesMonths.map((m) => `<option value="${m}"${salesMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
             : `<option value="${escapeHtml(salesMonth)}">${escapeHtml(monthLabel(salesMonth))}</option>`}
         </select>
       </div>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <select class="form-control" style="width:150px; padding:6px 10px; font-size:13px;" id="sales-source-filter" onchange="setSalesSourceFilter()">
+        <select class="form-control" style="width:150px; padding:6px 10px; font-size:var(--fs-body);" id="sales-source-filter" onchange="setSalesSourceFilter()">
           <option value="all">All Pages</option>
           ${sourceOptions.map((sheet) => `<option value="${escapeHtml(sheet)}" ${salesSourceFilter === sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`).join('')}
         </select>
-        <select class="form-control" style="width:105px; padding:6px 10px; font-size:13px;" id="sales-year-filter" onchange="setSalesYearFilter()">
+        <select class="form-control" style="width:105px; padding:6px 10px; font-size:var(--fs-body);" id="sales-year-filter" onchange="setSalesYearFilter()">
           <option value="all">All Years</option>
           ${yearOptions.map((year) => `<option value="${year}" ${salesYearFilter === year ? 'selected' : ''}>${year}</option>`).join('')}
         </select>
-        <select class="form-control" style="width:125px; padding:6px 10px; font-size:13px;" id="sales-month-filter" onchange="setSalesMonthFilter()">
+        <select class="form-control" style="width:125px; padding:6px 10px; font-size:var(--fs-body);" id="sales-month-filter" onchange="setSalesMonthFilter()">
           <option value="all">All Months</option>
           ${monthOptions.map((month) => `<option value="${month.value}" ${salesMonthFilter === month.value ? 'selected' : ''}>${month.label}</option>`).join('')}
         </select>
@@ -7968,8 +7968,8 @@ function renderSales() {
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text-muted)">Per page:</span>
-        <select class="form-control" style="width:70px; padding:6px 10px; font-size:13px;" id="sales-per-page" onchange="renderSalesTable()">
+        <span style="font-size:var(--fs-body); color:var(--text-muted)">Per page:</span>
+        <select class="form-control" style="width:70px; padding:6px 10px; font-size:var(--fs-body);" id="sales-per-page" onchange="renderSalesTable()">
           <option>10</option><option>25</option><option>50</option>
         </select>
       </div>
@@ -8011,7 +8011,7 @@ function renderRTSRate() {
       </div>
       <div class="rts-filter-group ${rtsRateFilter === 'monthly' ? '' : 'hidden'}" id="rts-rate-month-group">
         <div class="rts-filter-label">Month</div>
-        <select class="form-control" id="rts-rate-month" onchange="setRTSRateMonth()" style="min-width:160px;height:34px;font-size:13px;">
+        <select class="form-control" id="rts-rate-month" onchange="setRTSRateMonth()" style="min-width:160px;height:34px;font-size:var(--fs-body);">
           ${months.length
             ? months.map((m) => `<option value="${m}"${rtsRateMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
             : `<option value="${escapeHtml(rtsRateMonth || today.slice(0,7))}">${escapeHtml(monthLabel(rtsRateMonth || today.slice(0,7)))}</option>`}
@@ -8113,7 +8113,7 @@ function formatPercent(value) {
 }
 
 function formatPeso(value) {
-  return `₱${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱ ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function renderRTSMetricCard(label, value, color, total) {
@@ -8201,11 +8201,6 @@ function renderSaleReportBarChart(orders) {
   }, {});
   const labels = ['New', 'Confirmed', 'Shipped', 'Delivered', 'Returning', 'Returned', 'Canceled'];
   const data = labels.map((l) => statusCounts[l] || 0);
-  const colors = {
-    'New': '#60a5fa', 'Confirmed': '#3b82f6',
-    'Shipped': '#a78bfa', 'Delivered': '#10b981',
-    'Returning': '#f97316', 'Returned': '#ef4444', 'Canceled': '#9ca3af',
-  };
   if (saleReportBarChart && (saleReportBarChart.canvas !== canvas || !canvas.isConnected)) {
     try { saleReportBarChart.destroy(); } catch {}
     saleReportBarChart = null;
@@ -8217,7 +8212,7 @@ function renderSaleReportBarChart(orders) {
       datasets: [{
         label: 'Orders',
         data,
-        backgroundColor: labels.map((l) => colors[l] || '#94a3b8'),
+        backgroundColor: labels.map(orderStatusColor),
         borderRadius: 6,
       }],
     },
@@ -8456,7 +8451,7 @@ function renderDataReportTable(rows, firstColumn, emptyText, { showCod = false }
             <td class="text-success">${row.delivered.toLocaleString()}</td>
             <td class="text-danger">${(row.returned + row.returning).toLocaleString()}</td>
             <td>${rtsChip(row)}</td>
-            ${showCod ? `<td style="font-weight:600;">₱${codTotal.toLocaleString()}</td><td style="color:var(--text-muted);">₱${avgCod.toLocaleString()}</td>` : ''}
+            ${showCod ? `<td style="font-weight:600;">₱ ${codTotal.toLocaleString()}</td><td style="color:var(--text-muted);">₱ ${avgCod.toLocaleString()}</td>` : ''}
           </tr>`;
         }).join('')}
       </tbody>
@@ -8502,15 +8497,15 @@ function renderDataReport() {
   </div>
 
   <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--border-color);">
-    <button class="dr-tab-btn ${dataReportTab === 'sales' ? 'active' : ''}" data-tab="sales" onclick="setDataReportTab('sales')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'sales' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'sales' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Sales Dashboard</button>
-    <button class="dr-tab-btn ${dataReportTab === 'analytics' ? 'active' : ''}" data-tab="analytics" onclick="setDataReportTab('analytics')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'analytics' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'analytics' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Analytics</button>
-    <button class="dr-tab-btn ${dataReportTab === 'roas' ? 'active' : ''}" data-tab="roas" onclick="setDataReportTab('roas')" style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'roas' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'roas' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">ROAS Summary</button>
+    <button class="dr-tab-btn ${dataReportTab === 'sales' ? 'active' : ''}" data-tab="sales" onclick="setDataReportTab('sales')" style="padding:10px 20px;font-size:var(--fs-body);font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'sales' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'sales' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Sales Dashboard</button>
+    <button class="dr-tab-btn ${dataReportTab === 'analytics' ? 'active' : ''}" data-tab="analytics" onclick="setDataReportTab('analytics')" style="padding:10px 20px;font-size:var(--fs-body);font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'analytics' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'analytics' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">Analytics</button>
+    <button class="dr-tab-btn ${dataReportTab === 'roas' ? 'active' : ''}" data-tab="roas" onclick="setDataReportTab('roas')" style="padding:10px 20px;font-size:var(--fs-body);font-weight:600;border:none;background:none;cursor:pointer;color:${dataReportTab === 'roas' ? 'var(--primary)' : 'var(--text-muted)'};border-bottom:2px solid ${dataReportTab === 'roas' ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;transition:color .15s;">ROAS Summary</button>
   </div>
 
   <div class="dr-tab-panel ${dataReportTab !== 'sales' ? 'hidden' : ''}" data-tab="sales">
     <div class="card" style="margin-bottom:16px;padding:14px 18px;">
-      <div style="margin-bottom:4px;font-size:14px;font-weight:700;color:var(--text-primary);">Sale Report</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Delivery, return-to-sender, and COD performance based on Google Sheets records.</div>
+      <div style="margin-bottom:4px;font-size:var(--fs-base);font-weight:700;color:var(--text-primary);">Sale Report</div>
+      <div style="font-size:var(--fs-small);color:var(--text-muted);margin-bottom:14px;">Delivery, return-to-sender, and COD performance based on Google Sheets records.</div>
       <div class="rts-filter-bar">
         <div class="rts-filter-group">
           <div class="rts-filter-label">Time Filter</div>
@@ -8523,7 +8518,7 @@ function renderDataReport() {
         </div>
         <div class="rts-filter-group ${rtsRateFilter === 'monthly' ? '' : 'hidden'}" id="rts-rate-month-group">
           <div class="rts-filter-label">Month</div>
-          <select class="form-control" id="rts-rate-month" onchange="setRTSRateMonth()" style="min-width:160px;height:34px;font-size:13px;">
+          <select class="form-control" id="rts-rate-month" onchange="setRTSRateMonth()" style="min-width:160px;height:34px;font-size:var(--fs-body);">
             ${rtsMonths.length
               ? rtsMonths.map((m) => `<option value="${m}"${rtsRateMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
               : `<option value="${escapeHtml(rtsRateMonth || today.slice(0,7))}">${escapeHtml(monthLabel(rtsRateMonth || today.slice(0,7)))}</option>`}
@@ -8550,8 +8545,8 @@ function renderDataReport() {
     <div class="card" style="margin-bottom:16px;padding:14px 18px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <div>
-          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">Analytics</div>
-          <div style="font-size:12px;color:var(--text-muted);">RTS analytics from synced POS records.</div>
+          <div style="font-size:var(--fs-base);font-weight:700;color:var(--text-primary);">Analytics</div>
+          <div style="font-size:var(--fs-small);color:var(--text-muted);">RTS analytics from synced POS records.</div>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="refreshDataReport()">Refresh</button>
       </div>
@@ -8564,7 +8559,7 @@ function renderDataReport() {
         </div>
         <div class="rts-filter-group ${dataReportPreset === 'monthly' ? '' : 'hidden'}" id="data-report-month-group">
           <div class="rts-filter-label">Month</div>
-          <select class="form-control" id="data-report-month" onchange="setDataReportMonth()" style="min-width:160px;height:34px;font-size:13px;">
+          <select class="form-control" id="data-report-month" onchange="setDataReportMonth()" style="min-width:160px;height:34px;font-size:var(--fs-body);">
             ${analyticsMonths.length
               ? analyticsMonths.map((m) => `<option value="${m}"${dataReportMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
               : `<option value="${escapeHtml(dataReportMonth)}">${escapeHtml(monthLabel(dataReportMonth))}</option>`}
@@ -8591,8 +8586,8 @@ function renderDataReport() {
     <div class="card" style="margin-bottom:16px;padding:14px 18px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <div style="font-size:14px;font-weight:700;color:var(--text-primary);">ROAS Summary</div>
-          <div style="font-size:12px;color:var(--text-muted);">Ad-level performance from synced POS records. Uses the same time and page filters as the Analytics tab.</div>
+          <div style="font-size:var(--fs-base);font-weight:700;color:var(--text-primary);">ROAS Summary</div>
+          <div style="font-size:var(--fs-small);color:var(--text-muted);">Ad-level performance from synced POS records. Uses the same time and page filters as the Analytics tab.</div>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="refreshDataReport()">Refresh</button>
       </div>
@@ -8735,8 +8730,8 @@ function renderDataReportKpis(counts, rtsRate, cod) {
       <div class="stat-card amber">
         <div class="stat-card-accent"></div>
         <div class="stat-label">Sales Total (COD)</div>
-        <div class="stat-value">₱${Math.round(cod).toLocaleString()}</div>
-        <div class="stat-meta">₱${avgCod.toLocaleString()} average per order</div>
+        <div class="stat-value">₱ ${Math.round(cod).toLocaleString()}</div>
+        <div class="stat-meta">₱ ${avgCod.toLocaleString()} average per order</div>
       </div>
     </div>`;
 }
@@ -8848,12 +8843,12 @@ function renderStockAnalyticsCard() {
           const inQty = Number(item.inQty || 0);
           const outQty = Number(item.outQty || 0);
           return `<tr>
-            <td>${escapeHtml(item.name || '—')}<span style="color:var(--text-muted);font-size:11px;"> · ${escapeHtml(item.type || 'Product')}</span></td>
+            <td>${escapeHtml(item.name || '—')}<span style="color:var(--text-muted);font-size:var(--fs-caption);"> · ${escapeHtml(item.type || 'Product')}</span></td>
             <td style="text-align:right;">${Number(item.stock || 0).toLocaleString()}</td>
             <td style="text-align:right;" class="${inQty ? 'text-success' : ''}">${inQty ? inQty.toLocaleString() : '—'}</td>
             <td style="text-align:right;" class="${outQty ? 'text-danger' : ''}">${outQty ? outQty.toLocaleString() : '—'}</td>
             <td style="text-align:right;" class="${rtsPcs ? 'text-danger' : ''}">${rtsPcs ? rtsPcs.toLocaleString() : '—'}</td>
-            <td style="text-align:right;">${totalCost ? `₱${totalCost.toLocaleString()}` : '—'}</td>
+            <td style="text-align:right;">${totalCost ? `₱ ${totalCost.toLocaleString()}` : '—'}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -8911,7 +8906,7 @@ async function renderTagMergeBody() {
     const datalist = `<datalist id="tag-merge-options">${tags.map((t) => `<option value="${escapeHtml(t.key)}"></option>`).join('')}</datalist>`;
     const rows = tags.map((t) => {
       const spellings = t.variants.length > 1
-        ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${t.variants.length} spellings: ${escapeHtml(t.variants.join(' · '))}</div>`
+        ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);margin-top:2px;">${t.variants.length} spellings: ${escapeHtml(t.variants.join(' · '))}</div>`
         : '';
       return `<tr>
         <td>
@@ -8919,11 +8914,11 @@ async function renderTagMergeBody() {
           ${spellings}
         </td>
         <td class="num" style="text-align:right;color:var(--text-secondary);">${Number(t.count || 0).toLocaleString()}</td>
-        <td><input type="text" class="form-control" style="width:190px;padding:4px 8px;height:auto;font-size:12px;" list="tag-merge-options" value="${escapeHtml(map[t.key] || '')}" placeholder="Keep separate" onchange="saveTagMerge('${encodeURIComponent(t.key)}', this.value)"></td>
+        <td><input type="text" class="form-control" style="width:190px;padding:4px 8px;height:auto;font-size:var(--fs-small);" list="tag-merge-options" value="${escapeHtml(map[t.key] || '')}" placeholder="Keep separate" onchange="saveTagMerge('${encodeURIComponent(t.key)}', this.value)"></td>
       </tr>`;
     }).join('');
     body.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Different spellings of one tag already count together — case and extra spaces are ignored. Use this for the rest, e.g. merge <strong>2ND ATTEMP</strong> into <strong>2ND ATTEMPT</strong>. Merging affects the tag filter, not the tags stored in Pancake.</p>
+      <p style="font-size:var(--fs-small);color:var(--text-muted);margin-bottom:12px;">Different spellings of one tag already count together — case and extra spaces are ignored. Use this for the rest, e.g. merge <strong>2ND ATTEMP</strong> into <strong>2ND ATTEMPT</strong>. Merging affects the tag filter, not the tags stored in Pancake.</p>
       ${datalist}
       <table class="data-report-table">
         <thead><tr><th>Tag</th><th style="text-align:right;width:80px;">Orders</th><th style="width:200px;">Merge into</th></tr></thead>
@@ -8992,14 +8987,14 @@ async function renderStaffMergeBody() {
       return `<tr>
         <td style="text-align:center;"><input type="checkbox" class="staff-merge-check" value="${escapeHtml(n)}"></td>
         <td style="font-weight:500;">${escapeHtml(n)}</td>
-        <td><input type="text" class="form-control" style="width:180px;padding:4px 8px;height:auto;font-size:12px;" list="staff-merge-options" value="${escapeHtml(canonical)}" placeholder="Keep separate" onchange="saveStaffMerge('${encodeURIComponent(n)}', this.value)"></td>
+        <td><input type="text" class="form-control" style="width:180px;padding:4px 8px;height:auto;font-size:var(--fs-small);" list="staff-merge-options" value="${escapeHtml(canonical)}" placeholder="Keep separate" onchange="saveStaffMerge('${encodeURIComponent(n)}', this.value)"></td>
       </tr>`;
     }).join('');
     body.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Tick multiple staff and merge them into one target at once, or set a single row's "Merge into" target. Merged staff have their orders summed. Applies to the By Confirmed By card only.</p>
+      <p style="font-size:var(--fs-small);color:var(--text-muted);margin-bottom:12px;">Tick multiple staff and merge them into one target at once, or set a single row's "Merge into" target. Merged staff have their orders summed. Applies to the By Confirmed By card only.</p>
       ${datalist}
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-        <input type="text" id="staff-merge-target" class="form-control" list="staff-merge-options" placeholder="Merge selected into…" style="width:220px;padding:6px 10px;height:auto;font-size:13px;">
+        <input type="text" id="staff-merge-target" class="form-control" list="staff-merge-options" placeholder="Merge selected into…" style="width:220px;padding:6px 10px;height:auto;font-size:var(--fs-body);">
         <button class="btn btn-primary btn-sm" onclick="saveStaffMergeBulk()">Merge selected</button>
       </div>
       <table class="data-report-table">
@@ -9187,7 +9182,7 @@ function renderDataReportPriceChart(rows) {
           beginAtZero: true,
           suggestedMax,
           ticks: { callback: (value) => `${value}%` },
-          grid: { color: 'rgba(148,163,184,0.18)' },
+          grid: { color: mktChartColors().grid },
         },
         x: { grid: { display: false }, ticks: { maxRotation: 38, minRotation: 0 } },
       },
@@ -9296,7 +9291,7 @@ function autoFillMarketingSalesFromOrders() {
   const ordersInput = document.getElementById('mkt-orders');
   if (salesInput) salesInput.value = total;
   if (ordersInput) ordersInput.value = count;
-  showToast('success', 'Auto-filled from delivered orders', `${count} orders — ₱${total.toLocaleString()}`);
+  showToast('success', 'Auto-filled from delivered orders', `${count} orders — ₱ ${total.toLocaleString()}`);
 }
 
 // ─── AD SPEND ROAS SUMMARY ─────────────────────────────────
@@ -9580,12 +9575,12 @@ function setAdspendRoasPerPage(val) {
 }
 
 function adspendApiMoney(value) {
-  return `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱ ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function adspendMetricMoney(value) {
   const parsed = Number(value || 0);
-  return parsed ? `₱${parsed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}` : '-';
+  return parsed ? `₱ ${parsed.toLocaleString('en-PH', { maximumFractionDigits: 2 })}` : '-';
 }
 
 function getAdspendCampaignId(item) {
@@ -10207,44 +10202,44 @@ function renderAdspendRoas() {
       <table style="width:100%;border-collapse:collapse;min-width:920px;">
         <thead>
           <tr style="background:var(--surface-3,#f1f5f9);color:var(--text-primary,#0f172a);">
-            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:12px;letter-spacing:1px;font-weight:800;">ROAS SUMMARY</th>
+            <th colspan="9" style="text-align:center;padding:10px 14px;font-size:var(--fs-small);letter-spacing:1px;font-weight:800;">ROAS SUMMARY</th>
           </tr>
           <tr style="background:var(--surface-3,#f1f5f9);color:var(--text-primary,#0f172a);border-bottom:1px solid var(--border-strong,#cbd5e1);">
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">DATE</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">ORDERS</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">DELIVERED</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">RETURNED</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">ORDERS AMOUNT</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">AD SPENT</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">CPP</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">RTS RATE</th>
-            <th style="padding:10px 14px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.5px;">ROAS</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">DATE</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">DELIVERED</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">RETURNED</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">ORDERS AMOUNT</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">AD SPENT</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">CPP</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">RTS RATE</th>
+            <th style="padding:10px 14px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.5px;">ROAS</th>
           </tr>
         </thead>
         <tbody>
           ${displayRows.map((row, i) => `<tr style="background:${i % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
-            <td style="padding:10px 14px;text-align:center;font-weight:500;font-size:13px;white-space:nowrap;" title="${row.date}">${gridDateLabel(row.date, true)}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${row.orders.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;color:#059669;font-weight:600;">${row.delivered.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;color:#dc2626;font-weight:600;">${row.returned.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(row.amount)}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(row.spend)}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;${row.rtsRate >= 30 ? 'color:#dc2626;font-weight:700;' : row.rtsRate >= 15 ? 'color:#d97706;font-weight:600;' : 'color:#059669;'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td class="${roasCellClass(row.roas)}" style="padding:10px 14px;text-align:center;font-size:13px;">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-weight:500;font-size:var(--fs-body);white-space:nowrap;" title="${row.date}">${gridDateLabel(row.date, true)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${row.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);color:var(--success-text);font-weight:600;">${row.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);color:var(--danger-text);font-weight:600;">${row.returned.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${fmt(row.amount)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${fmt(row.spend)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${row.orders > 0 && row.spend > 0 ? fmt(row.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);${row.rtsRate >= 30 ? 'color:var(--danger-text);font-weight:700;' : row.rtsRate >= 15 ? 'color:var(--warning-text);font-weight:600;' : 'color:var(--success-text);'}">${row.delivered + row.returned + row.returning > 0 ? row.rtsRate.toFixed(1) + '%' : '—'}</td>
+            <td class="${roasCellClass(row.roas)}" style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
           <tr style="background:rgba(245,158,11,0.12);color:var(--text-primary);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
-            <td style="padding:10px 14px;text-align:center;font-size:13px;letter-spacing:.5px;">TOTAL AMOUNT</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.orders.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.delivered.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.returned.toLocaleString()}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(tot.amount)}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${fmt(tot.spend)}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.orders > 0 && tot.spend > 0 ? fmt(tot.cpp) : '—'}</td>
-            <td style="padding:10px 14px;text-align:center;font-size:13px;">${tot.rtsBase > 0 ? tot.rtsRate.toFixed(1) + '%' : '—'}</td>
-            <td class="${roasCellClass(tot.roas)}" style="padding:10px 14px;text-align:center;font-size:13px;">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);letter-spacing:.5px;">TOTAL AMOUNT</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${tot.orders.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${tot.delivered.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${tot.returned.toLocaleString()}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${fmt(tot.amount)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${fmt(tot.spend)}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${tot.orders > 0 && tot.spend > 0 ? fmt(tot.cpp) : '—'}</td>
+            <td style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${tot.rtsBase > 0 ? tot.rtsRate.toFixed(1) + '%' : '—'}</td>
+            <td class="${roasCellClass(tot.roas)}" style="padding:10px 14px;text-align:center;font-size:var(--fs-body);">${tot.spend > 0 ? tot.roas.toFixed(2) : '—'}</td>
           </tr>
         </tfoot>
       </table>
@@ -10263,7 +10258,7 @@ function renderAdspendRoas() {
     <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
       <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
         <div>
-          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
+          <div style="font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
               .map(([key,label]) => `<button type="button" class="filter-pill${adspendDatePreset===key?' active':''}" onclick="setAdspendPreset('${key}')">${label}</button>`)
@@ -10274,17 +10269,17 @@ function renderAdspendRoas() {
             <span style="color:var(--text-muted);">–</span>
             <input type="date" class="form-control" id="adspend-to${suffix}" value="${adspendDateTo}" style="width:148px;height:34px;">
             <button class="btn btn-primary btn-sm" onclick="applyAdspendFilter(${applyArg})">Apply</button>
-          </div>` : adspendDatePreset === 'monthly' ? '' : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
+          </div>` : adspendDatePreset === 'monthly' ? '' : `<div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:8px;">${adspendDateFrom} — ${adspendDateTo}</div>`}
         </div>
         ${adspendDatePreset === 'monthly' ? `<div>
-          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">MONTH</div>
-          <select class="form-control" onchange="setAdspendMonth(this.value)" style="height:38px;font-size:13px;min-width:160px;">
-            ${monthOptions.map((ym) => `<option value="${ym}"${adspendMonth === ym ? ' selected' : ''} style="background:#0f172a;color:#fff;">${monthLabel(ym)}</option>`).join('')}
+          <div style="font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">MONTH</div>
+          <select class="form-control" onchange="setAdspendMonth(this.value)" style="height:38px;font-size:var(--fs-body);min-width:160px;">
+            ${monthOptions.map((ym) => `<option value="${ym}"${adspendMonth === ym ? ' selected' : ''}>${monthLabel(ym)}</option>`).join('')}
           </select>
         </div>` : ''}
         ${includePage ? `<div>
-          <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
-          <select class="form-control" id="adspend-page${suffix}" style="height:38px;font-size:13px;min-width:220px;" onchange="applyAdspendFilter(${applyArg})">
+          <div style="font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PAGE FILTER</div>
+          <select class="form-control" id="adspend-page${suffix}" style="height:38px;font-size:var(--fs-body);min-width:220px;" onchange="applyAdspendFilter(${applyArg})">
             <option value="all"${adspendPageFilter === 'all' ? ' selected' : ''}>All Pages</option>
             ${allPages.map((name) => `<option value="${escapeHtml(name)}"${adspendPageFilter === name ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
           </select>
@@ -10292,7 +10287,7 @@ function renderAdspendRoas() {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;">
         ${ADSPEND_STATUS_MAP.map(([status, id, label]) => `
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+          <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-body);cursor:pointer;color:var(--text-secondary);">
             <input type="checkbox" id="${id}${suffix}" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter(${applyArg})" style="width:14px;height:14px;accent-color:var(--primary);">
             ${label}
           </label>`).join('')}
@@ -10411,18 +10406,18 @@ function renderAdspendRoas() {
         ? 'Only Sales and Marketing can record ad spend.'
         : 'Several marketing entries on this day — edit them in Marketing.';
       return `<tr style="background:${idx % 2 === 0 ? 'var(--surface-1,#fff)' : 'var(--surface-2,#f9fafb)'};">
-        <td style="padding:7px 8px;text-align:center;font-size:12px;white-space:nowrap;" title="${row.date}">${gridDateLabel(row.date)}</td>
-        <td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders.toLocaleString()}</td>
-        <td style="padding:7px 8px;text-align:center;font-size:12px;">${fmt1(row.amount)}</td>
+        <td style="padding:7px 8px;text-align:center;font-size:var(--fs-small);white-space:nowrap;" title="${row.date}">${gridDateLabel(row.date)}</td>
+        <td style="padding:7px 8px;text-align:center;font-size:var(--fs-small);">${row.orders.toLocaleString()}</td>
+        <td style="padding:7px 8px;text-align:center;font-size:var(--fs-small);">${fmt1(row.amount)}</td>
         <td style="padding:5px 8px;text-align:center;">
           <input type="text" inputmode="decimal" id="${inputId}" value="${row.spend ? row.spend.toFixed(2) : ''}" placeholder="0.00" onfocus="this.select()"
             ${locked ? `readonly title="${lockNote}"` : ''}
             onkeydown="adspendGridSpendKey(event, ${col}, ${idx})"
             onblur="adspendGridSpendBlur(event, ${col}, ${idx})"
-            style="width:100%;max-width:130px;height:26px;text-align:center;font-size:12px;border-radius:6px;border:1px solid var(--border,rgba(148,163,184,0.35));background:var(--surface-3,#f1f5f9);color:${row.spend ? 'var(--text-primary)' : 'var(--text-muted)'};${locked ? 'opacity:.7;cursor:not-allowed;' : ''}">
+            style="width:100%;max-width:130px;height:26px;text-align:center;font-size:var(--fs-small);border-radius:6px;border:1px solid var(--border,rgba(148,163,184,0.35));background:var(--surface-3,#f1f5f9);color:${row.spend ? 'var(--text-primary)' : 'var(--text-muted)'};${locked ? 'opacity:.7;cursor:not-allowed;' : ''}">
         </td>
-        ${adspendGridShowCpp ? `<td style="padding:7px 8px;text-align:center;font-size:12px;">${row.orders > 0 && row.spend > 0 ? fmt1(row.cpp) : '—'}</td>` : ''}
-        <td class="${roasCellClass(row.roas)}" style="padding:7px 8px;text-align:center;font-size:12px;">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
+        ${adspendGridShowCpp ? `<td style="padding:7px 8px;text-align:center;font-size:var(--fs-small);">${row.orders > 0 && row.spend > 0 ? fmt1(row.cpp) : '—'}</td>` : ''}
+        <td class="${roasCellClass(row.roas)}" style="padding:7px 8px;text-align:center;font-size:var(--fs-small);">${row.spend > 0 ? row.roas.toFixed(2) : '—'}</td>
       </tr>`;
     }).join('');
 
@@ -10433,44 +10428,44 @@ function renderAdspendRoas() {
     <div id="apg-card-${col}" class="apg-card" ondragover="adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, ${col})"
       style="border:1px solid var(--border,rgba(148,163,184,0.25));border-radius:10px;overflow:hidden;background:var(--surface-1);">
       <div id="apg-head-${col}" data-page="${escapeHtml(pageData.page)}" draggable="true" ondragstart="adspendGridDragStart(event, ${col})" ondragend="adspendGridDragEnd(${col})"
-        style="position:relative;padding:11px 42px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:grab;background:${headColor || 'var(--surface-3,#f1f5f9)'};color:${headColor ? readableTextOn(headColor) : 'var(--text-primary)'};border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="Drag to rearrange — ${escapeHtml(pageData.page)}">
-        <span aria-hidden="true" style="position:absolute;top:50%;left:12px;transform:translateY(-50%);font-size:14px;opacity:.6;letter-spacing:0;">⠿</span>${escapeHtml(pageData.page)}
+        style="position:relative;padding:11px 42px;text-align:center;font-size:var(--fs-small);font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:grab;background:${headColor || 'var(--surface-3,#f1f5f9)'};color:${headColor ? readableTextOn(headColor) : 'var(--text-primary)'};border-bottom:1px solid var(--border,rgba(148,163,184,0.25));" title="Drag to rearrange — ${escapeHtml(pageData.page)}">
+        <span aria-hidden="true" style="position:absolute;top:50%;left:12px;transform:translateY(-50%);font-size:var(--fs-base);opacity:.6;letter-spacing:0;">⠿</span>${escapeHtml(pageData.page)}
         <span style="position:absolute;top:50%;right:8px;transform:translateY(-50%);display:flex;align-items:center;gap:2px;">
           <input type="color" value="${headColor || '#1e293b'}" title="Header colour for this page" onchange="setAdspendPageColor(${col}, this.value)"
             style="width:20px;height:20px;padding:0;border:1px solid rgba(148,163,184,0.5);border-radius:4px;background:none;cursor:pointer;">
           <button type="button" class="apg-head-clear" title="Clear colour" onclick="setAdspendPageColor(${col}, '')"
-            style="display:${headColor ? 'inline-flex' : 'none'};align-items:center;justify-content:center;width:16px;height:20px;padding:0;border:none;background:none;color:inherit;opacity:.7;cursor:pointer;font-size:13px;line-height:1;">×</button>
+            style="display:${headColor ? 'inline-flex' : 'none'};align-items:center;justify-content:center;width:16px;height:20px;padding:0;border:none;background:none;color:inherit;opacity:.7;cursor:pointer;font-size:var(--fs-body);line-height:1;">×</button>
         </span>
       </div>
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;">
         <thead>
           <tr style="background:var(--surface-2,#f9fafb);color:var(--text-primary);border-bottom:1px solid var(--border-strong,#cbd5e1);">
-            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">DATE</th>
-            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">ORDERS</th>
-            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">SALES</th>
-            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">AD SPENT</th>
-            ${adspendGridShowCpp ? '<th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">CPP</th>' : ''}
-            <th style="padding:8px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.5px;">ROAS</th>
+            <th style="padding:8px;text-align:center;font-size:var(--fs-caption);font-weight:800;letter-spacing:.5px;">DATE</th>
+            <th style="padding:8px;text-align:center;font-size:var(--fs-caption);font-weight:800;letter-spacing:.5px;">ORDERS</th>
+            <th style="padding:8px;text-align:center;font-size:var(--fs-caption);font-weight:800;letter-spacing:.5px;">SALES</th>
+            <th style="padding:8px;text-align:center;font-size:var(--fs-caption);font-weight:800;letter-spacing:.5px;">AD SPENT</th>
+            ${adspendGridShowCpp ? '<th style="padding:8px;text-align:center;font-size:var(--fs-caption);font-weight:800;letter-spacing:.5px;">CPP</th>' : ''}
+            <th style="padding:8px;text-align:center;font-size:var(--fs-caption);font-weight:800;letter-spacing:.5px;">ROAS</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
         <tfoot>
           <tr style="background:rgba(245,158,11,0.12);font-weight:700;border-top:1px solid rgba(245,158,11,0.35);">
-            <td style="padding:8px;text-align:center;font-size:12px;">Total Amount</td>
-            <td style="padding:8px;text-align:center;font-size:12px;">${t.orders.toLocaleString()}</td>
-            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.amount)}</td>
-            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.spend)}</td>
-            ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:12px;">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
-            <td class="${roasCellClass(t.roas)}" style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">Total Amount</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">${t.orders.toLocaleString()}</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">${fmt1(t.amount)}</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">${fmt1(t.spend)}</td>
+            ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:var(--fs-small);">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
+            <td class="${roasCellClass(t.roas)}" style="padding:8px;text-align:center;font-size:var(--fs-small);">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
           </tr>
           <tr style="background:rgba(16,185,129,0.10);font-weight:700;">
-            <td style="padding:8px;text-align:center;font-size:12px;">Average</td>
-            <td style="padding:8px;text-align:center;font-size:12px;">${(t.orders / days).toFixed(1)}</td>
-            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.amount / days)}</td>
-            <td style="padding:8px;text-align:center;font-size:12px;">${fmt1(t.spend / days)}</td>
-            ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:12px;">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
-            <td class="${roasCellClass(t.roas)}" style="padding:8px;text-align:center;font-size:12px;">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">Average</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">${(t.orders / days).toFixed(1)}</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">${fmt1(t.amount / days)}</td>
+            <td style="padding:8px;text-align:center;font-size:var(--fs-small);">${fmt1(t.spend / days)}</td>
+            ${adspendGridShowCpp ? `<td style="padding:8px;text-align:center;font-size:var(--fs-small);">${t.orders > 0 && t.spend > 0 ? fmt1(t.cpp) : '—'}</td>` : ''}
+            <td class="${roasCellClass(t.roas)}" style="padding:8px;text-align:center;font-size:var(--fs-small);">${t.spend > 0 ? t.roas.toFixed(2) : '—'}</td>
           </tr>
         </tfoot>
       </table>
@@ -10478,14 +10473,14 @@ function renderAdspendRoas() {
     </div>`;
   }
 
-  const gridLabelStyle = 'font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;';
+  const gridLabelStyle = 'font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;';
   const gridFilterHtml = `
   <div style="padding:16px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Every chat page side by side — orders, sales, ad spend and ROAS for each day in range.</div>
+    <div style="font-size:var(--fs-small);color:var(--text-muted);margin-bottom:14px;">Every chat page side by side — orders, sales, ad spend and ROAS for each day in range.</div>
     <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;">
       <div>
         <div style="${gridLabelStyle}">PAGE STATUS</div>
-        <select class="form-control" onchange="setAdspendGridStatus(this.value)" style="height:38px;font-size:13px;min-width:280px;">
+        <select class="form-control" onchange="setAdspendGridStatus(this.value)" style="height:38px;font-size:var(--fs-body);min-width:280px;">
           ${[['active', 'Active — orders or spend'], ['orders', 'With orders only'], ['spend', 'With ad spend only'], ['all', 'All pages']]
             .map(([key, label]) => `<option value="${key}"${adspendGridStatus === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
@@ -10493,11 +10488,11 @@ function renderAdspendRoas() {
       <div>
         <div style="${gridLabelStyle}">FILTER PAGE</div>
         <input type="text" class="form-control" id="apg-search" value="${escapeHtml(adspendGridSearch)}" placeholder="Type part of a page name"
-          oninput="setAdspendGridSearch(this.value)" style="height:38px;font-size:13px;min-width:280px;">
+          oninput="setAdspendGridSearch(this.value)" style="height:38px;font-size:var(--fs-body);min-width:280px;">
       </div>
       <div>
         <div style="${gridLabelStyle}">FILTER BY</div>
-        <select class="form-control" onchange="setAdspendGridSort(this.value)" style="height:38px;font-size:13px;min-width:280px;">
+        <select class="form-control" onchange="setAdspendGridSort(this.value)" style="height:38px;font-size:var(--fs-body);min-width:280px;">
           ${[['name', 'Page name (A–Z)'], ['custom', 'My order (drag cards)'], ['sales', 'Sales (high to low)'], ['spend', 'Ad spend (high to low)'], ['roas', 'ROAS (high to low)'], ['orders', 'Orders (high to low)']]
             .map(([key, label]) => `<option value="${key}"${adspendGridSort === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
@@ -10516,31 +10511,31 @@ function renderAdspendRoas() {
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px;">
       ${[['all', 'All Time'], ['weekly', 'Last 7 Days'], ['monthly', 'This Month'], ['custom', 'Custom']]
         .map(([key, label]) => `<button type="button" class="filter-pill${adspendDatePreset === key ? ' active' : ''}" onclick="setAdspendPreset('${key}')">${label}</button>`).join('')}
-      <select class="form-control" onchange="if (this.value) setAdspendMonth(this.value)" style="height:32px;font-size:12px;width:150px;flex:0 0 auto;padding:0 30px 0 10px;">
+      <select class="form-control" onchange="if (this.value) setAdspendMonth(this.value)" style="height:32px;font-size:var(--fs-small);width:150px;flex:0 0 auto;padding:0 30px 0 10px;">
         <option value="">Month…</option>
         ${monthOptions.map((ym) => `<option value="${ym}"${adspendDatePreset === 'monthly' && adspendMonth === ym ? ' selected' : ''}>${monthLabel(ym)}</option>`).join('')}
       </select>
-      <span style="font-size:12px;color:var(--text-muted);margin-left:6px;white-space:nowrap;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'} · ${gridCount} page${gridCount === 1 ? '' : 's'}</span>
+      <span style="font-size:var(--fs-small);color:var(--text-muted);margin-left:6px;white-space:nowrap;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'} · ${gridCount} page${gridCount === 1 ? '' : 's'}</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:18px;padding-top:18px;border-top:1px solid var(--border,rgba(255,255,255,0.08));">
       <div>
         <div style="${gridLabelStyle}">CANCELLED ORDERS</div>
-        <select class="form-control" onchange="setAdspendGridCancelled(this.value)" style="height:38px;font-size:13px;min-width:190px;">
+        <select class="form-control" onchange="setAdspendGridCancelled(this.value)" style="height:38px;font-size:var(--fs-body);min-width:190px;">
           ${[['exclude', 'Exclude cancelled'], ['include', 'Include cancelled'], ['only', 'Cancelled only']]
             .map(([key, label]) => `<option value="${key}"${adspendGridCancelled === key ? ' selected' : ''}>${label}</option>`).join('')}
         </select>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding-top:28px;">
         ${ADSPEND_STATUS_MAP.map(([status, id, label]) => `
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+          <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-body);cursor:pointer;color:var(--text-secondary);">
             <input type="checkbox" id="${id}-ap" ${adspendStatusFilters.has(status) ? 'checked' : ''} onchange="applyAdspendFilter('-ap')" style="width:14px;height:14px;accent-color:var(--primary);">
             ${label}
           </label>`).join('')}
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--text-secondary);">
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-body);cursor:pointer;color:var(--text-secondary);">
           <input type="checkbox" ${adspendGridShowCpp ? 'checked' : ''} onchange="toggleAdspendGridCpp(this.checked)" style="width:14px;height:14px;accent-color:var(--primary);">
           CPP
         </label>
-        <span style="font-size:12px;color:var(--text-muted);">Leave every status unticked to count all of them.</span>
+        <span style="font-size:var(--fs-small);color:var(--text-muted);">Leave every status unticked to count all of them.</span>
       </div>
     </div>
   </div>`;
@@ -10550,14 +10545,14 @@ function renderAdspendRoas() {
   const allPagesHtml = `
   <div class="card" style="padding:0;overflow:hidden;">
     ${gridFilterHtml}
-    <div style="padding:12px 20px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">${gridCount} page${gridCount === 1 ? '' : 's'} · ${adspendDateFrom} — ${adspendDateTo}</div>
+    <div style="padding:12px 20px;font-size:var(--fs-small);color:var(--text-muted);border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">${gridCount} page${gridCount === 1 ? '' : 's'} · ${adspendDateFrom} — ${adspendDateTo}</div>
     ${!gridCount ? '<div style="text-align:center;padding:48px;color:var(--text-muted);">No pages match these filters.</div>' : `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));">
       <button class="apg-nav" onclick="slideAdspendGrid(-1)" ${adspendGridStart <= 0 ? 'disabled' : ''} title="Drop a card here to move it to the previous screen"
         ondragover="if (!this.disabled) adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, 'prev')"><span aria-hidden="true">‹</span>Prev</button>
       <div style="text-align:center;">
-        <div style="font-size:15px;font-weight:700;color:var(--text-primary);">Pages ${gridFirst}${gridLast > gridFirst ? `–${gridLast}` : ''} of ${gridCount}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'}</div>
+        <div style="font-size:var(--fs-base);font-weight:700;color:var(--text-primary);">Pages ${gridFirst}${gridLast > gridFirst ? `–${gridLast}` : ''} of ${gridCount}</div>
+        <div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:2px;">${adspendDateFrom} — ${adspendDateTo} · ${gridDayCount} day${gridDayCount === 1 ? '' : 's'}</div>
       </div>
       <button class="apg-nav" onclick="slideAdspendGrid(1)" ${gridLast >= gridCount ? 'disabled' : ''} title="Drop a card here to move it to the next screen"
         ondragover="if (!this.disabled) adspendGridDragOver(event, this)" ondragleave="adspendGridDragLeave(event, this)" ondrop="adspendGridDrop(event, 'next')">Next<span aria-hidden="true">›</span></button>
@@ -10565,7 +10560,7 @@ function renderAdspendRoas() {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;padding:20px;">
       ${gridWindow.map((pageData, col) => gridCardHtml(pageData, col)).join('')}
     </div>
-    <div style="padding:0 20px 18px;font-size:12px;color:var(--text-muted);">Drag a card by its header to rearrange the pages (drop on Prev / Next to move it to another screen). Type an amount in Ad Spent to record that day's spend for that page — it saves when you leave the box, and Enter jumps to the next day. The figure feeds ROAS Summary and Marketing too.</div>`}
+    <div style="padding:0 20px 18px;font-size:var(--fs-small);color:var(--text-muted);">Drag a card by its header to rearrange the pages (drop on Prev / Next to move it to another screen). Type an amount in Ad Spent to record that day's spend for that page — it saves when you leave the box, and Enter jumps to the next day. The figure feeds ROAS Summary and Marketing too.</div>`}
   </div>`;
 
   const monthlyTarget = Number(mktState.targets?.sales || 0);
@@ -10634,8 +10629,8 @@ function renderAdspendRoas() {
     ${roasTableHtml(pagedRows, t, n)}
     <div class="table-pagination">
       <div style="display:flex;align-items:center;gap:10px;">
-        <span style="font-size:13px;color:var(--text-muted);">Rows:</span>
-        <select onchange="setAdspendRoasPerPage(this.value)" style="height:30px;font-size:13px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
+        <span style="font-size:var(--fs-body);color:var(--text-muted);">Rows:</span>
+        <select onchange="setAdspendRoasPerPage(this.value)" style="height:30px;font-size:var(--fs-body);padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
           ${[10,20,50].map((v) => `<option value="${v}"${adspendRoasPerPage===v?' selected':''}>${v}</option>`).join('')}
         </select>
         <span>${rows.length ? roasPageStart + 1 : 0}–${roasPageEnd} of ${rows.length} rows</span>
@@ -10680,7 +10675,7 @@ function renderOrderPages() {
   const rows = orderPagesState.rows;
   const totalOrders = rows.reduce((sum, row) => sum + Number(row.orders || 0), 0);
   const num = (v) => Number(v || 0).toLocaleString('en-PH');
-  const th = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;';
+  const th = 'text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;';
   const td = 'padding:10px 12px;text-align:center;';
   const dash = '<span style="color:var(--text-muted);">—</span>';
   const note = (text) => `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--text-muted);">${escapeHtml(text)}</td></tr>`;
@@ -10693,7 +10688,7 @@ function renderOrderPages() {
         : rows.map((row) => `<tr>
             <td style="${td}"><strong>${escapeHtml(row.name || '')}</strong></td>
             <td style="${td}">${row.owner ? escapeHtml(row.owner) : dash}</td>
-            <td style="${td}font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text-secondary);">${row.shop_id ? escapeHtml(row.shop_id) : dash}</td>
+            <td style="${td}font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);color:var(--text-secondary);">${row.shop_id ? escapeHtml(row.shop_id) : dash}</td>
             <td style="${td}font-weight:600;">${num(row.orders)}</td>
           </tr>`).join('');
 
@@ -10949,7 +10944,7 @@ function renderRunningCreatives() {
     return `${header(`<span style="color:var(--danger);">${escapeHtml(data.error)}</span>`)}`;
   }
 
-  const peso = (v) => `₱${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+  const peso = (v) => `₱ ${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
   // creative_type is filled by the Meta sync; until one has run since it was
   // added every type is null, so a Videos filter would hide everything.
   const typed = data.pages.some((p) => p.creatives.some((c) => c.type));
@@ -10968,7 +10963,7 @@ function renderRunningCreatives() {
     return `${header(subtitle, controls)}<div style="padding:32px;text-align:center;color:var(--text-muted);">No running ${label} in Ads Manager.</div>`;
   }
 
-  const th = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:8px 12px;border-bottom:1px solid var(--border);';
+  const th = 'text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:8px 12px;border-bottom:1px solid var(--border);';
   const body = pages.map((p) => {
     const pageKey = p.page_id || '';
     const videos = p.shown.filter((c) => c.type === 'video').length;
@@ -10977,8 +10972,8 @@ function renderRunningCreatives() {
       <summary style="cursor:pointer;padding:12px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         <strong style="flex:1;min-width:180px;">${escapeHtml(p.page_name)}</strong>
         <span class="badge badge-info">${p.shown.length} ${mode === 'video' ? `video${p.shown.length === 1 ? '' : 's'}` : `creative${p.shown.length === 1 ? '' : 's'}`}</span>
-        ${mode === 'all' && typed ? `<span style="font-size:12px;color:var(--text-muted);">${videos} video${videos === 1 ? '' : 's'}</span>` : ''}
-        <span style="font-size:12px;color:var(--text-muted);min-width:90px;text-align:right;">${peso(spend)}</span>
+        ${mode === 'all' && typed ? `<span style="font-size:var(--fs-small);color:var(--text-muted);">${videos} video${videos === 1 ? '' : 's'}</span>` : ''}
+        <span style="font-size:var(--fs-small);color:var(--text-muted);min-width:90px;text-align:right;">${peso(spend)}</span>
       </summary>
       <div class="table-container" style="padding:0 12px 12px;">
         <table>
@@ -10994,7 +10989,7 @@ function renderRunningCreatives() {
           <tbody>${p.shown.map((c) => `<tr>
             <td><div style="display:flex;gap:10px;align-items:center;">
               ${c.thumbnail_url ? `<img src="${escapeHtml(c.thumbnail_url)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0;">` : ''}
-              <div><strong>${escapeHtml(c.name)}</strong>${c.first_created ? `<div style="font-size:11px;color:var(--text-muted);">since ${escapeHtml(String(c.first_created).slice(0, 10))}</div>` : ''}</div>
+              <div><strong>${escapeHtml(c.name)}</strong>${c.first_created ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);">since ${escapeHtml(String(c.first_created).slice(0, 10))}</div>` : ''}</div>
             </div></td>
             <td>${c.type === 'video' ? '<span class="badge badge-info">Video</span>' : c.type ? `<span class="badge">${escapeHtml(c.type === 'image' ? 'Image' : c.type)}</span>` : '<span style="color:var(--text-muted);">—</span>'}</td>
             <td style="text-align:right;">${c.ads}</td>
@@ -11041,7 +11036,7 @@ function renderCreativesBody() {
   }, { spend: 0, revenue: 0, conversions: 0, ctrSum: 0 });
   const avgRoas = totals.spend ? totals.revenue / totals.spend : 0;
   const avgCtr = filtered.length ? totals.ctrSum / filtered.length : 0;
-  const peso = (v) => `₱${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+  const peso = (v) => `₱ ${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
   const num = (v) => Number(v || 0).toLocaleString('en-PH');
   const sorted = filtered.slice().sort((a, b) => b.spend - a.spend);
 
@@ -11089,7 +11084,7 @@ function renderCreativesBody() {
   <div class="card" style="margin-bottom:16px;padding:16px 20px;">
     <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;">
       <div>
-        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
+        <div style="font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">TIME FILTER</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${[['all','All Time'],['weekly','Weekly'],['monthly','Monthly'],['custom','Custom Date Range']]
             .map(([key,label]) => `<button type="button" class="filter-pill${creativesDatePreset===key?' active':''}" onclick="setCreativesPreset('${key}')">${label}</button>`)
@@ -11100,11 +11095,11 @@ function renderCreativesBody() {
           <span style="color:var(--text-muted);">–</span>
           <input type="date" class="form-control" id="creatives-to" value="${creativesDateTo}" style="width:148px;height:34px;">
           <button class="btn btn-primary btn-sm" onclick="applyCreativesFilter()">Apply</button>
-        </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${creativesDateFrom} — ${creativesDateTo}</div>`}
+        </div>` : `<div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:8px;">${creativesDateFrom} — ${creativesDateTo}</div>`}
       </div>
       <div>
-        <div style="font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PLATFORM FILTER</div>
-        <select class="form-control" id="creatives-platform" style="height:38px;font-size:13px;min-width:220px;" onchange="applyCreativesFilter()">
+        <div style="font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:600;margin-bottom:8px;">PLATFORM FILTER</div>
+        <select class="form-control" id="creatives-platform" style="height:38px;font-size:var(--fs-body);min-width:220px;" onchange="applyCreativesFilter()">
           <option value="all"${creativesPlatformFilter === 'all' ? ' selected' : ''}>All Platforms</option>
           ${platformOptions.map((p) => `<option value="${escapeHtml(p)}"${creativesPlatformFilter === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
         </select>
@@ -11112,7 +11107,7 @@ function renderCreativesBody() {
     </div>
   </div>
 
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+  <div class="stats-grid" style="margin-bottom:16px;">
     <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Total Spend</div><div class="stat-value">${peso(totals.spend)}</div></div>
     <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Total Revenue</div><div class="stat-value">${peso(totals.revenue)}</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Avg ROAS</div><div class="stat-value">${avgRoas.toFixed(2)}x</div></div>
@@ -11132,15 +11127,15 @@ function renderCreativesBody() {
     <div class="table-container">
       <table>
         <thead><tr style="background:var(--surface-2);">
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Creative</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Page</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Platform</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Spend</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Revenue</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">ROAS</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">CPP</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Conv.</th>
-          <th style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Status</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Creative</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Page</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Platform</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Spend</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Revenue</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">ROAS</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">CPP</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);text-align:right;">Conv.</th>
+          <th style="text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);">Status</th>
           ${marketingManager ? '<th style="border-bottom:1px solid var(--border);"></th>' : ''}
         </tr></thead>
         <tbody>
@@ -11148,7 +11143,7 @@ function renderCreativesBody() {
             const roas = c.spend ? c.revenue / c.spend : 0;
             const cpp = c.conversions ? c.spend / c.conversions : 0;
             return `<tr>
-              <td><strong>${escapeHtml(c.name)}</strong>${c.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.notes)}</div>` : ''}${c.date ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.date)}</div>` : ''}</td>
+              <td><strong>${escapeHtml(c.name)}</strong>${c.notes ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);">${escapeHtml(c.notes)}</div>` : ''}${c.date ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);">${escapeHtml(c.date)}</div>` : ''}</td>
               <td>${c.page ? escapeHtml(c.page) : '<span style="color:var(--text-muted);">—</span>'}</td>
               <td>${escapeHtml(c.platform)}</td>
               <td style="text-align:right;">${peso(c.spend)}</td>
@@ -11156,7 +11151,7 @@ function renderCreativesBody() {
               <td style="text-align:right;font-weight:600;${roas >= 2 ? 'color:var(--success);' : roas >= 1 ? '' : 'color:var(--danger);'}">${roas.toFixed(2)}x</td>
               <td style="text-align:right;">${cpp ? peso(cpp) : '—'}</td>
               <td style="text-align:right;">${num(c.conversions)}</td>
-              <td>${marketingManager ? `<select class="form-control" style="height:30px;font-size:12px;padding:0 8px;width:110px;" onchange="updateCreativeStatus(${c._index}, this.value)">
+              <td>${marketingManager ? `<select class="form-control" style="height:30px;font-size:var(--fs-small);padding:0 8px;width:110px;" onchange="updateCreativeStatus(${c._index}, this.value)">
                 ${CREATIVE_STATUSES.map((s) => `<option value="${s}"${s === c.status ? ' selected' : ''}>${s}</option>`).join('')}
               </select>` : `<span class="badge ${CREATIVE_STATUS_BADGE[c.status]}">${c.status}</span>`}</td>
               ${marketingManager ? `<td><button class="btn btn-ghost btn-sm" onclick="editCreative(${c._index})">Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteCreativeAt(${c._index})">×</button></td>` : ''}
@@ -11300,7 +11295,7 @@ function renderSalesTrackerRows() {
   const visible = salesTrackerVisibleRowIndexes();
   const width = sheet.rows[0]?.length || 0;
   if (!visible.length) {
-    return `<tr><td colspan="${width + 1}" style="text-align:center;color:#70757a;padding:28px 16px;">
+    return `<tr><td colspan="${width + 1}" style="text-align:center;color:var(--text-muted);padding:28px 16px;">
       ${salesTrackerState.search ? 'No rows match your search.' : 'This sheet is empty.'}
     </td></tr>`;
   }
@@ -11393,8 +11388,8 @@ function renderSalesTrackerConnectCard() {
     <div class="card" style="margin-bottom:18px;">
       <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div>
-          <div style="font-weight:600;font-size:14px;">Google Sheets connection</div>
-          <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">${summary}</div>
+          <div style="font-weight:600;font-size:var(--fs-base);">Google Sheets connection</div>
+          <div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:4px;">${summary}</div>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="toggleSalesTrackerConnectForm()">
           ${config.configured ? 'Edit connection' : 'Connect a spreadsheet'}
@@ -11410,8 +11405,8 @@ function renderSalesTrackerConnectCard() {
   return `
   <div class="card" style="margin-bottom:18px;">
     <div class="card-body">
-      <div style="font-weight:600;font-size:14px;margin-bottom:4px;">Google Sheets connection</div>
-      <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;">
+      <div style="font-weight:600;font-size:var(--fs-base);margin-bottom:4px;">Google Sheets connection</div>
+      <p style="font-size:var(--fs-small);color:var(--text-muted);margin-bottom:14px;">
         Share the spreadsheet with the service account email (Viewer access is enough), then paste its
         service account JSON key below. This connection is separate from the main Google Sheets integration.
       </p>
@@ -11426,7 +11421,7 @@ function renderSalesTrackerConnectCard() {
         <textarea class="form-control" id="sales-tracker-key" rows="5"
                   placeholder="${escapeHtml(keyPlaceholder)}"></textarea>
         ${config.service_account_email
-          ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Current service account: <code>${escapeHtml(config.service_account_email)}</code></div>`
+          ? `<div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:6px;">Current service account: <code>${escapeHtml(config.service_account_email)}</code></div>`
           : ''}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
@@ -11520,12 +11515,12 @@ function renderSalesMarketingTracker() {
                    oninput="filterSalesTrackerRows(this.value)">
           </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <span id="sales-tracker-row-count" style="font-size:12.5px;color:var(--text-muted);">
+            <span id="sales-tracker-row-count" style="font-size:var(--fs-small);color:var(--text-muted);">
               ${salesTrackerVisibleRowIndexes().length.toLocaleString()} of ${sheet.rows.length.toLocaleString()} rows
             </span>
             ${sheet.truncated ? '<span class="badge badge-warning">showing first 2,000 rows</span>' : ''}
             <span class="badge badge-gray">read-only</span>
-            <select class="form-control" style="width:auto;padding:6px 10px;font-size:12.5px;"
+            <select class="form-control" style="width:auto;padding:6px 10px;font-size:var(--fs-small);"
                     onchange="setSalesTrackerWidthMode(this.value)">
               ${SALES_TRACKER_WIDTH_MODES.map(([value, label]) => `<option value="${value}" ${salesTrackerState.widthMode === value ? 'selected' : ''}>${label}</option>`).join('')}
             </select>
@@ -11692,8 +11687,8 @@ let mktTrendChart = null;
 // Two series of the same unit on one axis, so no second scale is ever needed.
 // Blue/orange clear the CVD and normal-vision separation gates in both themes.
 const MKT_CHART_COLORS = {
-  light: { sales: '#2a78d6', spend: '#eb6834', grid: 'rgba(15,23,42,0.08)', tick: '#64748b', label: '#334155' },
-  dark: { sales: '#3987e5', spend: '#d95926', grid: 'rgba(148,163,184,0.14)', tick: '#94a3b8', label: '#cbd5e1' },
+  light: { sales: '#2a78d6', spend: '#eb6834', moneyIn: '#059669', moneyOut: '#ef4444', grid: 'rgba(15,23,42,0.08)', tick: '#64748b', label: '#334155' },
+  dark: { sales: '#3987e5', spend: '#d95926', moneyIn: '#059669', moneyOut: '#ef4444', grid: 'rgba(148,163,184,0.14)', tick: '#94a3b8', label: '#cbd5e1' },
 };
 
 function mktChartColors() {
@@ -11702,11 +11697,52 @@ function mktChartColors() {
     : MKT_CHART_COLORS.light;
 }
 
+// One colour per order status, shared by every chart so a status reads the
+// same on every tab. Families follow statusBadge(): blue in flight, slate
+// confirmed, amber waiting or coming back, green delivered, red returned.
+// Adjacent pairs pass the palette validator in both themes; every status
+// chart carries a legend, so identity never rests on colour alone.
+const ORDER_STATUS_COLORS = {
+  New: '#60a5fa',
+  Confirmed: '#64748b',
+  'Waiting for pickup': '#f59e0b',
+  Shipped: '#3b82f6',
+  Delivered: '#059669',
+  Returning: '#fbbf24',
+  Returned: '#ef4444',
+  Canceled: '#94a3b8',
+};
+
+function orderStatusColor(status) {
+  return ORDER_STATUS_COLORS[status] || '#cbd5e1';
+}
+
+// Axis text, gridlines and font for every chart, from the current theme.
+// `recolor` also repaints charts already on screen (a theme toggle), since
+// each chart bakes its axis colours in when it is drawn.
+function applyChartTheme(options) {
+  if (typeof Chart === 'undefined') return;
+  const c = mktChartColors();
+  Chart.defaults.font.family = "'DM Sans', sans-serif";
+  Chart.defaults.color = c.tick;
+  Chart.defaults.borderColor = c.grid;
+  if (!(options && options.recolor)) return;
+  Object.values(Chart.instances || {}).forEach((chart) => {
+    Object.values(chart.options.scales || {}).forEach((axis) => {
+      if (axis.grid && axis.grid.display !== false) axis.grid.color = c.grid;
+      if (axis.ticks) axis.ticks.color = c.tick;
+    });
+    const legend = chart.options.plugins && chart.options.plugins.legend;
+    if (legend && legend.labels) legend.labels.color = c.label;
+    chart.update('none');
+  });
+}
+
 function renderMarketingAnalysisCharts() {
   if (typeof Chart === 'undefined') return;
   const colors = mktChartColors();
   const series = mktAnalysisSeries || { trend: { labels: [], sales: [], spend: [] }, roas: [], rts: [] };
-  const peso = (v) => `₱${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+  const peso = (v) => `₱ ${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
 
   const toggleEmpty = (id, hasData) => {
     const empty = document.getElementById(id);
@@ -11724,8 +11760,8 @@ function renderMarketingAnalysisCharts() {
       data: {
         labels: trend.labels,
         datasets: [
-          { label: 'Gross sales', data: trend.sales, backgroundColor: colors.sales, borderRadius: 4, borderSkipped: false },
-          { label: 'Ad spend', data: trend.spend, backgroundColor: colors.spend, borderRadius: 4, borderSkipped: false },
+          { label: 'Gross sales', data: trend.sales, backgroundColor: colors.moneyIn, borderRadius: 4, borderSkipped: false },
+          { label: 'Ad spend', data: trend.spend, backgroundColor: colors.moneyOut, borderRadius: 4, borderSkipped: false },
         ],
       },
       options: {
@@ -12152,7 +12188,7 @@ function renderMarketingCenter() {
     }
     return { ...member, pages: memberPages, ...agg };
   });
-  const teamTh = 'text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);';
+  const teamTh = 'text-transform:uppercase;font-size:var(--fs-caption);letter-spacing:0.06em;color:var(--text-muted);font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);';
 
   return `
   <div class="erp-command-center">
@@ -12247,7 +12283,7 @@ function renderMarketingCenter() {
         </div>
         <div class="rts-filter-group ${mktPagesPreset === 'monthly' ? '' : 'hidden'}">
           <div class="rts-filter-label">Month</div>
-          <select class="form-control" id="mkt-pages-month" onchange="setMktPagesMonth()" style="min-width:160px;height:34px;font-size:13px;">
+          <select class="form-control" id="mkt-pages-month" onchange="setMktPagesMonth()" style="min-width:160px;height:34px;font-size:var(--fs-body);">
             ${mpMonthOptions.length
               ? mpMonthOptions.map((m) => `<option value="${m}"${mktPagesMonth === m ? ' selected' : ''}>${escapeHtml(monthLabel(m))}</option>`).join('')
               : `<option value="${escapeHtml(mktPagesMonth)}">${escapeHtml(monthLabel(mktPagesMonth))}</option>`}
@@ -12381,7 +12417,7 @@ function renderMarketingCenter() {
                   <td style="text-align:center;white-space:nowrap;">${marketingMoney(r.sales)}</td>
                   <td style="text-align:center;"><span class="badge ${marketingRoasClass(r.roas)}">${marketingRoas(r.roas)}</span></td>
                   <td style="text-align:center;color:var(--danger);font-weight:700;">−${(roasTarget - r.roas).toFixed(2)}x</td>
-                  <td style="text-align:center;">${dayLabel(mktLastActive[r.page])}<div style="font-size:11px;color:var(--text-muted);">${sinceLabel(mktLastActive[r.page])}</div></td>
+                  <td style="text-align:center;">${dayLabel(mktLastActive[r.page])}<div style="font-size:var(--fs-caption);color:var(--text-muted);">${sinceLabel(mktLastActive[r.page])}</div></td>
                 </tr>`).join('')}
               </tbody>
             </table>
@@ -12415,9 +12451,9 @@ function renderMarketingCenter() {
             </button>
           </div>
 
-          <div class="mkt-total-card" style="margin-top:14px;padding:12px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:8px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:12px;font-weight:700;letter-spacing:.6px;color:#1e3a8a;text-transform:uppercase;">Total Adspend</span>
-            <span id="mkt-total-adspend" style="font-size:20px;font-weight:700;color:#1e3a8a;">0.00</span>
+          <div class="mkt-total-card" style="margin-top:14px;padding:12px 14px;background:var(--accent-soft);border:1px solid var(--border);border-radius:8px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:var(--fs-caption);font-weight:500;letter-spacing:.7px;color:var(--text-muted);text-transform:uppercase;">Total Adspend</span>
+            <span id="mkt-total-adspend" style="font-size:var(--fs-heading);font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums;">0.00</span>
           </div>
         </div>
         <div class="modal-footer">
@@ -12434,20 +12470,20 @@ function renderMarketingCenter() {
           ${(() => {
             const products = [...new Set(state.entries.map((e) => e.page).filter(Boolean))].sort();
             const cur = window.mktRecentFilter?.product || '';
-            return `<select id="mkt-recent-product" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;max-width:180px;">
-              <option value=""${cur ? '' : ' selected'} style="background:#0f172a;color:#fff;">All products</option>
-              ${products.map((p) => `<option value="${escapeHtml(p)}"${cur === p ? ' selected' : ''} style="background:#0f172a;color:#fff;">${escapeHtml(p)}</option>`).join('')}
+            return `<select id="mkt-recent-product" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:var(--fs-small);padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;max-width:180px;">
+              <option value=""${cur ? '' : ' selected'}>All products</option>
+              ${products.map((p) => `<option value="${escapeHtml(p)}"${cur === p ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
             </select>`;
           })()}
-          <input type="date" class="form-control" id="mkt-recent-from" value="${window.mktRecentFilter?.from || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
-          <span style="font-size:12px;color:var(--text-muted);">—</span>
-          <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:12px;width:140px;">
-          <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:12px;padding:0 10px;">All</button>
-          <span style="font-size:12px;color:var(--text-muted);">Rows:</span>
-          <select onchange="setMarketingRecentLimit(this.value)" style="height:30px;font-size:12px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
-            ${[10,20,40,50,100].map((v) => `<option value="${v}"${(window.mktRecentLimit || 10) === v ? ' selected' : ''} style="background:#0f172a;color:#fff;">${v}</option>`).join('')}
+          <input type="date" class="form-control" id="mkt-recent-from" value="${window.mktRecentFilter?.from || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:var(--fs-small);width:140px;">
+          <span style="font-size:var(--fs-small);color:var(--text-muted);">—</span>
+          <input type="date" class="form-control" id="mkt-recent-to" value="${window.mktRecentFilter?.to || ''}" onchange="applyMarketingRecentFilter()" style="height:30px;font-size:var(--fs-small);width:140px;">
+          <button class="btn btn-secondary btn-sm" onclick="clearMarketingRecentFilter()" style="height:30px;font-size:var(--fs-small);padding:0 10px;">All</button>
+          <span style="font-size:var(--fs-small);color:var(--text-muted);">Rows:</span>
+          <select onchange="setMarketingRecentLimit(this.value)" style="height:30px;font-size:var(--fs-small);padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
+            ${[10,20,40,50,100].map((v) => `<option value="${v}"${(window.mktRecentLimit || 10) === v ? ' selected' : ''}>${v}</option>`).join('')}
           </select>
-          ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingEntryModal()" style="height:30px;font-size:12px;padding:0 14px;">+ Log Entry</button>' : ''}
+          ${marketingManager ? '<button class="btn btn-primary btn-sm" onclick="openMarketingEntryModal()" style="height:30px;font-size:var(--fs-small);padding:0 14px;">+ Log Entry</button>' : ''}
         </div>
       </div>
         <div class="table-container">
@@ -12465,7 +12501,7 @@ function renderMarketingCenter() {
                 const id = Number(entry.id || 0);
                 return `<tr>
                   <td>${escapeHtml(entry.date)}</td>
-                  <td><strong>${escapeHtml(entry.page)}</strong>${entry.product ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(entry.product)}</div>` : ''}</td>
+                  <td><strong>${escapeHtml(entry.page)}</strong>${entry.product ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);">${escapeHtml(entry.product)}</div>` : ''}</td>
                   <td>${escapeHtml(entry.owner || '—')}</td>
                   <td style="text-align:right;"><span style="font-weight:600;">${marketingMoney(entry.spend)}</span></td>
                   <td>
@@ -12490,10 +12526,10 @@ function renderMarketingCenter() {
           <div class="form-group">
             <label class="form-label">Pages (assigned)</label>
             <div id="mkt-team-pages" style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--surface);">
-              ${getPosSourceOptions().map((p) => `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+              ${getPosSourceOptions().map((p) => `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:var(--fs-body);">
                 <input type="checkbox" class="mkt-team-page-cb" value="${escapeHtml(p)}" style="margin:0;">
                 <span>${escapeHtml(p)}</span>
-              </label>`).join('') || '<span style="font-size:12px;color:var(--text-muted);">No pages available yet. Sync POS first.</span>'}
+              </label>`).join('') || '<span style="font-size:var(--fs-small);color:var(--text-muted);">No pages available yet. Sync POS first.</span>'}
             </div>
             <div class="field-help">Pumili ng isa o higit pang pages na hawak ng team member. Ad spend at sales doon ila-lump sa kanya.</div>
           </div>
@@ -12520,10 +12556,10 @@ function renderMarketingCenter() {
             </tr></thead>
             <tbody>
               ${ownerTotals.length ? ownerTotals.map((member, index) => `<tr>
-                <td><strong>${escapeHtml(member.name)}</strong>${member.primary ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(member.primary)}</div>` : ''}</td>
+                <td><strong>${escapeHtml(member.name)}</strong>${member.primary ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);">${escapeHtml(member.primary)}</div>` : ''}</td>
                 <td>${member.role ? escapeHtml(member.role) : '<span style="color:var(--text-muted);">—</span>'}</td>
                 <td style="max-width:260px;">${member.pages && member.pages.length
-                  ? `<span style="font-size:12px;color:var(--accent);font-weight:600;overflow-wrap:break-word;">${member.pages.map((p) => escapeHtml(p)).join(', ')}</span>`
+                  ? `<span style="font-size:var(--fs-small);color:var(--accent);font-weight:600;overflow-wrap:break-word;">${member.pages.map((p) => escapeHtml(p)).join(', ')}</span>`
                   : '<span style="color:var(--text-muted);">—</span>'}</td>
                 <td style="text-align:right;">${marketingMoney(member.sales)}</td>
                 <td style="text-align:right;">${marketingMoney(member.spend)}</td>
@@ -12914,7 +12950,7 @@ function renderCsrDuplicateMetrics() {
     card('Ordered Again While Open', openOrder.toLocaleString(), 'amber', share(openOrder)),
     card('Orders Involved', orders.toLocaleString(), 'blue',
       customers ? `${(orders / customers).toFixed(1)} orders per customer` : 'None in range'),
-    card('COD at Stake', `₱${Number(summary.cod || 0).toLocaleString()}`, 'green',
+    card('COD at Stake', `₱ ${Number(summary.cod || 0).toLocaleString()}`, 'green',
       orders ? `Across ${orders.toLocaleString()} orders` : 'None in range'),
   ].join('');
 }
@@ -12948,7 +12984,7 @@ function renderCsrConfirmedMetrics() {
   const who = viewerName ? `${viewerName} · ` : '';
   return [
     card('Confirmed Orders', total.toLocaleString(), 'blue',
-      total ? `${who}₱${Number(summary.cod || 0).toLocaleString()} COD · ${csrConfirmedRangeLabel()}` : `${who}${csrConfirmedRangeLabel()}`),
+      total ? `${who}₱ ${Number(summary.cod || 0).toLocaleString()} COD · ${csrConfirmedRangeLabel()}` : `${who}${csrConfirmedRangeLabel()}`),
     card('Delivered', delivered.toLocaleString(), 'green', share(delivered, total)),
     card('Shipping', shipped.toLocaleString(), 'amber', share(shipped, total)),
     card('Returned', (returning + returned).toLocaleString(), 'red',
@@ -13569,16 +13605,7 @@ const RMO_SUMMARY_STATUSES = ['New', 'Confirmed', 'Waiting for pickup', 'Shipped
 const RMO_SUMMARY_ATTEMPTS = [['1', '1st Attempt'], ['2', '2nd Attempt'], ['3', '3rd Attempt'], ['4plus', '4th+ Attempt']];
 // Each status keeps one color across the donut and its table, so the legend
 // is never the only way to tell them apart.
-const RMO_SUMMARY_STATUS_COLORS = {
-  New: '#64748b',
-  Confirmed: '#8b5cf6',
-  'Waiting for pickup': '#f59e0b',
-  Shipped: '#3b82f6',
-  Delivered: '#059669',
-  Returning: '#f97316',
-  Returned: '#ef4444',
-  Canceled: '#94a3b8',
-};
+const RMO_SUMMARY_STATUS_COLORS = ORDER_STATUS_COLORS;
 let rmoSummaryState = {
   preset: 'month', dateFrom: '', dateTo: '',
   courier: 'all', page: 'all', province: 'all', status: 'all', reason: 'all', attempts: 'all',
@@ -13589,9 +13616,9 @@ let rmoSummaryCharts = { reason: null, status: null, attempt: null };
 
 // Delivery Attempt Summary views: which count each bar shows, and its colour.
 const RMO_ATTEMPT_VIEWS = {
-  all: { label: 'All Shipped', field: 'count', color: '#3b82f6' },
-  delivered: { label: 'Delivered', field: 'delivered', color: '#059669' },
-  returned: { label: 'Returned', field: 'returned', color: '#ef4444' },
+  all: { label: 'All Shipped', field: 'count', color: ORDER_STATUS_COLORS.Shipped },
+  delivered: { label: 'Delivered', field: 'delivered', color: ORDER_STATUS_COLORS.Delivered },
+  returned: { label: 'Returned', field: 'returned', color: ORDER_STATUS_COLORS.Returned },
 };
 
 function setRmoAttemptView(view) {
@@ -13874,7 +13901,7 @@ function renderRmoSummaryBody() {
 }
 
 function renderRmoSummaryCharts(reasonRows, statusRows, attemptRows, reasonTotal, total, attemptTotal, attemptView = 'all') {
-  const grid = { color: 'rgba(148,163,184,0.18)' };
+  const grid = { color: mktChartColors().grid };
   const countTooltip = (base) => ({
     callbacks: { label: (ctx) => `${Number(ctx.raw || 0).toLocaleString()} orders (${rmoPct(Number(ctx.raw || 0), base)})` },
   });
@@ -14474,12 +14501,12 @@ function renderOdzFinder() {
   <div id="odz-panel-search" style="${odzTab === 'search' ? '' : 'display:none;'}">
     <div style="max-width:720px;margin:0 auto;padding:24px 16px 0;">
       <div style="text-align:center;margin-bottom:20px;">
-        <h2 style="font-size:22px;font-weight:700;color:var(--text-primary);margin:0 0 6px;">What are you looking for?</h2>
-        <p style="font-size:13px;color:var(--text-muted);margin:0;">Check if an area is an ODZ (out of delivery zone) or a Settlement / Pick-up area.</p>
+        <h2 style="font-size:var(--fs-page);font-weight:700;color:var(--text-primary);margin:0 0 6px;">What are you looking for?</h2>
+        <p style="font-size:var(--fs-body);color:var(--text-muted);margin:0;">Check if an area is an ODZ (out of delivery zone) or a Settlement / Pick-up area.</p>
       </div>
       <div style="position:relative;display:flex;align-items:center;background:var(--surface,#fff);border:1px solid var(--border);border-radius:999px;padding:0 22px;height:52px;box-shadow:0 4px 16px rgba(0,0,0,0.08);">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:18px;height:18px;color:var(--text-muted);flex-shrink:0;"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-        <input type="text" placeholder="Search province, city, or barangay..." id="odz-quick-search" value="${escapeHtml(odzQuick.search)}" oninput="onOdzQuickSearch(this.value)" style="border:none;outline:none;background:transparent;flex:1;height:100%;font-size:15px;color:var(--text-primary);padding:0 12px;">
+        <input type="text" placeholder="Search province, city, or barangay..." id="odz-quick-search" value="${escapeHtml(odzQuick.search)}" oninput="onOdzQuickSearch(this.value)" style="border:none;outline:none;background:transparent;flex:1;height:100%;font-size:var(--fs-base);color:var(--text-primary);padding:0 12px;">
       </div>
       <div id="odz-quick-results" style="margin-top:20px;"></div>
     </div>
@@ -14924,7 +14951,7 @@ function renderInventoryDashboard(lowStock, canEditStock) {
         <thead><tr><th>Item</th><th class="num">Total stock</th><th class="num">Reorder pt</th></tr></thead>
         <tbody>${lowStock.length ? lowStock.map((i) => `<tr>
           <td style="font-weight:500">${escapeHtml(i.name)}<div class="text-xs text-muted font-mono">${escapeHtml(i.sku || '')}</div></td>
-          <td class="num" style="color:#ef4444;font-weight:600">${inventoryEffectiveStock(i).toLocaleString()} ${escapeHtml(i.unit || '')}</td>
+          <td class="num" style="color:var(--danger-text);font-weight:600">${inventoryEffectiveStock(i).toLocaleString()} ${escapeHtml(i.unit || '')}</td>
           <td class="num">${Number(i.reorder || 0).toLocaleString()}</td>
         </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--text-muted)">Everything is above its reorder point.</td></tr>'}</tbody>
       </table></div>
@@ -15254,7 +15281,7 @@ function renderInventoryTable(items, pageScope) {
             <td><strong>${Number(item.stock || 0).toLocaleString()}</strong> ${item.unit}</td>
             <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
             <td${rtsPcs ? ` title="Stock ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
-            <td>₱${item.cost}</td>
+            <td>₱ ${item.cost}</td>
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
               <div class="flex gap-2" style="align-items:center;flex-wrap:nowrap">
@@ -15450,7 +15477,7 @@ function renderExpenseFilterBar() {
       </div>
       ${preset === 'monthly' ? `<div class="exp-filterbar-group">
         <div class="exp-filterbar-label">Month</div>
-        <select class="form-control" style="height:38px;font-size:13px;min-width:170px;" onchange="setExpenseMonth(this.value)">
+        <select class="form-control" style="height:38px;font-size:var(--fs-body);min-width:170px;" onchange="setExpenseMonth(this.value)">
           ${expenseMonthOptions().map((ym) =>
             `<option value="${ym}"${month === ym ? ' selected' : ''}>${escapeHtml(expenseMonthLabel(ym))}</option>`
           ).join('')}
@@ -15517,16 +15544,16 @@ let expenseCashflowChart = null;
 // the whole amount rather than between the symbol and the digits.
 function expenseMoney(value) {
   const amount = Number(value || 0);
-  return `${amount < 0 ? '-' : ''}₱${Math.abs(amount).toLocaleString()}`;
+  return `${amount < 0 ? '-' : ''}₱ ${Math.abs(amount).toLocaleString()}`;
 }
 
 // Axis ticks only need the order of magnitude; the exact figure is one hover away.
 function expenseCompactMoney(value) {
   const amount = Number(value) || 0;
   const size = Math.abs(amount);
-  if (size >= 1000000) return `₱${(amount / 1000000).toFixed(size >= 10000000 ? 0 : 1)}M`;
-  if (size >= 1000) return `₱${Math.round(amount / 1000)}K`;
-  return `₱${Math.round(amount)}`;
+  if (size >= 1000000) return `₱ ${(amount / 1000000).toFixed(size >= 10000000 ? 0 : 1)}M`;
+  if (size >= 1000) return `₱ ${Math.round(amount / 1000)}K`;
+  return `₱ ${Math.round(amount)}`;
 }
 
 // The tabs are switched by clicking their button, so a tile that lands on one
@@ -15769,7 +15796,7 @@ function renderExpenses() {
           <label class="form-label">Total Amount</label>
           <div class="input-group">
             <span class="input-addon">₱</span>
-            <input type="text" class="form-control" id="exp-total" placeholder="0.00" readonly style="background:var(--surface-3);font-weight:600;font-size:16px;">
+            <input type="text" class="form-control" id="exp-total" placeholder="0.00" readonly style="background:var(--surface-3);font-weight:600;font-size:var(--fs-title);">
           </div>
         </div>
       </div>
@@ -15862,7 +15889,7 @@ function renderExpenses() {
         </button>
         <button class="exp-tile" onclick="expenseOpenSummary()" title="Category and classification breakdown">
           <span class="exp-tile-body">
-            <span class="exp-tile-value" style="font-size:15px;">Reports</span>
+            <span class="exp-tile-value" style="font-size:var(--fs-base);">Reports</span>
             <span class="exp-tile-label">By category, class, month</span>
           </span>${EXP_CHEVRON}
         </button>
@@ -15902,7 +15929,7 @@ function renderExpenses() {
         </div>
         <div class="card-body">
           <div class="exp-cashflow-canvas"><canvas id="exp-cashflow-chart"></canvas></div>
-          <div id="exp-cashflow-empty" style="display:none;color:var(--text-muted);font-size:12px;padding:8px 0;">Nothing logged in this window yet.</div>
+          <div id="exp-cashflow-empty" style="display:none;color:var(--text-muted);font-size:var(--fs-small);padding:8px 0;">Nothing logged in this window yet.</div>
         </div>
       </div>
     </div>
@@ -15947,9 +15974,9 @@ function renderExpenses() {
               <td><span class="badge ${classBadge(e.classification || 'OPEX')}">${e.classification || 'OPEX'}</span></td>
               <td>${e.item}</td>
               <td>${e.qty}</td>
-              <td>₱${e.price.toLocaleString()}</td>
-              <td>${e.fee ? `₱${e.fee.toLocaleString()}` : '<span class="text-muted">—</span>'}</td>
-              <td><strong>₱${e.total.toLocaleString()}</strong></td>
+              <td>₱ ${e.price.toLocaleString()}</td>
+              <td>${e.fee ? `₱ ${e.fee.toLocaleString()}` : '<span class="text-muted">—</span>'}</td>
+              <td><strong>₱ ${e.total.toLocaleString()}</strong></td>
               <td>${e.noted}</td>
               <td>${e.receipt
                 ? `<button class="btn btn-secondary btn-sm" onclick="openExpenseReceipt('${escapeHtml(e.id)}')">View</button>`
@@ -16055,14 +16082,14 @@ function renderExpenseSummary() {
                 return `<tr>
                   <td><span class="badge ${catBadge(r.cat)}">${escapeHtml(r.cat)}</span></td>
                   <td>${r.count}</td>
-                  <td>₱${r.monthTotal.toLocaleString()}</td>
-                  <td><strong>₱${r.total.toLocaleString()}</strong></td>
+                  <td>₱ ${r.monthTotal.toLocaleString()}</td>
+                  <td><strong>₱ ${r.total.toLocaleString()}</strong></td>
                   <td>
                     <div style="display:flex;align-items:center;gap:8px;">
                       <div style="flex:1;height:6px;background:var(--surface-3);border-radius:999px;min-width:60px;">
                         <div style="width:${pct}%;height:100%;background:var(--primary);border-radius:999px;"></div>
                       </div>
-                      <span style="font-size:12px;color:var(--text-muted);min-width:36px;">${pct}%</span>
+                      <span style="font-size:var(--fs-small);color:var(--text-muted);min-width:36px;">${pct}%</span>
                     </div>
                   </td>
                 </tr>`;
@@ -16070,8 +16097,8 @@ function renderExpenseSummary() {
               <tr style="border-top:2px solid var(--border);font-weight:700;">
                 <td>Total</td>
                 <td>${DB.expenses.length}</td>
-                <td>₱${DB.expenses.filter(e=>e.date.startsWith(thisMonth)).reduce((s,e)=>s+e.total,0).toLocaleString()}</td>
-                <td>₱${grandTotal.toLocaleString()}</td>
+                <td>₱ ${DB.expenses.filter(e=>e.date.startsWith(thisMonth)).reduce((s,e)=>s+e.total,0).toLocaleString()}</td>
+                <td>₱ ${grandTotal.toLocaleString()}</td>
                 <td>100%</td>
               </tr>
             </tbody>
@@ -16087,7 +16114,7 @@ function renderExpenseSummary() {
               ${byClass.map((r) => `<tr>
                 <td><span class="badge ${classBadge(r.cls)}">${r.cls}</span></td>
                 <td>${r.count}</td>
-                <td><strong>₱${r.total.toLocaleString()}</strong></td>
+                <td><strong>₱ ${r.total.toLocaleString()}</strong></td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -16149,7 +16176,7 @@ function openExpenseReceipt(expenseId) {
   document.getElementById('expense-receipt-meta').innerHTML = `
     <div><span>Date</span><strong>${escapeHtml(expense.date || '')}</strong></div>
     <div><span>Category</span><strong>${escapeHtml(expense.category || '')}</strong></div>
-    <div><span>Total</span><strong>₱${Number(expense.total || 0).toLocaleString()}</strong></div>
+    <div><span>Total</span><strong>₱ ${Number(expense.total || 0).toLocaleString()}</strong></div>
     <div><span>Noted By</span><strong>${escapeHtml(expense.noted || '—')}</strong></div>`;
   document.getElementById('expense-receipt-view').innerHTML = expenseReceiptEmbedHtml(url);
   const openLink = document.getElementById('expense-receipt-open');
@@ -16186,7 +16213,7 @@ async function saveCredit() {
       method: 'POST',
       body: JSON.stringify({ credit_date, amount, source, notes }),
     });
-    showToast('success', 'Credit recorded', `₱${amount.toLocaleString()}`);
+    showToast('success', 'Credit recorded', `₱ ${amount.toLocaleString()}`);
     ['credit-amount', 'credit-source', 'credit-notes'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
@@ -16214,7 +16241,7 @@ async function loadExpenseCredits() {
     const shownCredits = Number(result?.filtered_amount ?? totalCredits);
 
     const totalExpEl = document.getElementById('exp-credit-total');
-    if (totalExpEl) totalExpEl.textContent = `₱${totalCredits.toLocaleString()}`;
+    if (totalExpEl) totalExpEl.textContent = `₱ ${totalCredits.toLocaleString()}`;
     // Available Funds is what is left of the money received once the ledger is
     // paid for, so it goes negative the moment spending outruns credits.
     const fundsEl = document.getElementById('exp-funds-total');
@@ -16232,23 +16259,23 @@ async function loadExpenseCredits() {
     const summary = document.getElementById('credit-filter-summary');
     if (summary) {
       summary.textContent = items.length
-        ? `${items.length} ${items.length === 1 ? 'entry' : 'entries'}${filtering ? ' matched' : ''} · ₱${shownCredits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ? `${items.length} ${items.length === 1 ? 'entry' : 'entries'}${filtering ? ' matched' : ''} · ₱ ${shownCredits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
         : '';
     }
 
     if (!items.length) {
-      wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">${filtering ? 'No credits match this filter.' : 'No credits recorded yet.'}</div>`;
+      wrap.innerHTML = `<div style="color:var(--text-muted);font-size:var(--fs-small);padding:6px 0;">${filtering ? 'No credits match this filter.' : 'No credits recorded yet.'}</div>`;
       return;
     }
     wrap.innerHTML = `
-      <table class="data-table" style="margin-top:8px;font-size:13px;">
+      <table class="data-table" style="margin-top:8px;font-size:var(--fs-body);">
         <thead><tr><th>Date</th><th>Source</th><th>Notes</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
         <tbody>
           ${items.map((c) => `<tr>
             <td>${escapeHtml(c.credit_date || '')}</td>
             <td>${escapeHtml(c.source || '-')}</td>
             <td>${escapeHtml(c.notes || '-')}</td>
-            <td style="text-align:right;color:#059669;font-weight:600;">₱${Number(c.amount || 0).toLocaleString()}</td>
+            <td style="text-align:right;color:var(--success-text);font-weight:600;">₱ ${Number(c.amount || 0).toLocaleString()}</td>
             <td style="text-align:right;white-space:nowrap;">
               <button class="btn btn-secondary btn-sm" onclick="openCreditModal('${escapeHtml(String(c.id))}')">Edit</button>
               <button class="btn btn-ghost btn-sm" onclick="deleteCredit('${escapeHtml(String(c.id))}')">×</button>
@@ -16257,7 +16284,7 @@ async function loadExpenseCredits() {
         </tbody>
       </table>`;
   } catch (err) {
-    wrap.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">Failed to load credits: ${escapeHtml(err.message)}</div>`;
+    wrap.innerHTML = `<div style="color:var(--text-muted);font-size:var(--fs-small);">Failed to load credits: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -16325,7 +16352,7 @@ async function saveCreditEdit() {
       method: 'PUT',
       body: JSON.stringify({ credit_date, amount, source, notes }),
     });
-    showToast('success', 'Credit updated', `₱${amount.toLocaleString()}`);
+    showToast('success', 'Credit updated', `₱ ${amount.toLocaleString()}`);
     closeModal('credit-edit-modal');
     loadExpenseCredits();
   } catch (err) {
@@ -16851,8 +16878,8 @@ function renderScanStatBar(pageId, scanType) {
         Export CSV
       </button>
       <div style="text-align:right;">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Total Scans Today</div>
-        <div style="font-size:28px;font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
+        <div style="font-size:var(--fs-caption);font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Total Scans Today</div>
+        <div style="font-size:var(--fs-figure);font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
       </div>
     </div>
   </div>`;
@@ -16910,14 +16937,14 @@ function renderScanComboCard(pageId, scanType) {
           </div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-              <label for="scan-date-${pageId}" style="font-size:12px;font-weight:600;color:var(--text-muted);white-space:nowrap;">Scan date</label>
+              <label for="scan-date-${pageId}" style="font-size:var(--fs-small);font-weight:600;color:var(--text-muted);white-space:nowrap;">Scan date</label>
               <input type="date" class="form-control" id="scan-date-${pageId}" value="${new Date().toISOString().split('T')[0]}" style="width:170px;">
               <button type="button" class="btn btn-secondary btn-sm" onclick="setScanDateTomorrow('${pageId}')">Tomorrow</button>
             </div>
             <p class="form-hint" style="margin-bottom:0;margin-top:8px;">Press Enter or click Scan to look up tracking details. Scans count toward the selected date.</p>
           </div>
           <div style="text-align:right;padding-left:24px;border-left:1px solid var(--border);align-self:stretch;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);white-space:nowrap;">Total Scan Today</div>
+            <div style="font-size:var(--fs-caption);font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);white-space:nowrap;">Total Scan Today</div>
             <div style="font-size:32px;font-weight:700;line-height:1.1;" id="scan-today-${pageId}">—</div>
           </div>
         </div>
@@ -17035,7 +17062,7 @@ async function loadScanPerPage() {
           <td style="text-align:right;">${totalPcs.toLocaleString()}</td>
         </tr></tfoot>
       </table>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">1–5+ = number of parcels holding that many pcs.</div>
+      <div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:8px;">1–5+ = number of parcels holding that many pcs.</div>
       </div>
       <div class="card" style="margin:0;">
         <div class="card-header"><div>
@@ -17872,8 +17899,8 @@ function renderViewRecords() {
         <tbody>${DB.expenses.map(e => `<tr>
           <td class="font-mono text-xs text-muted">${e.id}</td><td>${e.date}</td>
           <td><span class="badge ${catBadge(e.category)}">${e.category}</span></td>
-          <td>${e.item}</td><td>${e.qty}</td><td>₱${e.price.toLocaleString()}</td>
-          <td><strong>₱${e.total.toLocaleString()}</strong></td><td>${e.noted}</td>
+          <td>${e.item}</td><td>${e.qty}</td><td>₱ ${e.price.toLocaleString()}</td>
+          <td><strong>₱ ${e.total.toLocaleString()}</strong></td><td>${e.noted}</td>
         </tr>`).join('')}</tbody>
       </table>
     </div>
@@ -17957,42 +17984,42 @@ function renderDamageSheet() {
     <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:28px; padding-bottom:20px; border-bottom:2px solid var(--primary);">
       <div>
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
-          <div style="width:44px; height:44px; background:var(--accent); border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; color:#fff;">Y</div>
+          <div style="width:44px; height:44px; background:var(--accent); border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:var(--fs-title); color:#fff;">Y</div>
           <div>
-            <div style="font-size:20px; font-weight:700; letter-spacing:-0.4px;">YNT Digital Marketing</div>
-            <div style="font-size:12px; color:var(--text-muted); letter-spacing:1px; text-transform:uppercase;">Damage / Return Report</div>
+            <div style="font-size:var(--fs-heading); font-weight:700; letter-spacing:-0.4px;">YNT Digital Marketing</div>
+            <div style="font-size:var(--fs-small); color:var(--text-muted); letter-spacing:1px; text-transform:uppercase;">Damage / Return Report</div>
           </div>
         </div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:13px; color:var(--text-secondary)">Date Generated:</div>
+        <div style="font-size:var(--fs-body); color:var(--text-secondary)">Date Generated:</div>
         <div style="font-weight:600;">${today}</div>
-        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Sheet #DS-${Date.now().toString().slice(-6)}</div>
+        <div style="font-size:var(--fs-small); color:var(--text-muted); margin-top:4px;">Sheet #DS-${Date.now().toString().slice(-6)}</div>
       </div>
     </div>
 
     <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
       <thead>
         <tr style="background:var(--surface-2);">
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">#</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Date</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Page Name</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Product</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Tracking</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">COD Amt</th>
-          <th style="padding:10px 12px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Damage Reason</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">#</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Date</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Page Name</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Product</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Tracking</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">COD Amt</th>
+          <th style="padding:10px 12px; text-align:left; font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:0.6px; color:var(--text-muted); border:1px solid var(--border);">Damage Reason</th>
         </tr>
       </thead>
       <tbody>
         ${damaged.map((o, i) => `
           <tr style="${i%2===1?'background:var(--surface-2);':''}">
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${i+1}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${o.date}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:500; font-size:13px;">${escapeHtml(o.pageName || o.customer || '')}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px;">${escapeHtml(o.product || '')}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:12px;">${escapeHtml(o.tracking || '')}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:600; font-size:13px;">₱${Number(o.cod || 0).toLocaleString()}</td>
-            <td style="padding:10px 12px; border:1px solid var(--border); font-size:13px; color:var(--text-muted);">${escapeHtml(o.reason || o.notes || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:var(--fs-body); color:var(--text-muted);">${i+1}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:var(--fs-body);">${o.date}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:500; font-size:var(--fs-body);">${escapeHtml(o.pageName || o.customer || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:var(--fs-body);">${escapeHtml(o.product || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-family:'DM Mono',monospace; font-size:var(--fs-small);">${escapeHtml(o.tracking || '')}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-weight:600; font-size:var(--fs-body);">₱ ${Number(o.cod || 0).toLocaleString()}</td>
+            <td style="padding:10px 12px; border:1px solid var(--border); font-size:var(--fs-body); color:var(--text-muted);">${escapeHtml(o.reason || o.notes || '')}</td>
           </tr>
         `).join('') || '<tr><td colspan="8" style="padding:24px; text-align:center; border:1px solid var(--border); color:var(--text-muted);">No damage reports saved yet.</td></tr>'}
       </tbody>
@@ -18000,16 +18027,16 @@ function renderDamageSheet() {
 
     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; margin-top:32px; padding-top:20px; border-top:1px solid var(--border);">
       <div>
-        <div style="font-size:11px; color:var(--text-muted); margin-bottom:40px; text-transform:uppercase; letter-spacing:0.6px;">Prepared by</div>
-        <div style="border-top:1px solid var(--primary); padding-top:6px; font-size:12px; color:var(--text-secondary);">Signature over printed name</div>
+        <div style="font-size:var(--fs-caption); color:var(--text-muted); margin-bottom:40px; text-transform:uppercase; letter-spacing:0.6px;">Prepared by</div>
+        <div style="border-top:1px solid var(--primary); padding-top:6px; font-size:var(--fs-small); color:var(--text-secondary);">Signature over printed name</div>
       </div>
       <div>
-        <div style="font-size:11px; color:var(--text-muted); margin-bottom:40px; text-transform:uppercase; letter-spacing:0.6px;">Checked by</div>
-        <div style="border-top:1px solid var(--primary); padding-top:6px; font-size:12px; color:var(--text-secondary);">Signature over printed name</div>
+        <div style="font-size:var(--fs-caption); color:var(--text-muted); margin-bottom:40px; text-transform:uppercase; letter-spacing:0.6px;">Checked by</div>
+        <div style="border-top:1px solid var(--primary); padding-top:6px; font-size:var(--fs-small); color:var(--text-secondary);">Signature over printed name</div>
       </div>
       <div>
-        <div style="font-size:11px; color:var(--text-muted); margin-bottom:40px; text-transform:uppercase; letter-spacing:0.6px;">Approved by</div>
-        <div style="border-top:1px solid var(--primary); padding-top:6px; font-size:12px; color:var(--text-secondary);">Signature over printed name</div>
+        <div style="font-size:var(--fs-caption); color:var(--text-muted); margin-bottom:40px; text-transform:uppercase; letter-spacing:0.6px;">Approved by</div>
+        <div style="border-top:1px solid var(--primary); padding-top:6px; font-size:var(--fs-small); color:var(--text-secondary);">Signature over printed name</div>
       </div>
     </div>
   </div>`;
@@ -18391,7 +18418,7 @@ function renderCSRSummaryCards(records) {
     <div class="stats-grid csr-summary-grid">
       <div class="stat-card blue"><div class="stat-card-accent"></div><div class="stat-label">Filtered Records</div><div class="stat-value">${records.length}</div><div class="stat-meta">Daily, weekly, monthly, or custom range</div></div>
       <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label">Delivered</div><div class="stat-value">${delivered}</div><div class="stat-meta">Successful customer deliveries</div></div>
-      <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Sales Amount</div><div class="stat-value" style="font-size:20px;">₱${totalSales.toLocaleString()}</div><div class="stat-meta">Total from visible records</div></div>
+      <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Sales Amount</div><div class="stat-value" style="font-size:var(--fs-heading);">₱ ${totalSales.toLocaleString()}</div><div class="stat-meta">Total from visible records</div></div>
       <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Cancelled</div><div class="stat-value">${cancelled}</div><div class="stat-meta">${pages} active page${pages === 1 ? '' : 's'} in filter</div></div>
     </div>`;
 }
@@ -18421,7 +18448,7 @@ function renderCSRChart(records) {
       labels: labels.length ? labels : ['No Records'],
       datasets: [{
         data: values.length ? values : [1],
-        backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#6366f1', '#14b8a6', '#8b5cf6', '#64748b'],
+        backgroundColor: labels.length ? labels.map(orderStatusColor) : ['#cbd5e1'],
         borderWidth: 0,
       }],
     },
@@ -18526,7 +18553,7 @@ function renderRecCsrRows() {
     <td class="font-mono text-xs">${record.cellphoneNumber}</td>
     <td><span class="badge badge-info">${record.salesType}</span></td>
     <td>${statusBadge(csrLiveStatus(record))}</td>
-    <td>₱${Number(record.price || 0).toLocaleString()}</td>
+    <td>₱ ${Number(record.price || 0).toLocaleString()}</td>
     <td class="font-mono text-xs">${csrLiveTracking(record)}</td>
   </tr>`).join('');
 }
@@ -18563,7 +18590,7 @@ function renderCSRTable() {
       <div class="rmo-item-sub font-mono">${escapeHtml(record.cellphoneNumber || '')}</div>
       <div class="rmo-item-sub">${escapeHtml(csrLiveProvince(record))}</div>
     </td>
-    <td>₱${Number(record.price || 0).toLocaleString()}</td>
+    <td>₱ ${Number(record.price || 0).toLocaleString()}</td>
     <td><span class="badge badge-info">${escapeHtml(record.salesType || '')}</span></td>
     <td class="font-mono text-xs">${escapeHtml(csrLiveTracking(record))}</td>
     <td>${statusBadge(csrLiveStatus(record))}</td>
@@ -18712,7 +18739,7 @@ function lookupCSROrder() {
   if (help) {
     help.textContent = `Linked to ${match.customer || 'customer'} • ${orderPage || 'page'} • status ${match.status || 'n/a'}.`;
   }
-  showToast('success', 'Order found', `${match.customer || 'Customer'} • ₱${Number(match.cod || 0).toLocaleString()}`);
+  showToast('success', 'Order found', `${match.customer || 'Customer'} • ₱ ${Number(match.cod || 0).toLocaleString()}`);
 }
 
 function resetCSRForm() {
@@ -18913,7 +18940,7 @@ async function saveCSRRecord() {
   const successMessage = editingCSRRecordId ? 'CSR record updated' : 'CSR record saved';
   resetCSRForm();
   renderCSRTable();
-  showToast('success', successMessage, `${record.customerName} • ${record.pageName} • ₱${record.price.toLocaleString()}`);
+  showToast('success', successMessage, `${record.customerName} • ${record.pageName} • ₱ ${record.price.toLocaleString()}`);
 }
 
 // Column layout shared by the import template and the import parser, so the
@@ -19267,7 +19294,7 @@ async function loadMyOTRequests() {
       return;
     }
     wrap.innerHTML = `
-      <table class="data-table" style="font-size:13px;">
+      <table class="data-table" style="font-size:var(--fs-body);">
         <thead><tr><th>Date</th><th>Hours</th><th>Status</th><th>Reviewer</th><th></th></tr></thead>
         <tbody>
           ${rows.slice(0, 25).map((r) => {
@@ -19275,7 +19302,7 @@ async function loadMyOTRequests() {
             const hours = (Number(r.requested_minutes || 0) / 60).toFixed(2);
             return `<tr>
               <td>${escapeHtml(r.work_date || '')}</td>
-              <td>${hours}h <span style="color:var(--text-muted);font-size:11px;">${r.reason ? '· ' + escapeHtml(r.reason).slice(0, 40) : ''}</span></td>
+              <td>${hours}h <span style="color:var(--text-muted);font-size:var(--fs-caption);">${r.reason ? '· ' + escapeHtml(r.reason).slice(0, 40) : ''}</span></td>
               <td><span class="badge ${cls}">${escapeHtml(r.status)}</span></td>
               <td>${escapeHtml(r.reviewer_name || '-')}</td>
               <td>${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" onclick="deleteOTRequest(${r.id})">×</button>` : ''}</td>
@@ -19309,11 +19336,11 @@ async function loadHRPendingOT() {
     const result = await authorizedJsonRequest('/hr/ot-requests?status=pending');
     const rows = Array.isArray(result?.data) ? result.data : [];
     if (!rows.length) {
-      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:14px 0;">No pending OT requests.</div>';
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:var(--fs-body);padding:14px 0;">No pending OT requests.</div>';
       return;
     }
     wrap.innerHTML = `
-      <table class="data-table" style="font-size:13px;">
+      <table class="data-table" style="font-size:var(--fs-body);">
         <thead><tr><th>User</th><th>Date</th><th>Hours</th><th>Reason</th><th>Actions</th></tr></thead>
         <tbody>
           ${rows.map((r) => {
@@ -19381,11 +19408,11 @@ function renderHROTHistory() {
   const wrap = document.getElementById('hr-ot-history-list');
   if (!wrap) return;
   if (!hrOtHistoryRows.length) {
-    wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:14px 0;">No OT requests yet.</div>';
+    wrap.innerHTML = '<div style="color:var(--text-muted);font-size:var(--fs-body);padding:14px 0;">No OT requests yet.</div>';
     return;
   }
   wrap.innerHTML = `
-      <table class="data-table" style="font-size:13px;">
+      <table class="data-table" style="font-size:var(--fs-body);">
         <thead><tr><th>User</th><th>Work Date</th><th>Hours</th><th>Status</th><th>Reviewer</th><th>Reviewed</th><th>Reason</th><th>Actions</th></tr></thead>
         <tbody>
           ${hrOtHistoryRows.map((r) => {
@@ -19585,19 +19612,19 @@ function renderMyWorkHours(payslip) {
              genuine zero days worked, and || would fall through to counting
              clocked records and contradict payroll. The fallback is only for
              a payslip that carried no totals at all. -->
-        <div class="stat-value" style="font-size:1.4rem;">${totals.days_worked ?? records.filter((r) => r.time_in && r.time_out).length}</div>
+        <div class="stat-value" style="font-size:var(--fs-page);">${totals.days_worked ?? records.filter((r) => r.time_in && r.time_out).length}</div>
       </div>
       <div class="stat-card" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Total Work Hours</div>
-        <div class="stat-value" style="font-size:1.4rem;">${formatMinutes(totalWorked)}</div>
+        <div class="stat-value" style="font-size:var(--fs-page);">${formatMinutes(totalWorked)}</div>
       </div>
       <div class="stat-card amber" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Total OT</div>
-        <div class="stat-value" style="font-size:1.4rem;">${formatMinutes(totalOt)}</div>
+        <div class="stat-value" style="font-size:var(--fs-page);">${formatMinutes(totalOt)}</div>
       </div>
       <div class="stat-card green" style="flex:1;min-width:120px;padding:12px 16px;">
         <div class="stat-label">Total Salary</div>
-        <div class="stat-value" style="font-size:1.4rem;">${formatPHP(totals.net_pay)}</div>
+        <div class="stat-value" style="font-size:var(--fs-page);">${formatPHP(totals.net_pay)}</div>
         ${Number(totals.cash_advances || 0) > 0
           ? `<div class="stat-meta">after ${formatPHP(totals.cash_advances)} cash advance</div>`
           : ''}
@@ -19980,8 +20007,7 @@ function renderAttendanceLeaveList() {
 function initCharts(page) {
   if (typeof Chart === 'undefined') return;
 
-  Chart.defaults.font.family = "'DM Sans', sans-serif";
-  Chart.defaults.color = '#94a3b8';
+  applyChartTheme();
 
   if (page === 'home') {
     renderHomeOrderCharts();
@@ -20007,7 +20033,7 @@ function initCharts(page) {
         datasets: [{
           label: 'COD Revenue',
           data: monthlyCOD,
-          backgroundColor: '#3b82f6',
+          backgroundColor: mktChartColors().moneyIn,
           borderRadius: 4,
         }]
       },
@@ -20015,7 +20041,7 @@ function initCharts(page) {
         responsive: true, maintainAspectRatio: true,
         plugins: { legend: { display: false } },
         scales: {
-          y: { grid: { color: '#f1f5f9' }, ticks: { callback: v => '₱'+v.toLocaleString() } },
+          y: { grid: { color: mktChartColors().grid }, ticks: { callback: v => '₱ '+v.toLocaleString() } },
           x: { grid: { display: false } }
         }
       }
@@ -20029,7 +20055,7 @@ function initCharts(page) {
       plugins: [doughnutPctPlugin],
       data: {
         labels: Object.keys(statusCounts),
-        datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#3b82f6','#10b981','#ef4444','#f59e0b','#6b7280'], borderWidth: 0 }]
+        datasets: [{ data: Object.values(statusCounts), backgroundColor: Object.keys(statusCounts).map(orderStatusColor), borderWidth: 0 }]
       },
       options: { responsive:true, plugins: { legend: { position:'right' } }, cutout:'65%' }
     });
@@ -20042,7 +20068,7 @@ let calcTab = 'forecaster';
 let forecasterLock = 'revenue'; // 'revenue' | 'clicks'
 
 function calcPeso(n) {
-  return `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱ ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function calcNum(id) {
   const el = document.getElementById(id);
@@ -20140,9 +20166,9 @@ function renderForecasterPanel() {
         <div style="overflow-x:auto;margin-top:14px;">
           <table style="width:100%;">
             <thead><tr>
-              <th style="text-transform:uppercase;font-size:11px;">Metric</th>
-              <th style="text-transform:uppercase;font-size:11px;text-align:right;">Current</th>
-              <th style="text-transform:uppercase;font-size:11px;text-align:right;color:var(--success);">Target</th>
+              <th style="text-transform:uppercase;font-size:var(--fs-caption);">Metric</th>
+              <th style="text-transform:uppercase;font-size:var(--fs-caption);text-align:right;">Current</th>
+              <th style="text-transform:uppercase;font-size:var(--fs-caption);text-align:right;color:var(--success);">Target</th>
             </tr></thead>
             <tbody>
               <tr>
@@ -20180,9 +20206,9 @@ function renderForecasterPanel() {
       <div class="card"><div class="card-body">
         <div class="card-title" style="margin-bottom:14px;">Scaling Roadmap <span class="stat-badge" style="float:right;">CALCULATIONS</span></div>
         <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Baseline</div>
-        <div style="${CALC_STEP}"><span style="font-family:'DM Mono',monospace;font-size:12.5px;" id="fc-road-base">53,130 clicks × 2.3% CVR × ₱467.00 = <span style="${CALC_RESULT}">₱570,669.33</span></span></div>
+        <div style="${CALC_STEP}"><span style="font-family:'DM Mono',monospace;font-size:var(--fs-small);" id="fc-road-base">53,130 clicks × 2.3% CVR × ₱467.00 = <span style="${CALC_RESULT}">₱570,669.33</span></span></div>
         <div class="field-help" style="text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px;">Target</div>
-        <div style="${CALC_STEP}"><span style="font-family:'DM Mono',monospace;font-size:12.5px;" id="fc-road-target">71,429 clicks × 3% CVR × ₱700.00 = <span style="${CALC_RESULT}">₱1,500,000.00</span></span></div>
+        <div style="${CALC_STEP}"><span style="font-family:'DM Mono',monospace;font-size:var(--fs-small);" id="fc-road-target">71,429 clicks × 3% CVR × ₱700.00 = <span style="${CALC_RESULT}">₱1,500,000.00</span></span></div>
       </div></div>
     </div>
   </div>`;
@@ -20255,14 +20281,14 @@ function renderRoasPanel() {
       <div class="card-title" style="margin-bottom:14px;">ⓘ How we calculated this</div>
       <div style="${CALC_STEP}flex-direction:column;align-items:stretch;">
         <div style="font-weight:600;margin-bottom:8px;">Step 1: Total Deductions</div>
-        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:12.5px;"><span style="color:var(--text-secondary);">Platform Fee Deduction:</span><span id="roas-s1-fee">₱57.00</span></div>
-        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:12.5px;margin-top:4px;"><span style="font-weight:600;">Total Costs:</span><span style="font-weight:600;" id="roas-s1-total">₱252.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:var(--fs-small);"><span style="color:var(--text-secondary);">Platform Fee Deduction:</span><span id="roas-s1-fee">₱57.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:var(--fs-small);margin-top:4px;"><span style="font-weight:600;">Total Costs:</span><span style="font-weight:600;" id="roas-s1-total">₱252.00</span></div>
       </div>
-      <div style="${CALC_STEP}"><span><b>Step 2: Net Profit</b><br><i style="color:var(--text-muted);font-size:12px;">Price − Costs</i></span><span style="font-family:'DM Mono',monospace;" id="roas-s2">₱48.00</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 3: Break-Even ROAS</b><br><i style="color:var(--text-muted);font-size:12px;">Price ÷ Profit</i></span><span style="font-family:'DM Mono',monospace;" id="roas-s3">6.25x</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: Net Profit</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Price − Costs</i></span><span style="font-family:'DM Mono',monospace;" id="roas-s2">₱48.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: Break-Even ROAS</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Price ÷ Profit</i></span><span style="font-family:'DM Mono',monospace;" id="roas-s3">6.25x</span></div>
       <div style="${CALC_TIP}">
-        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
-        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"Your Break-Even ROAS is your absolute floor. If your FB/TikTok Ads ROAS drops below this number, you are losing money on every sale. Always aim for at least +1.0x above this metric."</div>
+        <div style="color:var(--success);font-weight:700;font-size:var(--fs-small);letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:var(--fs-small);font-style:italic;">"Your Break-Even ROAS is your absolute floor. If your FB/TikTok Ads ROAS drops below this number, you are losing money on every sale. Always aim for at least +1.0x above this metric."</div>
       </div>
     </div></div>
   </div>
@@ -20312,18 +20338,18 @@ function renderRoasTargetPanel() {
 
     <div class="card"><div class="card-body">
       <div class="card-title" style="margin-bottom:14px;">ⓘ How we calculated this</div>
-      <div style="${CALC_STEP}"><span><b>Step 1: Total Gross Sales</b><br><i style="color:var(--text-muted);font-size:12px;">Ad Spend × ROAS</i></span><span style="${CALC_RESULT}" id="rt-s1">₱300,000.00</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 2: Orders Needed</b><br><i style="color:var(--text-muted);font-size:12px;">Gross Sales ÷ Selling Price</i></span><span style="font-weight:700;" id="rt-s2">429 Orders</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 3: Orders per Person</b><br><i style="color:var(--text-muted);font-size:12px;">Orders ÷ Persons</i></span><span style="font-weight:700;" id="rt-s3">143 Orders</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 1: Total Gross Sales</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Ad Spend × ROAS</i></span><span style="${CALC_RESULT}" id="rt-s1">₱300,000.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: Orders Needed</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Gross Sales ÷ Selling Price</i></span><span style="font-weight:700;" id="rt-s2">429 Orders</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: Orders per Person</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Orders ÷ Persons</i></span><span style="font-weight:700;" id="rt-s3">143 Orders</span></div>
       <div style="${CALC_TIP}">
-        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
-        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"This is the sales volume your ad spend must return to hit your target ROAS. Divide by your team size to set a realistic per-person order quota for the day or campaign."</div>
+        <div style="color:var(--success);font-weight:700;font-size:var(--fs-small);letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:var(--fs-small);font-style:italic;">"This is the sales volume your ad spend must return to hit your target ROAS. Divide by your team size to set a realistic per-person order quota for the day or campaign."</div>
       </div>
     </div></div>
   </div>
 
   <div class="stats-grid" style="margin-top:20px;">
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Total Gross Sales Needed</div><div class="stat-value" style="color:var(--success);font-size:24px;" id="rt-gross">₱300,000.00</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Total Gross Sales Needed</div><div class="stat-value" style="color:var(--success);font-size:var(--fs-page);" id="rt-gross">₱300,000.00</div></div>
     <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Orders Needed</div><div class="stat-value" id="rt-orders">429 Orders</div></div>
     <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">Orders per Person</div><div class="stat-value" id="rt-perperson">143 Orders</div></div>
   </div>`;
@@ -20376,12 +20402,12 @@ function renderMarkupPanel() {
 
     <div class="card"><div class="card-body">
       <div class="card-title" style="margin-bottom:14px;">ⓘ How we calculated this</div>
-      <div style="${CALC_STEP}"><span><b>Step 1: Calculate Total Percentages</b><br><i style="color:var(--text-muted);font-size:12px;">Fees % + Margin %</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s1">26.0%</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 2: Base Multiplier</b><br><i style="color:var(--text-muted);font-size:12px;">100% − Total %</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s2">0.7400</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 3: Target Selling Price</b><br><i style="color:var(--text-muted);font-size:12px;">Total Costs ÷ Multiplier</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s3">₱1,040.54</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 1: Calculate Total Percentages</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Fees % + Margin %</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s1">26.0%</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: Base Multiplier</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">100% − Total %</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s2">0.7400</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: Target Selling Price</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">Total Costs ÷ Multiplier</i></span><span style="font-family:'DM Mono',monospace;" id="mk-s3">₱1,040.54</span></div>
       <div style="${CALC_TIP}">
-        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
-        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"Platform fees are calculated based on your final selling price, not your product cost. This calculator uses the margin-based pricing formula to ensure your fees don't eat into your targeted profit."</div>
+        <div style="color:var(--success);font-weight:700;font-size:var(--fs-small);letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:var(--fs-small);font-style:italic;">"Platform fees are calculated based on your final selling price, not your product cost. This calculator uses the margin-based pricing formula to ensure your fees don't eat into your targeted profit."</div>
       </div>
     </div></div>
   </div>`;
@@ -20424,13 +20450,13 @@ function renderDiscountPanel() {
 
     <div class="card"><div class="card-body">
       <div class="card-title" style="margin-bottom:14px;">How we calculated this</div>
-      <div style="${CALC_STEP}"><span><b>Step 1: Original Profit</b><br><i style="color:var(--text-muted);font-size:12px;">(Original Price − Total Cost)</i></span><span style="${CALC_RESULT}" id="ds-s1">₱250.00</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 2: New Selling Price</b><br><i style="color:var(--text-muted);font-size:12px;">(Original Price − Discount Amount)</i></span><span style="${CALC_RESULT}" id="ds-s2">₱560.00</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 3: New Profit per Unit</b><br><i style="color:var(--text-muted);font-size:12px;">(New Selling Price − Total Cost)</i></span><span style="${CALC_RESULT}" id="ds-s3">₱110.00</span></div>
-      <div style="${CALC_STEP}"><span><b>Step 4: Target Volume</b><br><i style="color:var(--text-muted);font-size:12px;">(Original Total Profit ÷ New Profit per Unit)</i></span><span style="font-weight:700;" id="ds-s4">228 Units</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 1: Original Profit</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">(Original Price − Total Cost)</i></span><span style="${CALC_RESULT}" id="ds-s1">₱250.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 2: New Selling Price</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">(Original Price − Discount Amount)</i></span><span style="${CALC_RESULT}" id="ds-s2">₱560.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 3: New Profit per Unit</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">(New Selling Price − Total Cost)</i></span><span style="${CALC_RESULT}" id="ds-s3">₱110.00</span></div>
+      <div style="${CALC_STEP}"><span><b>Step 4: Target Volume</b><br><i style="color:var(--text-muted);font-size:var(--fs-small);">(Original Total Profit ÷ New Profit per Unit)</i></span><span style="font-weight:700;" id="ds-s4">228 Units</span></div>
       <div style="${CALC_TIP}">
-        <div style="color:var(--success);font-weight:700;font-size:12.5px;letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
-        <div style="color:var(--text-secondary);font-size:12.5px;font-style:italic;">"A small discount doesn't mean a small impact. Because discounts eat directly into your profit margin, you often need to sell 50% to 100% more units just to make the same amount of money you would on a normal day!"</div>
+        <div style="color:var(--success);font-weight:700;font-size:var(--fs-small);letter-spacing:.4px;margin-bottom:4px;">💡 SCALE STRATEGIST TIP</div>
+        <div style="color:var(--text-secondary);font-size:var(--fs-small);font-style:italic;">"A small discount doesn't mean a small impact. Because discounts eat directly into your profit margin, you often need to sell 50% to 100% more units just to make the same amount of money you would on a normal day!"</div>
       </div>
     </div></div>
   </div>
@@ -20438,7 +20464,7 @@ function renderDiscountPanel() {
   <div class="stats-grid" style="margin-top:20px;">
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Extra Volume Needed</div><div class="stat-value" style="color:var(--danger);" id="ds-extra">+128%</div></div>
     <div class="stat-card"><div class="stat-card-accent"></div><div class="stat-label">New Profit per Unit</div><div class="stat-value" id="ds-newprofit">₱110.00</div></div>
-    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Required Sales Volume</div><div class="stat-value" style="color:var(--success);font-size:26px;" id="ds-required">228 Units</div><div class="stat-meta">Target units to break even on total profit</div></div>
+    <div class="stat-card green"><div class="stat-card-accent"></div><div class="stat-label" style="color:var(--success);">Required Sales Volume</div><div class="stat-value" style="color:var(--success);font-size:var(--fs-figure);" id="ds-required">228 Units</div><div class="stat-meta">Target units to break even on total profit</div></div>
   </div>`;
 }
 
@@ -20872,7 +20898,7 @@ async function loadManagedUsers() {
 }
 
 function formatPHP(value) {
-  return `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₱ ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatMinutes(value) {
@@ -20924,7 +20950,7 @@ async function setUserActive(userId, active) {
 // so an undefined flag means "active" rather than "unknown".
 function hrInactiveBadge(row) {
   return row && row.is_active !== undefined && !Number(row.is_active)
-    ? ' <span class="badge badge-gray" style="font-size:9px;" title="Account is deactivated">Inactive</span>'
+    ? ' <span class="badge badge-gray" style="font-size:var(--fs-caption);" title="Account is deactivated">Inactive</span>'
     : '';
 }
 
@@ -21161,10 +21187,10 @@ function renderAttendanceLog() {
           <button class="btn btn-sm btn-secondary" id="ot-subtab-history-btn" onclick="switchOTSubtab('history')">Request History</button>
         </div>
         <div id="hr-ot-request-list">
-          <div style="color:var(--text-muted);font-size:13px;">Loading OT requests...</div>
+          <div style="color:var(--text-muted);font-size:var(--fs-body);">Loading OT requests...</div>
         </div>
         <div id="hr-ot-history-list" style="display:none;">
-          <div style="color:var(--text-muted);font-size:13px;">Loading OT history...</div>
+          <div style="color:var(--text-muted);font-size:var(--fs-body);">Loading OT history...</div>
         </div>
       </div>
     </div>
@@ -21176,7 +21202,7 @@ function renderAttendanceLog() {
       <div class="modal-header">
         <div>
           <div class="modal-title" id="att-modal-title">Edit Attendance</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="att-modal-subtitle"></div>
+          <div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:2px;" id="att-modal-subtitle"></div>
         </div>
         <button class="modal-close" onclick="closeModal('edit-attendance-modal')">×</button>
       </div>
@@ -21393,10 +21419,10 @@ function renderHRCashAdvances() {
   const unpaid = all.filter((r) => !Number(r.paid)).reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const paidTotal = total - unpaid;
   const stats = `
-    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:var(--fs-body);">
       <div>Total: <strong>${formatPHP(total)}</strong></div>
       <div>Unpaid: <strong style="color:var(--error-color,#dc2626);">${formatPHP(unpaid)}</strong></div>
-      <div>Paid: <strong style="color:#166534;">${formatPHP(paidTotal)}</strong></div>
+      <div>Paid: <strong style="color:var(--success-text);">${formatPHP(paidTotal)}</strong></div>
     </div>`;
 
   if (!rows.length) {
@@ -21415,8 +21441,8 @@ function renderHRCashAdvances() {
         <tbody>
           ${rows.map((r) => {
             const badge = showHistory
-              ? '<span class="badge" style="background:#dcfce7;color:#166534;">Paid</span>'
-              : '<span class="badge" style="background:#fee2e2;color:#991b1b;">Not Paid</span>';
+              ? '<span class="badge badge-success">Paid</span>'
+              : '<span class="badge badge-danger">Not Paid</span>';
             const btn = showHistory
               ? `<button class="btn btn-secondary btn-sm" onclick="toggleCashAdvancePaid(${r.id}, false)">Mark Not Paid</button>`
               : `<button class="btn btn-primary btn-sm" onclick="toggleCashAdvancePaid(${r.id}, true)">Mark Paid</button>`;
@@ -21677,7 +21703,7 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
             const dateBadges = attendanceDateBadges(record.work_date, record.day_off, workedMins > 0 || hasCustomRate, !!Number(record.rest_day_regular));
             // Per-day switch: pay this worked rest day as a regular day instead.
             const restDaySwitch = paidDay && canManageHR() && isRestDayFor(record.work_date, record.day_off)
-              ? `<label onclick="event.stopPropagation()" style="margin-top:4px;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);cursor:pointer;" title="Pay this rest day as a regular work day (no 30% premium)">
+              ? `<label onclick="event.stopPropagation()" style="margin-top:4px;display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-caption);color:var(--text-muted);cursor:pointer;" title="Pay this rest day as a regular work day (no 30% premium)">
                   <input type="checkbox" ${Number(record.rest_day_regular) ? 'checked' : ''} onchange="setRestDayRegular(${record.id}, this.checked)"> Regular day
                 </label>`
               : '';
@@ -21701,13 +21727,13 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
                 return { label: 'On Time', color: '#16a34a', bg: '#dcfce7' };
               })();
               const holidayTag = sched.is_holiday
-                ? `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:#7c3aed;background:#ede9fe;">${escapeHtml(sched.holiday_type || 'Holiday')}${sched.holiday_percentage ? ` +${sched.holiday_percentage}%` : ''}</span>`
+                ? `<span class="badge badge-purple" style="font-size:var(--fs-caption);padding:1px 6px;">${escapeHtml(sched.holiday_type || 'Holiday')}${sched.holiday_percentage ? ` +${sched.holiday_percentage}%` : ''}</span>`
                 : '';
               scheduleHtml = `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-                ${shiftLabel ? `<span style="font-size:11px;color:var(--text-muted);">${shiftLabel}</span>` : ''}
-                ${statusInfo.label ? `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;color:${statusInfo.color};background:${statusInfo.bg};">${statusInfo.label}</span>` : ''}
+                ${shiftLabel ? `<span style="font-size:var(--fs-caption);color:var(--text-muted);">${shiftLabel}</span>` : ''}
+                ${statusInfo.label ? `<span style="font-size:var(--fs-caption);font-weight:600;padding:1px 6px;border-radius:999px;color:${statusInfo.color};background:${statusInfo.bg};">${statusInfo.label}</span>` : ''}
                 ${holidayTag}
-                ${sched.notes ? `<span style="font-size:10px;color:var(--text-muted);font-style:italic;">${escapeHtml(sched.notes)}</span>` : ''}
+                ${sched.notes ? `<span style="font-size:var(--fs-caption);color:var(--text-muted);font-style:italic;">${escapeHtml(sched.notes)}</span>` : ''}
               </div>`;
             }
 
@@ -21723,11 +21749,11 @@ function renderHRAttendanceTable(containerId = 'hr-attendance-table-wrap') {
               <td>${paidOtMinutes > 0
                 ? `<span class="badge badge-success" title="${nonRegularOt > 0 ? 'Rest day or holiday worked — the whole shift is paid as OT' : 'Approved OT (paid)'}">${formatMinutes(paidOtMinutes)}</span>`
                 : (earnedOt > 0
-                  ? `<span style="color:var(--text-muted);font-size:11px;" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
+                  ? `<span style="color:var(--text-muted);font-size:var(--fs-caption);" title="Worked past 8h but no approved OT request — not paid">${formatMinutes(earnedOt)} pending</span>`
                   : '<span style="color:var(--text-muted)">—</span>')}</td>
               <td><strong>${(paidDay || otPay > 0)
                 ? `<span title="${nonRegularDay ? (restDay && holiday ? 'Rest day + holiday, paid as OT:' : holiday ? 'Holiday, paid as OT:' : 'Rest day, paid as OT:') : 'Day'} ${formatPHP(nonRegularDay ? nonRegularPay : basePay)}${!hasCustomRate && workedMins < 480 ? ` (${Math.round(dayFraction * 100)}% of ${formatPHP(dailyRate)})` : ''}${premiumRate > 0 ? ` incl. +${Math.round(premiumRate * 100)}% premium` : ''}${otPay > 0 ? ` + approved OT ${formatPHP(otPay)}` : ''}">${formatPHP(dailySalary)}</span>`
-                : '<span class="text-muted text-xs">—</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:9px;" title="Custom rate for this day — paid in full">custom</span>' : ''}${premiumRate > 0 ? ` <span class="badge badge-info" style="font-size:9px;" title="Worked on a rest day or holiday — the day and its premium are paid as OT">OT +${Math.round(premiumRate * 100)}%</span>` : ''}</td>
+                : '<span class="text-muted text-xs">—</span>'}</strong>${hasCustomRate ? ' <span class="badge badge-warning" style="font-size:var(--fs-caption);" title="Custom rate for this day — paid in full">custom</span>' : ''}${premiumRate > 0 ? ` <span class="badge badge-info" style="font-size:var(--fs-caption);" title="Worked on a rest day or holiday — the day and its premium are paid as OT">OT +${Math.round(premiumRate * 100)}%</span>` : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -21984,15 +22010,15 @@ function renderSchedulePage() {
     <div class="card" style="margin-bottom:16px;padding:16px 20px;">
       <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
         <div>
-          <label class="form-label" style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">From</label>
+          <label class="form-label" style="display:block;margin-bottom:4px;font-size:var(--fs-small);font-weight:600;">From</label>
           <input type="date" id="sched-page-from" class="form-control" value="${today}" style="width:160px;">
         </div>
         <div>
-          <label class="form-label" style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">To</label>
+          <label class="form-label" style="display:block;margin-bottom:4px;font-size:var(--fs-small);font-weight:600;">To</label>
           <input type="date" id="sched-page-to" class="form-control" value="${today}" style="width:160px;">
         </div>
         <div>
-          <label class="form-label" style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;">User</label>
+          <label class="form-label" style="display:block;margin-bottom:4px;font-size:var(--fs-small);font-weight:600;">User</label>
           <select id="sched-page-user" class="form-control" style="min-width:200px;">
             <option value="">All Users</option>
           </select>
@@ -22043,21 +22069,21 @@ function renderScheduleModal(today) {
             <input type="text" id="schedule-notes" class="form-control" placeholder="e.g. Morning shift, WFH, Rest day">
           </div>
           <div style="margin-bottom:10px;">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:var(--fs-body);font-weight:500;margin-bottom:8px;">
               <input type="checkbox" id="schedule-is-holiday" onchange="toggleScheduleHoliday()" style="width:16px;height:16px;cursor:pointer;">
               Holiday
             </label>
             <div id="schedule-holiday-options" style="display:none;">
               <div class="form-grid-2" style="gap:8px;margin-bottom:8px;">
                 <div class="form-group" style="margin:0;">
-                  <label class="form-label" style="font-size:11px;">Holiday Type</label>
-                  <select id="schedule-holiday-type" class="form-control" style="height:34px;font-size:13px;">
+                  <label class="form-label" style="font-size:var(--fs-caption);">Holiday Type</label>
+                  <select id="schedule-holiday-type" class="form-control" style="height:34px;font-size:var(--fs-body);">
                     <option value="Special Holiday">Special Holiday</option>
                     <option value="Regular Holiday">Regular Holiday</option>
                   </select>
                 </div>
                 <div class="form-group" style="margin:0;">
-                  <label class="form-label" style="font-size:11px;">Holiday Pay %</label>
+                  <label class="form-label" style="font-size:var(--fs-caption);">Holiday Pay %</label>
                   <div style="display:flex;gap:4px;">
                     <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-30" onclick="selectSchedulePct(30)" style="flex:1;">30%</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="sched-pct-50" onclick="selectSchedulePct(50)" style="flex:1;">50%</button>
@@ -22141,7 +22167,7 @@ function renderSchedulePageTable(schedules) {
     };
     const [label, color, bg] = map[s.status] || ['—', '', ''];
     return label !== '—'
-      ? `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;color:${color};background:${bg};">${label}</span>`
+      ? `<span style="font-size:var(--fs-caption);font-weight:600;padding:2px 8px;border-radius:999px;color:${color};background:${bg};">${label}</span>`
       : '<span style="color:var(--text-muted)">—</span>';
   };
   wrap.innerHTML = `
@@ -22156,7 +22182,7 @@ function renderSchedulePageTable(schedules) {
               ? escapeHtml(s.shift_start) + (s.shift_end ? ' – ' + escapeHtml(s.shift_end) : '')
               : '<span style="color:var(--text-muted)">—</span>';
             const holidayHtml = s.is_holiday
-              ? `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;color:#7c3aed;background:#ede9fe;">${escapeHtml(s.holiday_type || 'Holiday')}${s.holiday_percentage ? ` +${s.holiday_percentage}%` : ''}</span>`
+              ? `<span class="badge badge-purple" style="font-size:var(--fs-caption);padding:2px 8px;">${escapeHtml(s.holiday_type || 'Holiday')}${s.holiday_percentage ? ` +${s.holiday_percentage}%` : ''}</span>`
               : '<span style="color:var(--text-muted)">—</span>';
             return `<tr>
               <td><strong>${escapeHtml(s.schedule_date || '')}</strong></td>
@@ -22164,7 +22190,7 @@ function renderSchedulePageTable(schedules) {
               <td>${shiftLabel}</td>
               <td>${statusBadge(s)}</td>
               <td>${holidayHtml}</td>
-              <td>${s.notes ? `<span style="font-size:12px;color:var(--text-muted);">${escapeHtml(s.notes)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+              <td>${s.notes ? `<span style="font-size:var(--fs-small);color:var(--text-muted);">${escapeHtml(s.notes)}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -22193,7 +22219,7 @@ async function loadUserSchedules() {
   if (!wrap) return;
   const userId = document.getElementById('schedule-user')?.value;
   if (!userId) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Loading...</div>';
+  wrap.innerHTML = '<div style="color:var(--text-muted);font-size:var(--fs-body);">Loading...</div>';
   try {
     const today = normalizeDateString(new Date());
     const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -22202,7 +22228,7 @@ async function loadUserSchedules() {
     const data = await authorizedJsonRequest(`/hr/schedules?${params}`);
     const rows = data?.schedules || [];
     if (!rows.length) {
-      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:12px 0;">No schedules found for this user.</div>';
+      wrap.innerHTML = '<div style="color:var(--text-muted);font-size:var(--fs-body);text-align:center;padding:12px 0;">No schedules found for this user.</div>';
       return;
     }
     function scheduleStatusBadge(r) {
@@ -22216,13 +22242,13 @@ async function loadUserSchedules() {
       };
       const s = map[r.status] || map['no-schedule'];
       const holidayBadge = r.is_holiday
-        ? `<span style="display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600;color:#7c3aed;background:#ede9fe;margin-left:4px;">${escapeHtml(r.holiday_type || 'Holiday')}${r.holiday_percentage ? ` +${r.holiday_percentage}%` : ''}</span>`
+        ? `<span class="badge badge-purple" style="padding:2px 7px;font-size:var(--fs-caption);margin-left:4px;">${escapeHtml(r.holiday_type || 'Holiday')}${r.holiday_percentage ? ` +${r.holiday_percentage}%` : ''}</span>`
         : '';
-      return `<span style="display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:600;color:${s.color};background:${s.bg};">${s.label}</span>${holidayBadge}`;
+      return `<span style="display:inline-block;padding:2px 7px;border-radius:999px;font-size:var(--fs-caption);font-weight:600;color:${s.color};background:${s.bg};">${s.label}</span>${holidayBadge}`;
     }
     wrap.innerHTML = `
-      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Recent schedules (last 30 days)</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <div style="font-size:var(--fs-small);font-weight:600;color:var(--text-muted);margin-bottom:6px;">Recent schedules (last 30 days)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:var(--fs-body);">
         <thead>
           <tr style="border-bottom:1px solid var(--border-color);">
             <th style="padding:6px 8px;text-align:left;">Date</th>
@@ -22248,7 +22274,7 @@ async function loadUserSchedules() {
         </tbody>
       </table>`;
   } catch (error) {
-    wrap.innerHTML = `<div style="color:var(--error-color);font-size:13px;">${escapeHtml(error.message)}</div>`;
+    wrap.innerHTML = `<div style="color:var(--error-color);font-size:var(--fs-body);">${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -22928,10 +22954,10 @@ let homeExcludedStatuses = (() => {
 let homeDateFrom = '';
 let homeDateTo = '';
 const HOME_STATUS_CHART_ITEMS = [
-  { status: 'Delivered', key: 'delivered', color: '#10b981' },
-  { status: 'Shipped', key: 'shipped', color: '#f59e0b' },
-  { status: 'Returning', key: 'returning', color: '#fca5a5' },
-  { status: 'Returned', key: 'returned', color: '#ef4444' },
+  { status: 'Delivered', key: 'delivered', color: ORDER_STATUS_COLORS.Delivered },
+  { status: 'Shipped', key: 'shipped', color: ORDER_STATUS_COLORS.Shipped },
+  { status: 'Returning', key: 'returning', color: ORDER_STATUS_COLORS.Returning },
+  { status: 'Returned', key: 'returned', color: ORDER_STATUS_COLORS.Returned },
 ];
 
 function getPosSourceOptions() {
@@ -23119,7 +23145,7 @@ function renderHomeAnalytics() {
   </div>
 
   <div class="kpi-grid" id="home-an-kpis">
-    <div class="empty-state" style="grid-column:1/-1;padding:16px;color:var(--text-muted);font-size:13px;">Loading…</div>
+    <div class="empty-state" style="grid-column:1/-1;padding:16px;color:var(--text-muted);font-size:var(--fs-body);">Loading…</div>
   </div>
 
   <div class="home-an-grid">
@@ -23203,7 +23229,7 @@ function renderHomeAnalyticsCharts() {
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          y: { beginAtZero: true, ticks: { callback: (v) => `₱${Number(v).toLocaleString()}` } },
+          y: { beginAtZero: true, ticks: { callback: (v) => `₱ ${Number(v).toLocaleString()}` } },
           x: { grid: { display: false } },
         },
       },
@@ -23236,7 +23262,7 @@ function renderHomeStatusCards() {
     agg[st].count += 1;
     agg[st].cod += cod;
   }
-  const peso = (n) => `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const peso = (n) => `₱ ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const tileValue = (tile) => {
     if (tile.match === 'all') return { count: total, cod: totalCod };
     if (tile.tag) {
@@ -23255,13 +23281,51 @@ function renderHomeStatusCards() {
     }
     return { count, cod };
   };
+
+  // Daily COD per card across the filtered period, for the trend line. Days
+  // with no orders count as zero; a one-day period draws a flat line.
+  const dayKey = (o) => String(o.date || '').slice(0, 10);
+  const dayKeys = [...new Set(orders.map(dayKey).filter(Boolean))].sort();
+  const days = [];
+  if (dayKeys.length) {
+    // Local calendar days: normalizeDateString goes through UTC, which in
+    // Manila turns local midnight into the previous day.
+    const localKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const end = new Date(`${dayKeys[dayKeys.length - 1]}T00:00:00`);
+    for (let d = new Date(`${dayKeys[0]}T00:00:00`); d <= end && days.length < 400; d.setDate(d.getDate() + 1)) {
+      days.push(localKey(d));
+    }
+  }
+  const dayIndex = new Map(days.map((d, i) => [d, i]));
+  const inTile = (tile, o) => {
+    if (tile.match === 'all') return true;
+    if (tile.tag) return String(o.tags || '').toLowerCase().includes(tile.tag.toLowerCase());
+    return (tile.match || []).includes(o.status || 'Unknown');
+  };
+  const tileSeries = (tile) => {
+    const series = new Array(days.length).fill(0);
+    for (const o of orders) {
+      const i = dayIndex.get(dayKey(o));
+      if (i !== undefined && inTile(tile, o)) series[i] += Number(o.cod || 0);
+    }
+    return series;
+  };
+  const trend = (series) => {
+    const path = series.length > 1 ? buildSparklinePath(series, 200, 40) : 'M0 20 L200 20';
+    return `<svg class="hsc-trend" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="var(--tone)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
+  };
+
   wrap.innerHTML = HOME_STATUS_TILES.map((tile) => {
     const { count, cod } = tileValue(tile);
     const pct = total ? (count / total) * 100 : 0;
     const tab = tile.rmoTab || 'orders';
     const status = String(tile.rmoStatus ?? 'all').replace(/'/g, "\\'");
+    // A single-status card wears that status's chart colour on its dot, so
+    // Home matches every chart; mixed cards keep their own tone.
+    const toneStyle = Array.isArray(tile.match) && tile.match.length === 1 && ORDER_STATUS_COLORS[tile.match[0]]
+      ? ` style="--tone:${ORDER_STATUS_COLORS[tile.match[0]]}"` : '';
     return `
-      <div class="home-status-card hsc-${tile.tone}" role="button" tabindex="0"
+      <div class="home-status-card hsc-${tile.tone}"${toneStyle} role="button" tabindex="0"
         onclick="openRmoFromCard('${tab}','${status}')"
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openRmoFromCard('${tab}','${status}');}"
         title="Open ${escapeHtml(tile.label)} in RMO Management">
@@ -23270,6 +23334,7 @@ function renderHomeStatusCards() {
         </div>
         <span class="hsc-value">${peso(cod)}</span>
         <span class="hsc-sub">${count.toLocaleString()} orders · ${pct.toFixed(1)}%</span>
+        ${trend(tileSeries(tile))}
       </div>`;
   }).join('');
 }
@@ -23444,7 +23509,7 @@ function renderHomeSummaryTiles() {
   const rts = rtsStats.rts;
   const rtsPct = rtsStats.rate;
   const aov = total ? grossSales / total : 0;
-  const peso = (n) => `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const peso = (n) => `₱ ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   // Same wording the Data Report's RTS card uses, so the shared basis is visible
   // on hover rather than something you have to infer from two disagreeing tiles.
   const rtsHint = rtsStats.base
@@ -23489,7 +23554,7 @@ function renderSalesSummaryCards(data) {
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Returning</div><div class="stat-value">${returning}</div><div class="stat-meta">In transit back</div></div>
     <div class="stat-card red"><div class="stat-card-accent"></div><div class="stat-label">Returned</div><div class="stat-value">${returned}</div><div class="stat-meta">Received back</div></div>
     <div class="stat-card amber"><div class="stat-card-accent"></div><div class="stat-label">Canceled</div><div class="stat-value">${canceled}</div><div class="stat-meta">Canceled orders</div></div>
-    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:20px;">₱${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
+    <div class="stat-card purple"><div class="stat-card-accent"></div><div class="stat-label">COD Amount</div><div class="stat-value" style="font-size:var(--fs-heading);">₱ ${totalCOD.toLocaleString()}</div><div class="stat-meta">Total collected</div></div>`;
 }
 
 function getSalesDateRange() {
@@ -23609,7 +23674,7 @@ function renderSalesTable() {
     <td style="font-weight:500">${escapeHtml(o.customer || '')}</td>
     <td>${escapeHtml(o.product || '')}</td>
     <td>${o.attempts > 1 ? `<span class="badge badge-warning">${o.attempts}</span>` : (o.attempts || '')}</td>
-    <td>₱${Number(o.cod || 0).toLocaleString()}</td>
+    <td>₱ ${Number(o.cod || 0).toLocaleString()}</td>
     <td>${escapeHtml(o.assigning_seller_name || '')}</td>
     <td>${statusBadge(o.status)}</td>
   </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No records found</td></tr>';
@@ -23799,7 +23864,7 @@ function marketingProductRowHtml(state, selected = '', spend = '') {
         ${allOptions.map((name) => `<option value="${escapeHtml(name)}"${name === selected ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
       </select>
       <input type="number" class="form-control mkt-row-spend" min="0" step="0.01" placeholder="Ad Spend" value="${spend !== '' && spend !== null && spend !== undefined ? Number(spend) : ''}" oninput="recalcMarketingTotal()" style="width:140px;">
-      <button type="button" class="btn btn-ghost btn-sm" onclick="removeMarketingProductRow(this)" style="font-size:18px;line-height:1;padding:4px 10px;color:var(--danger);">×</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="removeMarketingProductRow(this)" style="font-size:var(--fs-title);line-height:1;padding:4px 10px;color:var(--danger);">×</button>
     </div>`;
 }
 
@@ -24486,10 +24551,10 @@ function renderViewRecordsStatusSummary(records = null) {
   const chips = statusEntries
     .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:12px;padding:4px 10px;">${escapeHtml(status)}: <strong>${Number(count).toLocaleString()}</strong></span>`)
+    .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:var(--fs-small);padding:4px 10px;">${escapeHtml(status)}: <strong>${Number(count).toLocaleString()}</strong></span>`)
     .join('');
 
-  summaryEl.innerHTML = `<span class="badge badge-dark" style="font-size:12px;padding:4px 10px;">Total: <strong>${total.toLocaleString()}</strong></span>${chips}<span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;">COD <strong>₱${Number(totalCod).toLocaleString()}</strong></span>`;
+  summaryEl.innerHTML = `<span class="badge badge-dark" style="font-size:var(--fs-small);padding:4px 10px;">Total: <strong>${total.toLocaleString()}</strong></span>${chips}<span style="margin-left:auto;font-size:var(--fs-small);color:var(--text-muted);align-self:center;">COD <strong>₱ ${Number(totalCod).toLocaleString()}</strong></span>`;
 }
 
 function renderPaginationButtons(currentPage, totalPages, onClickName) {
@@ -24548,10 +24613,10 @@ function renderViewRecordsOrdersTable() {
     const totalCod = records.reduce((s, o) => s + Number(o.cod || 0), 0);
     const chips = Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
-      .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:12px;padding:4px 10px;">${escapeHtml(status)}: <strong>${count}</strong></span>`)
+      .map(([status, count]) => `<span class="badge ${statusColors[status] || 'badge-gray'}" style="font-size:var(--fs-small);padding:4px 10px;">${escapeHtml(status)}: <strong>${count}</strong></span>`)
       .join('');
     summaryEl.innerHTML = records.length
-      ? `${chips}<span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;"><strong>${records.length}</strong> total · COD <strong>₱${totalCod.toLocaleString()}</strong></span>`
+      ? `${chips}<span style="margin-left:auto;font-size:var(--fs-small);color:var(--text-muted);align-self:center;"><strong>${records.length}</strong> total · COD <strong>₱ ${totalCod.toLocaleString()}</strong></span>`
       : '';
   }
 
@@ -24568,7 +24633,7 @@ function renderViewRecordsOrdersTable() {
     <td>${(order.posTags || []).map((t) => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('')}</td>
     <td>${order.attempts > 1 ? `<span class="badge badge-warning">${order.attempts}</span>` : order.attempts}</td>
     <td>${order.qty}</td>
-    <td>₱${order.cod.toLocaleString()}</td>
+    <td>₱ ${order.cod.toLocaleString()}</td>
     <td>${escapeHtml(order.courier || '')}</td>
     <td>${statusBadge(order.status)}</td>
     <td>
@@ -25006,11 +25071,11 @@ function renderPosOrdersTable() {
       ORDER.indexOf(a.display_status) - ORDER.indexOf(b.display_status)
     );
     summaryEl.innerHTML = sorted.map(({ display_status: s, count: c }) =>
-      `<span class="${isRmoPage ? 'rmo-summary-chip' : ''}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;${statusStyleMap[s] || statusStyleMap.Other}">
+      `<span class="${isRmoPage ? 'rmo-summary-chip' : ''}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:var(--fs-small);font-weight:600;${statusStyleMap[s] || statusStyleMap.Other}">
         ${escapeHtml(s)} <span style="opacity:0.85">${Number(c).toLocaleString()}</span>
       </span>`
     ).join('') + (DB.posRawTotal
-      ? `<span class="${isRmoPage ? 'rmo-summary-chip' : ''}" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)">Total ${DB.posRawTotal.toLocaleString()}</span>`
+      ? `<span class="${isRmoPage ? 'rmo-summary-chip' : ''}" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:var(--fs-small);font-weight:600;background:var(--border,#e2e8f0);color:var(--text-secondary,#64748b)">Total ${DB.posRawTotal.toLocaleString()}</span>`
       : '');
   }
 
@@ -25089,7 +25154,7 @@ function renderPosOrdersTable() {
       <td>${escapeHtml(order.note_product || '') || dash}</td>
       <td>${tagLabels.map((t) => `<span class="badge badge-danger" style="margin:1px 2px;">${escapeHtml(t)}</span>`).join('') || dash}</td>
       <td>${order.attempts > 1 ? `<span class="badge badge-warning">${order.attempts}</span>` : (order.attempts || dash)}</td>
-      <td>₱${Number(order.cod || 0).toLocaleString()}</td>
+      <td>₱ ${Number(order.cod || 0).toLocaleString()}</td>
       <td>${escapeHtml(order.assigning_seller_name || '') || dash}</td>
       <td>${statusLabel}</td>
       <td>${escapeHtml(order.sprinter_name || '') || dash}</td>
@@ -25868,7 +25933,7 @@ async function saveExpense() {
         receipt_url: receipt,
       }),
     });
-    showToast('success', 'Expense saved', `${item} — ₱${(qty * price + fee).toLocaleString()}`);
+    showToast('success', 'Expense saved', `${item} — ₱ ${(qty * price + fee).toLocaleString()}`);
     closeModal('expense-log-modal');
     await loadExpensesFromBackend();
     // Follow the entry that was just logged: an expense back-dated to another
@@ -26085,7 +26150,7 @@ function applyExpenseFilters() {
   const summary = document.getElementById('exp-filter-summary');
   if (summary) {
     summary.textContent = rows.length
-      ? `${shown} of ${rows.length} · ₱${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      ? `${shown} of ${rows.length} · ₱ ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : '';
   }
 }
@@ -26346,7 +26411,7 @@ function renderInfotxtRulesFor(recipient, allRules = []) {
               </label>
             </td>
             <td>${escapeHtml(infotxtRuleLabel(rule))}</td>
-            <td style="font-size:12px; line-height:1.6;">${escapeHtml(rule.message || '')}</td>
+            <td style="font-size:var(--fs-small); line-height:1.6;">${escapeHtml(rule.message || '')}</td>
             <td style="white-space:nowrap;">
               <button class="btn btn-ghost btn-sm" type="button" title="Edit" onclick="openInfotxtRuleModal(${rule.id})">✎</button>
               <button class="btn btn-ghost btn-sm" type="button" title="Delete" style="color:var(--danger);" onclick="deleteInfotxtRule(${rule.id})">🗑</button>
@@ -26866,7 +26931,7 @@ async function loadInfotxtLogs() {
       const parts = String(eventKey || '').split(':');
       if (parts.length < 5) return '';
       const kind = parts[0].replace('rider-', '');
-      return `<span class="badge badge-blue" style="font-size:11px;">${escapeHtml(kind)}</span> ${escapeHtml(parts[3])}`;
+      return `<span class="badge badge-blue" style="font-size:var(--fs-caption);">${escapeHtml(kind)}</span> ${escapeHtml(parts[3])}`;
     };
     el.innerHTML = `
       <table class="data-table" style="margin-top:0;">
@@ -26877,10 +26942,10 @@ async function loadInfotxtLogs() {
               <td>${log.created_at ? new Date(log.created_at).toLocaleString() : ''}</td>
               <td>${escapeHtml(log.recipient_name || '')}</td>
               <td><code>${escapeHtml(log.mobile || '')}</code></td>
-              <td style="font-size:12px;">${trigger(log.event_key)}</td>
-              <td style="max-width:360px; font-size:12px;">${escapeHtml(log.message || '')}</td>
-              <td>${badge(log.status)}${log.error_message ? `<div style="font-size:11px; color:var(--danger); margin-top:4px;">${escapeHtml(log.error_message)}</div>` : ''}</td>
-              <td style="font-size:12px;">${escapeHtml(log.related_id || '')}${log.smsid ? `<div style="color:var(--text-muted);">SMS ID ${escapeHtml(log.smsid)}</div>` : ''}</td>
+              <td style="font-size:var(--fs-small);">${trigger(log.event_key)}</td>
+              <td style="max-width:360px; font-size:var(--fs-small);">${escapeHtml(log.message || '')}</td>
+              <td>${badge(log.status)}${log.error_message ? `<div style="font-size:var(--fs-caption); color:var(--danger); margin-top:4px;">${escapeHtml(log.error_message)}</div>` : ''}</td>
+              <td style="font-size:var(--fs-small);">${escapeHtml(log.related_id || '')}${log.smsid ? `<div style="color:var(--text-muted);">SMS ID ${escapeHtml(log.smsid)}</div>` : ''}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -27476,7 +27541,7 @@ function renderPosUsersTable() {
       <span>${start}-${end} of ${matches.length.toLocaleString()} users</span>
       <div>
         <button class="btn btn-secondary btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="changePosUsersPage(${page - 1})">Prev</button>
-        <span style="padding:0 10px;color:var(--text-muted);font-size:12px;">${page} / ${totalPages}</span>
+        <span style="padding:0 10px;color:var(--text-muted);font-size:var(--fs-small);">${page} / ${totalPages}</span>
         <button class="btn btn-secondary btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="changePosUsersPage(${page + 1})">Next</button>
       </div>`;
   }
@@ -27604,7 +27669,7 @@ async function reviewUnknownShopOrders() {
     const span = shop.first_order && shop.last_order
       ? `, ${String(shop.first_order).slice(0, 10)} to ${String(shop.last_order).slice(0, 10)}`
       : '';
-    return `• Shop ${label}: ${Number(shop.orders || 0).toLocaleString()} orders, ₱${Math.round(Number(shop.cod_total || 0)).toLocaleString()}${span}`;
+    return `• Shop ${label}: ${Number(shop.orders || 0).toLocaleString()} orders, ₱ ${Math.round(Number(shop.cod_total || 0)).toLocaleString()}${span}`;
   }).join('\n');
 
   const message = `${totalOrders.toLocaleString()} order${totalOrders === 1 ? '' : 's'} `
@@ -28042,7 +28107,7 @@ async function loadScanRecords(page) {
       'CANCELLED': 'badge-danger',
     };
     const chip = (label, count, cls) =>
-      `<span class="badge ${cls || 'badge-secondary'}" style="font-size:12px;padding:6px 10px;margin:2px;">
+      `<span class="badge ${cls || 'badge-secondary'}" style="font-size:var(--fs-small);padding:6px 10px;margin:2px;">
         ${escapeHtml(label)} ${Number(count || 0).toLocaleString()}
       </span>`;
     const statusChips = (summary.by_status || [])
@@ -28052,7 +28117,7 @@ async function loadScanRecords(page) {
     listEl.innerHTML = `
       <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;">
         ${statusChips}
-        <span class="badge badge-gray" style="font-size:12px;padding:6px 10px;margin:2px;">
+        <span class="badge badge-gray" style="font-size:var(--fs-small);padding:6px 10px;margin:2px;">
           Total ${Number(summary.total_pcs || 0).toLocaleString()} pcs
         </span>
       </div>
@@ -28080,7 +28145,7 @@ async function loadScanRecords(page) {
           </tr>`).join('')}
         </tbody>
       </table>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+      <div style="font-size:var(--fs-small);color:var(--text-muted);margin-top:8px;">
         Showing ${records.length} of ${Number(data.total || 0).toLocaleString()} scan${data.total === 1 ? '' : 's'}
       </div>`;
 
@@ -28170,7 +28235,7 @@ function showRenameSourceModal(presetName, onDone) {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = `
     <div style="background:var(--bg-card);border-radius:12px;padding:28px 32px;width:min(480px, calc(100vw - 24px));box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-      <div style="font-size:16px;font-weight:600;margin-bottom:18px;">Rename Page</div>
+      <div style="font-size:var(--fs-title);font-weight:600;margin-bottom:18px;">Rename Page</div>
       <div class="form-group" style="margin-bottom:14px;">
         <label class="form-label">Current name</label>
         <input class="form-control" id="rename-src-old" value="${escapeHtml(current)}" readonly style="opacity:0.6;">
@@ -28296,10 +28361,10 @@ async function loadSheetRecords(page) {
       };
       const chips = data.status_counts
         .filter((r) => Number(r.count) > 0)
-        .map((r) => `<span class="badge ${statusColors[r.status] || 'badge-secondary'}" style="font-size:12px;padding:4px 10px;cursor:pointer;" onclick="document.getElementById('sheet-records-status-filter').value=${JSON.stringify(r.status)};loadSheetRecords(1);">${escapeHtml(r.status)}: <strong>${Number(r.count).toLocaleString()}</strong></span>`)
+        .map((r) => `<span class="badge ${statusColors[r.status] || 'badge-secondary'}" style="font-size:var(--fs-small);padding:4px 10px;cursor:pointer;" onclick="document.getElementById('sheet-records-status-filter').value=${JSON.stringify(r.status)};loadSheetRecords(1);">${escapeHtml(r.status)}: <strong>${Number(r.count).toLocaleString()}</strong></span>`)
         .join('');
       const total = data.status_counts.reduce((s, r) => s + Number(r.count), 0);
-      summaryEl.innerHTML = `<span class="badge badge-dark" style="font-size:12px;padding:4px 10px;">Total: <strong>${total.toLocaleString()}</strong></span>${chips}`;
+      summaryEl.innerHTML = `<span class="badge badge-dark" style="font-size:var(--fs-small);padding:4px 10px;">Total: <strong>${total.toLocaleString()}</strong></span>${chips}`;
     } else if (summaryEl) {
       summaryEl.innerHTML = '';
     }
@@ -28331,7 +28396,7 @@ async function loadSheetRecords(page) {
 
     const customerCell = (r) => {
       const name = clip(r.customer || '-', 32);
-      const phone = r.phone ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(r.phone)}</div>` : '';
+      const phone = r.phone ? `<div style="font-size:var(--fs-caption);color:var(--text-muted);">${escapeHtml(r.phone)}</div>` : '';
       const titleParts = [r.customer, r.phone, r.province_city, r.address].filter(Boolean);
       return `<td style="max-width:220px;" title="${escapeHtml(titleParts.join(' • '))}">
         <div style="font-weight:500;">${name}</div>${phone}
@@ -28340,7 +28405,7 @@ async function loadSheetRecords(page) {
 
     tableEl.innerHTML = `
       <div style="overflow-x:auto;">
-        <table class="data-table" style="font-size:13px;table-layout:auto;">
+        <table class="data-table" style="font-size:var(--fs-body);table-layout:auto;">
           <thead><tr>
             <th>Order ID</th><th>Page</th><th>Customer</th><th>Province/City</th>
             <th>Product</th><th>COD</th><th>Tracking</th>
@@ -28351,13 +28416,13 @@ async function loadSheetRecords(page) {
           </tr></thead>
           <tbody>
             ${data.records.map((r) => `<tr>
-              <td ${tdClip} title="${escapeHtml(r.order_ref || String(r.id))}"><span class="mono-text" style="font-size:12px;">${clip(r.order_ref || String(r.id), 24)}</span></td>
-              <td style="white-space:nowrap;" title="${escapeHtml(r.source_sheet || '')}"><span class="badge badge-secondary" style="font-size:11px;">${clip(r.chat_page || r.source_sheet || '-', 24)}</span></td>
+              <td ${tdClip} title="${escapeHtml(r.order_ref || String(r.id))}"><span class="mono-text" style="font-size:var(--fs-small);">${clip(r.order_ref || String(r.id), 24)}</span></td>
+              <td style="white-space:nowrap;" title="${escapeHtml(r.source_sheet || '')}"><span class="badge badge-secondary" style="font-size:var(--fs-caption);">${clip(r.chat_page || r.source_sheet || '-', 24)}</span></td>
               ${customerCell(r)}
               <td ${tdClip} title="${escapeHtml(r.province_city || '')}">${clip(r.province_city || '-', 24)}</td>
               <td ${tdClip} title="${escapeHtml(r.product || '')}">${clip(r.product || '-', 40)}</td>
               <td style="white-space:nowrap;">${r.cod_amount ? Number(r.cod_amount).toLocaleString() : '-'}</td>
-              <td ${tdClip} title="${escapeHtml(r.tracking_no || '')}"><span class="mono-text" style="font-size:12px;">${clip(r.tracking_no || '-', 20)}</span></td>
+              <td ${tdClip} title="${escapeHtml(r.tracking_no || '')}"><span class="mono-text" style="font-size:var(--fs-small);">${clip(r.tracking_no || '-', 20)}</span></td>
               <td style="text-align:center;">${r.attempts || 1}</td>
               <td style="white-space:nowrap;">${statusBadge(r.status)}</td>
               <td ${tdClip} title="${escapeHtml(r.internal_notes || '')}">${clip(r.internal_notes || '-', 30)}</td>
@@ -28370,7 +28435,7 @@ async function loadSheetRecords(page) {
           </tbody>
         </table>
       </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+      <div style="font-size:var(--fs-small); color:var(--text-muted); margin-top:8px;">
         Showing ${data.records.length} of ${data.total.toLocaleString()} record${data.total !== 1 ? 's' : ''}
       </div>`;
 
@@ -28415,7 +28480,7 @@ async function loadApiKeys() {
             <tr>
               <td>${escapeHtml(k.name)}</td>
               <td><code>${escapeHtml(k.key_prefix)}...</code></td>
-              <td style="font-size:12px;">${(Array.isArray(k.scopes) ? k.scopes : []).map((s) => `<span class="badge badge-blue" style="font-size:11px;">${escapeHtml(s)}</span>`).join(' ')}</td>
+              <td style="font-size:var(--fs-small);">${(Array.isArray(k.scopes) ? k.scopes : []).map((s) => `<span class="badge badge-blue" style="font-size:var(--fs-caption);">${escapeHtml(s)}</span>`).join(' ')}</td>
               <td>${k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'Never'}</td>
               <td>${k.created_at ? new Date(k.created_at).toLocaleDateString() : ''}</td>
               <td>${k.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Revoked</span>'}</td>
@@ -28486,8 +28551,8 @@ async function loadWebhooks() {
           ${hooks.map((h) => `
             <tr>
               <td>${escapeHtml(h.name)}</td>
-              <td style="font-size:12px; max-width:200px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(h.url)}</td>
-              <td style="font-size:12px;">${(Array.isArray(h.events) ? h.events : []).map((e) => `<span class="badge badge-purple" style="font-size:11px;">${escapeHtml(e)}</span>`).join(' ')}</td>
+              <td style="font-size:var(--fs-small); max-width:200px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(h.url)}</td>
+              <td style="font-size:var(--fs-small);">${(Array.isArray(h.events) ? h.events : []).map((e) => `<span class="badge badge-purple" style="font-size:var(--fs-caption);">${escapeHtml(e)}</span>`).join(' ')}</td>
               <td>${h.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-warning">Paused</span>'}</td>
               <td style="display:flex; gap:6px;">
                 <button class="btn btn-sm btn-secondary" onclick="viewWebhookDeliveries(${h.id}, '${escapeHtml(h.name)}')">History</button>
@@ -28551,7 +28616,7 @@ async function viewWebhookDeliveries(id, name) {
             <td><span class="badge badge-${d.status === 'delivered' ? 'success' : d.status === 'failed' ? 'danger' : 'gray'}">${d.status}</span></td>
             <td>${d.response_status || '-'}</td>
             <td>${d.created_at ? new Date(d.created_at).toLocaleString() : ''}</td>
-            <td style="font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(d.response_body || '')}</td>
+            <td style="font-size:var(--fs-caption); max-width:180px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(d.response_body || '')}</td>
           </tr>`).join('')
       : '<tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">No deliveries yet</td></tr>';
 
@@ -28839,8 +28904,8 @@ function renderMarketingPosOrdersList() {
     </div>
     <div class="table-pagination">
       <div style="display:flex;align-items:center;gap:10px;">
-        <span style="font-size:13px;color:var(--text-muted);">Rows:</span>
-        <select onchange="setMarketingPosPerPage(this.value)" style="height:30px;font-size:13px;padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
+        <span style="font-size:var(--fs-body);color:var(--text-muted);">Rows:</span>
+        <select onchange="setMarketingPosPerPage(this.value)" style="height:30px;font-size:var(--fs-body);padding:0 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);cursor:pointer;">
           ${[10, 20, 50, 100].map((v) => `<option value="${v}"${marketingPosPerPage === v ? ' selected' : ''}>${v}</option>`).join('')}
         </select>
         <span>${total ? start + 1 : 0}–${end} of ${total} POS orders</span>
@@ -28936,6 +29001,7 @@ function toggleTheme() {
   const next = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   try { localStorage.setItem('uiTheme', next); } catch {}
+  applyChartTheme({ recolor: true });
 }
 
 function applyThemeFromStorage() {
@@ -28959,12 +29025,7 @@ async function init(options) {
 
   applyThemeFromStorage();
 
-  // Make Chart.js legible on the dark dashboard background.
-  if (window.Chart) {
-    Chart.defaults.color = '#93a1bd';
-    Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.14)';
-    Chart.defaults.font.family = "'DM Sans', sans-serif";
-  }
+  applyChartTheme();
 
   if (!App.user) {
     loginScreen.innerHTML = renderLogin();
@@ -29262,13 +29323,13 @@ function renderSummaryBody() {
   });
   const renderSection = (section, index) => `
     ${section.heading ? `<div style="${section.big
-      ? `font-size:16px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin:${index ? 22 : 4}px 0 8px;`
+      ? `font-size:var(--fs-title);font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin:${index ? 22 : 4}px 0 8px;`
       : 'font-weight:600;margin:16px 0 6px;'}">${escapeHtml(section.heading)}</div>` : ''}
     ${section.table ? renderSummaryNoteTable(section.table) : ''}`;
   body.innerHTML = `
   <div class="card">
     <div class="card-header">
-      <div class="card-title" style="font-size:18px;">📝 Summary — ${escapeHtml(label)}</div>
+      <div class="card-title" style="font-size:var(--fs-title);">📝 Summary — ${escapeHtml(label)}</div>
       <button class="btn btn-secondary btn-sm" type="button" onclick="copySummaryNote()">Copy</button>
     </div>
     <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:8px 32px;align-items:start;">
