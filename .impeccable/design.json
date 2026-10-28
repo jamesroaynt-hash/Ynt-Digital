@@ -1,0 +1,587 @@
+{
+ "schemaVersion": 2,
+ "generatedAt": "2026-10-28T03:01:11.405640+00:00",
+ "title": "Design System: YNT ERP",
+ "extensions": {
+  "colorMeta": {
+   "action-blue": {
+    "role": "primary",
+    "displayName": "Action Blue",
+    "canonical": "#3b82f6",
+    "tonalRamp": [
+     "#12274a",
+     "#1e417b",
+     "#295bac",
+     "#3472d8",
+     "#6ca1f8",
+     "#9dc0fa",
+     "#cee0fd",
+     "#eff5fe"
+    ]
+   },
+   "action-blue-deep": {
+    "role": "primary",
+    "displayName": "Action Blue Deep",
+    "canonical": "#2563eb",
+    "tonalRamp": [
+     "#0b1e46",
+     "#123276",
+     "#1a45a4",
+     "#2157cf",
+     "#5c8af0",
+     "#92b1f5",
+     "#c8d8fa",
+     "#eef3fd"
+    ]
+   },
+   "action-blue-wash": {
+    "role": "primary",
+    "displayName": "Action Blue Wash",
+    "canonical": "#eff6ff",
+    "tonalRamp": [
+     "#484a4c",
+     "#787b80",
+     "#a7acb2",
+     "#d2d8e0",
+     "#f3f8ff",
+     "#f7faff",
+     "#fbfdff",
+     "#fefeff"
+    ]
+   },
+   "dark-action-blue": {
+    "role": "primary",
+    "displayName": "Dark Action Blue",
+    "canonical": "#60a5fa",
+    "tonalRamp": [
+     "#1d324b",
+     "#30527d",
+     "#4374af",
+     "#5491dc",
+     "#88bcfb",
+     "#b0d2fc",
+     "#d7e8fe",
+     "#f2f8ff"
+    ]
+   },
+   "sidebar-night": {
+    "role": "secondary",
+    "displayName": "Sidebar Night",
+    "canonical": "#0c1a2e",
+    "tonalRamp": [
+     "#04080e",
+     "#060d17",
+     "#081220",
+     "#0b1728",
+     "#495362",
+     "#868c96",
+     "#c2c6cb",
+     "#ecedee"
+    ]
+   },
+   "sidebar-night-raised": {
+    "role": "secondary",
+    "displayName": "Sidebar Night Raised",
+    "canonical": "#112240",
+    "tonalRamp": [
+     "#050a13",
+     "#081120",
+     "#0c182d",
+     "#0f1e38",
+     "#4c5970",
+     "#8890a0",
+     "#c4c8cf",
+     "#ecedf0"
+    ]
+   },
+   "flyout-night": {
+    "role": "secondary",
+    "displayName": "Flyout Night",
+    "canonical": "#16283f",
+    "tonalRamp": [
+     "#070c13",
+     "#0b1420",
+     "#0f1c2c",
+     "#132337",
+     "#505e6f",
+     "#8a949f",
+     "#c5c9cf",
+     "#eceef0"
+    ]
+   },
+   "ledger-gold": {
+    "role": "secondary",
+    "displayName": "Ledger Gold",
+    "canonical": "#d4a843",
+    "tonalRamp": [
+     "#403214",
+     "#6a5422",
+     "#94762f",
+     "#bb943b",
+     "#dfbe72",
+     "#ead4a1",
+     "#f4e9d0",
+     "#fcf8f0"
+    ]
+   },
+   "delivered-green": {
+    "role": "tertiary",
+    "displayName": "Delivered Green",
+    "canonical": "#10b981",
+    "tonalRamp": [
+     "#053827",
+     "#085c40",
+     "#0b825a",
+     "#0ea372",
+     "#4ccaa0",
+     "#88dcc0",
+     "#c3eee0",
+     "#ecf9f5"
+    ]
+   },
+   "pending-amber": {
+    "role": "tertiary",
+    "displayName": "Pending Amber",
+    "canonical": "#f59e0b",
+    "tonalRamp": [
+     "#4a2f03",
+     "#7a4f06",
+     "#ac6f08",
+     "#d88b0a",
+     "#f8b648",
+     "#face85",
+     "#fce7c2",
+     "#fef7eb"
+    ]
+   },
+   "returned-red": {
+    "role": "tertiary",
+    "displayName": "Returned Red",
+    "canonical": "#ef4444",
+    "tonalRamp": [
+     "#481414",
+     "#782222",
+     "#a73030",
+     "#d23c3c",
+     "#f37373",
+     "#f7a2a2",
+     "#fbd0d0",
+     "#fef0f0"
+    ]
+   },
+   "ink-navy": {
+    "role": "neutral",
+    "displayName": "Ink Navy",
+    "canonical": "#0f172a",
+    "tonalRamp": [
+     "#04070d",
+     "#080c15",
+     "#0a101d",
+     "#0d1425",
+     "#4b515f",
+     "#878b94",
+     "#c3c5ca",
+     "#ececee"
+    ]
+   },
+   "ink-navy-light": {
+    "role": "neutral",
+    "displayName": "Ink Navy Light",
+    "canonical": "#1e293b",
+    "tonalRamp": [
+     "#090c12",
+     "#0f141e",
+     "#151d29",
+     "#1a2434",
+     "#565e6c",
+     "#8e949d",
+     "#c7cace",
+     "#edeeef"
+    ]
+   },
+   "sheet-white": {
+    "role": "neutral",
+    "displayName": "Sheet White",
+    "canonical": "#ffffff",
+    "tonalRamp": [
+     "#4c4c4c",
+     "#808080",
+     "#b2b2b2",
+     "#e0e0e0",
+     "#ffffff",
+     "#ffffff",
+     "#ffffff",
+     "#ffffff"
+    ]
+   },
+   "paper-mist": {
+    "role": "neutral",
+    "displayName": "Paper Mist",
+    "canonical": "#f8fafc",
+    "tonalRamp": [
+     "#4a4b4c",
+     "#7c7d7e",
+     "#aeafb0",
+     "#dadcde",
+     "#fafbfd",
+     "#fcfcfe",
+     "#fdfefe",
+     "#feffff"
+    ]
+   },
+   "paper-shade": {
+    "role": "neutral",
+    "displayName": "Paper Shade",
+    "canonical": "#f1f5f9",
+    "tonalRamp": [
+     "#484a4b",
+     "#787a7c",
+     "#a9acae",
+     "#d4d8db",
+     "#f4f8fa",
+     "#f8fafc",
+     "#fcfcfe",
+     "#fefeff"
+    ]
+   },
+   "rule-line": {
+    "role": "neutral",
+    "displayName": "Rule Line",
+    "canonical": "#e2e8f0",
+    "tonalRamp": [
+     "#444648",
+     "#717478",
+     "#9ea2a8",
+     "#c7ccd3",
+     "#e9eef4",
+     "#f0f4f8",
+     "#f8f9fb",
+     "#fdfdfe"
+    ]
+   },
+   "rule-line-strong": {
+    "role": "neutral",
+    "displayName": "Rule Line Strong",
+    "canonical": "#cbd5e1",
+    "tonalRamp": [
+     "#3d4044",
+     "#666a70",
+     "#8e959e",
+     "#b3bbc6",
+     "#d8e0e8",
+     "#e5eaf0",
+     "#f2f4f8",
+     "#fbfcfd"
+    ]
+   },
+   "text-ink": {
+    "role": "neutral",
+    "displayName": "Text Ink",
+    "canonical": "#0f172a",
+    "tonalRamp": [
+     "#04070d",
+     "#080c15",
+     "#0a101d",
+     "#0d1425",
+     "#4b515f",
+     "#878b94",
+     "#c3c5ca",
+     "#ececee"
+    ]
+   },
+   "text-slate": {
+    "role": "neutral",
+    "displayName": "Text Slate",
+    "canonical": "#475569",
+    "tonalRamp": [
+     "#151a20",
+     "#242a34",
+     "#323c4a",
+     "#3e4b5c",
+     "#75808e",
+     "#a3aab4",
+     "#d1d4da",
+     "#f0f1f3"
+    ]
+   },
+   "text-faint": {
+    "role": "neutral",
+    "displayName": "Text Faint",
+    "canonical": "#94a3b8",
+    "tonalRamp": [
+     "#2c3137",
+     "#4a525c",
+     "#687281",
+     "#828fa2",
+     "#afbaca",
+     "#cad1dc",
+     "#e4e8ed",
+     "#f6f8f9"
+    ]
+   },
+   "dark-sheet": {
+    "role": "neutral",
+    "displayName": "Dark Sheet",
+    "canonical": "#0f172a",
+    "tonalRamp": [
+     "#04070d",
+     "#080c15",
+     "#0a101d",
+     "#0d1425",
+     "#4b515f",
+     "#878b94",
+     "#c3c5ca",
+     "#ececee"
+    ]
+   },
+   "dark-paper": {
+    "role": "neutral",
+    "displayName": "Dark Paper",
+    "canonical": "#0b1220",
+    "tonalRamp": [
+     "#03050a",
+     "#060910",
+     "#080d16",
+     "#0a101c",
+     "#484d58",
+     "#858890",
+     "#c2c4c7",
+     "#ebeced"
+    ]
+   },
+   "dark-shade": {
+    "role": "neutral",
+    "displayName": "Dark Shade",
+    "canonical": "#1e293b",
+    "tonalRamp": [
+     "#090c12",
+     "#0f141e",
+     "#151d29",
+     "#1a2434",
+     "#565e6c",
+     "#8e949d",
+     "#c7cace",
+     "#edeeef"
+    ]
+   },
+   "dark-rule": {
+    "role": "neutral",
+    "displayName": "Dark Rule",
+    "canonical": "#1e293b",
+    "tonalRamp": [
+     "#090c12",
+     "#0f141e",
+     "#151d29",
+     "#1a2434",
+     "#565e6c",
+     "#8e949d",
+     "#c7cace",
+     "#edeeef"
+    ]
+   },
+   "dark-text": {
+    "role": "neutral",
+    "displayName": "Dark Text",
+    "canonical": "#f1f5f9",
+    "tonalRamp": [
+     "#484a4b",
+     "#787a7c",
+     "#a9acae",
+     "#d4d8db",
+     "#f4f8fa",
+     "#f8fafc",
+     "#fcfcfe",
+     "#fefeff"
+    ]
+   }
+  },
+  "typographyMeta": {
+   "headline": {
+    "displayName": "Headline",
+    "purpose": "Page titles."
+   },
+   "stat": {
+    "displayName": "Stat",
+    "purpose": "KPI values; tabular, one line."
+   },
+   "title": {
+    "displayName": "Title",
+    "purpose": "Card and section titles."
+   },
+   "body": {
+    "displayName": "Body",
+    "purpose": "Table cells, forms, text."
+   },
+   "label": {
+    "displayName": "Label",
+    "purpose": "Uppercase stat labels and table headers."
+   },
+   "mono": {
+    "displayName": "Mono",
+    "purpose": "Clocks, codes and scan inputs only."
+   }
+  },
+  "shadows": [
+   {
+    "name": "resting-sheet",
+    "value": "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+    "purpose": "Cards at rest."
+   },
+   {
+    "name": "lifted-sheet",
+    "value": "0 4px 12px rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.04)",
+    "purpose": "Card hover."
+   },
+   {
+    "name": "floating-layer",
+    "value": "0 10px 30px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05)",
+    "purpose": "Menus, flyouts, modals, open mobile sidebar."
+   }
+  ],
+  "motion": [
+   {
+    "name": "transition-standard",
+    "value": "0.18s ease",
+    "purpose": "Hover and state changes."
+   },
+   {
+    "name": "theme-crossfade",
+    "value": "0.45s ease",
+    "purpose": "Light/dark background and text swap."
+   },
+   {
+    "name": "daylight-drift",
+    "value": "22s ease-in-out infinite alternate",
+    "purpose": "Light-theme sun wash drift; off under reduced motion."
+   }
+  ],
+  "breakpoints": [
+   {
+    "name": "phone-small",
+    "value": "480px"
+   },
+   {
+    "name": "phone",
+    "value": "640px"
+   },
+   {
+    "name": "tablet",
+    "value": "768px"
+   },
+   {
+    "name": "login-stack",
+    "value": "980px"
+   }
+  ]
+ },
+ "components": [
+  {
+   "name": "Primary Button",
+   "kind": "button",
+   "refersTo": "button-primary",
+   "description": "The one action per area; Action Blue only.",
+   "html": "<button class=\"ds-btn-primary\">Save order</button>",
+   "css": ".ds-btn-primary{font-family:'DM Sans',-apple-system,sans-serif;display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:8px;border:1px solid transparent;background:#3b82f6;color:#fff;font-size:13.5px;font-weight:500;cursor:pointer;transition:all .18s ease}.ds-btn-primary:hover{background:#2563eb}.ds-btn-primary:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(59,130,246,.3)}"
+  },
+  {
+   "name": "Secondary Button",
+   "kind": "button",
+   "refersTo": "button-secondary",
+   "description": "Neutral companion action.",
+   "html": "<button class=\"ds-btn-secondary\">Export</button>",
+   "css": ".ds-btn-secondary{font-family:'DM Sans',-apple-system,sans-serif;padding:8px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#0f172a;font-size:13.5px;font-weight:500;cursor:pointer;transition:all .18s ease}.ds-btn-secondary:hover{background:#f1f5f9}.ds-btn-secondary:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(59,130,246,.3)}"
+  },
+  {
+   "name": "Text Input",
+   "kind": "input",
+   "refersTo": "input",
+   "description": "Form and search fields; 16px on phones.",
+   "html": "<input class=\"ds-input\" placeholder=\"Name or phone\">",
+   "css": ".ds-input{font-family:'DM Sans',-apple-system,sans-serif;width:240px;padding:9px 13px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;font-size:14px;outline:none;transition:border-color .18s ease,box-shadow .18s ease}.ds-input::placeholder{color:#94a3b8}.ds-input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.1)}"
+  },
+  {
+   "name": "Status Badge",
+   "kind": "chip",
+   "refersTo": "badge",
+   "description": "Order outcome pill; colour always means an outcome.",
+   "html": "<span class=\"ds-badge ds-ok\">Delivered</span> <span class=\"ds-badge ds-wait\">Returning</span> <span class=\"ds-badge ds-bad\">Returned</span>",
+   "css": ".ds-badge{font-family:'DM Sans',-apple-system,sans-serif;display:inline-flex;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:500;white-space:nowrap}.ds-ok{background:#ecfdf5;color:#065f46}.ds-wait{background:#fffbeb;color:#92400e}.ds-bad{background:#fef2f2;color:#991b1b}"
+  },
+  {
+   "name": "Stat Card",
+   "kind": "card",
+   "refersTo": "stat-card",
+   "description": "The ledger's headline figure with an accent bar.",
+   "html": "<div class=\"ds-stat\"><span class=\"ds-stat-bar\"></span><div class=\"ds-stat-label\">COD Revenue</div><div class=\"ds-stat-value\">₱894,320</div></div>",
+   "css": ".ds-stat{font-family:'DM Sans',-apple-system,sans-serif;position:relative;overflow:hidden;width:220px;padding:18px 20px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);transition:box-shadow .18s ease}.ds-stat:hover{box-shadow:0 4px 12px rgba(0,0,0,.06),0 2px 6px rgba(0,0,0,.04)}.ds-stat-bar{position:absolute;left:0;top:0;bottom:0;width:3px;background:#3b82f6}.ds-stat-label{font-size:11.5px;font-weight:500;color:#94a3b8;text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px}.ds-stat-value{font-size:26px;font-weight:600;color:#0f172a;letter-spacing:-.8px;line-height:1.15;white-space:nowrap;font-variant-numeric:tabular-nums}"
+  },
+  {
+   "name": "Card",
+   "kind": "card",
+   "refersTo": "card",
+   "description": "White sheet with header rule and a soft lift.",
+   "html": "<div class=\"ds-card\"><div class=\"ds-card-h\">Order Status Overview</div><div class=\"ds-card-b\">Delivered 1,082 · Returning 46 · Returned 28</div></div>",
+   "css": ".ds-card{font-family:'DM Sans',-apple-system,sans-serif;width:320px;border-radius:12px;border:1px solid #e2e8f0;background:#fff;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}.ds-card-h{padding:18px 22px 16px;border-bottom:1px solid #e2e8f0;font-size:14px;font-weight:600;color:#0f172a}.ds-card-b{padding:22px;font-size:13.5px;color:#475569;font-variant-numeric:tabular-nums}"
+  },
+  {
+   "name": "Sidebar Navigation",
+   "kind": "nav",
+   "refersTo": "nav-item",
+   "description": "Navy frame; active item gets a blue wash and left rule.",
+   "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-i\">Home</a><a class=\"ds-nav-i ds-on\">Data Report</a><a class=\"ds-nav-i\">RMO Management</a></nav>",
+   "css": ".ds-nav{font-family:'DM Sans',-apple-system,sans-serif;width:240px;padding:10px 0;background:#0c1a2e;border-radius:12px}.ds-nav-i{display:block;padding:11px 20px;color:rgba(255,255,255,.55);font-size:15px;border-left:2px solid transparent;cursor:pointer;transition:all .18s ease}.ds-nav-i:hover{color:rgba(255,255,255,.9);background:rgba(255,255,255,.05)}.ds-nav-i.ds-on{color:#fff;background:rgba(59,130,246,.15);border-left-color:#3b82f6}"
+  }
+ ],
+ "narrative": {
+  "northStar": "The Night Shift Ledger",
+  "overview": "YNT ERP is a calm, exact ledger that a whole business works from all day. A fixed navy sidebar frames the work like the cover of an account book; inside it, white sheets (cards) hold the numbers in tidy rows. The sky behind the sheets changes with the theme: a warm daylight wash in the top-right in light mode, an animated starfield in dark mode. That atmosphere is the only decoration the system allows, and it always sits behind the work, never on it.\n\nDensity is high and deliberate. Staff confirm orders, read RTS rates and check payroll at speed, on desktops and phones, so type is small but steady (13–14px body, 11.5px uppercase labels), numbers line up in tabular figures, and colour is spent on meaning: blue means \"you can act here\", green/amber/red mean an outcome. The look is kept, not reinvented: refinements stay inside this world, and a page is only redesigned when the owner asks for that page.",
+  "keyCharacteristics": [
+   "Navy sidebar frame, white sheets, one blue action colour.",
+   "Status colours carry order outcomes (delivered, pending, returned), never decoration.",
+   "Soft-lifted cards with gently curved 12px corners.",
+   "DM Sans throughout; DM Mono only for clocks, codes and scan fields.",
+   "Two full themes (light and dark) with a living sky behind each."
+  ],
+  "rules": [
+   {
+    "name": "The One Blue Rule",
+    "body": "Action Blue marks what can be clicked or what is active, and nothing else. Headers, chart fills and highlights do not borrow it.",
+    "section": "colors"
+   },
+   {
+    "name": "The Outcome Rule",
+    "body": "Green, amber and red always mean an outcome (delivered, waiting, returned/failed). Never use them for decoration or category colour.",
+    "section": "colors"
+   },
+   {
+    "name": "The Steady Figures Rule",
+    "body": "Every number that can be compared (money, counts, rates) uses tabular figures and stays on one line.",
+    "section": "typography"
+   },
+   {
+    "name": "The 16px Field Rule",
+    "body": "On phones and touch screens every input, select and textarea is 16px, so iOS never zooms the page.",
+    "section": "typography"
+   },
+   {
+    "name": "The Soft Lift Rule",
+    "body": "Cards are lifted at rest with the resting shadow plus their 1px rule line; they never use a coloured or glowing shadow. (The incumbent CSS still draws most cards flat; bring them up to the resting shadow as pages are touched.)",
+    "section": "elevation"
+   }
+  ],
+  "dos": [
+   "**Do** use Action Blue (#3b82f6) only for buttons, links, focus and the active nav item.",
+   "**Do** keep every comparable number in tabular figures on one line.",
+   "**Do** give cards the resting shadow plus a 1px #e2e8f0 rule line and 12px corners.",
+   "**Do** design both themes for every new surface; use the tokens, never hard-coded light colours.",
+   "**Do** make phone layouts real: 16px fields, 44px touch targets, tables as cards under 640px.",
+   "**Do** keep the sky (daylight wash, starfield) behind the work only."
+  ],
+  "donts": [
+   "**Don't** use green, amber or red for anything but outcomes, and don't use the --success/--danger tokens as chart series colours (use #059669 / #ef4444).",
+   "**Don't** add new decoration (gradient blobs, glows, gradient text, illustrated icon tiles) on top of the sheets.",
+   "**Don't** introduce a second typeface; DM Mono stays limited to clocks, codes and scan fields.",
+   "**Don't** replace the navy sidebar, the two themes or the starfield during a refinement."
+  ]
+ }
+}
