@@ -8678,3 +8678,7 @@ table:not(.er-table) tfoot td {
 .kpim-tracker { font-size: var(--fs-caption); color: var(--text-muted); margin-top: 2px; }
 .kpim-tracker.differs { color: var(--warning-text); }
 .kpim-money { width: 120px; height: 36px; font-variant-numeric: tabular-nums; }
+.kpim-spend-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 0 20px 12px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); font-size: var(--fs-body); color: var(--text-primary); }
+.kpim-use { display: block; margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-caption); color: var(--accent); cursor: pointer; white-space: nowrap; }
+.kpim-use:hover { text-decoration: underline; }
+.kpim-f-static { height: 42px; display: flex; align-items: center; padding: 0 13px; border: 1px dashed var(--border-strong); border-radius: var(--radius); color: var(--text-secondary); font-variant-numeric: tabular-nums; }

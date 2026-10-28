@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
    KPI MONITORING — HR's manual KPI records for CSR and RMO.
      CSR: Number of Orders (achievement % = actual ÷ target) and ROAS
-       (gross sales ÷ ad spend, both typed by HR right in the table;
-       meeting target when actual ≥ target).
+       (each CSR's gross sales ÷ the CSR team's ad spend — one amount a day
+       for all CSRs, a month being the sum of its days; meeting target when
+       actual ≥ target). Gross sales can take the CSR's confirmed COD.
      RMO: RTS rate (meeting target when actual ≤ target; default 12%).
    Daily and monthly records are separate. HR types every target and actual;
    only a CSR's Pancake confirmed orders (counted as CSR Records counts them)
@@ -237,13 +238,60 @@ function kpimRenderCards() {
   ].join('');
 }
 
-// Ad spend / gross sales typed straight into the CSR table. Leaving the box
-// saves the ROAS record for this period (ROAS = gross sales ÷ ad spend,
-// worked out by the server); every change lands in History.
-function kpimMoneyInput(userId, field, value, label) {
+function kpimPeso(value) {
+  return `₱\u00a0${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// The CSR team's ad spend: one amount a day for all CSRs. Daily view types
+// it; Monthly view shows the sum of the month's days.
+function kpimTeamSpendBar() {
+  const spend = kpimState.data?.team_ad_spend || { total: null, days: 0 };
+  const help = '<span class="text-xs text-muted">Shared by every CSR: each ROAS = their gross sales ÷ this.</span>';
+  if (kpimState.periodType === 'daily') {
+    return `<div class="kpim-spend-bar">
+      <label for="kpim-team-spend"><b>CSR team ad spend</b> · ${escapeHtml(kpimPeriodLabel())}</label>
+      <input class="form-control kpim-money" id="kpim-team-spend" type="number" min="0" step="any" inputmode="decimal" placeholder="₱"
+        value="${spend.total ?? ''}" onchange="kpimSaveTeamSpend(this.value)">
+      ${help}
+    </div>`;
+  }
+  return `<div class="kpim-spend-bar">
+    <span><b>CSR team ad spend</b> · ${escapeHtml(kpimPeriodLabel())}</span>
+    <b class="er-num">${spend.total === null ? '—' : kpimPeso(spend.total)}</b>
+    <span class="text-xs text-muted">${spend.days ? `sum of ${spend.days} day${spend.days === 1 ? '' : 's'} — type each day on the Daily view` : 'nothing yet — type each day on the Daily view'}</span>
+  </div>`;
+}
+
+async function kpimSaveTeamSpend(value) {
+  try {
+    await kpimApi('/ad-spend', { method: 'PUT', body: { date: kpimState.day, amount: value } });
+    kpimEntryCache.clear();
+    showToast('success', 'Team ad spend saved', kpimPeriodLabel('daily', kpimState.day));
+    await kpimLoad(); // every CSR's ROAS for the day follows it
+  } catch (error) {
+    showToast('error', 'Not saved', error.message);
+  }
+}
+
+// Gross sales typed straight into the CSR table, with the CSR's confirmed COD
+// offered underneath. Leaving the box (or using the COD) saves the ROAS
+// record; every change lands in History.
+function kpimSalesInput(person, record) {
+  const c = person.confirmed_orders;
+  const offer = c && c.linked
+    ? `<button type="button" class="kpim-use" onclick="kpimUseCod(${Number(person.id)})" title="Total COD of their Pancake confirmed orders">Use COD ${kpimPeso(c.cod)}</button>`
+    : '';
   return `<input class="form-control kpim-money" type="number" min="0" step="any" inputmode="decimal"
-    id="kpim-${field === 'ad_spend' ? 'as' : 'gs'}-${userId}" value="${value ?? ''}" placeholder="₱"
-    aria-label="${escapeHtml(label)}" onchange="kpimSaveRoasInline(${Number(userId)})">`;
+    id="kpim-gs-${Number(person.id)}" value="${record?.gross_sales ?? ''}" placeholder="₱"
+    aria-label="Gross sales" onchange="kpimSaveRoasInline(${Number(person.id)})">${offer}`;
+}
+
+function kpimUseCod(userId) {
+  const person = (kpimState.data?.people || []).find((p) => p.id === userId);
+  const input = document.getElementById(`kpim-gs-${userId}`);
+  if (!person?.confirmed_orders || !input) return;
+  input.value = person.confirmed_orders.cod;
+  kpimSaveRoasInline(userId);
 }
 
 async function kpimSaveRoasInline(userId) {
@@ -259,7 +307,6 @@ async function kpimSaveRoasInline(userId) {
     period_type: type,
     period_key: kpimPeriodKey(),
     target: record?.target ?? fallback ?? '',
-    ad_spend: document.getElementById(`kpim-as-${userId}`)?.value ?? '',
     gross_sales: document.getElementById(`kpim-gs-${userId}`)?.value ?? '',
     remarks: record?.remarks || '',
   };
@@ -294,14 +341,15 @@ function kpimRenderTables() {
       ${types.map((t) => `<button type="button" class="btn btn-secondary btn-sm" onclick="kpimOpenEntry(${p.id}, '${t}')">${types.length > 1 ? escapeHtml(t === 'orders' ? 'Orders' : 'ROAS') : 'Edit'}</button>`).join('')}
       <button type="button" class="btn btn-ghost btn-sm" onclick="kpimOpenHistory(${p.id})">History</button>
     </div>`;
-  const empty = (dept) => `<tr><td colspan="${dept === 'CSR' ? 9 : 7}" class="text-muted">${q ? 'No one matches the search.' : `No active ${dept} employees.`}</td></tr>`;
+  const empty = (dept) => `<tr><td colspan="${dept === 'CSR' ? 8 : 7}" class="text-muted">${q ? 'No one matches the search.' : `No active ${dept} employees.`}</td></tr>`;
 
   const csrTable = `
     <div class="er-group-row kpim-section"><span class="er-group-name">CSR · Number of Orders and ROAS</span><span class="er-count">${csr.length}</span><span class="er-group-avg">${period}</span></div>
+    ${kpimTeamSpendBar()}
     <div class="table-container er-table-wrap"><table class="er-table kpim-table">
       <thead><tr>
         <th>Employee</th><th>Orders target</th><th>Orders actual</th>
-        <th>ROAS target</th><th>Ad spend</th><th>Gross sales</th><th>ROAS actual</th><th>Last update</th><th></th>
+        <th>ROAS target</th><th>Gross sales</th><th>ROAS actual</th><th>Last update</th><th></th>
       </tr></thead>
       <tbody>${csr.length ? csr.map((p) => {
         const o = p.kpis.orders;
@@ -311,8 +359,7 @@ function kpimRenderTables() {
           <td>${kpimValue('orders', o?.target)}</td>
           <td>${kpimValue('orders', o?.actual)}${kpimConfirmedNote(p, o)}</td>
           <td>${kpimValue('roas', r?.target)}</td>
-          <td>${kpimMoneyInput(p.id, 'ad_spend', r?.ad_spend, 'Ad spend')}</td>
-          <td>${kpimMoneyInput(p.id, 'gross_sales', r?.gross_sales, 'Gross sales')}</td>
+          <td>${kpimSalesInput(p, r)}</td>
           <td><b class="er-num" id="kpim-roas-${p.id}">${kpimValue('roas', r?.actual)}</b></td>
           <td>${kpimUpdated([o, r])}</td>
           <td>${actions(p, ['orders', 'roas'])}</td>
@@ -366,8 +413,8 @@ function renderKpimEntryModal() {
             <input class="form-control" id="kpim-f-target" type="number" min="0" step="any" inputmode="decimal"></div>
           <div class="form-group"><label class="form-label" for="kpim-f-actual" id="kpim-f-actual-label">Actual</label>
             <input class="form-control" id="kpim-f-actual" type="number" min="0" step="any" inputmode="decimal"></div>
-          <div class="form-group kpim-f-roas"><label class="form-label" for="kpim-f-spend">Ad spend (₱)</label>
-            <input class="form-control" id="kpim-f-spend" type="number" min="0" step="any" inputmode="decimal" oninput="kpimEntryRoasPreview()"></div>
+          <div class="form-group kpim-f-roas"><label class="form-label">CSR team ad spend</label>
+            <div class="kpim-f-static" id="kpim-f-spend">—</div></div>
           <div class="form-group kpim-f-roas"><label class="form-label" for="kpim-f-sales">Gross sales (₱)</label>
             <input class="form-control" id="kpim-f-sales" type="number" min="0" step="any" inputmode="decimal" oninput="kpimEntryRoasPreview()"></div>
           <div id="kpim-f-confirmed" style="grid-column:1 / -1;"></div>
@@ -449,7 +496,7 @@ function kpimEntryKpiChanged() {
 
 function kpimEntryRoasPreview() {
   if (document.getElementById('kpim-f-kpi').value !== 'roas') return;
-  const spend = Number(document.getElementById('kpim-f-spend').value);
+  const spend = Number(document.getElementById('kpim-f-spend').dataset.amount || 0);
   const salesRaw = document.getElementById('kpim-f-sales').value;
   document.getElementById('kpim-f-actual').value = spend > 0 && salesRaw !== '' ? Math.round((Number(salesRaw) / spend) * 100) / 100 : '';
 }
@@ -475,13 +522,21 @@ async function kpimEntryFill() {
   const record = person?.kpis?.[kpi] || null;
   const confirmed = kpi === 'orders' ? person?.confirmed_orders : null;
   const slot = document.getElementById('kpim-f-confirmed');
-  if (!confirmed) slot.innerHTML = '';
+  const cod = kpi === 'roas' ? person?.confirmed_orders : null;
+  if (cod) {
+    slot.innerHTML = cod.linked
+      ? `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('kpim-f-sales').value = ${cod.cod}; kpimEntryRoasPreview();">Use confirmed COD as gross sales: ${kpimPeso(cod.cod)}</button>`
+      : '<span class="text-xs text-muted">No Pancake name is linked to this account — link it on Integrations → POS Users to use their confirmed COD.</span>';
+  } else if (!confirmed) slot.innerHTML = '';
   else if (!confirmed.linked) slot.innerHTML = '<span class="text-xs text-muted">No Pancake name is linked to this account — link it on Integrations → POS Users to count their confirmed orders.</span>';
   else slot.innerHTML = `<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('kpim-f-actual').value = ${confirmed.total}">Use Pancake confirmed orders: ${confirmed.total.toLocaleString()}</button>`;
   const fallback = data.defaults?.[`${kpi}|${type}`];
   document.getElementById('kpim-f-target').value = record?.target ?? fallback ?? '';
   document.getElementById('kpim-f-actual').value = record?.actual ?? '';
-  document.getElementById('kpim-f-spend').value = record?.ad_spend ?? '';
+  const spendBox = document.getElementById('kpim-f-spend');
+  const spend = data.team_ad_spend?.total ?? null;
+  spendBox.dataset.amount = spend ?? '';
+  spendBox.textContent = spend === null ? 'None yet — type it on the Daily view' : kpimPeso(spend);
   document.getElementById('kpim-f-sales').value = record?.gross_sales ?? '';
   document.getElementById('kpim-f-remarks').value = record?.remarks || '';
   hint.textContent = record
@@ -500,10 +555,7 @@ async function kpimSaveEntry() {
     actual: document.getElementById('kpim-f-actual').value,
     remarks: document.getElementById('kpim-f-remarks').value,
   };
-  if (body.kpi_type === 'roas') {
-    body.ad_spend = document.getElementById('kpim-f-spend').value;
-    body.gross_sales = document.getElementById('kpim-f-sales').value;
-  }
+  if (body.kpi_type === 'roas') body.gross_sales = document.getElementById('kpim-f-sales').value;
   if (!body.user_id) { showToast('warning', 'Pick an employee', ''); return; }
   const button = document.getElementById('kpim-f-save');
   button.disabled = true;

@@ -48,6 +48,23 @@ function kpiMonitoringStatements(db) {
       changed_at ${ts}
     )`,
     'CREATE INDEX IF NOT EXISTS idx_kpi_record_history_record ON kpi_record_history(record_id)',
+    // The CSR team's ad spend, one amount per day for all CSRs. Every CSR's
+    // ROAS divides by it; a month's ad spend is the sum of its days.
+    `CREATE TABLE IF NOT EXISTS kpi_ad_spend (
+      id ${id},
+      work_date TEXT NOT NULL UNIQUE,
+      amount ${real},
+      updated_by INTEGER,
+      updated_at ${ts}
+    )`,
+    `CREATE TABLE IF NOT EXISTS kpi_ad_spend_history (
+      id ${id},
+      work_date TEXT NOT NULL,
+      old_amount ${real},
+      new_amount ${real},
+      changed_by INTEGER,
+      changed_at ${ts}
+    )`,
     `CREATE TABLE IF NOT EXISTS kpi_defaults (
       id ${id},
       kpi_type TEXT NOT NULL,
