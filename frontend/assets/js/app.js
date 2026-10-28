@@ -2869,7 +2869,7 @@ function renderLogin() {
             <div class="lp-stats">
               <div class="lp-stat"><span class="lp-stat-ico blue"></span><b>1,248</b><i>Total Orders</i></div>
               <div class="lp-stat"><span class="lp-stat-ico violet"></span><b>1,082</b><i>Delivered</i></div>
-              <div class="lp-stat"><span class="lp-stat-ico amber"></span><b>₱8,94,320</b><i>COD Revenue</i></div>
+              <div class="lp-stat"><span class="lp-stat-ico amber"></span><b>₱894,320</b><i>COD Revenue</i></div>
               <div class="lp-stat"><span class="lp-stat-ico rose"></span><b>28</b><i>Low Stock</i></div>
             </div>
             <div class="lp-charts">
@@ -2893,20 +2893,20 @@ function renderLogin() {
           </div>
 
           <div class="login-pitch">
-            <h2>Built for clarity. Designed for growth.</h2>
-            <p>Track performance, manage operations, and grow your business with real-time insights — all in one place.</p>
+            <h2>Every order, from confirmed to delivered.</h2>
+            <p>Pancake orders, courier returns, Meta ad spend and payroll on one screen, so nobody rebuilds the numbers in a spreadsheet.</p>
             <div class="login-features">
               <div class="login-feature">
                 <span class="lf-icon"><svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.7"><path d="M3 15l4-5 3 3 4-6 3 4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                <span class="lf-text"><b>Real-time</b>Analytics</span>
+                <span class="lf-text"><b>RTS rate</b>by page and courier</span>
               </div>
               <div class="login-feature">
                 <span class="lf-icon"><svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.7"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M7 12v2M10 8v6M13 10v4" stroke-linecap="round"/></svg></span>
-                <span class="lf-text"><b>Smart</b>Reporting</span>
+                <span class="lf-text"><b>ROAS</b>from real ad spend</span>
               </div>
               <div class="login-feature">
                 <span class="lf-icon"><svg viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.7"><path d="M10 2l6 2.5V10c0 4-2.7 6.5-6 8-3.3-1.5-6-4-6-8V4.5L10 2z"/></svg></span>
-                <span class="lf-text"><b>Secure</b>&amp; Reliable</span>
+                <span class="lf-text"><b>Payroll</b>from attendance</span>
               </div>
             </div>
           </div>
