@@ -102,12 +102,15 @@
 .am-banner-warning { background: var(--warning-soft); color: var(--warning-text); }
 .am-banner-danger { background: var(--danger-soft); color: var(--danger-text); }
 
-/* KPI strip */
+/* KPI strip: eight tiles as two even rows of four, so the big Evaluation-
+   style figure (₱ 45,700.00) always fits; two a row on narrow screens. */
 .am-kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
 }
+@media (max-width: 1100px) { .am-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .am-kpis { grid-template-columns: minmax(0, 1fr); } }
 .am-kpi {
   background: var(--surface);
   border: 1px solid var(--border);
