@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-10-28T03:01:11.405640+00:00",
+ "generatedAt": "2026-10-28T03:05:53.905397+00:00",
  "title": "Design System: YNT ERP",
  "extensions": {
   "colorMeta": {
@@ -565,7 +565,7 @@
    },
    {
     "name": "The Soft Lift Rule",
-    "body": "Cards are lifted at rest with the resting shadow plus their 1px rule line; they never use a coloured or glowing shadow. (The incumbent CSS still draws most cards flat; bring them up to the resting shadow as pages are touched.)",
+    "body": "Cards are lifted at rest with the resting shadow plus their 1px rule line; they never use a coloured or glowing shadow. A sheet inside another sheet stays flat, and only stat cards lift further on hover.",
     "section": "elevation"
    }
   ],

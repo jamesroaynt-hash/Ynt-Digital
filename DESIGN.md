@@ -189,7 +189,7 @@ Breakpoints: 980px (login stacks), 768px (sidebar becomes an off-canvas drawer b
 
 ## Elevation & Depth
 
-Layered. Sheets lift softly off the sky: cards carry the small ambient shadow at rest and the medium one on hover; menus, flyouts and modals take the large one. Shadows are neutral black at low opacity in light mode and deeper (30–55%) in dark mode, where the starfield needs the separation.
+Layered. Sheets lift softly off the sky: cards, stat cards and table containers carry the small ambient shadow at rest, and stat cards take the medium one on hover; menus, flyouts and modals take the large one. Shadows are neutral black at low opacity in light mode and deeper (30–55%) in dark mode, where the starfield needs the separation.
 
 ### Shadow Vocabulary
 - **Resting sheet** (`box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)`): cards, stat cards, tables at rest.
@@ -197,7 +197,7 @@ Layered. Sheets lift softly off the sky: cards carry the small ambient shadow at
 - **Floating layer** (`box-shadow: 0 10px 30px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.05)`): dropdowns, flyouts, the open mobile sidebar, modals.
 
 ### Named Rules
-**The Soft Lift Rule.** Cards are lifted at rest with the resting shadow plus their 1px rule line; they never use a coloured or glowing shadow. (The incumbent CSS still draws most cards flat; bring them up to the resting shadow as pages are touched.)
+**The Soft Lift Rule.** Cards are lifted at rest with the resting shadow plus their 1px rule line; they never use a coloured or glowing shadow. A sheet inside another sheet stays flat, and only stat cards lift further on hover.
 
 ## Shapes
 
