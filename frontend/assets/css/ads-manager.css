@@ -102,15 +102,22 @@
 .am-banner-warning { background: var(--warning-soft); color: var(--warning-text); }
 .am-banner-danger { background: var(--danger-soft); color: var(--danger-text); }
 
-/* KPI strip: eight tiles as two even rows of four, so the big Evaluation-
-   style figure (₱ 45,700.00) always fits; two a row on narrow screens. */
+/* KPI strip: a compact row of eight on wide screens — smaller tiles and a
+   smaller figure than the Evaluation-style tiles elsewhere — four, then two,
+   then one a row as the screen narrows, so an amount never gets cut off.
+   The ".am-kpis ..." selectors outrank the shared tile rules in main.css. */
 .am-kpis {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 12px;
 }
-@media (max-width: 1100px) { .am-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .am-kpis { grid-template-columns: minmax(0, 1fr); } }
+.am-kpis .am-kpi { padding: 14px 16px; border-radius: var(--radius-lg); }
+.am-kpis .am-kpi-label { font-size: var(--fs-small); margin-bottom: 6px; }
+.am-kpis .am-kpi-value { font-size: clamp(18px, calc(0.9vw + 8px), 24px); font-weight: 800; }
+.am-kpis .am-kpi-sub { margin-top: 6px; font-size: var(--fs-caption); }
+@media (max-width: 1400px) { .am-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .am-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 420px) { .am-kpis { grid-template-columns: minmax(0, 1fr); } }
 .am-kpi {
   background: var(--surface);
   border: 1px solid var(--border);
