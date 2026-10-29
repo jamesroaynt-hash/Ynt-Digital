@@ -3,10 +3,11 @@ const dailySummary = require('../services/dailySummary');
 const superAdmin = require('../services/superAdmin');
 
 // The end-of-day Summary page. Sales figures for the whole business: the
-// super admin's, and the team leads' (CSR TL, RMO TL, Sales and Marketing TL)
-// to read. Taking a snapshot and the notes stay the super admin's — every
-// route here checks, not just the menu, and a TL never receives the notes.
-const TL_ROLES = new Set(['csr tl', 'rmo tl', 'sales and marketing tl']);
+// super admin's, and the Administrators' and team leads' (CSR TL, RMO TL,
+// Sales and Marketing TL) to read. Taking a snapshot and the notes stay the
+// super admin's — every route here checks, not just the menu, and a reader
+// never receives the notes.
+const TL_ROLES = new Set(['csr tl', 'rmo tl', 'sales and marketing tl', 'administrator', 'admin']);
 
 function roleKey(role) {
   return String(role || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[\s_-]+/g, ' ');
@@ -23,13 +24,14 @@ function parseData(row) {
 module.exports = function dailySummaryRoutes(db) {
   const router = express.Router();
 
-  // Everyone here is either the super admin (full access) or a TL (read only).
+  // Everyone here is either the super admin (full access) or an Administrator
+  // or TL (read only).
   router.use(async (req, res, next) => {
     try {
       if (await superAdmin.isSuperAdmin(db, req.user)) { req.summaryRole = 'owner'; return next(); }
       const user = await db.prepare('SELECT role FROM users WHERE id = ? AND is_active = 1').get(Number(req.user?.id));
       if (user && TL_ROLES.has(roleKey(user.role)) && req.method === 'GET') { req.summaryRole = 'tl'; return next(); }
-      return res.status(403).json({ error: user && TL_ROLES.has(roleKey(user.role)) ? 'Team leads can read the Summary only' : 'Super admin access required' });
+      return res.status(403).json({ error: user && TL_ROLES.has(roleKey(user.role)) ? 'You can read the Summary only' : 'Super admin access required' });
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }

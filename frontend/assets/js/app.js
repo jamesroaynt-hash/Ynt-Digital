@@ -18164,14 +18164,14 @@ function getDefaultPageForCurrentUser() {
 
 // The System section (Users + Integrations) is Administrator-only, whatever
 // NAV_ACCESS says for the role.
-// Summary is not here: the TL roles read it too (NAV_ACCESS), and other
-// Administrators are kept out by SUPER_ADMIN_PAGES.
+// Summary is not here: the TL roles read it too (NAV_ACCESS), and every
+// Administrator reads it (snapshots and notes stay the super admin's).
 const ADMIN_ONLY_PAGES = ['manage-users', 'api-connections'];
 // Of those, the super admin's alone: other Administrators do not get them.
 // HR access is HR's, Operation's and the super admin's, so the HR pages leave
 // the other Administrators' menu too (the server refuses them as well). The
 // Virtual Office is the exception: every Administrator gets it.
-const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections', 'summary',
+const SUPER_ADMIN_PAGES = ['manage-users', 'api-connections',
   'hr-dashboard', 'employee-tracker', 'attendance-log', 'schedule', 'hr',
   'hr-records', 'hr-calendar', 'training', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports',
   'learning-manage', 'learning-reports'];

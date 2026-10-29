@@ -21,6 +21,7 @@ async function startApp() {
     tl: Number(insert.run('tl', 'CSR Lead', 'CSR TL').lastInsertRowid),
     smtl: Number(insert.run('smtl', 'S&M Lead', 'Sales and Marketing TL').lastInsertRowid),
     csr: Number(insert.run('csr', 'CSR Person', 'CSR').lastInsertRowid),
+    admin: Number(insert.run('otheradmin', 'Other Admin', 'Administrator').lastInsertRowid),
   };
   db.prepare('UPDATE users SET is_super_admin = 1 WHERE id = ?').run(ids.owner);
   db.prepare("INSERT INTO daily_summaries (summary_date, data, notes, source) VALUES ('2026-10-27', '{\"orders\":5}', 'private note', 'manual')").run();
@@ -52,6 +53,11 @@ test('team leads read the Summary without notes, and cannot change it', async ()
     assert.equal((await call('POST', '/2026-10-27/generate')).status, 403);
     actAs(ids.smtl);
     assert.equal((await call('GET', '/2026-10-27')).status, 200);
+    actAs(ids.admin);
+    const adminDay = await call('GET', '/2026-10-27');
+    assert.equal(adminDay.status, 200);
+    assert.equal(adminDay.data.notes, '');
+    assert.equal((await call('POST', '/2026-10-27/generate')).status, 403);
     actAs(ids.csr);
     assert.equal((await call('GET', '/2026-10-27')).status, 403);
     actAs(ids.owner);
