@@ -29212,7 +29212,7 @@ function summaryNoteSections(s, day) {
       },
     },
     breakdown('Per user', 'Confirmed by', dayStats.by_confirmer, 'Not confirmed yet', { orders: dayStats.orders, sales: dayStats.sales }),
-    breakdown('Per page', 'Page', dayStats.by_page, 'No page', { orders: dayStats.orders, sales: dayStats.sales }),
+    breakdown('Per page — confirmed, waiting, shipped & delivered', 'Page', dayStats.by_page, 'No page'),
     breakdown('Per status', 'Status', dayStats.by_status, '—', { orders: dayStats.orders, sales: dayStats.sales }),
     { heading: `Month to date — ${short(month.from || day)} to ${short(day)}`, big: true },
     {
@@ -29228,7 +29228,7 @@ function summaryNoteSections(s, day) {
       },
     },
     breakdown('Per status — month to date', 'Status', month.by_status, '—', { orders: month.orders, sales: month.sales }),
-    breakdown('Per page — month to date', 'Page', month.by_page, 'No page', { orders: month.orders, sales: month.sales }),
+    breakdown('Per page — month to date, confirmed, waiting, shipped & delivered', 'Page', month.by_page, 'No page'),
   ];
 }
 

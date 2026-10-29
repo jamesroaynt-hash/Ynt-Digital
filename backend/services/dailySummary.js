@@ -88,20 +88,23 @@ async function buildDailySummary(db, day) {
       AND COALESCE(status_name, '') NOT IN ('canceled', 'removed')`;
   const monthStart = `${day.slice(0, 7)}-01`;
 
-  const group = (column, from, to) => db.prepare(`
+  const group = (column, from, to, extraWhere = '') => db.prepare(`
     SELECT ${column} AS name, COUNT(*) AS orders, COALESCE(SUM(cod), 0) AS sales
     FROM (${base}) o
-    WHERE day >= ? AND day <= ?
+    WHERE day >= ? AND day <= ? ${extraWhere}
     GROUP BY ${column}
     ORDER BY COUNT(*) DESC
   `).all(from, to);
 
+  // Per page counts only Confirmed, Waiting for pickup, Shipped and Delivered orders.
+  const pageWhere = `AND status IN ('Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered')`;
+
   const [dayStatus, dayPage, dayConfirmer, monthStatus, monthPage] = await Promise.all([
     group('status', day, day),
-    group('page_name', day, day),
+    group('page_name', day, day, pageWhere),
     group('confirmed_by_name', day, day),
     group('status', monthStart, day),
-    group('page_name', monthStart, day),
+    group('page_name', monthStart, day, pageWhere),
   ]);
 
   const monthByStatus = byStatusOrder(rows(monthStatus, 'name'));
