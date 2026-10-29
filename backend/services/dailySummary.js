@@ -78,7 +78,7 @@ function totals(list) {
   };
 }
 
-async function buildDailySummary(db, day) {
+function summaryGrouper(db) {
   const manilaDay = pancakePosSync.posManilaDaySql(db.type);
   const status = statusCaseSql();
   const base = `
@@ -86,36 +86,71 @@ async function buildDailySummary(db, day) {
     FROM pos_orders
     WHERE customer_phone IS NOT NULL AND customer_phone <> ''
       AND COALESCE(status_name, '') NOT IN ('canceled', 'removed')`;
-  const monthStart = `${day.slice(0, 7)}-01`;
-
-  const group = (column, from, to, extraWhere = '') => db.prepare(`
+  return (column, from, to, extraWhere = '') => db.prepare(`
     SELECT ${column} AS name, COUNT(*) AS orders, COALESCE(SUM(cod), 0) AS sales
     FROM (${base}) o
     WHERE day >= ? AND day <= ? ${extraWhere}
     GROUP BY ${column}
     ORDER BY COUNT(*) DESC
   `).all(from, to);
+}
 
-  // Per page counts only Confirmed, Shipped and Delivered orders, plus the ones
-  // waiting for the courier — Pancake's 'pending' (9): waybill printed. Awaiting
-  // print (wait_print, 12) and waiting for stock (waitting, 11) are left out.
-  const pageWhere = `AND (status IN ('Confirmed', 'Shipped', 'Delivered') OR (status = 'Waiting for pickup' AND status_name = 'pending'))`;
+// Per page counts only Confirmed, Shipped and Delivered orders, plus the ones
+// waiting for the courier — Pancake's 'pending' (9): waybill printed. Awaiting
+// print (wait_print, 12) and waiting for stock (waitting, 11) are left out.
+const PAGE_WHERE = `AND (status IN ('Confirmed', 'Shipped', 'Delivered') OR (status = 'Waiting for pickup' AND status_name = 'pending'))`;
 
-  const [dayStatus, dayPage, dayConfirmer, monthStatus, monthPage] = await Promise.all([
-    group('status', day, day),
-    group('page_name', day, day, pageWhere),
-    group('confirmed_by_name', day, day),
-    group('status', monthStart, day),
-    group('page_name', monthStart, day, pageWhere),
-  ]);
-
-  const monthByStatus = byStatusOrder(rows(monthStatus, 'name'));
-  const pick = (name) => monthByStatus.find((row) => row.name === name);
+function verdicts(byStatus) {
+  const pick = (name) => byStatus.find((row) => row.name === name);
   const delivered = pick('Delivered');
   const returning = pick('Returning');
   const returned = pick('Returned');
   const settled = delivered.orders + returning.orders + returned.orders;
+  return {
+    delivered,
+    returning,
+    returned,
+    // Same formula as the Data Report: only settled orders have a verdict.
+    rts_rate: settled ? Math.round(((returning.orders + returned.orders) / settled) * 10000) / 100 : null,
+  };
+}
 
+// Any span of days, worked out live (never saved): the orders placed in it by
+// confirmer, page and status, with the delivered / returning / returned verdicts.
+async function buildRangeSummary(db, from, to) {
+  const group = summaryGrouper(db);
+  const [byStatus, byPage, byConfirmer] = await Promise.all([
+    group('status', from, to),
+    group('page_name', from, to, PAGE_WHERE),
+    group('confirmed_by_name', from, to),
+  ]);
+  const statusRows = byStatusOrder(rows(byStatus, 'name'));
+  return {
+    from,
+    to,
+    range: {
+      ...totals(statusRows),
+      by_status: statusRows,
+      by_page: rows(byPage, 'name'),
+      by_confirmer: rows(byConfirmer, 'name'),
+      ...verdicts(statusRows),
+    },
+  };
+}
+
+async function buildDailySummary(db, day) {
+  const monthStart = `${day.slice(0, 7)}-01`;
+  const group = summaryGrouper(db);
+
+  const [dayStatus, dayPage, dayConfirmer, monthStatus, monthPage] = await Promise.all([
+    group('status', day, day),
+    group('page_name', day, day, PAGE_WHERE),
+    group('confirmed_by_name', day, day),
+    group('status', monthStart, day),
+    group('page_name', monthStart, day, PAGE_WHERE),
+  ]);
+
+  const monthByStatus = byStatusOrder(rows(monthStatus, 'name'));
   const dayByStatus = byStatusOrder(rows(dayStatus, 'name'));
   return {
     date: day,
@@ -131,11 +166,7 @@ async function buildDailySummary(db, day) {
       ...totals(monthByStatus),
       by_status: monthByStatus,
       by_page: rows(monthPage, 'name'),
-      delivered,
-      returning,
-      returned,
-      // Same formula as the Data Report: only settled orders have a verdict.
-      rts_rate: settled ? Math.round(((returning.orders + returned.orders) / settled) * 10000) / 100 : null,
+      ...verdicts(monthByStatus),
     },
   };
 }
@@ -185,6 +216,7 @@ async function runScheduledSnapshot(db, now = new Date()) {
 
 module.exports = {
   buildDailySummary,
+  buildRangeSummary,
   saveDailySummary,
   runScheduledSnapshot,
   manilaToday,

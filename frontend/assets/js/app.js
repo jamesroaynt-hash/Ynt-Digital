@@ -29076,12 +29076,102 @@ window.addEventListener('DOMContentLoaded', init);
 // morning after reads the day as it closed. Administrator only — the server
 // refuses everyone else too. Today, before the snapshot, is shown live.
 let summaryState = {
+  mode: 'day', // 'day' (one snapshot) or 'range' (live, any span of days)
   date: '',
+  rangeFrom: '',
+  rangeTo: '',
   today: '',
   days: [],
   data: null,
   notesDirty: false,
 };
+
+function summaryShiftDay(day, days) {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function summaryShortDate(day) {
+  return new Date(`${day}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// The heading for what is on screen: one day, or the custom range.
+function summaryCurrentLabel() {
+  if (summaryState.mode === 'range') {
+    const { rangeFrom: from, rangeTo: to } = summaryState;
+    return from === to ? summaryDateLabel(from) : `${summaryShortDate(from)} – ${summaryShortDate(to)}`;
+  }
+  return summaryDateLabel(summaryState.date);
+}
+
+// Lights the Yesterday / Today / Custom range button that matches what is on
+// screen, and shows the day picker or the range picker. Notes and snapshots
+// belong to a single day, so they hide for a range.
+function syncSummaryControls() {
+  const today = summaryState.today || summaryManilaToday();
+  const range = summaryState.mode === 'range';
+  let active = 'range';
+  if (!range) active = summaryState.date === today ? 'today' : summaryState.date === summaryShiftDay(today, -1) ? 'yesterday' : '';
+  document.querySelectorAll('button[data-summary-quick]').forEach((b) => {
+    const on = b.dataset.summaryQuick === active;
+    b.classList.toggle('btn-primary', on);
+    b.classList.toggle('btn-secondary', !on);
+  });
+  const show = (id, visible, display = 'inline-flex') => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = visible ? display : 'none';
+  };
+  show('summary-day-picker', !range);
+  show('summary-range-picker', range);
+  show('summary-generate-btn', !range, '');
+  show('summary-notes-card', !range, '');
+}
+
+function setSummaryQuick(which) {
+  const today = summaryState.today || summaryManilaToday();
+  loadSummaryDay(which === 'yesterday' ? summaryShiftDay(today, -1) : today);
+}
+
+// Opens the range picker, starting from the 1st of the month to the day on screen.
+function openSummaryRange() {
+  const today = summaryState.today || summaryManilaToday();
+  const to = summaryState.rangeTo || summaryState.date || today;
+  const from = summaryState.rangeFrom || `${to.slice(0, 7)}-01`;
+  const fromEl = document.getElementById('summary-range-from');
+  const toEl = document.getElementById('summary-range-to');
+  if (fromEl) { fromEl.value = from; fromEl.max = today; }
+  if (toEl) { toEl.value = to; toEl.max = today; }
+  loadSummaryRange(from, to);
+}
+
+function applySummaryRange() {
+  const from = document.getElementById('summary-range-from')?.value || '';
+  const to = document.getElementById('summary-range-to')?.value || '';
+  if (!from || !to) { showToast('error', 'Pick both dates', 'Choose a start and an end date.'); return; }
+  if (from > to) { showToast('error', 'Check the dates', 'The start date is after the end date.'); return; }
+  loadSummaryRange(from, to);
+}
+
+async function loadSummaryRange(from, to) {
+  if (summaryState.notesDirty && !window.confirm('You have unsaved notes. Leave them?')) return;
+  summaryState.notesDirty = false;
+  summaryState.mode = 'range';
+  summaryState.rangeFrom = from;
+  summaryState.rangeTo = to;
+  syncSummaryControls();
+  const body = document.getElementById('summary-body');
+  if (body) body.innerHTML = '<div class="empty-state"><h3>Loading summary</h3><p>Adding up the orders in this range.</p></div>';
+  try {
+    summaryState.data = await authorizedJsonRequest(`/daily-summary/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&_=${Date.now()}`);
+  } catch (error) {
+    summaryState.data = null;
+    showToast('error', 'Summary load failed', error.message || 'Could not load this range.');
+  }
+  if (App.currentPage !== 'summary' || summaryState.mode !== 'range'
+    || summaryState.rangeFrom !== from || summaryState.rangeTo !== to) return;
+  renderSummaryBody();
+}
 
 function summaryManilaToday() {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -29100,16 +29190,29 @@ function renderSummaryPage() {
       <h1>Summary</h1>
       <p>End-of-day snapshot of the orders — taken automatically at 11:50 PM, ready to read the next morning.</p>
     </div>
-    <div class="page-actions">
-      <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(-1)" title="Previous day">‹</button>
-      <input type="date" class="form-control" id="summary-date" style="width:auto;" onchange="loadSummaryDay(this.value)">
-      <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(1)" title="Next day">›</button>
+    <div class="page-actions" style="flex-wrap:wrap;">
+      <div style="display:inline-flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" type="button" data-summary-quick="yesterday" onclick="setSummaryQuick('yesterday')">Yesterday</button>
+        <button class="btn btn-secondary btn-sm" type="button" data-summary-quick="today" onclick="setSummaryQuick('today')">Today</button>
+        <button class="btn btn-secondary btn-sm" type="button" data-summary-quick="range" onclick="openSummaryRange()">Custom range</button>
+      </div>
+      <div id="summary-day-picker" style="display:inline-flex;gap:6px;align-items:center;">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(-1)" title="Previous day">‹</button>
+        <input type="date" class="form-control" id="summary-date" style="width:auto;" onchange="loadSummaryDay(this.value)">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="shiftSummaryDate(1)" title="Next day">›</button>
+      </div>
+      <div id="summary-range-picker" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;">
+        <input type="date" class="form-control" id="summary-range-from" style="width:auto;" aria-label="From">
+        <span style="color:var(--text-muted);">to</span>
+        <input type="date" class="form-control" id="summary-range-to" style="width:auto;" aria-label="To">
+        <button class="btn btn-primary btn-sm" type="button" onclick="applySummaryRange()">Apply</button>
+      </div>
       ${isSuperAdminUser() ? '<button class="btn btn-secondary btn-sm" type="button" id="summary-generate-btn" onclick="generateSummarySnapshot()">Take snapshot now</button>' : ''}
     </div>
   </div>
   <div id="summary-status"></div>
   <div id="summary-body"><div class="empty-state"><h3>Loading summary</h3><p>Pulling the day's snapshot.</p></div></div>
-  ${isSuperAdminUser() ? `<div class="card" style="margin-top:20px;">
+  ${isSuperAdminUser() ? `<div class="card" id="summary-notes-card" style="margin-top:20px;">
     <div class="card-header">
       <div>
         <div class="card-title">Notes</div>
@@ -29135,6 +29238,7 @@ async function initSummaryPage() {
     summaryState.days = [];
     showToast('error', 'Summary load failed', error.message || 'Could not load the summaries.');
   }
+  if (summaryState.mode === 'range' && summaryState.rangeFrom) { openSummaryRange(); return; }
   // The latest snapshot first — that is "yesterday" when read in the morning.
   const start = summaryState.date || summaryState.days[0]?.date || summaryState.today;
   await loadSummaryDay(start);
@@ -29147,10 +29251,12 @@ async function loadSummaryDay(day) {
     if (input) input.value = summaryState.date;
     return;
   }
+  summaryState.mode = 'day';
   summaryState.date = day;
   summaryState.notesDirty = false;
   const input = document.getElementById('summary-date');
   if (input) { input.value = day; input.max = summaryState.today || summaryManilaToday(); }
+  syncSummaryControls();
   const body = document.getElementById('summary-body');
   if (body) body.innerHTML = '<div class="empty-state"><h3>Loading summary</h3><p>Pulling the day\'s snapshot.</p></div>';
   try {
@@ -29160,7 +29266,7 @@ async function loadSummaryDay(day) {
     summaryState.data = null;
     showToast('error', 'Summary load failed', error.message || 'Could not load this day.');
   }
-  if (App.currentPage !== 'summary' || summaryState.date !== day) return;
+  if (App.currentPage !== 'summary' || summaryState.mode !== 'day' || summaryState.date !== day) return;
   renderSummaryBody();
 }
 
@@ -29201,7 +29307,32 @@ function summaryNoteSections(s, day) {
       },
     };
   };
-  const rts = month.rts_rate === null || month.rts_rate === undefined ? '—' : `${Number(month.rts_rate).toFixed(2)}%`;
+  const rtsText = (value) => (value === null || value === undefined ? '—' : `${Number(value).toFixed(2)}%`);
+  const rts = rtsText(month.rts_rate);
+
+  // A custom range: one column with the orders placed in it and their verdicts.
+  if (s.range) {
+    const r = s.range;
+    return [
+      { heading: `Range — ${short(s.from)} to ${short(s.to)}`, big: true },
+      {
+        table: {
+          columns: ['', 'Orders', 'Sales'],
+          rows: [
+            ['Total orders', summaryCount(r.orders), formatPeso(r.sales)],
+            ['Delivered', summaryCount(r.delivered?.orders), formatPeso(r.delivered?.sales)],
+            ['Returning', summaryCount(r.returning?.orders), formatPeso(r.returning?.sales)],
+            ['Returned', summaryCount(r.returned?.orders), formatPeso(r.returned?.sales)],
+            ['RTS rate', rtsText(r.rts_rate), ''],
+          ],
+        },
+      },
+      breakdown('Per user', 'Confirmed by', r.by_confirmer, 'Not confirmed yet', { orders: r.orders, sales: r.sales }),
+      breakdown('Per status', 'Status', r.by_status, '—', { orders: r.orders, sales: r.sales }),
+      { heading: 'By page', big: true },
+      breakdown('Per page — confirmed, for pickup, shipped & delivered', 'Page', r.by_page, 'No page'),
+    ];
+  }
 
   return [
     { heading: `Today — ${short(day)}`, big: true },
@@ -29249,7 +29380,7 @@ function summaryNoteText() {
   const s = summaryState.data?.summary;
   if (!s) return '';
   const day = summaryState.date;
-  const lines = [`📝 Summary — ${summaryDateLabel(day)}`];
+  const lines = [`📝 Summary — ${summaryCurrentLabel()}`];
   summaryNoteSections(s, day).forEach((section) => {
     if (section.heading) lines.push('', section.big ? section.heading.toUpperCase() : section.heading);
     if (section.table) {
@@ -29257,7 +29388,8 @@ function summaryNoteText() {
       lines.push(...(section.table.rows.length ? summaryTableText(section.table) : ['No orders']));
     }
   });
-  const notes = (document.getElementById('summary-notes')?.value || summaryState.data?.notes || '').trim();
+  const notes = summaryState.mode === 'range' ? ''
+    : (document.getElementById('summary-notes')?.value || summaryState.data?.notes || '').trim();
   if (notes) lines.push('', 'NOTES', notes);
   return lines.join('\n');
 }
@@ -29294,12 +29426,25 @@ function renderSummaryBody() {
   if (!body) return;
   const result = summaryState.data;
   const day = summaryState.date;
-  const label = summaryDateLabel(day);
-  if (notes) notes.value = result?.notes || '';
-  if (notesSub) notesSub.textContent = `Your notes for ${label}.`;
+  const range = summaryState.mode === 'range';
+  const label = summaryCurrentLabel();
+  if (!range) {
+    if (notes) notes.value = result?.notes || '';
+    if (notesSub) notesSub.textContent = `Your notes for ${label}.`;
+  }
 
   const s = result?.summary;
-  if (status) {
+  if (range) {
+    if (status) {
+      status.innerHTML = s
+        ? '<div class="alert alert-info" style="margin-bottom:16px;"><div><strong>Live.</strong> Added up from the orders as they are now — ranges are not saved as snapshots.</div></div>'
+        : '';
+    }
+    if (!s) {
+      body.innerHTML = `<div class="empty-state"><h3>Could not load ${escapeHtml(label)}</h3><p>Try the range again.</p></div>`;
+      return;
+    }
+  } else if (status) {
     const when = result?.generated_at ? new Date(result.generated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
     const source = { scheduled: 'taken automatically', 'catch-up': 'taken late (server was down at 11:50 PM)', manual: 'taken by hand' }[result?.source] || 'taken';
     status.innerHTML = !s ? ''

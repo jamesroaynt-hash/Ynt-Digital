@@ -64,6 +64,22 @@ module.exports = function dailySummaryRoutes(db) {
     }
   });
 
+  // A custom range of days, worked out live from the orders as they are now.
+  // Registered before /:date so "range" is not read as a date.
+  router.get('/range', async (req, res) => {
+    try {
+      const from = dailySummary.validDay(req.query.from);
+      const to = dailySummary.validDay(req.query.to);
+      if (!from || !to) return res.status(400).json({ error: 'Pick a start and end date' });
+      if (from > to) return res.status(400).json({ error: 'The start date is after the end date' });
+      const days = (new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000 + 1;
+      if (days > 366) return res.status(400).json({ error: 'Pick a range of a year or less' });
+      res.json({ summary: await dailySummary.buildRangeSummary(db, from, to), live: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // One day. A saved snapshot is returned as it was taken; today, before the
   // 23:50 snapshot exists, is worked out live (and not saved) with ?live=1.
   router.get('/:date', async (req, res) => {
