@@ -82,7 +82,7 @@ async function buildDailySummary(db, day) {
   const manilaDay = pancakePosSync.posManilaDaySql(db.type);
   const status = statusCaseSql();
   const base = `
-    SELECT ${manilaDay} AS day, ${status} AS status, page_name, confirmed_by_name, cod
+    SELECT ${manilaDay} AS day, ${status} AS status, status_name, page_name, confirmed_by_name, cod
     FROM pos_orders
     WHERE customer_phone IS NOT NULL AND customer_phone <> ''
       AND COALESCE(status_name, '') NOT IN ('canceled', 'removed')`;
@@ -96,8 +96,10 @@ async function buildDailySummary(db, day) {
     ORDER BY COUNT(*) DESC
   `).all(from, to);
 
-  // Per page counts only Confirmed, Waiting for pickup, Shipped and Delivered orders.
-  const pageWhere = `AND status IN ('Confirmed', 'Waiting for pickup', 'Shipped', 'Delivered')`;
+  // Per page counts only Confirmed, Shipped and Delivered orders, plus the ones
+  // waiting for the courier — Pancake's 'pending' (9): waybill printed. Awaiting
+  // print (wait_print, 12) and waiting for stock (waitting, 11) are left out.
+  const pageWhere = `AND (status IN ('Confirmed', 'Shipped', 'Delivered') OR (status = 'Waiting for pickup' AND status_name = 'pending'))`;
 
   const [dayStatus, dayPage, dayConfirmer, monthStatus, monthPage] = await Promise.all([
     group('status', day, day),
