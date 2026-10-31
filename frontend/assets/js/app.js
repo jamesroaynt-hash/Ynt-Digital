@@ -15265,13 +15265,13 @@ function renderInventoryTable(items, pageScope) {
   const totalBaseStock = items.reduce((s, it) => s + Number(it.stock || 0), 0);
   const totalRts = items.reduce((s, it) => s + getRtsPcs(it), 0);
   const totalStock = totalBaseStock + totalRts;
-  // Stock value = Total Stock (stock + RTS pcs) × unit cost.
-  const stockValue = (it) => (Number(it.stock || 0) + getRtsPcs(it)) * Number(it.cost || 0);
+  // Stock value = managed stock × unit cost. RTS pcs are left out.
+  const stockValue = (it) => Number(it.stock || 0) * Number(it.cost || 0);
   const totalValue = items.reduce((s, it) => s + stockValue(it), 0);
   const peso = (v) => `₱ ${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`;
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th><th title="Total Stock × Unit Cost">Total Value</th><th>Status</th><th>Active / Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th><th title="Stock × Unit Cost (RTS pcs not included)">Total Value</th><th>Status</th><th>Active / Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const rtsPcs = getRtsPcs(item);
