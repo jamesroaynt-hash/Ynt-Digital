@@ -5703,6 +5703,12 @@ function renderEvaluationKpi() {
     </div>
   </div>
 
+  <!-- Evaluation | Employee of the Month (employee-of-month.js). Hidden until
+       that file says the vote is open or this viewer reads its results. -->
+  <div class="et-tabs" id="eval-page-tabs" style="display:none;margin-bottom:16px;"></div>
+  <div id="eval-tab-eotm" style="display:none;"></div>
+
+  <div id="eval-tab-main">
   <div id="evaluation-window-wrap"></div>
 
   <!-- Matrix Setup pop-up. The shell is static so adding or moving an item
@@ -5756,6 +5762,7 @@ function renderEvaluationKpi() {
     <div class="card-body" id="evaluation-queue-wrap">
       <div class="empty-state"><h3>Loading queue</h3><p>Pulling the evaluation period.</p></div>
     </div>
+  </div>
   </div>
 
   ${renderEvaluationModal()}
@@ -20568,6 +20575,7 @@ function initPage(page) {
 
   if (page === 'evaluation-kpi') {
     initEvaluationKpi().catch(() => {});
+    window.initEotmTab?.().catch(() => {});
   }
 
   if (page === 'summary') {

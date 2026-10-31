@@ -1738,6 +1738,7 @@ const { ensureToolLinksSchema } = require('./toolLinksSchema');
 const { ensureFileUploadsSchema } = require('./fileUploadsSchema');
 const { ensurePerformanceSchema } = require('./performanceSchema');
 const { ensureKpiMonitoringSchema } = require('./kpiMonitoringSchema');
+const { ensureEmployeeOfMonthSchema } = require('./employeeOfMonthSchema');
 
 function initializeDatabase(db) {
   runSqlFile(db, 'schema.sql');
@@ -1762,6 +1763,7 @@ async function initializeDatabaseAsync(db) {
   await ensureToolLinksSchema(db);
   await ensurePerformanceSchema(db);
   await ensureKpiMonitoringSchema(db);
+  await ensureEmployeeOfMonthSchema(db);
 }
 
 async function runSqlFileAsync(db, filename) {
