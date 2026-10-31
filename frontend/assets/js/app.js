@@ -17,8 +17,8 @@ const NAV_ACCESS = {
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'adspend-roas', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
   'CSR TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'adspend-roas', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
-  RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
-  'RMO TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'adspend-roas', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
+  'RMO TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'adspend-roas', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Logistics: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   'Sales and Marketing': ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'data-report', 'view-records', 'file-uploads', 'profile'],
   'Sales and Marketing TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'marketing-center', 'pages', 'rmo-management', 'rmo-summary', 'odz-finder', 'creatives', 'csr', 'csr-daily-report', 'sales-marketing-tracker', 'adspend-roas', 'ads-manager', 'calculators', 'rts-rate', 'inventory', 'expenses', 'data-report', 'view-records', 'file-uploads', 'profile'],
@@ -9325,10 +9325,11 @@ let adspendGridFocusId = '';       // element to put the caret back on after a r
 // inline handler.
 let adspendGridView = { pages: [], dates: [] };
 
-// CSR and CSR TL read the overall ROAS Summary only — no Ad Spent entry grid
-// and no Live Ad Sets. The server already refuses their marketing writes.
+// CSR and RMO (and their TLs) read the overall ROAS Summary only — no Ad
+// Spent entry grid and no Live Ad Sets. The server already refuses their
+// marketing writes.
 function isAdspendSummaryOnly() {
-  return ['csr', 'csr tl'].includes(navAccessKey(normalizeRoleName(App.user?.role)));
+  return ['csr', 'csr tl', 'rmo', 'rmo tl'].includes(navAccessKey(normalizeRoleName(App.user?.role)));
 }
 
 function setAdspendTab(tab) {
