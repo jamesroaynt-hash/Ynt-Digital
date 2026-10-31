@@ -15268,10 +15268,12 @@ function renderInventoryTable(items, pageScope) {
   // Stock value = managed stock × unit cost. RTS pcs are left out.
   const stockValue = (it) => Number(it.stock || 0) * Number(it.cost || 0);
   const totalValue = items.reduce((s, it) => s + stockValue(it), 0);
+  // Stock value is shown to Logistics (and Admins) only.
+  const showValue = isLogisticsUser() || isAdminUser();
   const peso = (v) => `₱ ${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`;
   return `
     <table>
-      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th><th title="Stock × Unit Cost (RTS pcs not included)">Total Value</th><th>Status</th><th>Active / Actions</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Item Name</th><th>Type</th><th title="Managed stock, excluding RTS">Stock</th><th title="${pageScope ? `Pcs scanned in RTS for ${escapeHtml(pageScope)}` : 'Total pcs scanned in RTS for this product'}">RTS Pcs</th><th title="Stock + RTS pcs">Total Stock</th><th>Unit Cost</th>${showValue ? '<th title="Stock × Unit Cost (RTS pcs not included)">Total Value</th>' : ''}<th>Status</th><th>Active / Actions</th></tr></thead>
       <tbody>
         ${items.length ? items.map(item => {
           const rtsPcs = getRtsPcs(item);
@@ -15291,7 +15293,7 @@ function renderInventoryTable(items, pageScope) {
             <td>${rtsPcs ? `<strong>${rtsPcs.toLocaleString()}</strong> pcs` : '<span class="text-xs text-muted">—</span>'}</td>
             <td${rtsPcs ? ` title="Stock ${item.stock} + RTS ${rtsPcs.toLocaleString()}"` : ''}><strong>${effectiveStock.toLocaleString()}</strong> ${item.unit}</td>
             <td>₱ ${item.cost}</td>
-            <td><strong>${peso(stockValue(item))}</strong></td>
+            ${showValue ? `<td><strong>${peso(stockValue(item))}</strong></td>` : ''}
             <td><span class="badge ${badge}">${badgeText}</span></td>
             <td>
               <div class="flex gap-2" style="align-items:center;flex-wrap:nowrap">
@@ -15305,7 +15307,7 @@ function renderInventoryTable(items, pageScope) {
               </div>
             </td>
           </tr>`;
-        }).join('') : '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
+        }).join('') : '<tr><td colspan="${showValue ? 10 : 9}" style="text-align:center;padding:32px;color:var(--text-muted)">No inventory yet. Import a CSV or add an item.</td></tr>'}
       </tbody>
       ${items.length ? `<tfoot>
         <tr style="font-weight:700;border-top:2px solid var(--border)">
@@ -15314,7 +15316,7 @@ function renderInventoryTable(items, pageScope) {
           <td>${totalRts ? `<strong>${totalRts.toLocaleString()}</strong> pcs` : '—'}</td>
           <td><strong>${totalStock.toLocaleString()}</strong></td>
           <td></td>
-          <td><strong>${peso(totalValue)}</strong></td>
+          ${showValue ? `<td><strong>${peso(totalValue)}</strong></td>` : ''}
           <td colspan="2"></td>
         </tr>
       </tfoot>` : ''}
