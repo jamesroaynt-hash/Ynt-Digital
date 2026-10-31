@@ -1,8 +1,9 @@
 // Employee of the Month: the end-of-month vote on the Evaluation page.
 //   employee_of_month_votes — one ballot per voter per month (YYYY-MM); a
-//     voter can change it while voting is open. The four written answers are
-//     the questions on the paper form. Kept apart from the peer Evaluation
-//     tables, which this never touches.
+//     voter can change it while voting is open. Answers ride in `answers`
+//     with the question texts. Kept apart from the peer Evaluation tables,
+//     which this never touches.
+//   employee_of_month_settings — the editable form (questions, month).
 // Idempotent on SQLite and Postgres, like the other module schemas.
 
 function employeeOfMonthStatements(db) {
@@ -24,12 +25,32 @@ function employeeOfMonthStatements(db) {
       UNIQUE (month, voter_id)
     )`,
     'CREATE INDEX IF NOT EXISTS idx_eotm_votes_month ON employee_of_month_votes(month)',
+    // The form as HR and the Administrator set it — one row (id 1). month is
+    // the YYYY-MM being voted on, or empty for the running month; questions
+    // is a JSON array of question texts, where {month} reads as the month.
+    `CREATE TABLE IF NOT EXISTS employee_of_month_settings (
+      id INTEGER PRIMARY KEY,
+      month TEXT,
+      nominee_question TEXT,
+      questions TEXT,
+      updated_by INTEGER,
+      updated_at ${ts}
+    )`,
   ];
 }
 
 async function ensureEmployeeOfMonthSchema(db) {
   for (const sql of employeeOfMonthStatements(db)) {
     await db.exec(sql);
+  }
+  // Questions are editable, so each ballot keeps the questions it answered
+  // with its answers (JSON [{question, answer}]). The four fixed answer
+  // columns stay for ballots sent before that and are written empty now.
+  if (db.type === 'postgres') {
+    await db.exec('ALTER TABLE employee_of_month_votes ADD COLUMN IF NOT EXISTS answers TEXT');
+  } else {
+    const columns = await db.prepare('PRAGMA table_info(employee_of_month_votes)').all();
+    if (!columns.some((c) => c.name === 'answers')) await db.exec('ALTER TABLE employee_of_month_votes ADD COLUMN answers TEXT');
   }
 }
 

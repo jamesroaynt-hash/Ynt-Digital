@@ -2,19 +2,13 @@
    EMPLOYEE OF THE MONTH — a tab beside the peer Evaluation on the Monthly
    Evaluation page (which this file never reads or changes). Everybody votes
    once a month for one colleague, in the month's last five days, answering
-   the four questions of the paper form; a ballot can be changed until voting
-   closes. The tally and the answers are HR's, Operation's and the super
+   the form's questions; a ballot can be changed until voting closes. HR,
+   Operation and the Administrators edit the questions and the month being
+   voted on. The tally and the answers are HR's, Operation's and the super
    admin's only; voter names are the super admin's only.
    Backed by /api/employee-of-month. Loaded before app.js; it leans on app.js
    globals (escapeHtml, authorizedJsonRequest, showToast) read at call time.
    ═══════════════════════════════════════════════════════════ */
-
-const EOTM_QUESTIONS = [
-  ['why_chosen', (m) => 'Why did you choose this employee as your Employee of the Month?'],
-  ['qualities', (m) => `What qualities or contributions of this employee stood out to you during ${m}?`],
-  ['achievement', (m) => 'What specific achievement, action, or contribution did you observe from this employee?'],
-  ['why_deserving', (m) => 'Why do you think this employee is deserving of the Employee of the Month recognition?'],
-];
 
 const eotmState = {
   tab: 'evaluation',
@@ -22,6 +16,8 @@ const eotmState = {
   results: null,
   resultsMonth: '',
   openNominee: null,
+  // The form editor's rows mid-edit, or null while it is closed.
+  editing: null,
 };
 
 // Month name alone ("October") for the questions.
@@ -53,10 +49,10 @@ async function eotmLoadResults() {
 }
 
 // The tab only shows while voting is open — or always, for those who read
-// the results.
+// the results or edit the form.
 function eotmTabVisible() {
   const cur = eotmState.current;
-  return !!cur && (cur.window?.open || cur.can_see_results);
+  return !!cur && (cur.window?.open || cur.can_see_results || cur.can_edit_form);
 }
 
 function renderEotmTabs() {
@@ -93,7 +89,7 @@ function renderEotmBody() {
     wrap.innerHTML = '<div class="card"><div class="empty-state"><h3>Could not load</h3><p>Refresh to try again.</p></div></div>';
     return;
   }
-  wrap.innerHTML = `${renderEotmForm(cur)}${cur.can_see_results ? renderEotmResults() : ''}`;
+  wrap.innerHTML = `${eotmState.editing ? renderEotmEditor() : renderEotmForm(cur)}${cur.can_see_results ? renderEotmResults() : ''}`;
 }
 
 function renderEotmForm(cur) {
@@ -104,6 +100,7 @@ function renderEotmForm(cur) {
         <div class="card-title">Employee of the Month (${escapeHtml(eotmMonthName(w.label).toUpperCase())})</div>
         <div class="card-subtitle">This voting form recognizes the employee who has shown outstanding performance, commitment, teamwork, good attitude, initiative and valuable contribution throughout ${escapeHtml(w.label)}.</div>
       </div>
+      ${cur.can_edit_form ? '<button class="btn btn-secondary btn-sm" type="button" onclick="openEotmEditor()">Edit Form</button>' : ''}
     </div>`;
   if (!w.open) {
     return `<div class="card" style="margin-bottom:20px;">${header}
@@ -111,23 +108,27 @@ function renderEotmForm(cur) {
       <p>Voting for ${escapeHtml(w.label)} opens ${escapeHtml(w.opens_on)} and closes ${escapeHtml(w.closes_on)}${w.days_until_open ? ` — ${w.days_until_open} day${w.days_until_open === 1 ? '' : 's'} to go` : ''}.</p></div></div></div>`;
   }
   const mine = cur.mine || {};
-  const month = eotmMonthName(w.label);
+  // A ballot sent under different questions only pre-fills where they match.
+  const prior = (question, i) => {
+    const a = mine.answers?.[i];
+    return a && a.question === question ? a.answer : '';
+  };
   const options = (cur.roster || []).map((p) =>
     `<option value="${p.id}" ${Number(mine.nominee_id) === p.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.role ? ` — ${escapeHtml(p.role)}` : ''}</option>`).join('');
   return `<div class="card" style="margin-bottom:20px;">${header}
     <div class="card-body">
       <div class="text-muted" style="font-size:var(--fs-small);margin-bottom:16px;">🔒 All responses are confidential and will only be reviewed by HR. Please vote honestly and fairly. Voting closes ${escapeHtml(w.closes_on)}.${cur.mine ? ' You already voted — you can change your vote until then.' : ''}</div>
       <div class="form-group">
-        <label class="form-label">Who do you believe deserves to be the Employee of the Month for ${escapeHtml(w.label)}? <span class="required">*</span></label>
+        <label class="form-label">${escapeHtml(cur.form.nominee_question)} <span class="required">*</span></label>
         <select class="form-control" id="eotm-nominee">
           <option value="">Select an employee</option>
           ${options}
         </select>
       </div>
-      ${EOTM_QUESTIONS.map(([field, question]) => `
+      ${cur.form.questions.map((question, i) => `
       <div class="form-group">
-        <label class="form-label">${escapeHtml(question(month))} <span class="required">*</span></label>
-        <textarea class="form-control" id="eotm-${field}" rows="3" maxlength="2000" placeholder="Your answer">${escapeHtml(mine[field] || '')}</textarea>
+        <label class="form-label">${escapeHtml(question)} <span class="required">*</span></label>
+        <textarea class="form-control" id="eotm-answer-${i}" rows="3" maxlength="2000" placeholder="Your answer">${escapeHtml(prior(question, i))}</textarea>
       </div>`).join('')}
       <div style="display:flex;justify-content:flex-end;">
         <button class="btn btn-primary" id="eotm-submit" type="button" onclick="submitEotmVote()">${cur.mine ? 'Update Vote' : 'Submit Vote'}</button>
@@ -139,10 +140,8 @@ function renderEotmForm(cur) {
 async function submitEotmVote() {
   const payload = { nominee_id: Number(document.getElementById('eotm-nominee')?.value || 0) };
   if (!payload.nominee_id) return showToast('error', 'Pick an employee', 'Choose who you are voting for.');
-  for (const [field] of EOTM_QUESTIONS) {
-    payload[field] = String(document.getElementById(`eotm-${field}`)?.value || '').trim();
-    if (!payload[field]) return showToast('error', 'Answer every question', 'All questions are required.');
-  }
+  payload.answers = eotmState.current.form.questions.map((_, i) => String(document.getElementById(`eotm-answer-${i}`)?.value || '').trim());
+  if (payload.answers.some((a) => !a)) return showToast('error', 'Answer every question', 'All questions are required.');
   const btn = document.getElementById('eotm-submit');
   if (btn) btn.disabled = true;
   try {
@@ -197,10 +196,10 @@ function renderEotmResults() {
       ${open ? `<tr><td colspan="4" style="padding:0 12px 16px;">${entry.ballots.map((b, i) => `
         <div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:10px;">
           <div style="font-size:var(--fs-small);color:var(--text-muted);margin-bottom:8px;">${b.voter ? `From ${escapeHtml(b.voter)}` : `Vote ${i + 1}`}</div>
-          ${EOTM_QUESTIONS.map(([field, question]) => `
+          ${b.answers.map((a) => `
             <div style="margin-bottom:8px;">
-              <div style="font-size:var(--fs-small);font-weight:600;color:var(--text-muted);">${escapeHtml(question(eotmMonthName(r.label)))}</div>
-              <div style="white-space:pre-wrap;">${escapeHtml(b[field])}</div>
+              <div style="font-size:var(--fs-small);font-weight:600;color:var(--text-muted);">${escapeHtml(a.question)}</div>
+              <div style="white-space:pre-wrap;">${escapeHtml(a.answer)}</div>
             </div>`).join('')}
         </div>`).join('')}</td></tr>` : ''}`;
   }).join('');
@@ -219,6 +218,117 @@ function renderEotmResults() {
       </table>` : '<div class="empty-state"><h3>No votes yet</h3><p>Votes appear here as they come in.</p></div>'}
     </div>
   </div>`;
+}
+
+// ─── Form editor (HR, Operation, Administrators) ───────────────
+// Questions can carry {month}, which reads as the month being voted on.
+
+function openEotmEditor() {
+  const f = eotmState.current?.form_settings;
+  if (!f) return;
+  eotmState.editing = { month: f.month || '', nominee_question: f.nominee_question, questions: [...f.questions] };
+  renderEotmBody();
+}
+
+function closeEotmEditor() {
+  eotmState.editing = null;
+  renderEotmBody();
+}
+
+// Keep what was typed before redrawing the rows.
+function eotmReadEditor() {
+  const e = eotmState.editing;
+  e.month = document.getElementById('eotm-edit-month')?.value || '';
+  e.nominee_question = document.getElementById('eotm-edit-nominee')?.value || '';
+  e.questions = e.questions.map((q, i) => document.getElementById(`eotm-edit-q-${i}`)?.value ?? q);
+}
+
+function addEotmQuestion() {
+  eotmReadEditor();
+  eotmState.editing.questions.push('');
+  renderEotmBody();
+}
+
+function removeEotmQuestion(index) {
+  eotmReadEditor();
+  eotmState.editing.questions.splice(index, 1);
+  renderEotmBody();
+}
+
+function moveEotmQuestion(index, step) {
+  eotmReadEditor();
+  const q = eotmState.editing.questions;
+  const to = index + step;
+  if (to < 0 || to >= q.length) return;
+  [q[index], q[to]] = [q[to], q[index]];
+  renderEotmBody();
+}
+
+function renderEotmEditor() {
+  const e = eotmState.editing;
+  return `<div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Edit Employee of the Month Form</div>
+        <div class="card-subtitle">Type {month} in a question to show the month being voted on. Votes already sent keep the questions they answered.</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-group">
+        <label class="form-label">Month being voted on</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="month" class="form-control" id="eotm-edit-month" value="${escapeHtml(e.month)}" style="width:auto;">
+          <button class="btn btn-ghost btn-sm" type="button" onclick="document.getElementById('eotm-edit-month').value=''">Use running month</button>
+        </div>
+        <div class="text-muted" style="font-size:var(--fs-small);margin-top:4px;">Empty follows the calendar month. Voting still opens only in the last five days of the month.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Employee question</label>
+        <input type="text" class="form-control" id="eotm-edit-nominee" maxlength="500" value="${escapeHtml(e.nominee_question)}">
+      </div>
+      ${e.questions.map((q, i) => `
+      <div class="form-group">
+        <label class="form-label">Question ${i + 1}</label>
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+          <textarea class="form-control" id="eotm-edit-q-${i}" rows="2" maxlength="500">${escapeHtml(q)}</textarea>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="moveEotmQuestion(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="moveEotmQuestion(${i}, 1)" ${i === e.questions.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="removeEotmQuestion(${i})" ${e.questions.length <= 1 ? 'disabled' : ''} title="Remove">✕</button>
+        </div>
+      </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="addEotmQuestion()" ${e.questions.length >= 10 ? 'disabled' : ''}>+ Add question</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" type="button" onclick="closeEotmEditor()">Cancel</button>
+          <button class="btn btn-primary" id="eotm-edit-save" type="button" onclick="saveEotmForm()">Save Form</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function saveEotmForm() {
+  eotmReadEditor();
+  const e = eotmState.editing;
+  const payload = {
+    month: e.month,
+    nominee_question: e.nominee_question.trim(),
+    questions: e.questions.map((q) => q.trim()).filter(Boolean),
+  };
+  if (!payload.nominee_question) return showToast('error', 'Employee question needed', 'Type the question for picking the employee.');
+  if (!payload.questions.length) return showToast('error', 'Add a question', 'Keep at least one question.');
+  const btn = document.getElementById('eotm-edit-save');
+  if (btn) btn.disabled = true;
+  try {
+    await authorizedJsonRequest('/employee-of-month/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    eotmState.editing = null;
+    eotmState.resultsMonth = '';
+    showToast('success', 'Form saved', 'The Employee of the Month form is updated.');
+    await initEotmTab();
+  } catch (error) {
+    showToast('error', 'Form not saved', error.message || 'Could not save the form.');
+    if (btn) btn.disabled = false;
+  }
 }
 
 window.initEotmTab = initEotmTab;
