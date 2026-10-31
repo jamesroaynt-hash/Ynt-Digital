@@ -15268,8 +15268,8 @@ function renderInventoryTable(items, pageScope) {
   // Stock value = managed stock × unit cost. RTS pcs are left out.
   const stockValue = (it) => Number(it.stock || 0) * Number(it.cost || 0);
   const totalValue = items.reduce((s, it) => s + stockValue(it), 0);
-  // Stock value is shown to Logistics (and Admins) only.
-  const showValue = isLogisticsUser() || isAdminUser();
+  // Stock value is shown to Logistics, HR, Sales & Marketing and Admins only.
+  const showValue = isLogisticsUser() || isHRUser() || isSalesMarketingUser() || isAdminUser();
   const peso = (v) => `₱ ${Number(v || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`;
   return `
     <table>
