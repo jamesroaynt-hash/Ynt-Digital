@@ -15,8 +15,8 @@ const NAV_ACCESS = {
   // role except HR files its own CSR daily records.
   Operation: ['home', 'learning', 'learning-leaderboard', 'learning-manage', 'learning-reports', 'hr-dashboard', 'employee-tracker', 'evaluation-kpi', 'rts-rate', 'attendance', 'attendance-log', 'schedule', 'adspend-roas', 'rmo-management', 'rmo-summary', 'odz-finder', 'csr', 'csr-daily-report', 'daily-pickup', 'rts-scanning', 'inventory', 'ops-calendar', 'hr', 'training', 'hr-records', 'hr-calendar', 'kpi-allowance', 'kpi-monitoring', 'performance', 'hr-reports', 'manage-users', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Trainee: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
-  CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
-  'CSR TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
+  CSR: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'adspend-roas', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
+  'CSR TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'rts-rate', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'odz-finder', 'adspend-roas', 'calculators', 'data-report', 'view-records', 'manage-users', 'file-uploads', 'profile'],
   RMO: ['home', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   'RMO TL': ['home', 'summary', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'csr', 'csr-daily-report', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'inventory', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
   Logistics: ['home', 'stock-dashboard', 'learning', 'learning-leaderboard', 'evaluation-kpi', 'attendance', 'rmo-management', 'rmo-summary', 'sms-automations', 'odz-finder', 'rts-rate', 'rts-scanning', 'daily-pickup', 'scanning', 'inventory', 'ops-calendar', 'csr', 'csr-daily-report', 'adspend-roas', 'expenses', 'calculators', 'data-report', 'view-records', 'file-uploads', 'profile'],
@@ -9325,7 +9325,14 @@ let adspendGridFocusId = '';       // element to put the caret back on after a r
 // inline handler.
 let adspendGridView = { pages: [], dates: [] };
 
+// CSR and CSR TL read the overall ROAS Summary only — no Ad Spent entry grid
+// and no Live Ad Sets. The server already refuses their marketing writes.
+function isAdspendSummaryOnly() {
+  return ['csr', 'csr tl'].includes(navAccessKey(normalizeRoleName(App.user?.role)));
+}
+
 function setAdspendTab(tab) {
+  if (isAdspendSummaryOnly()) tab = 'summary';
   adspendActiveTab = tab;
   const summary = document.getElementById('adspend-tab-summary');
   const allpages = document.getElementById('adspend-tab-allpages');
@@ -10058,6 +10065,7 @@ function setAdspendPageColor(col, color) {
 }
 
 function renderAdspendRoas() {
+  if (isAdspendSummaryOnly()) adspendActiveTab = 'summary';
   const today = normalizeDateString(new Date());
   if (!adspendDateFrom) adspendDateFrom = normalizeDateString(getDateDaysAgo(6));
   if (!adspendDateTo) adspendDateTo = today;
@@ -10609,14 +10617,14 @@ function renderAdspendRoas() {
     </div>
   </div>
 
-  <div class="adspend-tabs" style="display:flex;gap:8px;margin-bottom:16px;">
+  <div class="adspend-tabs" style="display:${isAdspendSummaryOnly() ? 'none' : 'flex'};gap:8px;margin-bottom:16px;">
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='allpages'?' active':''}" data-tab="allpages" onclick="setAdspendTab('allpages')">All Pages</button>
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='summary'?' active':''}" data-tab="summary" onclick="setAdspendTab('summary')">ROAS Summary</button>
     <button type="button" class="filter-pill adspend-tab-btn${adspendActiveTab==='adsets'?' active':''}" data-tab="adsets" onclick="setAdspendTab('adsets')">Live Ad Sets</button>
   </div>
 
   <div id="adspend-tab-allpages" style="display:${adspendActiveTab==='allpages'?'block':'none'};">
-    ${allPagesHtml}
+    ${isAdspendSummaryOnly() ? '' : allPagesHtml}
   </div>
 
   <div id="adspend-tab-summary" style="display:${adspendActiveTab==='summary'?'block':'none'};">
